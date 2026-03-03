@@ -35,6 +35,7 @@ from .tools import safety_tools
 from .tools import deal_tools
 from .tools import whole_foods_tools
 from .tools import ingredient_management_tools
+from .tools import notion_tools
 
 # Import prompts
 from . import prompts
@@ -140,6 +141,21 @@ def create_server() -> FastMCP:
         - routine: Purchased frequently (every 1-14 days) - milk, bread, eggs
         - regular: Purchased occasionally (every 15-60 days) - cleaning supplies
         - treat: Seasonal/holiday items - turkey, candy
+
+        Notion Recipe Sync (optional):
+        Mirror your recipe collection to a Notion database with two-way sync:
+        - notion(action='setup') - Create Notion database and sync all existing recipes
+        - notion(action='sync_all') - Re-push all recipes to Notion
+        - notion(action='pull_changes') - Import edits made directly in Notion
+        - notion(action='update_tags', recipe_id=..., tags=[...]) - Update tags on one recipe
+        - notion(action='bulk_tag', tag='Favorite') - Add a tag to all synced recipes
+        - notion(action='get_status') - Show sync health and stats
+        - notion(action='view_recipe', recipe_id=...) - Get Notion URL for a recipe
+
+        Notion Setup:
+        1. Add NOTION_API_KEY and NOTION_WORKSPACE_ID to your .env file
+        2. Call notion(action='setup') to create the database
+        3. All future recipe saves/updates/deletes auto-sync to Notion
         """
     )
 
@@ -160,6 +176,7 @@ def create_server() -> FastMCP:
     deal_tools.register_tools(mcp)
     whole_foods_tools.register_tools(mcp)
     ingredient_management_tools.register_tools(mcp)
+    notion_tools.register_tools(mcp)
 
     # Register prompts
     prompts.register_prompts(mcp)

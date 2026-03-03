@@ -23,6 +23,29 @@ from .shared import get_authenticated_client
 RECIPES_FILE = "kroger_recipes.json"
 
 
+def _trigger_notion_sync(op: str, data) -> None:
+    """Fire-and-forget Notion sync. Never raises."""
+    try:
+        from ..analytics.notion_sync import (
+            _load_sync_state,
+            delete_recipe_page,
+            push_recipe,
+        )
+        state = _load_sync_state()
+        if not state.get("database_id"):
+            return  # Not configured yet
+        api_key = os.getenv("NOTION_API_KEY")
+        if not api_key:
+            return
+        database_id = state["database_id"]
+        if op == "push" and data:
+            push_recipe(data, api_key, database_id)
+        elif op == "delete" and data:
+            delete_recipe_page(data, api_key)
+    except Exception:
+        pass  # Never block recipe operations
+
+
 def _load_recipes() -> Dict[str, Any]:
     """Load recipes from JSON file."""
     try:
@@ -144,6 +167,7 @@ def register_tools(mcp):
             data = _load_recipes()
             data["recipes"].append(recipe)
             _save_recipes(data)
+            _trigger_notion_sync("push", recipe)
 
             if ctx:
                 await ctx.info(f"Saved recipe '{name}' with {len(ingredients)} ingredients")
@@ -265,6 +289,7 @@ def register_tools(mcp):
                 }
 
             _save_recipes(data)
+            _trigger_notion_sync("delete", recipe_id)
 
             return {
                 "success": True,
@@ -321,6 +346,7 @@ def register_tools(mcp):
                 }
 
             _save_recipes(data)
+            _trigger_notion_sync("push", _find_recipe(recipe_id))
 
             return {
                 "success": True,
