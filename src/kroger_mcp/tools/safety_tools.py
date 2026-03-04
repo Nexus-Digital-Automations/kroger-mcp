@@ -1,590 +1,377 @@
 """
 Safety management tools for Kroger MCP server.
-
-This module provides tools for filtering products based on ingredient safety,
-designed to help users optimize for:
-
-- GENERAL HEALTH: Avoid additives linked to chronic disease outcomes
-- CANCER PREVENTION: Flag IARC-classified carcinogens and genotoxic additives
-- METABOLIC HEALTH: Identify blood sugar spiking ingredients and insulin disruptors
-- MICROBIOME OPTIMIZATION: Flag emulsifiers/sweeteners with gut-barrier disruption evidence
-- MINIMIZING ULTRA-PROCESSED FOODS: Detect markers of heavy industrial processing
-
-Tools include:
-- Managing safe-listed products (bypass all checks)
-- Managing blocked products (require confirmation)
-- Viewing and configuring ingredient filter settings
-- Checking product/cart safety status
-- Customizing which ingredients to check for
 """
 
-from typing import Dict, Any, Optional, List, Literal
-from pydantic import Field
-from fastmcp import Context
+from typing import Any, Dict, List, Literal, Optional
 
-from ..analytics import safety
+from fastmcp import Context
+from pydantic import Field
+
+from ..analytics import safety as _safety
 from ..analytics.ingredients import (
     get_all_ingredients,
-    get_ingredients_by_severity,
-    get_ingredients_by_category,
-    get_categories,
-    Severity,
 )
 
 
 def register_tools(mcp):
     """Register safety-related tools with the FastMCP server."""
 
-    # ==================== Settings Tools ====================
-
     @mcp.tool()
-    async def get_safety_settings(ctx: Context = None) -> Dict[str, Any]:
-        """
-        Get current ingredient safety filter settings.
-
-        Returns:
-            - filtering_enabled: Whether ingredient filtering is active
-            - block_mode: How flagged products are handled ('soft', 'hard', 'warn_only')
-        """
-        if ctx:
-            await ctx.info("Getting safety filter settings")
-
-        settings = safety.get_safety_settings()
-        return {
-            "success": True,
-            **settings,
-            "block_mode_options": {
-                "soft": "Warn but allow with confirmation",
-                "hard": "Hide from search, block cart additions",
-                "warn_only": "Show warnings only, no blocking"
-            }
-        }
-
-    @mcp.tool()
-    async def configure_safety_settings(
+    async def safety(
+        action: Literal[
+            "get_settings",
+            "configure",
+            "get_bad_ingredients",
+            "toggle_ingredient",
+            "get_preferences",
+            "reset_preferences",
+            "approve_product",
+            "unapprove_product",
+            "get_safe_products",
+            "block_product",
+            "unblock_product",
+            "get_blocked_products",
+            "check_product",
+            "check_products",
+            "check_cart",
+        ] = Field(
+            description=(
+                "Action: 'get_settings' - get current safety filter settings, "
+                "'configure' - update safety filter settings, "
+                "'get_bad_ingredients' - get list of all flagged ingredients, "
+                "'toggle_ingredient' - enable/disable checking for an ingredient, "
+                "'get_preferences' - get ingredient preferences, "
+                "'reset_preferences' - reset all preferences to defaults, "
+                "'approve_product' - add product to safe list, "
+                "'unapprove_product' - remove product from safe list, "
+                "'get_safe_products' - get all safe-listed products, "
+                "'block_product' - add product to blocked list, "
+                "'unblock_product' - remove product from blocked list, "
+                "'get_blocked_products' - get all blocked products, "
+                "'check_product' - check single product safety, "
+                "'check_products' - check multiple products safety, "
+                "'check_cart' - scan current cart for safety concerns"
+            )
+        ),
         filtering_enabled: Optional[bool] = Field(
             default=None,
-            description="Enable or disable ingredient filtering"
+            description="Enable or disable ingredient filtering (for configure)",
         ),
         block_mode: Optional[str] = Field(
             default=None,
-            description="Block mode: 'soft', 'hard', or 'warn_only'"
+            description="Block mode: 'soft', 'hard', or 'warn_only' (for configure)",
         ),
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Configure ingredient safety filter settings.
-
-        Args:
-            filtering_enabled: Set to False to disable all ingredient checks
-            block_mode:
-                - 'soft': Warn but allow with confirmation (default)
-                - 'hard': Hide flagged products from search, block cart
-                - 'warn_only': Just show warnings, no blocking
-
-        Returns:
-            Updated settings
-        """
-        if ctx:
-            await ctx.info("Updating safety settings")
-
-        try:
-            settings = safety.update_safety_settings(
-                filtering_enabled=filtering_enabled,
-                block_mode=block_mode,
-            )
-            return {"success": True, **settings}
-        except ValueError as e:
-            return {"success": False, "error": str(e)}
-
-    # ==================== Ingredient Management Tools ====================
-
-    @mcp.tool()
-    async def get_bad_ingredients_list(
-        include_custom: bool = Field(
+        include_custom: Optional[bool] = Field(
             default=True,
-            description="Include custom ingredients added by user"
+            description="Include custom ingredients (for get_bad_ingredients)",
         ),
-        include_overrides: bool = Field(
+        include_overrides: Optional[bool] = Field(
             default=True,
-            description="Apply user overrides to system ingredients"
+            description="Apply user overrides to system ingredients (for get_bad_ingredients)",
         ),
         filter_severity: Optional[Literal["critical", "warning", "watch"]] = Field(
             default=None,
-            description="Filter by severity: 'critical', 'warning', 'watch'"
+            description="Filter by severity (for get_bad_ingredients)",
         ),
         filter_category: Optional[str] = Field(
             default=None,
-            description="Filter by category (e.g., 'preservative', 'artificial_sweetener')"
+            description="Filter by category (for get_bad_ingredients)",
         ),
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Get complete list of flagged ingredients (system + custom).
-
-        This list is designed to optimize for: general health, cancer prevention,
-        metabolic health (blood sugar), microbiome optimization, and minimizing
-        ultra-processed foods.
-
-        Now includes custom ingredients you've added and any overrides you've
-        applied to system ingredients.
-
-        Severity levels:
-        - CRITICAL: Strong human evidence (IARC carcinogens, FDA actions, EFSA concerns)
-        - WARNING: Moderate evidence, regulatory concern, or microbiome disruption
-        - WATCH: Markers of ultra-processing, minimize for optimal health
-
-        Each ingredient includes:
-        - name: Display name
-        - aliases: Alternative names to search for
-        - severity: critical, warning, or watch
-        - reason: Evidence-based reason for flagging
-        - category: Type of additive
-        - source: 'system' or 'custom'
-
-        Args:
-            include_custom: Include custom ingredients (default True)
-            include_overrides: Apply overrides to system ingredients (default True)
-            filter_severity: Optional filter by severity level
-            filter_category: Optional filter by category
-
-        Returns:
-            List of bad ingredients with their details
-        """
-        if ctx:
-            await ctx.info("Getting bad ingredients list")
-
-        # Get active ingredients (includes custom if requested)
-        from ..analytics.ingredients import get_active_ingredients
-
-        if include_custom and include_overrides:
-            # Get full unified list
-            ingredients = get_active_ingredients(include_custom=True)
-        elif include_overrides:
-            # System with overrides, no custom
-            ingredients = get_active_ingredients(include_custom=False)
-        elif include_custom:
-            # This is tricky - need system defaults + custom, but ignore overrides
-            # For now, just get everything and note the limitation
-            ingredients = get_active_ingredients(include_custom=True)
-        else:
-            # Just system defaults, no overrides
-            ingredients = get_all_ingredients()
-
-        # Apply filters
-        if filter_severity:
-            ingredients = [i for i in ingredients if i["severity"] == filter_severity]
-
-        if filter_category:
-            ingredients = [i for i in ingredients if i.get("category") == filter_category]
-
-        # Group by severity
-        by_severity = {
-            "critical": [i for i in ingredients if i["severity"] == "critical"],
-            "warning": [i for i in ingredients if i["severity"] == "warning"],
-            "watch": [i for i in ingredients if i["severity"] == "watch"]
-        }
-
-        # Count by source
-        system_count = len([i for i in ingredients if i.get("source") == "system"])
-        custom_count = len([i for i in ingredients if i.get("source") == "custom"])
-
-        return {
-            "success": True,
-            "total_ingredients": len(ingredients),
-            "system_ingredients": system_count,
-            "custom_ingredients": custom_count,
-            "by_severity": {
-                "critical": len(by_severity["critical"]),
-                "warning": len(by_severity["warning"]),
-                "watch": len(by_severity["watch"])
-            },
-            "categories": sorted(set(i.get("category", "") for i in ingredients if i.get("category"))),
-            "severity_levels": ["critical", "warning", "watch"],
-            "ingredients": ingredients,
-        }
-
-    @mcp.tool()
-    async def toggle_ingredient_check(
-        ingredient_key: str = Field(
-            description="Ingredient key (e.g., 'msg', 'aspartame', 'red_40')"
+        ingredient_key: Optional[str] = Field(
+            default=None,
+            description="Ingredient key e.g. 'msg', 'aspartame' (for toggle_ingredient)",
         ),
-        enabled: bool = Field(
-            description="True to enable checking, False to disable"
+        enabled: Optional[bool] = Field(
+            default=None,
+            description="True to enable, False to disable (for toggle_ingredient)",
         ),
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Enable or disable checking for a specific ingredient.
-
-        Use get_bad_ingredients_list to see available ingredient keys.
-
-        Args:
-            ingredient_key: The ingredient's unique key
-            enabled: Whether to check for this ingredient
-
-        Returns:
-            Confirmation of the change
-        """
-        if ctx:
-            action = "Enabling" if enabled else "Disabling"
-            await ctx.info(f"{action} ingredient check: {ingredient_key}")
-
-        result = safety.toggle_ingredient(ingredient_key, enabled)
-        return result
-
-    @mcp.tool()
-    async def get_ingredient_preferences(ctx: Context = None) -> Dict[str, Any]:
-        """
-        Get all user ingredient preferences (enabled/disabled status).
-
-        Returns only ingredients where the user has changed the default.
-        Ingredients not listed are enabled by default.
-
-        Returns:
-            List of ingredient preferences with enabled status
-        """
-        if ctx:
-            await ctx.info("Getting ingredient preferences")
-
-        prefs = safety.get_ingredient_preferences()
-        disabled = [p for p in prefs if not p.get("enabled", True)]
-
-        return {
-            "success": True,
-            "total_preferences": len(prefs),
-            "disabled_count": len(disabled),
-            "preferences": prefs,
-            "note": "Ingredients not listed are enabled by default"
-        }
-
-    @mcp.tool()
-    async def reset_ingredient_preferences(ctx: Context = None) -> Dict[str, Any]:
-        """
-        Reset all ingredient preferences to defaults (all enabled).
-
-        This removes all custom ingredient preferences.
-
-        Returns:
-            Confirmation of reset
-        """
-        if ctx:
-            await ctx.info("Resetting ingredient preferences to defaults")
-
-        return safety.reset_ingredient_preferences()
-
-    # ==================== Safe Products Management ====================
-
-    @mcp.tool()
-    async def approve_product(
-        product_id: str = Field(description="Kroger product ID to approve"),
+        product_id: Optional[str] = Field(
+            default=None,
+            description="Kroger product ID (for approve_product, unapprove_product, block_product, unblock_product, check_product)",
+        ),
         description: Optional[str] = Field(
             default=None,
-            description="Product description (for reference)"
+            description="Product description (for approve_product, block_product, check_product)",
         ),
         brand: Optional[str] = Field(
             default=None,
-            description="Product brand (for reference)"
+            description="Product brand (for approve_product, check_product)",
         ),
         reason: Optional[str] = Field(
             default=None,
-            description="Reason for approval"
+            description="Reason for approval or blocking (for approve_product, block_product)",
         ),
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Add a product to the safe list.
-
-        Safe-listed products bypass all ingredient checks and are
-        prioritized in search results.
-
-        Args:
-            product_id: The Kroger product ID
-            description: Optional product description
-            brand: Optional brand name
-            reason: Optional reason for approval
-
-        Returns:
-            Confirmation of the approval
-        """
-        if ctx:
-            await ctx.info(f"Approving product {product_id}")
-
-        return safety.add_to_safe_list(
-            product_id=product_id,
-            description=description,
-            brand=brand,
-            reason=reason,
-        )
-
-    @mcp.tool()
-    async def unapprove_product(
-        product_id: str = Field(description="Kroger product ID to remove from safe list"),
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Remove a product from the safe list.
-
-        The product will be checked against ingredient filters again.
-
-        Args:
-            product_id: The Kroger product ID
-
-        Returns:
-            Confirmation of removal
-        """
-        if ctx:
-            await ctx.info(f"Removing product {product_id} from safe list")
-
-        return safety.remove_from_safe_list(product_id)
-
-    @mcp.tool()
-    async def get_safe_products(ctx: Context = None) -> Dict[str, Any]:
-        """
-        Get all products on the safe list.
-
-        Returns products that have been explicitly approved and will
-        bypass all ingredient checks.
-
-        Returns:
-            List of safe-listed products with details
-        """
-        if ctx:
-            await ctx.info("Getting safe products list")
-
-        products = safety.get_safe_products()
-        return {
-            "success": True,
-            "count": len(products),
-            "products": products,
-        }
-
-    # ==================== Blocked Products Management ====================
-
-    @mcp.tool()
-    async def block_product(
-        product_id: str = Field(description="Kroger product ID to block"),
-        description: Optional[str] = Field(
+        products: Optional[List[Dict[str, Any]]] = Field(
             default=None,
-            description="Product description (for reference)"
-        ),
-        reason: Optional[str] = Field(
-            default=None,
-            description="Reason for blocking"
+            description="List of {product_id, description} dicts (for check_products)",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """
-        Add a product to the blocked list.
+        """Ingredient safety filter and product management operations."""
+        match action:
+            case "get_settings":
+                if ctx:
+                    await ctx.info("Getting safety filter settings")
 
-        Blocked products require explicit confirmation to add to cart
-        and may be hidden in search results (depending on block mode).
+                settings = _safety.get_safety_settings()
+                return {
+                    "success": True,
+                    **settings,
+                    "block_mode_options": {
+                        "soft": "Warn but allow with confirmation",
+                        "hard": "Hide from search, block cart additions",
+                        "warn_only": "Show warnings only, no blocking",
+                    },
+                }
 
-        Args:
-            product_id: The Kroger product ID
-            description: Optional product description
-            reason: Reason for blocking
+            case "configure":
+                if ctx:
+                    await ctx.info("Updating safety settings")
 
-        Returns:
-            Confirmation of the block
-        """
-        if ctx:
-            await ctx.info(f"Blocking product {product_id}")
+                try:
+                    settings = _safety.update_safety_settings(
+                        filtering_enabled=filtering_enabled,
+                        block_mode=block_mode,
+                    )
+                    return {"success": True, **settings}
+                except ValueError as e:
+                    return {"success": False, "error": str(e)}
 
-        return safety.add_to_blocked_list(
-            product_id=product_id,
-            description=description,
-            reason=reason,
-        )
+            case "get_bad_ingredients":
+                if ctx:
+                    await ctx.info("Getting bad ingredients list")
 
-    @mcp.tool()
-    async def unblock_product(
-        product_id: str = Field(description="Kroger product ID to unblock"),
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Remove a product from the blocked list.
+                from ..analytics.ingredients import get_active_ingredients
 
-        Args:
-            product_id: The Kroger product ID
+                inc_custom = include_custom if include_custom is not None else True
+                inc_overrides = include_overrides if include_overrides is not None else True
 
-        Returns:
-            Confirmation of removal
-        """
-        if ctx:
-            await ctx.info(f"Unblocking product {product_id}")
+                if inc_custom and inc_overrides:
+                    ing_list = get_active_ingredients(include_custom=True)
+                elif inc_overrides:
+                    ing_list = get_active_ingredients(include_custom=False)
+                elif inc_custom:
+                    ing_list = get_active_ingredients(include_custom=True)
+                else:
+                    ing_list = get_all_ingredients()
 
-        return safety.remove_from_blocked_list(product_id)
+                if filter_severity:
+                    ing_list = [i for i in ing_list if i["severity"] == filter_severity]
 
-    @mcp.tool()
-    async def get_blocked_products(ctx: Context = None) -> Dict[str, Any]:
-        """
-        Get all products on the blocked list.
+                if filter_category:
+                    ing_list = [i for i in ing_list if i.get("category") == filter_category]
 
-        Returns products that have been explicitly blocked.
+                by_severity = {
+                    "critical": [i for i in ing_list if i["severity"] == "critical"],
+                    "warning": [i for i in ing_list if i["severity"] == "warning"],
+                    "watch": [i for i in ing_list if i["severity"] == "watch"],
+                }
 
-        Returns:
-            List of blocked products with details
-        """
-        if ctx:
-            await ctx.info("Getting blocked products list")
+                system_count = len([i for i in ing_list if i.get("source") == "system"])
+                custom_count = len([i for i in ing_list if i.get("source") == "custom"])
 
-        products = safety.get_blocked_products()
-        return {
-            "success": True,
-            "count": len(products),
-            "products": products,
-        }
+                return {
+                    "success": True,
+                    "total_ingredients": len(ing_list),
+                    "system_ingredients": system_count,
+                    "custom_ingredients": custom_count,
+                    "by_severity": {
+                        "critical": len(by_severity["critical"]),
+                        "warning": len(by_severity["warning"]),
+                        "watch": len(by_severity["watch"]),
+                    },
+                    "categories": sorted(
+                        set(i.get("category", "") for i in ing_list if i.get("category"))
+                    ),
+                    "severity_levels": ["critical", "warning", "watch"],
+                    "ingredients": ing_list,
+                }
 
-    # ==================== Safety Checking Tools ====================
+            case "toggle_ingredient":
+                if not ingredient_key:
+                    return {"success": False, "error": "ingredient_key is required"}
+                if enabled is None:
+                    return {"success": False, "error": "enabled is required"}
+                if ctx:
+                    action_word = "Enabling" if enabled else "Disabling"
+                    await ctx.info(f"{action_word} ingredient check: {ingredient_key}")
 
-    @mcp.tool()
-    async def check_product_safety(
-        product_id: str = Field(description="Kroger product ID to check"),
-        description: str = Field(description="Product description to scan"),
-        brand: Optional[str] = Field(
-            default=None,
-            description="Product brand"
-        ),
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Check a single product's safety status.
+                return _safety.toggle_ingredient(ingredient_key, enabled)
 
-        Scans the product description for bad ingredients and checks
-        safe/blocked lists.
+            case "get_preferences":
+                if ctx:
+                    await ctx.info("Getting ingredient preferences")
 
-        Args:
-            product_id: The Kroger product ID
-            description: Product description to scan for ingredients
-            brand: Optional brand name
+                prefs = _safety.get_ingredient_preferences()
+                disabled = [p for p in prefs if not p.get("enabled", True)]
 
-        Returns:
-            Safety status including:
-            - safety_status: 'safe', 'unknown', 'watch', 'warning', 'critical', 'blocked'
-            - is_safe_listed: Whether on the safe list
-            - is_blocked: Whether on the blocked list
-            - flagged_ingredients: List of detected bad ingredients
-        """
-        if ctx:
-            await ctx.info(f"Checking safety for product {product_id}")
+                return {
+                    "success": True,
+                    "total_preferences": len(prefs),
+                    "disabled_count": len(disabled),
+                    "preferences": prefs,
+                    "note": "Ingredients not listed are enabled by default",
+                }
 
-        status = safety.get_product_safety_status(
-            product_id=product_id,
-            description=description,
-            brand=brand,
-        )
-        return {
-            "success": True,
-            **status.to_dict(),
-        }
+            case "reset_preferences":
+                if ctx:
+                    await ctx.info("Resetting ingredient preferences to defaults")
 
-    @mcp.tool()
-    async def check_products_safety(
-        products: List[Dict[str, Any]] = Field(
-            description="List of products with product_id and description"
-        ),
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Check safety status for multiple products.
+                return _safety.reset_ingredient_preferences()
 
-        Each product should have:
-        - product_id: The Kroger product ID
-        - description: Product description to scan
+            case "approve_product":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+                if ctx:
+                    await ctx.info(f"Approving product {product_id}")
 
-        Args:
-            products: List of product dicts
+                return _safety.add_to_safe_list(
+                    product_id=product_id,
+                    description=description,
+                    brand=brand,
+                    reason=reason,
+                )
 
-        Returns:
-            Safety status for each product
-        """
-        if ctx:
-            await ctx.info(f"Checking safety for {len(products)} products")
+            case "unapprove_product":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+                if ctx:
+                    await ctx.info(f"Removing product {product_id} from safe list")
 
-        if len(products) > 50:
-            return {
-                "success": False,
-                "error": "Maximum 50 products per request"
-            }
+                return _safety.remove_from_safe_list(product_id)
 
-        statuses = safety.check_products_safety_batch(products)
-        return {
-            "success": True,
-            "count": len(statuses),
-            "results": [s.to_dict() for s in statuses],
-        }
+            case "get_safe_products":
+                if ctx:
+                    await ctx.info("Getting safe products list")
 
-    @mcp.tool()
-    async def check_cart_safety(ctx: Context = None) -> Dict[str, Any]:
-        """
-        Scan the current cart for products with safety concerns.
+                safe_products = _safety.get_safe_products()
+                return {
+                    "success": True,
+                    "count": len(safe_products),
+                    "products": safe_products,
+                }
 
-        Checks all items currently in the local cart tracking
-        against the ingredient filter.
+            case "block_product":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+                if ctx:
+                    await ctx.info(f"Blocking product {product_id}")
 
-        Returns:
-            - safe_items: Products with no concerns
-            - flagged_items: Products with ingredient concerns
-            - blocked_items: Products on the blocked list
-        """
-        if ctx:
-            await ctx.info("Scanning cart for safety concerns")
+                return _safety.add_to_blocked_list(
+                    product_id=product_id,
+                    description=description,
+                    reason=reason,
+                )
 
-        # Import here to avoid circular imports
-        from .cart_tools import _load_cart_data
+            case "unblock_product":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+                if ctx:
+                    await ctx.info(f"Unblocking product {product_id}")
 
-        try:
-            cart_data = _load_cart_data()
-            cart_items = cart_data.get("current_cart", [])
-        except Exception:
-            cart_items = []
+                return _safety.remove_from_blocked_list(product_id)
 
-        if not cart_items:
-            return {
-                "success": True,
-                "message": "Cart is empty",
-                "safe_items": [],
-                "flagged_items": [],
-                "blocked_items": [],
-            }
+            case "get_blocked_products":
+                if ctx:
+                    await ctx.info("Getting blocked products list")
 
-        # Build product list for batch check
-        products = [
-            {
-                "product_id": item.get("product_id", ""),
-                "description": item.get("description", ""),
-                "brand": item.get("brand"),
-            }
-            for item in cart_items
-        ]
+                blocked_products = _safety.get_blocked_products()
+                return {
+                    "success": True,
+                    "count": len(blocked_products),
+                    "products": blocked_products,
+                }
 
-        statuses = safety.check_products_safety_batch(products)
+            case "check_product":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+                if not description:
+                    return {"success": False, "error": "description is required"}
+                if ctx:
+                    await ctx.info(f"Checking safety for product {product_id}")
 
-        safe_items = []
-        flagged_items = []
-        blocked_items = []
+                status = _safety.get_product_safety_status(
+                    product_id=product_id,
+                    description=description,
+                    brand=brand,
+                )
+                return {"success": True, **status.to_dict()}
 
-        for i, status in enumerate(statuses):
-            item_info = {
-                **products[i],
-                **status.to_dict(),
-            }
+            case "check_products":
+                if not products:
+                    return {"success": False, "error": "products list is required"}
+                if ctx:
+                    await ctx.info(f"Checking safety for {len(products)} products")
 
-            if status.is_blocked:
-                blocked_items.append(item_info)
-            elif status.safety_result and status.safety_result.has_concerns:
-                flagged_items.append(item_info)
-            else:
-                safe_items.append(item_info)
+                if len(products) > 50:
+                    return {
+                        "success": False,
+                        "error": "Maximum 50 products per request",
+                    }
 
-        return {
-            "success": True,
-            "total_items": len(cart_items),
-            "safe_count": len(safe_items),
-            "flagged_count": len(flagged_items),
-            "blocked_count": len(blocked_items),
-            "safe_items": safe_items,
-            "flagged_items": flagged_items,
-            "blocked_items": blocked_items,
-        }
+                statuses = _safety.check_products_safety_batch(products)
+                return {
+                    "success": True,
+                    "count": len(statuses),
+                    "results": [s.to_dict() for s in statuses],
+                }
+
+            case "check_cart":
+                if ctx:
+                    await ctx.info("Scanning cart for safety concerns")
+
+                from .cart_tools import _load_cart_data
+
+                try:
+                    cart_data = _load_cart_data()
+                    cart_items = cart_data.get("current_cart", [])
+                except Exception:
+                    cart_items = []
+
+                if not cart_items:
+                    return {
+                        "success": True,
+                        "message": "Cart is empty",
+                        "safe_items": [],
+                        "flagged_items": [],
+                        "blocked_items": [],
+                    }
+
+                prods = [
+                    {
+                        "product_id": item.get("product_id", ""),
+                        "description": item.get("description", ""),
+                        "brand": item.get("brand"),
+                    }
+                    for item in cart_items
+                ]
+
+                statuses = _safety.check_products_safety_batch(prods)
+
+                safe_items = []
+                flagged_items = []
+                blocked_items = []
+
+                for i, status in enumerate(statuses):
+                    item_info = {**prods[i], **status.to_dict()}
+
+                    if status.is_blocked:
+                        blocked_items.append(item_info)
+                    elif status.safety_result and status.safety_result.has_concerns:
+                        flagged_items.append(item_info)
+                    else:
+                        safe_items.append(item_info)
+
+                return {
+                    "success": True,
+                    "total_items": len(cart_items),
+                    "safe_count": len(safe_items),
+                    "flagged_count": len(flagged_items),
+                    "blocked_count": len(blocked_items),
+                    "safe_items": safe_items,
+                    "flagged_items": flagged_items,
+                    "blocked_items": blocked_items,
+                }
+
+            case _:
+                return {"success": False, "error": f"Unknown action: {action}"}

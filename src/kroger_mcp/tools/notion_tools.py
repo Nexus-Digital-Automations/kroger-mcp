@@ -14,10 +14,8 @@ from pydantic import Field
 from ..analytics.notion_sync import (
     _load_sync_state,
     bulk_tag,
-    delete_recipe_page,
     get_sync_status,
     pull_changes,
-    push_recipe,
     setup_database,
     sync_all,
     update_recipe_tags,

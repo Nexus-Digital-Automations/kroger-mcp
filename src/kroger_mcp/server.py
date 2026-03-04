@@ -20,7 +20,6 @@ from .tools import location_tools
 from .tools import product_tools
 from .tools import cart_tools
 from .tools import info_tools
-from .tools import utility_tools
 from .tools import auth_tools
 from .tools import prediction_tools
 from .tools import recipe_tools
@@ -29,7 +28,6 @@ from .tools import favorites_tools
 from .tools import meal_planner_tools
 from .tools import safety_tools
 from .tools import deal_tools
-from .tools import whole_foods_tools
 from .tools import ingredient_management_tools
 from .tools import shopping_list_tools
 from .tools import notion_tools
@@ -222,7 +220,6 @@ def create_server() -> FastMCP:
     product_tools.register_tools(mcp)
     cart_tools.register_tools(mcp)
     info_tools.register_tools(mcp)
-    utility_tools.register_tools(mcp)
     auth_tools.register_tools(mcp)
     prediction_tools.register_tools(mcp)
     recipe_tools.register_tools(mcp)
@@ -231,7 +228,6 @@ def create_server() -> FastMCP:
     meal_planner_tools.register_tools(mcp)
     safety_tools.register_tools(mcp)
     deal_tools.register_tools(mcp)
-    whole_foods_tools.register_tools(mcp)
     ingredient_management_tools.register_tools(mcp)
     shopping_list_tools.register_tools(mcp)
     notion_tools.register_tools(mcp)

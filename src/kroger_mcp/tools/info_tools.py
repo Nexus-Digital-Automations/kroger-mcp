@@ -1,274 +1,307 @@
 """
-Chain and department information tools for Kroger MCP server
+Chain, department, and utility information tools for Kroger MCP server.
 """
 
-from typing import Dict, Any
+from datetime import datetime
+from typing import Any, Dict, Literal, Optional
+
 from fastmcp import Context
+from pydantic import Field
 
 from .shared import get_client_credentials_client
 
 
 def register_tools(mcp):
-    """Register information-related tools with the FastMCP server"""
-    
-    @mcp.tool()
-    async def list_chains(ctx: Context = None) -> Dict[str, Any]:
-        """
-        Get a list of all Kroger-owned chains.
-        
-        Returns:
-            Dictionary containing chain information
-        """
-        if ctx:
-            await ctx.info("Getting list of Kroger chains")
-        
-        client = get_client_credentials_client()
-        
-        try:
-            chains = client.location.list_chains()
-            
-            if not chains or "data" not in chains or not chains["data"]:
-                return {
-                    "success": False,
-                    "message": "No chains found",
-                    "data": []
-                }
-            
-            # Format chain data
-            formatted_chains = [
-                {
-                    "name": chain.get("name"),
-                    "division_numbers": chain.get("divisionNumbers", [])
-                }
-                for chain in chains["data"]
-            ]
-            
-            if ctx:
-                await ctx.info(f"Found {len(formatted_chains)} chains")
-            
-            return {
-                "success": True,
-                "count": len(formatted_chains),
-                "data": formatted_chains
-            }
-            
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error listing chains: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e),
-                "data": []
-            }
+    """Register info-related tools with the FastMCP server."""
 
     @mcp.tool()
-    async def get_chain_details(
-        chain_name: str,
-        ctx: Context = None
+    async def info(
+        action: Literal[
+            "list_chains",
+            "get_chain",
+            "check_chain",
+            "list_departments",
+            "get_department",
+            "check_department",
+            "get_datetime",
+            "get_servings",
+            "set_servings",
+            "get_preferences",
+        ] = Field(
+            description=(
+                "Action: 'list_chains' - list all Kroger chains, "
+                "'get_chain' - get details for a specific chain, "
+                "'check_chain' - check if a chain exists, "
+                "'list_departments' - list all departments, "
+                "'get_department' - get details for a department, "
+                "'check_department' - check if a department exists, "
+                "'get_datetime' - get current system date and time, "
+                "'get_servings' - get the current default servings setting, "
+                "'set_servings' - set the default servings (requires servings param), "
+                "'get_preferences' - get all user preferences including location and servings"
+            )
+        ),
+        chain_name: Optional[str] = Field(
+            default=None,
+            description="Chain name (for get_chain, check_chain)",
+        ),
+        department_id: Optional[str] = Field(
+            default=None,
+            description="Department ID (for get_department, check_department)",
+        ),
+        servings: Optional[int] = Field(
+            default=None,
+            description="Number of servings (1-20, for set_servings)",
+        ),
+        ctx: Context = None,
     ) -> Dict[str, Any]:
-        """
-        Get detailed information about a specific Kroger chain.
-        
-        Args:
-            chain_name: Name of the chain to get details for
-        
-        Returns:
-            Dictionary containing chain details
-        """
-        if ctx:
-            await ctx.info(f"Getting details for chain: {chain_name}")
-        
-        client = get_client_credentials_client()
-        
-        try:
-            chain_details = client.location.get_chain(chain_name)
-            
-            if not chain_details or "data" not in chain_details:
+        """Chain, department, and utility information operations."""
+        match action:
+            case "list_chains":
+                if ctx:
+                    await ctx.info("Getting list of Kroger chains")
+
+                client = get_client_credentials_client()
+
+                try:
+                    chains = client.location.list_chains()
+
+                    if not chains or "data" not in chains or not chains["data"]:
+                        return {"success": False, "message": "No chains found", "data": []}
+
+                    formatted_chains = [
+                        {
+                            "name": chain.get("name"),
+                            "division_numbers": chain.get("divisionNumbers", []),
+                        }
+                        for chain in chains["data"]
+                    ]
+
+                    if ctx:
+                        await ctx.info(f"Found {len(formatted_chains)} chains")
+
+                    return {
+                        "success": True,
+                        "count": len(formatted_chains),
+                        "data": formatted_chains,
+                    }
+
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error listing chains: {str(e)}")
+                    return {"success": False, "error": str(e), "data": []}
+
+            case "get_chain":
+                if not chain_name:
+                    return {"success": False, "error": "chain_name is required"}
+
+                if ctx:
+                    await ctx.info(f"Getting details for chain: {chain_name}")
+
+                client = get_client_credentials_client()
+
+                try:
+                    chain_details = client.location.get_chain(chain_name)
+
+                    if not chain_details or "data" not in chain_details:
+                        return {"success": False, "message": f"Chain '{chain_name}' not found"}
+
+                    chain = chain_details["data"]
+
+                    return {
+                        "success": True,
+                        "name": chain.get("name"),
+                        "division_numbers": chain.get("divisionNumbers", []),
+                    }
+
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error getting chain details: {str(e)}")
+                    return {"success": False, "error": str(e)}
+
+            case "check_chain":
+                if not chain_name:
+                    return {"success": False, "error": "chain_name is required"}
+
+                if ctx:
+                    await ctx.info(f"Checking if chain '{chain_name}' exists")
+
+                client = get_client_credentials_client()
+
+                try:
+                    exists = client.location.chain_exists(chain_name)
+
+                    return {
+                        "success": True,
+                        "chain_name": chain_name,
+                        "exists": exists,
+                        "message": f"Chain '{chain_name}' {'exists' if exists else 'does not exist'}",
+                    }
+
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error checking chain existence: {str(e)}")
+                    return {"success": False, "error": str(e)}
+
+            case "list_departments":
+                if ctx:
+                    await ctx.info("Getting list of departments")
+
+                client = get_client_credentials_client()
+
+                try:
+                    departments = client.location.list_departments()
+
+                    if not departments or "data" not in departments or not departments["data"]:
+                        return {"success": False, "message": "No departments found", "data": []}
+
+                    formatted_departments = [
+                        {
+                            "department_id": dept.get("departmentId"),
+                            "name": dept.get("name"),
+                        }
+                        for dept in departments["data"]
+                    ]
+
+                    if ctx:
+                        await ctx.info(f"Found {len(formatted_departments)} departments")
+
+                    return {
+                        "success": True,
+                        "count": len(formatted_departments),
+                        "data": formatted_departments,
+                    }
+
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error listing departments: {str(e)}")
+                    return {"success": False, "error": str(e), "data": []}
+
+            case "get_department":
+                if not department_id:
+                    return {"success": False, "error": "department_id is required"}
+
+                if ctx:
+                    await ctx.info(f"Getting details for department: {department_id}")
+
+                client = get_client_credentials_client()
+
+                try:
+                    dept_details = client.location.get_department(department_id)
+
+                    if not dept_details or "data" not in dept_details:
+                        return {
+                            "success": False,
+                            "message": f"Department '{department_id}' not found",
+                        }
+
+                    dept = dept_details["data"]
+
+                    return {
+                        "success": True,
+                        "department_id": dept.get("departmentId"),
+                        "name": dept.get("name"),
+                    }
+
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error getting department details: {str(e)}")
+                    return {"success": False, "error": str(e)}
+
+            case "check_department":
+                if not department_id:
+                    return {"success": False, "error": "department_id is required"}
+
+                if ctx:
+                    await ctx.info(f"Checking if department '{department_id}' exists")
+
+                client = get_client_credentials_client()
+
+                try:
+                    exists = client.location.department_exists(department_id)
+
+                    return {
+                        "success": True,
+                        "department_id": department_id,
+                        "exists": exists,
+                        "message": (
+                            f"Department '{department_id}' "
+                            f"{'exists' if exists else 'does not exist'}"
+                        ),
+                    }
+
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error checking department existence: {str(e)}")
+                    return {"success": False, "error": str(e)}
+
+            case "get_datetime":
+                now = datetime.now()
+
                 return {
-                    "success": False,
-                    "message": f"Chain '{chain_name}' not found"
+                    "success": True,
+                    "datetime": now.isoformat(),
+                    "date": now.date().isoformat(),
+                    "time": now.time().isoformat(),
+                    "timestamp": int(now.timestamp()),
+                    "formatted": now.strftime("%A, %B %d, %Y at %I:%M:%S %p"),
                 }
-            
-            chain = chain_details["data"]
-            
-            return {
-                "success": True,
-                "name": chain.get("name"),
-                "division_numbers": chain.get("divisionNumbers", [])
-            }
-            
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error getting chain details: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
 
-    @mcp.tool()
-    async def check_chain_exists(
-        chain_name: str,
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Check if a chain exists in the Kroger system.
-        
-        Args:
-            chain_name: Name of the chain to check
-        
-        Returns:
-            Dictionary indicating whether the chain exists
-        """
-        if ctx:
-            await ctx.info(f"Checking if chain '{chain_name}' exists")
-        
-        client = get_client_credentials_client()
-        
-        try:
-            exists = client.location.chain_exists(chain_name)
-            
-            return {
-                "success": True,
-                "chain_name": chain_name,
-                "exists": exists,
-                "message": f"Chain '{chain_name}' {'exists' if exists else 'does not exist'}"
-            }
-            
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error checking chain existence: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            case "get_servings":
+                try:
+                    from .shared import get_default_servings as _get_default_servings
+                    svc = _get_default_servings()
+                    return {
+                        "success": True,
+                        "default_servings": svc,
+                        "description": f"Recipes will default to {svc} serving(s)",
+                        "usage": {
+                            "recipe_creation": f"New recipes default to {svc} servings",
+                            "shopping_list": f"Shopping list scales to {svc} servings",
+                            "meal_planning": f"Meal assignments default to {svc} servings",
+                            "can_override": "You can override this per-recipe or per-meal"
+                        }
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get default servings: {str(e)}"}
 
-    @mcp.tool()
-    async def list_departments(ctx: Context = None) -> Dict[str, Any]:
-        """
-        Get a list of all available departments in Kroger stores.
-        
-        Returns:
-            Dictionary containing department information
-        """
-        if ctx:
-            await ctx.info("Getting list of departments")
-        
-        client = get_client_credentials_client()
-        
-        try:
-            departments = client.location.list_departments()
-            
-            if not departments or "data" not in departments or not departments["data"]:
-                return {
-                    "success": False,
-                    "message": "No departments found",
-                    "data": []
-                }
-            
-            # Format department data
-            formatted_departments = [
-                {
-                    "department_id": dept.get("departmentId"),
-                    "name": dept.get("name")
-                }
-                for dept in departments["data"]
-            ]
-            
-            if ctx:
-                await ctx.info(f"Found {len(formatted_departments)} departments")
-            
-            return {
-                "success": True,
-                "count": len(formatted_departments),
-                "data": formatted_departments
-            }
-            
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error listing departments: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e),
-                "data": []
-            }
+            case "set_servings":
+                if servings is None:
+                    return {"success": False, "error": "servings is required for set_servings"}
+                if not 1 <= servings <= 20:
+                    return {"success": False, "error": "servings must be between 1 and 20"}
+                try:
+                    from .shared import (
+                        get_default_servings as _get_default_servings,
+                        set_default_servings as _set_default_servings,
+                    )
+                    old = _get_default_servings()
+                    _set_default_servings(servings)
+                    return {
+                        "success": True,
+                        "default_servings": servings,
+                        "previous_value": old,
+                        "message": f"Default servings updated from {old} to {servings}",
+                        "note": (
+                            "This will affect new recipes and shopping list scaling. "
+                            "Existing recipes retain their servings."
+                        )
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to set default servings: {str(e)}"}
 
-    @mcp.tool()
-    async def get_department_details(
-        department_id: str,
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Get detailed information about a specific department.
-        
-        Args:
-            department_id: The unique identifier for the department
-        
-        Returns:
-            Dictionary containing department details
-        """
-        if ctx:
-            await ctx.info(f"Getting details for department: {department_id}")
-        
-        client = get_client_credentials_client()
-        
-        try:
-            dept_details = client.location.get_department(department_id)
-            
-            if not dept_details or "data" not in dept_details:
-                return {
-                    "success": False,
-                    "message": f"Department '{department_id}' not found"
-                }
-            
-            dept = dept_details["data"]
-            
-            return {
-                "success": True,
-                "department_id": dept.get("departmentId"),
-                "name": dept.get("name")
-            }
-            
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error getting department details: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            case "get_preferences":
+                try:
+                    from .shared import get_preferred_location_id, get_default_servings as _get_default_servings
+                    return {
+                        "success": True,
+                        "profile": {
+                            "preferred_location_id": get_preferred_location_id(),
+                            "default_servings_per_meal": _get_default_servings()
+                        }
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get preferences: {str(e)}"}
 
-    @mcp.tool()
-    async def check_department_exists(
-        department_id: str,
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Check if a department exists in the Kroger system.
-        
-        Args:
-            department_id: The department ID to check
-        
-        Returns:
-            Dictionary indicating whether the department exists
-        """
-        if ctx:
-            await ctx.info(f"Checking if department '{department_id}' exists")
-        
-        client = get_client_credentials_client()
-        
-        try:
-            exists = client.location.department_exists(department_id)
-            
-            return {
-                "success": True,
-                "department_id": department_id,
-                "exists": exists,
-                "message": f"Department '{department_id}' {'exists' if exists else 'does not exist'}"
-            }
-            
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error checking department existence: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            case _:
+                return {"success": False, "error": f"Unknown action: {action}"}

@@ -1,905 +1,1066 @@
 """
-Product search and management tools for Kroger MCP server
+Product search and management tools for Kroger MCP server.
 """
 
 import asyncio
-from typing import Dict, Any, Optional, Literal, List
-from pydantic import Field
-from fastmcp import Context, Image
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
+
 import requests
+from fastmcp import Context, Image
+from pydantic import Field
 
 from .shared import (
+    format_currency,
     get_client_credentials_client,
     get_preferred_location_id,
-    format_currency
 )
+from ..analytics.database import get_db_connection, get_db_cursor
+from ..analytics.deals import record_price_observation
 from ..analytics.favorites import get_all_favorite_product_ids
+from ..analytics.ingredients import check_product_safety
 from ..analytics.safety import (
-    get_all_safe_product_ids,
+    BlockMode,
     get_all_blocked_product_ids,
+    get_all_safe_product_ids,
+    get_block_mode,
     get_disabled_ingredients,
     is_filtering_enabled,
-    get_block_mode,
-    BlockMode,
 )
-from ..analytics.ingredients import check_product_safety
-from ..analytics.deals import record_price_observation
+
+
+def is_whole_food_eligible(
+    description: str,
+    brand: Optional[str] = None,
+    disabled_ingredients: Optional[set] = None,
+) -> Dict[str, Any]:
+    """
+    Check if product qualifies as whole food.
+
+    Uses existing safety filter - product must:
+    1. Pass safety check (no CRITICAL/WARNING ingredients)
+    2. Have UNKNOWN or SAFE status
+    3. Optional: Low WATCH ingredient count (<3)
+    """
+    safety_result = check_product_safety(
+        description=description,
+        brand=brand,
+        disabled_ingredients=disabled_ingredients,
+    )
+
+    if safety_result.highest_severity in ["critical", "warning"]:
+        return {
+            "eligible": False,
+            "safety_status": safety_result.highest_severity.upper(),
+            "reason": f"Contains {safety_result.highest_severity} ingredients",
+            "matches": [
+                {"ingredient": m.ingredient_name, "severity": m.severity}
+                for m in safety_result.matches
+            ],
+        }
+
+    if not safety_result.has_concerns:
+        return {
+            "eligible": True,
+            "safety_status": "SAFE",
+            "reason": "No concerning ingredients detected",
+            "matches": [],
+        }
+
+    watch_count = len([m for m in safety_result.matches if m.severity == "watch"])
+    if watch_count <= 2:
+        return {
+            "eligible": True,
+            "safety_status": "WATCH",
+            "reason": f"Minimal processing markers ({watch_count} watch-level ingredients)",
+            "matches": [
+                {"ingredient": m.ingredient_name, "severity": m.severity}
+                for m in safety_result.matches
+            ],
+        }
+
+    return {
+        "eligible": False,
+        "safety_status": "WATCH",
+        "reason": f"Too many processing markers ({watch_count} watch-level ingredients)",
+        "matches": [
+            {"ingredient": m.ingredient_name, "severity": m.severity}
+            for m in safety_result.matches
+        ],
+    }
 
 
 def register_tools(mcp):
-    """Register product-related tools with the FastMCP server"""
-    
+    """Register product-related tools with the FastMCP server."""
+
     @mcp.tool()
-    async def get_product_images(
-        product_id: str,
-        perspective: str = "front",
-        location_id: Optional[str] = None,
-        ctx: Context = None
-    ) -> Image:
-        """
-        Get an image for a specific product from the requested perspective.
-        
-        Use get_product_details first to see what perspectives are available (typically "front", "back", "left", "right").
-        
-        Args:
-            product_id: The unique product identifier
-            perspective: The image perspective to retrieve (default: "front")
-            location_id: Store location ID (uses preferred if not provided)
-        
-        Returns:
-            The product image from the requested perspective
-        """
-        # Use preferred location if none provided
-        if not location_id:
-            location_id = get_preferred_location_id()
-            if not location_id:
-                return {
-                    "success": False,
-                    "error": "No location_id provided and no preferred location set. Use set_preferred_location first."
-                }
-        
-        if ctx:
-            await ctx.info(f"Fetching images for product {product_id} at location {location_id}")
-        
-        client = get_client_credentials_client()
-        
-        try:
-            # Get product details to extract image URLs
-            product_details = client.product.get_product(
-                product_id=product_id,
-                location_id=location_id
+    async def products(
+        action: Literal[
+            "search",
+            "get_details",
+            "get_images",
+            "search_by_id",
+            "add_to_whole_foods",
+            "get_whole_foods_catalog",
+            "scan_for_whole_foods",
+        ] = Field(
+            description=(
+                "Action: 'search' - search for products by term, "
+                "'get_details' - get detailed info for product(s), "
+                "'get_images' - get product image from a perspective, "
+                "'search_by_id' - search products by product ID, "
+                "'add_to_whole_foods' - add product to whole foods catalog, "
+                "'get_whole_foods_catalog' - view whole foods catalog, "
+                "'scan_for_whole_foods' - find qualifying whole foods by category"
             )
-            
-            if not product_details or "data" not in product_details:
-                return {
-                    "success": False,
-                    "message": f"Product {product_id} not found"
-                }
-            
-            product = product_details["data"]
-            
-            # Check if images are available
-            if "images" not in product or not product["images"]:
-                return {
-                    "success": False,
-                    "message": f"No images available for product {product_id}"
-                }
-            
-            # Find the requested perspective image
-            perspective_image = None
-            available_perspectives = []
-            
-            for img_data in product["images"]:
-                img_perspective = img_data.get("perspective", "unknown")
-                available_perspectives.append(img_perspective)
-                
-                # Skip if not the requested perspective
-                if img_perspective != perspective:
-                    continue
-                    
-                if not img_data.get("sizes"):
-                    continue
-                
-                # Find the best image size (prefer large, fallback to xlarge or other available)
-                img_url = None
-                size_preference = ["large", "xlarge", "medium", "small", "thumbnail"]
-                
-                # Create a map of available sizes for quick lookup
-                available_sizes = {size.get("size"): size.get("url") for size in img_data.get("sizes", []) if size.get("size") and size.get("url")}
-                
-                # Select best size based on preference order
-                for size in size_preference:
-                    if size in available_sizes:
-                        img_url = available_sizes[size]
-                        break
-                
-                if img_url:
-                    try:
-                        if ctx:
-                            await ctx.info(f"Downloading {perspective} image from {img_url}")
-                        
-                        # Download image
-                        response = requests.get(img_url)
-                        response.raise_for_status()
-                        
-                        # Create Image object
-                        perspective_image = Image(
-                            data=response.content,
-                            format="jpeg"  # Kroger images are typically JPEG
-                        )
-                        break
-                    except Exception as e:
-                        if ctx:
-                            await ctx.warning(f"Failed to download {perspective} image: {str(e)}")
-            
-            # If the requested perspective wasn't found
-            if not perspective_image:
-                available_str = ", ".join(available_perspectives) if available_perspectives else "none"
-                return {
-                    "success": False,
-                    "message": f"No image found for perspective '{perspective}'. Available perspectives: {available_str}"
-                }
-            
-            return perspective_image
-        
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error getting product images: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
-    @mcp.tool()
-    async def search_products(
-        search_term: str | List[str] = Field(
-            description="Search term or list of terms (e.g., 'milk' or ['milk', 'bread'])"
         ),
-        location_id: Optional[str] = None,
-        limit: int = Field(
-            default=10, ge=1, le=50, description="Results per term (1-50)"
+        search_term: Optional[str] = Field(
+            default=None,
+            description="Single search term e.g. 'milk' (for search single mode)",
         ),
-        fulfillment: Optional[Literal["csp", "delivery", "pickup"]] = None,
-        brand: Optional[str] = None,
-        prioritize_favorites: bool = Field(
-            default=True, description="Boost favorite items to top of results"
+        search_terms: Optional[List[str]] = Field(
+            default=None,
+            description="List of search terms e.g. ['milk', 'bread'] (for search batch mode, max 10)",
+        ),
+        product_id: Optional[str] = Field(
+            default=None,
+            description="Product ID (for get_details single mode, get_images, search_by_id, add_to_whole_foods)",
+        ),
+        product_ids: Optional[List[str]] = Field(
+            default=None,
+            description="List of product IDs (for get_details batch mode, max 20)",
+        ),
+        location_id: Optional[str] = Field(
+            default=None,
+            description="Store location ID (uses preferred if not provided)",
+        ),
+        limit: Optional[int] = Field(
+            default=10,
+            description="Results per term 1-50 (for search), max products to return (for get_whole_foods_catalog, scan_for_whole_foods)",
+        ),
+        fulfillment: Optional[str] = Field(
+            default=None,
+            description="Filter by fulfillment: 'csp', 'delivery', or 'pickup' (for search)",
+        ),
+        brand: Optional[str] = Field(
+            default=None,
+            description="Filter by brand name (for search)",
+        ),
+        prioritize_favorites: Optional[bool] = Field(
+            default=True,
+            description="Boost favorite items to top of results (for search, search_by_id)",
+        ),
+        perspective: Optional[str] = Field(
+            default="front",
+            description="Image perspective: 'front', 'back', 'left', 'right' (for get_images)",
+        ),
+        description: Optional[str] = Field(
+            default=None,
+            description="Product description (for add_to_whole_foods, optional)",
+        ),
+        verify_safety: Optional[bool] = Field(
+            default=True,
+            description="Verify product passes safety checks before adding (for add_to_whole_foods)",
+        ),
+        include_unavailable: Optional[bool] = Field(
+            default=False,
+            description="Include products marked as unavailable (for get_whole_foods_catalog)",
+        ),
+        category: Optional[str] = Field(
+            default=None,
+            description="Category to search: 'produce', 'dairy', 'meat', 'bakery', 'frozen' (for scan_for_whole_foods)",
+        ),
+        auto_add: Optional[bool] = Field(
+            default=False,
+            description="Automatically add qualifying products to catalog (for scan_for_whole_foods)",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Search for products at a Kroger store. Accepts single term or list of terms.
+    ) -> Any:
+        """Product search, details, images, and whole foods catalog operations."""
 
-        When multiple terms are provided, searches execute in parallel for efficiency.
-        Each product includes an 'is_favorite' field.
+        # ---- Shared helpers ----
 
-        Args:
-            search_term: Single term ("milk") or list (["milk", "bread", "eggs"])
-            location_id: Store location ID (uses preferred if not provided)
-            limit: Results per search term (1-50)
-            fulfillment: Filter by fulfillment (csp, delivery, pickup)
-            brand: Filter by brand name
-            prioritize_favorites: Boost favorites to top (default: True)
-
-        Returns:
-            Single term: {success, count, data: [...]}
-            Multiple terms: {success, results: {term: {count, data}, ...}}
-        """
-        # Use preferred location if none provided
-        if not location_id:
-            location_id = get_preferred_location_id()
-            if not location_id:
-                return {
+        def _get_location(loc_id):
+            if not loc_id:
+                loc_id = get_preferred_location_id()
+            if not loc_id:
+                return None, {
                     "success": False,
-                    "error": "No location_id provided and no preferred location set. "
-                    "Use set_preferred_location first.",
+                    "error": (
+                        "No location_id provided and no preferred location set. "
+                        "Use location(action='set_preferred') first."
+                    ),
                 }
+            return loc_id, None
 
-        # Normalize to list
-        terms = [search_term] if isinstance(search_term, str) else search_term
-        is_batch = len(terms) > 1
+        def _get_safety_data():
+            filtering = is_filtering_enabled()
+            safe_ids = set()
+            blocked_ids = set()
+            disabled = set()
+            bmode = BlockMode.SOFT
+            if filtering:
+                try:
+                    safe_ids = get_all_safe_product_ids()
+                    blocked_ids = get_all_blocked_product_ids()
+                    disabled = get_disabled_ingredients()
+                    bmode = get_block_mode()
+                except Exception:
+                    pass
+            return filtering, safe_ids, blocked_ids, disabled, bmode
 
-        if len(terms) > 10:
-            return {
-                "success": False,
-                "error": f"Too many search terms ({len(terms)}). Maximum is 10.",
-            }
+        match action:
+            case "search":
+                loc_id, err = _get_location(location_id)
+                if err:
+                    return err
 
-        if ctx:
-            if is_batch:
-                await ctx.info(f"Searching {len(terms)} terms at location {location_id}")
-            else:
-                await ctx.info(f"Searching for '{terms[0]}' at location {location_id}")
-
-        client = get_client_credentials_client()
-
-        # Get favorite IDs once
-        favorite_ids = set()
-        if prioritize_favorites:
-            try:
-                favorite_ids = get_all_favorite_product_ids()
-            except Exception:
-                pass
-
-        # Get safety data once
-        filtering_enabled = is_filtering_enabled()
-        safe_ids = set()
-        blocked_ids = set()
-        disabled_ingredients = set()
-        block_mode = BlockMode.SOFT
-
-        if filtering_enabled:
-            try:
-                safe_ids = get_all_safe_product_ids()
-                blocked_ids = get_all_blocked_product_ids()
-                disabled_ingredients = get_disabled_ingredients()
-                block_mode = get_block_mode()
-            except Exception:
-                pass
-
-        def format_product(product: Dict) -> Dict:
-            """Format a single product."""
-            fp = {
-                "product_id": product.get("productId"),
-                "upc": product.get("upc"),
-                "description": product.get("description"),
-                "brand": product.get("brand"),
-                "categories": product.get("categories", []),
-                "country_origin": product.get("countryOrigin"),
-                "temperature": product.get("temperature", {}),
-            }
-
-            if "items" in product and product["items"]:
-                item = product["items"][0]
-                fp["item"] = {
-                    "size": item.get("size"),
-                    "sold_by": item.get("soldBy"),
-                    "inventory": item.get("inventory", {}),
-                    "fulfillment": item.get("fulfillment", {}),
-                }
-                if "price" in item:
-                    price = item["price"]
-                    fp["pricing"] = {
-                        "regular_price": price.get("regular"),
-                        "sale_price": price.get("promo"),
-                        "regular_per_unit": price.get("regularPerUnitEstimate"),
-                        "formatted_regular": format_currency(price.get("regular")),
-                        "formatted_sale": format_currency(price.get("promo")),
-                        "on_sale": price.get("promo") is not None
-                        and price.get("promo") < price.get("regular", float("inf")),
-                    }
-
-            if "aisleLocations" in product:
-                fp["aisle_locations"] = [
-                    {
-                        "description": a.get("description"),
-                        "number": a.get("number"),
-                        "side": a.get("side"),
-                        "shelf_number": a.get("shelfNumber"),
-                    }
-                    for a in product["aisleLocations"]
-                ]
-
-            if "images" in product and product["images"]:
-                fp["images"] = [
-                    {
-                        "perspective": img.get("perspective"),
-                        "url": img["sizes"][0].get("url") if img.get("sizes") else None,
-                        "size": img["sizes"][0].get("size") if img.get("sizes") else None,
-                    }
-                    for img in product["images"]
-                    if img.get("sizes")
-                ]
-
-            # Add safety status
-            product_id = fp.get("product_id", "")
-            description = fp.get("description", "")
-
-            if filtering_enabled:
-                # Check if on safe list (bypasses all checks)
-                if product_id in safe_ids:
-                    fp["is_safe_listed"] = True
-                    fp["is_blocked"] = False
-                    fp["safety_status"] = "safe"
-                    fp["flagged_ingredients"] = []
-                # Check if on blocked list
-                elif product_id in blocked_ids:
-                    fp["is_safe_listed"] = False
-                    fp["is_blocked"] = True
-                    fp["safety_status"] = "blocked"
-                    fp["flagged_ingredients"] = []
+                terms = []
+                if search_terms:
+                    terms = search_terms
+                elif search_term:
+                    terms = [search_term]
                 else:
-                    # Check for bad ingredients
-                    fp["is_safe_listed"] = False
-                    fp["is_blocked"] = False
-                    safety_result = check_product_safety(
-                        description=description,
-                        brand=fp.get("brand"),
-                        disabled_ingredients=disabled_ingredients,
-                    )
-                    if not safety_result.has_concerns:
+                    return {"success": False, "error": "search_term or search_terms is required"}
+
+                is_batch = len(terms) > 1
+
+                if len(terms) > 10:
+                    return {
+                        "success": False,
+                        "error": f"Too many search terms ({len(terms)}). Maximum is 10.",
+                    }
+
+                if ctx:
+                    if is_batch:
+                        await ctx.info(f"Searching {len(terms)} terms at location {loc_id}")
+                    else:
+                        await ctx.info(f"Searching for '{terms[0]}' at location {loc_id}")
+
+                client = get_client_credentials_client()
+                _prio_favs = prioritize_favorites if prioritize_favorites is not None else True
+
+                favorite_ids = set()
+                if _prio_favs:
+                    try:
+                        favorite_ids = get_all_favorite_product_ids()
+                    except Exception:
+                        pass
+
+                filtering, safe_ids, blocked_ids, disabled, bmode = _get_safety_data()
+                _limit = limit if limit is not None else 10
+
+                def format_product(product: Dict) -> Dict:
+                    fp = {
+                        "product_id": product.get("productId"),
+                        "upc": product.get("upc"),
+                        "description": product.get("description"),
+                        "brand": product.get("brand"),
+                        "categories": product.get("categories", []),
+                        "country_origin": product.get("countryOrigin"),
+                        "temperature": product.get("temperature", {}),
+                    }
+                    if "items" in product and product["items"]:
+                        item = product["items"][0]
+                        fp["item"] = {
+                            "size": item.get("size"),
+                            "sold_by": item.get("soldBy"),
+                            "inventory": item.get("inventory", {}),
+                            "fulfillment": item.get("fulfillment", {}),
+                        }
+                        if "price" in item:
+                            price = item["price"]
+                            fp["pricing"] = {
+                                "regular_price": price.get("regular"),
+                                "sale_price": price.get("promo"),
+                                "regular_per_unit": price.get("regularPerUnitEstimate"),
+                                "formatted_regular": format_currency(price.get("regular")),
+                                "formatted_sale": format_currency(price.get("promo")),
+                                "on_sale": price.get("promo") is not None
+                                and price.get("promo") < price.get("regular", float("inf")),
+                            }
+                    if "aisleLocations" in product:
+                        fp["aisle_locations"] = [
+                            {
+                                "description": a.get("description"),
+                                "number": a.get("number"),
+                                "side": a.get("side"),
+                                "shelf_number": a.get("shelfNumber"),
+                            }
+                            for a in product["aisleLocations"]
+                        ]
+                    if "images" in product and product["images"]:
+                        fp["images"] = [
+                            {
+                                "perspective": img.get("perspective"),
+                                "url": img["sizes"][0].get("url") if img.get("sizes") else None,
+                                "size": img["sizes"][0].get("size") if img.get("sizes") else None,
+                            }
+                            for img in product["images"]
+                            if img.get("sizes")
+                        ]
+                    pid = fp.get("product_id", "")
+                    desc = fp.get("description", "")
+                    if filtering:
+                        if pid in safe_ids:
+                            fp["is_safe_listed"] = True
+                            fp["is_blocked"] = False
+                            fp["safety_status"] = "safe"
+                            fp["flagged_ingredients"] = []
+                        elif pid in blocked_ids:
+                            fp["is_safe_listed"] = False
+                            fp["is_blocked"] = True
+                            fp["safety_status"] = "blocked"
+                            fp["flagged_ingredients"] = []
+                        else:
+                            fp["is_safe_listed"] = False
+                            fp["is_blocked"] = False
+                            safety_result = check_product_safety(
+                                description=desc,
+                                brand=fp.get("brand"),
+                                disabled_ingredients=disabled,
+                            )
+                            if not safety_result.has_concerns:
+                                fp["safety_status"] = "unknown"
+                                fp["flagged_ingredients"] = []
+                            else:
+                                fp["safety_status"] = safety_result.highest_severity.value
+                                fp["flagged_ingredients"] = [
+                                    {
+                                        "ingredient": m.ingredient_name,
+                                        "severity": m.severity.value,
+                                        "reason": m.reason,
+                                        "matched_text": m.matched_text,
+                                    }
+                                    for m in safety_result.matches
+                                ]
+                    else:
+                        fp["is_safe_listed"] = False
+                        fp["is_blocked"] = False
                         fp["safety_status"] = "unknown"
                         fp["flagged_ingredients"] = []
-                    else:
-                        fp["safety_status"] = safety_result.highest_severity.value
-                        fp["flagged_ingredients"] = [
-                            {
-                                "ingredient": m.ingredient_name,
-                                "severity": m.severity.value,
-                                "reason": m.reason,
-                                "matched_text": m.matched_text,
-                            }
-                            for m in safety_result.matches
+                    return fp
+
+                def mark_and_sort(plist):
+                    fav_count = 0
+                    safety_counts = {
+                        "safe": 0, "blocked": 0, "critical": 0,
+                        "warning": 0, "watch": 0, "unknown": 0,
+                    }
+                    for p in plist:
+                        is_fav = p.get("product_id") in favorite_ids
+                        p["is_favorite"] = is_fav
+                        if is_fav:
+                            fav_count += 1
+                        status = p.get("safety_status", "unknown")
+                        if status in safety_counts:
+                            safety_counts[status] += 1
+
+                    if filtering and bmode == BlockMode.HARD:
+                        plist = [
+                            p for p in plist
+                            if p.get("safety_status") not in ("blocked", "critical")
                         ]
-            else:
-                # Filtering disabled - no safety status
-                fp["is_safe_listed"] = False
-                fp["is_blocked"] = False
-                fp["safety_status"] = "unknown"
-                fp["flagged_ingredients"] = []
 
-            return fp
+                    def sort_key(p):
+                        status = p.get("safety_status", "unknown")
+                        is_fav = p.get("is_favorite", False)
+                        is_safe = p.get("is_safe_listed", False)
+                        if is_safe:
+                            return 0
+                        elif is_fav and status not in ("blocked", "critical"):
+                            return 1
+                        elif status == "unknown":
+                            return 2
+                        elif status == "watch":
+                            return 3
+                        elif status == "warning":
+                            return 4
+                        elif status == "critical":
+                            return 5
+                        elif status == "blocked":
+                            return 6
+                        return 7
 
-        def mark_and_sort_products(products: List[Dict]) -> tuple[List[Dict], int, dict]:
-            """Mark favorites and sort by safety status then favorites."""
-            fav_count = 0
-            safety_counts = {"safe": 0, "blocked": 0, "critical": 0, "warning": 0, "watch": 0, "unknown": 0}
+                    if _prio_favs or filtering:
+                        plist = sorted(plist, key=sort_key)
+                    return plist, fav_count, safety_counts
 
-            for p in products:
-                is_fav = p.get("product_id") in favorite_ids
-                p["is_favorite"] = is_fav
-                if is_fav:
-                    fav_count += 1
-                # Count safety statuses
-                status = p.get("safety_status", "unknown")
-                if status in safety_counts:
-                    safety_counts[status] += 1
-
-            # In hard-block mode, filter out blocked and critical products
-            if filtering_enabled and block_mode == BlockMode.HARD:
-                products = [
-                    p for p in products
-                    if p.get("safety_status") not in ("blocked", "critical")
-                ]
-
-            # Sort order: safe-listed > favorites > unknown > watch > warning > critical > blocked
-            def sort_key(p):
-                status = p.get("safety_status", "unknown")
-                is_fav = p.get("is_favorite", False)
-                is_safe = p.get("is_safe_listed", False)
-
-                # Priority: lower number = higher priority
-                if is_safe:
-                    priority = 0
-                elif is_fav and status not in ("blocked", "critical"):
-                    priority = 1
-                elif status == "unknown":
-                    priority = 2
-                elif status == "watch":
-                    priority = 3
-                elif status == "warning":
-                    priority = 4
-                elif status == "critical":
-                    priority = 5
-                elif status == "blocked":
-                    priority = 6
-                else:
-                    priority = 7
-                return priority
-
-            if prioritize_favorites or filtering_enabled:
-                products = sorted(products, key=sort_key)
-
-            return products, fav_count, safety_counts
-
-        async def search_single(term: str) -> tuple[str, Dict[str, Any]]:
-            """Search for a single term."""
-            try:
-                products = client.product.search_products(
-                    term=term,
-                    location_id=location_id,
-                    limit=limit,
-                    fulfillment=fulfillment,
-                    brand=brand,
-                )
-
-                if not products or "data" not in products or not products["data"]:
-                    return (term, {"count": 0, "favorites_count": 0, "safety_counts": {}, "data": []})
-
-                formatted = [format_product(p) for p in products["data"]]
-                formatted, fav_count, safety_counts = mark_and_sort_products(formatted)
-
-                # Record prices for history tracking (passive, no API calls)
-                for product in formatted:
+                async def search_single(term: str):
                     try:
-                        pricing = product.get("pricing", {})
-                        if pricing and location_id:
-                            record_price_observation(
-                                product_id=product["product_id"],
-                                regular_price=pricing.get("regular_price"),
-                                sale_price=pricing.get("sale_price"),
-                                location_id=location_id,
-                                source="search"
-                            )
-                    except Exception:
-                        pass  # Don't let price recording break search
+                        prods = client.product.search_products(
+                            term=term,
+                            location_id=loc_id,
+                            limit=_limit,
+                            fulfillment=fulfillment,
+                            brand=brand,
+                        )
+                        if not prods or "data" not in prods or not prods["data"]:
+                            return (term, {"count": 0, "favorites_count": 0, "safety_counts": {}, "data": []})
 
-                return (
-                    term,
-                    {
-                        "count": len(formatted),
-                        "favorites_count": fav_count,
-                        "safety_counts": safety_counts,
-                        "data": formatted,
-                    },
-                )
-            except Exception as e:
-                return (term, {"error": str(e), "count": 0, "data": []})
+                        formatted = [format_product(p) for p in prods["data"]]
+                        formatted, fav_count, safety_counts = mark_and_sort(formatted)
 
-        try:
-            # Execute searches (parallel if batch)
-            tasks = [search_single(t) for t in terms]
-            results_list = await asyncio.gather(*tasks)
+                        for product in formatted:
+                            try:
+                                pricing = product.get("pricing", {})
+                                if pricing and loc_id:
+                                    record_price_observation(
+                                        product_id=product["product_id"],
+                                        regular_price=pricing.get("regular_price"),
+                                        sale_price=pricing.get("sale_price"),
+                                        location_id=loc_id,
+                                        source="search",
+                                    )
+                            except Exception:
+                                pass
 
-            if is_batch:
-                # Batch mode: return grouped results
-                results = {}
-                errors = {}
-                total_results = 0
-                total_favorites = 0
-                total_safety = {"safe": 0, "blocked": 0, "critical": 0, "warning": 0, "watch": 0, "unknown": 0}
+                        return (term, {"count": len(formatted), "favorites_count": fav_count, "safety_counts": safety_counts, "data": formatted})
+                    except Exception as e:
+                        return (term, {"error": str(e), "count": 0, "data": []})
 
-                for term, result in results_list:
-                    if "error" in result:
-                        errors[term] = result["error"]
+                try:
+                    tasks = [search_single(t) for t in terms]
+                    results_list = await asyncio.gather(*tasks)
+
+                    if is_batch:
+                        results = {}
+                        errors = {}
+                        total_results = 0
+                        total_favorites = 0
+                        total_safety = {"safe": 0, "blocked": 0, "critical": 0, "warning": 0, "watch": 0, "unknown": 0}
+
+                        for term, result in results_list:
+                            if "error" in result:
+                                errors[term] = result["error"]
+                            else:
+                                results[term] = result
+                                total_results += result["count"]
+                                total_favorites += result["favorites_count"]
+                                for k, v in result.get("safety_counts", {}).items():
+                                    if k in total_safety:
+                                        total_safety[k] += v
+
+                        if ctx:
+                            flagged = total_safety.get("critical", 0) + total_safety.get("warning", 0)
+                            await ctx.info(f"Found {total_results} products ({total_favorites} favorites, {flagged} flagged)")
+
+                        return {
+                            "success": len(errors) < len(terms),
+                            "location_id": loc_id,
+                            "terms_searched": len(terms),
+                            "total_results": total_results,
+                            "total_favorites": total_favorites,
+                            "safety_counts": total_safety,
+                            "filtering_enabled": filtering,
+                            "results": results,
+                            "errors": errors if errors else None,
+                        }
                     else:
-                        results[term] = result
-                        total_results += result["count"]
-                        total_favorites += result["favorites_count"]
-                        for k, v in result.get("safety_counts", {}).items():
-                            if k in total_safety:
-                                total_safety[k] += v
+                        term, result = results_list[0]
+                        if "error" in result:
+                            return {"success": False, "error": result["error"], "data": []}
+
+                        safety_counts = result.get("safety_counts", {})
+                        flagged = safety_counts.get("critical", 0) + safety_counts.get("warning", 0)
+
+                        if ctx:
+                            await ctx.info(f"Found {result['count']} products ({result['favorites_count']} favorites, {flagged} flagged)")
+
+                        return {
+                            "success": True,
+                            "search_params": {
+                                "search_term": term,
+                                "location_id": loc_id,
+                                "limit": _limit,
+                                "fulfillment": fulfillment,
+                                "brand": brand,
+                                "prioritize_favorites": _prio_favs,
+                            },
+                            "count": result["count"],
+                            "favorites_count": result["favorites_count"],
+                            "safety_counts": safety_counts,
+                            "filtering_enabled": filtering,
+                            "data": result["data"],
+                        }
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error searching products: {str(e)}")
+                    return {"success": False, "error": str(e), "data": []}
+
+            case "get_details":
+                loc_id, err = _get_location(location_id)
+                if err:
+                    return err
+
+                ids = []
+                if product_ids:
+                    ids = product_ids
+                elif product_id:
+                    ids = [product_id]
+                else:
+                    return {"success": False, "error": "product_id or product_ids is required"}
+
+                is_batch = len(ids) > 1
+
+                if len(ids) > 20:
+                    return {"success": False, "error": f"Too many product IDs ({len(ids)}). Maximum is 20."}
 
                 if ctx:
-                    flagged = total_safety.get("critical", 0) + total_safety.get("warning", 0)
-                    await ctx.info(
-                        f"Found {total_results} products ({total_favorites} favorites, {flagged} flagged)"
+                    if is_batch:
+                        await ctx.info(f"Getting details for {len(ids)} products")
+                    else:
+                        await ctx.info(f"Getting details for product {ids[0]}")
+
+                client = get_client_credentials_client()
+
+                def format_details(product: Dict) -> Dict:
+                    result = {
+                        "product_id": product.get("productId"),
+                        "upc": product.get("upc"),
+                        "description": product.get("description"),
+                        "brand": product.get("brand"),
+                        "categories": product.get("categories", []),
+                        "country_origin": product.get("countryOrigin"),
+                        "temperature": product.get("temperature", {}),
+                        "location_id": loc_id,
+                    }
+                    if "items" in product and product["items"]:
+                        item = product["items"][0]
+                        result["item_details"] = {
+                            "size": item.get("size"),
+                            "sold_by": item.get("soldBy"),
+                            "inventory": item.get("inventory", {}),
+                            "fulfillment": item.get("fulfillment", {}),
+                        }
+                        if "price" in item:
+                            price = item["price"]
+                            result["pricing"] = {
+                                "regular_price": price.get("regular"),
+                                "sale_price": price.get("promo"),
+                                "regular_per_unit": price.get("regularPerUnitEstimate"),
+                                "formatted_regular": format_currency(price.get("regular")),
+                                "formatted_sale": format_currency(price.get("promo")),
+                                "on_sale": price.get("promo") is not None
+                                and price.get("promo") < price.get("regular", float("inf")),
+                                "savings": (
+                                    price.get("regular", 0)
+                                    - price.get("promo", price.get("regular", 0))
+                                    if price.get("promo")
+                                    else 0
+                                ),
+                            }
+                    if "aisleLocations" in product:
+                        result["aisle_locations"] = [
+                            {
+                                "description": a.get("description"),
+                                "aisle_number": a.get("number"),
+                                "side": a.get("side"),
+                                "shelf_number": a.get("shelfNumber"),
+                            }
+                            for a in product["aisleLocations"]
+                        ]
+                    if "images" in product and product["images"]:
+                        result["images"] = [
+                            {
+                                "perspective": img.get("perspective"),
+                                "sizes": [
+                                    {"size": s.get("size"), "url": s.get("url")}
+                                    for s in img.get("sizes", [])
+                                ],
+                            }
+                            for img in product["images"]
+                        ]
+                    return result
+
+                async def fetch_single(pid: str):
+                    try:
+                        product_details = client.product.get_product(
+                            product_id=pid, location_id=loc_id
+                        )
+                        if not product_details or "data" not in product_details:
+                            return (pid, {"error": f"Product {pid} not found"})
+                        result = format_details(product_details["data"])
+                        try:
+                            pricing = result.get("pricing", {})
+                            if pricing and loc_id:
+                                record_price_observation(
+                                    product_id=pid,
+                                    regular_price=pricing.get("regular_price"),
+                                    sale_price=pricing.get("sale_price"),
+                                    location_id=loc_id,
+                                    source="details",
+                                )
+                        except Exception:
+                            pass
+                        return (pid, result)
+                    except Exception as e:
+                        return (pid, {"error": str(e)})
+
+                try:
+                    tasks = [fetch_single(pid) for pid in ids]
+                    results_list = await asyncio.gather(*tasks)
+
+                    if is_batch:
+                        results = {}
+                        errors = {}
+                        for pid, result in results_list:
+                            if "error" in result:
+                                errors[pid] = result["error"]
+                            else:
+                                results[pid] = result
+                        if ctx:
+                            await ctx.info(f"Retrieved {len(results)} products, {len(errors)} errors")
+                        return {
+                            "success": len(errors) < len(ids),
+                            "location_id": loc_id,
+                            "count": len(results),
+                            "results": results,
+                            "errors": errors if errors else None,
+                        }
+                    else:
+                        pid, result = results_list[0]
+                        if "error" in result:
+                            return {"success": False, "message": result["error"]}
+                        return {"success": True, **result}
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error getting product details: {str(e)}")
+                    return {"success": False, "error": str(e)}
+
+            case "get_images":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+
+                loc_id, err = _get_location(location_id)
+                if err:
+                    return err
+
+                _perspective = perspective if perspective is not None else "front"
+
+                if ctx:
+                    await ctx.info(f"Fetching images for product {product_id} at location {loc_id}")
+
+                client = get_client_credentials_client()
+
+                try:
+                    product_details = client.product.get_product(
+                        product_id=product_id, location_id=loc_id
                     )
+                    if not product_details or "data" not in product_details:
+                        return {"success": False, "message": f"Product {product_id} not found"}
 
-                return {
-                    "success": len(errors) < len(terms),
-                    "location_id": location_id,
-                    "terms_searched": len(terms),
-                    "total_results": total_results,
-                    "total_favorites": total_favorites,
-                    "safety_counts": total_safety,
-                    "filtering_enabled": filtering_enabled,
-                    "results": results,
-                    "errors": errors if errors else None,
-                }
-            else:
-                # Single mode: return flat response (backwards compatible)
-                term, result = results_list[0]
-                if "error" in result:
-                    return {"success": False, "error": result["error"], "data": []}
+                    product = product_details["data"]
 
-                safety_counts = result.get("safety_counts", {})
-                flagged = safety_counts.get("critical", 0) + safety_counts.get("warning", 0)
+                    if "images" not in product or not product["images"]:
+                        return {"success": False, "message": f"No images available for product {product_id}"}
+
+                    perspective_image = None
+                    available_perspectives = []
+                    size_preference = ["large", "xlarge", "medium", "small", "thumbnail"]
+
+                    for img_data in product["images"]:
+                        img_perspective = img_data.get("perspective", "unknown")
+                        available_perspectives.append(img_perspective)
+
+                        if img_perspective != _perspective:
+                            continue
+                        if not img_data.get("sizes"):
+                            continue
+
+                        available_sizes = {
+                            size.get("size"): size.get("url")
+                            for size in img_data.get("sizes", [])
+                            if size.get("size") and size.get("url")
+                        }
+
+                        img_url = None
+                        for size in size_preference:
+                            if size in available_sizes:
+                                img_url = available_sizes[size]
+                                break
+
+                        if img_url:
+                            try:
+                                if ctx:
+                                    await ctx.info(f"Downloading {_perspective} image from {img_url}")
+                                response = requests.get(img_url)
+                                response.raise_for_status()
+                                perspective_image = Image(data=response.content, format="jpeg")
+                                break
+                            except Exception as e:
+                                if ctx:
+                                    await ctx.warning(f"Failed to download {_perspective} image: {str(e)}")
+
+                    if not perspective_image:
+                        available_str = ", ".join(available_perspectives) if available_perspectives else "none"
+                        return {
+                            "success": False,
+                            "message": f"No image found for perspective '{_perspective}'. Available perspectives: {available_str}",
+                        }
+
+                    return perspective_image
+
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error getting product images: {str(e)}")
+                    return {"success": False, "error": str(e)}
+
+            case "search_by_id":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+
+                loc_id, err = _get_location(location_id)
+                if err:
+                    return err
+
+                _prio_favs = prioritize_favorites if prioritize_favorites is not None else True
 
                 if ctx:
-                    await ctx.info(
-                        f"Found {result['count']} products ({result['favorites_count']} favorites, {flagged} flagged)"
+                    await ctx.info(f"Searching for products with ID '{product_id}' at location {loc_id}")
+
+                client = get_client_credentials_client()
+                filtering, safe_ids, blocked_ids, disabled, bmode = _get_safety_data()
+
+                try:
+                    prods = client.product.search_products(
+                        product_id=product_id, location_id=loc_id
+                    )
+                    if not prods or "data" not in prods or not prods["data"]:
+                        return {"success": False, "message": f"No products found with ID '{product_id}'", "data": []}
+
+                    formatted_products = []
+                    for product in prods["data"]:
+                        pid = product.get("productId", "")
+                        desc = product.get("description", "")
+                        prd_brand = product.get("brand")
+                        fp = {
+                            "product_id": pid,
+                            "upc": product.get("upc"),
+                            "description": desc,
+                            "brand": prd_brand,
+                            "categories": product.get("categories", []),
+                        }
+                        if "items" in product and product["items"] and "price" in product["items"][0]:
+                            price = product["items"][0]["price"]
+                            fp["pricing"] = {
+                                "regular_price": price.get("regular"),
+                                "sale_price": price.get("promo"),
+                                "formatted_regular": format_currency(price.get("regular")),
+                                "formatted_sale": format_currency(price.get("promo")),
+                            }
+                        if filtering:
+                            if pid in safe_ids:
+                                fp["is_safe_listed"] = True
+                                fp["is_blocked"] = False
+                                fp["safety_status"] = "safe"
+                                fp["flagged_ingredients"] = []
+                            elif pid in blocked_ids:
+                                fp["is_safe_listed"] = False
+                                fp["is_blocked"] = True
+                                fp["safety_status"] = "blocked"
+                                fp["flagged_ingredients"] = []
+                            else:
+                                fp["is_safe_listed"] = False
+                                fp["is_blocked"] = False
+                                safety_result = check_product_safety(
+                                    description=desc, brand=prd_brand, disabled_ingredients=disabled
+                                )
+                                if not safety_result.has_concerns:
+                                    fp["safety_status"] = "unknown"
+                                    fp["flagged_ingredients"] = []
+                                else:
+                                    fp["safety_status"] = safety_result.highest_severity.value
+                                    fp["flagged_ingredients"] = [
+                                        {
+                                            "ingredient": m.ingredient_name,
+                                            "severity": m.severity.value,
+                                            "reason": m.reason,
+                                            "matched_text": m.matched_text,
+                                        }
+                                        for m in safety_result.matches
+                                    ]
+                        else:
+                            fp["is_safe_listed"] = False
+                            fp["is_blocked"] = False
+                            fp["safety_status"] = "unknown"
+                            fp["flagged_ingredients"] = []
+                        formatted_products.append(fp)
+
+                    favorite_ids = set()
+                    if _prio_favs:
+                        try:
+                            favorite_ids = get_all_favorite_product_ids()
+                        except Exception:
+                            pass
+
+                    favorites_count = 0
+                    safety_counts = {"safe": 0, "blocked": 0, "critical": 0, "warning": 0, "watch": 0, "unknown": 0}
+                    for product in formatted_products:
+                        is_fav = product.get("product_id") in favorite_ids
+                        product["is_favorite"] = is_fav
+                        if is_fav:
+                            favorites_count += 1
+                        status = product.get("safety_status", "unknown")
+                        if status in safety_counts:
+                            safety_counts[status] += 1
+
+                    if filtering and bmode == BlockMode.HARD:
+                        formatted_products = [
+                            p for p in formatted_products
+                            if p.get("safety_status") not in ("blocked", "critical")
+                        ]
+
+                    if _prio_favs or filtering:
+                        def sort_key(p):
+                            status = p.get("safety_status", "unknown")
+                            is_fav = p.get("is_favorite", False)
+                            is_safe = p.get("is_safe_listed", False)
+                            if is_safe:
+                                return 0
+                            elif is_fav and status not in ("blocked", "critical"):
+                                return 1
+                            elif status == "unknown":
+                                return 2
+                            elif status == "watch":
+                                return 3
+                            elif status == "warning":
+                                return 4
+                            elif status == "critical":
+                                return 5
+                            elif status == "blocked":
+                                return 6
+                            return 7
+                        formatted_products = sorted(formatted_products, key=sort_key)
+
+                    flagged = safety_counts.get("critical", 0) + safety_counts.get("warning", 0)
+                    if ctx:
+                        await ctx.info(f"Found {len(formatted_products)} products ({favorites_count} favorites, {flagged} flagged)")
+
+                    return {
+                        "success": True,
+                        "search_params": {
+                            "product_id": product_id,
+                            "location_id": loc_id,
+                            "prioritize_favorites": _prio_favs,
+                        },
+                        "count": len(formatted_products),
+                        "favorites_count": favorites_count,
+                        "safety_counts": safety_counts,
+                        "filtering_enabled": filtering,
+                        "data": formatted_products,
+                    }
+                except Exception as e:
+                    if ctx:
+                        await ctx.error(f"Error searching products by ID: {str(e)}")
+                    return {"success": False, "error": str(e), "data": []}
+
+            case "add_to_whole_foods":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+
+                prod_desc = description
+                if not prod_desc:
+                    loc_id = get_preferred_location_id()
+                    if loc_id:
+                        try:
+                            client = get_client_credentials_client()
+                            product_data = client.get_product(
+                                product_id=product_id, location_id=loc_id
+                            )
+                            if product_data and product_data.get("data"):
+                                prod_desc = product_data["data"].get("description")
+                        except Exception:
+                            pass
+
+                safety_status = "UNKNOWN"
+                eligibility_result = None
+                _verify = verify_safety if verify_safety is not None else True
+
+                if _verify and prod_desc:
+                    disabled = get_disabled_ingredients()
+                    eligibility_result = is_whole_food_eligible(
+                        description=prod_desc, disabled_ingredients=disabled
+                    )
+                    if not eligibility_result["eligible"]:
+                        return {
+                            "success": False,
+                            "product_id": product_id,
+                            "description": prod_desc,
+                            "error": eligibility_result["reason"],
+                            "safety_status": eligibility_result["safety_status"],
+                            "matches": eligibility_result["matches"],
+                        }
+                    safety_status = eligibility_result["safety_status"]
+
+                with get_db_cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO whole_foods_catalog
+                        (product_id, description, added_by, safety_status, last_verified_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(product_id) DO UPDATE SET
+                            description = excluded.description,
+                            safety_status = excluded.safety_status,
+                            last_verified_at = excluded.last_verified_at
+                        """,
+                        (
+                            product_id,
+                            prod_desc,
+                            "manual",
+                            safety_status,
+                            datetime.now().isoformat(),
+                        ),
                     )
 
                 return {
                     "success": True,
-                    "search_params": {
-                        "search_term": term,
-                        "location_id": location_id,
-                        "limit": limit,
-                        "fulfillment": fulfillment,
-                        "brand": brand,
-                        "prioritize_favorites": prioritize_favorites,
-                    },
-                    "count": result["count"],
-                    "favorites_count": result["favorites_count"],
-                    "safety_counts": safety_counts,
-                    "filtering_enabled": filtering_enabled,
-                    "data": result["data"],
+                    "product_id": product_id,
+                    "description": prod_desc,
+                    "safety_status": safety_status,
+                    "message": "Added to whole foods catalog",
+                    "eligibility": eligibility_result if eligibility_result else None,
                 }
 
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error searching products: {str(e)}")
-            return {"success": False, "error": str(e), "data": []}
+            case "get_whole_foods_catalog":
+                _include_unavailable = include_unavailable if include_unavailable is not None else False
+                _limit = limit if limit is not None else 100
 
-    @mcp.tool()
-    async def get_product_details(
-        product_id: str | List[str] = Field(
-            description="Product ID or list of IDs (e.g., '001' or ['001', '002'])"
-        ),
-        location_id: Optional[str] = None,
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Get detailed information about products. Accepts single ID or list.
-
-        When multiple IDs are provided, fetches execute in parallel.
-
-        Args:
-            product_id: Single ID ("001") or list (["001", "002", "003"])
-            location_id: Store location ID (uses preferred if not provided)
-
-        Returns:
-            Single ID: {success, product_id, description, pricing, ...}
-            Multiple IDs: {success, results: {id: {...}, ...}, errors: {...}}
-        """
-        # Use preferred location if none provided
-        if not location_id:
-            location_id = get_preferred_location_id()
-            if not location_id:
-                return {
-                    "success": False,
-                    "error": "No location_id provided and no preferred location set. "
-                    "Use set_preferred_location first.",
-                }
-
-        # Normalize to list
-        ids = [product_id] if isinstance(product_id, str) else product_id
-        is_batch = len(ids) > 1
-
-        if len(ids) > 20:
-            return {
-                "success": False,
-                "error": f"Too many product IDs ({len(ids)}). Maximum is 20.",
-            }
-
-        if ctx:
-            if is_batch:
-                await ctx.info(f"Getting details for {len(ids)} products")
-            else:
-                await ctx.info(f"Getting details for product {ids[0]}")
-
-        client = get_client_credentials_client()
-
-        def format_details(product: Dict) -> Dict:
-            """Format product details."""
-            result = {
-                "product_id": product.get("productId"),
-                "upc": product.get("upc"),
-                "description": product.get("description"),
-                "brand": product.get("brand"),
-                "categories": product.get("categories", []),
-                "country_origin": product.get("countryOrigin"),
-                "temperature": product.get("temperature", {}),
-                "location_id": location_id,
-            }
-
-            if "items" in product and product["items"]:
-                item = product["items"][0]
-                result["item_details"] = {
-                    "size": item.get("size"),
-                    "sold_by": item.get("soldBy"),
-                    "inventory": item.get("inventory", {}),
-                    "fulfillment": item.get("fulfillment", {}),
-                }
-                if "price" in item:
-                    price = item["price"]
-                    result["pricing"] = {
-                        "regular_price": price.get("regular"),
-                        "sale_price": price.get("promo"),
-                        "regular_per_unit": price.get("regularPerUnitEstimate"),
-                        "formatted_regular": format_currency(price.get("regular")),
-                        "formatted_sale": format_currency(price.get("promo")),
-                        "on_sale": price.get("promo") is not None
-                        and price.get("promo") < price.get("regular", float("inf")),
-                        "savings": (
-                            price.get("regular", 0)
-                            - price.get("promo", price.get("regular", 0))
-                            if price.get("promo")
-                            else 0
-                        ),
-                    }
-
-            if "aisleLocations" in product:
-                result["aisle_locations"] = [
-                    {
-                        "description": a.get("description"),
-                        "aisle_number": a.get("number"),
-                        "side": a.get("side"),
-                        "shelf_number": a.get("shelfNumber"),
-                    }
-                    for a in product["aisleLocations"]
-                ]
-
-            if "images" in product and product["images"]:
-                result["images"] = [
-                    {
-                        "perspective": img.get("perspective"),
-                        "sizes": [
-                            {"size": s.get("size"), "url": s.get("url")}
-                            for s in img.get("sizes", [])
-                        ],
-                    }
-                    for img in product["images"]
-                ]
-
-            return result
-
-        async def fetch_single(pid: str) -> tuple[str, Dict[str, Any]]:
-            """Fetch details for a single product."""
-            try:
-                product_details = client.product.get_product(
-                    product_id=pid, location_id=location_id
-                )
-                if not product_details or "data" not in product_details:
-                    return (pid, {"error": f"Product {pid} not found"})
-
-                result = format_details(product_details["data"])
-
-                # Record detailed price observation
+                conn = get_db_connection()
                 try:
-                    pricing = result.get("pricing", {})
-                    if pricing and location_id:
-                        record_price_observation(
-                            product_id=pid,
-                            regular_price=pricing.get("regular_price"),
-                            sale_price=pricing.get("sale_price"),
-                            location_id=location_id,
-                            source="details"
-                        )
-                except Exception:
-                    pass  # Don't let price recording break details fetch
+                    availability_filter = (
+                        "" if _include_unavailable else "WHERE is_currently_available = 1"
+                    )
+                    cursor = conn.execute(
+                        f"""
+                        SELECT
+                            product_id,
+                            description,
+                            brand,
+                            added_at,
+                            added_by,
+                            safety_status,
+                            processing_level,
+                            notes,
+                            last_verified_at,
+                            is_currently_available
+                        FROM whole_foods_catalog
+                        {availability_filter}
+                        ORDER BY added_at DESC
+                        LIMIT ?
+                        """,
+                        (_limit,),
+                    )
+                    catalog_products = [dict(row) for row in cursor.fetchall()]
+                    return {
+                        "success": True,
+                        "products": catalog_products,
+                        "total": len(catalog_products),
+                        "include_unavailable": _include_unavailable,
+                    }
+                finally:
+                    conn.close()
 
-                return (pid, result)
-            except Exception as e:
-                return (pid, {"error": str(e)})
+            case "scan_for_whole_foods":
+                if not category:
+                    return {"success": False, "error": "category is required"}
 
-        try:
-            tasks = [fetch_single(pid) for pid in ids]
-            results_list = await asyncio.gather(*tasks)
+                loc_id, err = _get_location(location_id)
+                if err:
+                    return err
 
-            if is_batch:
-                # Batch mode: return grouped results
-                results = {}
-                errors = {}
-                for pid, result in results_list:
-                    if "error" in result:
-                        errors[pid] = result["error"]
-                    else:
-                        results[pid] = result
+                _limit = limit if limit is not None else 20
+                _auto_add = auto_add if auto_add is not None else False
+
+                category_searches = {
+                    "produce": "vegetables",
+                    "dairy": "milk",
+                    "meat": "chicken breast",
+                    "bakery": "bread",
+                    "frozen": "frozen vegetables",
+                }
+                search_term_wf = category_searches.get(category.lower(), category)
 
                 if ctx:
-                    await ctx.info(
-                        f"Retrieved {len(results)} products, {len(errors)} errors"
+                    await ctx.info(f"Scanning for whole foods in category: {category}")
+
+                try:
+                    client = get_client_credentials_client()
+                    search_result = client.search_products(
+                        term=search_term_wf, location_id=loc_id, limit=_limit
+                    )
+                    if not search_result or not search_result.get("data"):
+                        return {"success": False, "error": "Search failed or returned no results"}
+                    scan_products = search_result.get("data", [])
+                except Exception as e:
+                    return {"success": False, "error": f"Search failed: {str(e)}"}
+
+                disabled = get_disabled_ingredients()
+                qualifying_products = []
+                rejected_products = []
+
+                for product in scan_products:
+                    prod_desc = product.get("description")
+                    prod_brand = product.get("brand")
+                    pid = product.get("product_id")
+
+                    if not prod_desc:
+                        continue
+
+                    eligibility = is_whole_food_eligible(
+                        description=prod_desc, brand=prod_brand, disabled_ingredients=disabled
                     )
 
-                return {
-                    "success": len(errors) < len(ids),
-                    "location_id": location_id,
-                    "count": len(results),
-                    "results": results,
-                    "errors": errors if errors else None,
-                }
-            else:
-                # Single mode: return flat response (backwards compatible)
-                pid, result = results_list[0]
-                if "error" in result:
-                    return {"success": False, "message": result["error"]}
-                return {"success": True, **result}
-
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error getting product details: {str(e)}")
-            return {"success": False, "error": str(e)}
-
-    @mcp.tool()
-    async def search_products_by_id(
-        product_id: str,
-        location_id: Optional[str] = None,
-        prioritize_favorites: bool = Field(
-            default=True, description="Boost favorite items to top of results"
-        ),
-        ctx: Context = None,
-    ) -> Dict[str, Any]:
-        """
-        Search for products by their specific product ID.
-
-        Each product includes an 'is_favorite' field indicating if it's
-        in any of your favorite lists.
-
-        Args:
-            product_id: The product ID to search for
-            location_id: Store location ID (uses preferred location if not provided)
-            prioritize_favorites: Boost favorite items to top of results (default: True)
-
-        Returns:
-            Dictionary containing matching products with favorite status
-        """
-        # Use preferred location if none provided
-        if not location_id:
-            location_id = get_preferred_location_id()
-            if not location_id:
-                return {
-                    "success": False,
-                    "error": "No location_id provided and no preferred location set. "
-                    "Use set_preferred_location first.",
-                }
-
-        if ctx:
-            await ctx.info(
-                f"Searching for products with ID '{product_id}' at location {location_id}"
-            )
-
-        client = get_client_credentials_client()
-
-        # Get safety data
-        filtering_enabled = is_filtering_enabled()
-        safe_ids = set()
-        blocked_ids = set()
-        disabled_ingredients = set()
-        block_mode = BlockMode.SOFT
-
-        if filtering_enabled:
-            try:
-                safe_ids = get_all_safe_product_ids()
-                blocked_ids = get_all_blocked_product_ids()
-                disabled_ingredients = get_disabled_ingredients()
-                block_mode = get_block_mode()
-            except Exception:
-                pass
-
-        try:
-            products = client.product.search_products(
-                product_id=product_id, location_id=location_id
-            )
-
-            if not products or "data" not in products or not products["data"]:
-                return {
-                    "success": False,
-                    "message": f"No products found with ID '{product_id}'",
-                    "data": [],
-                }
-
-            # Format product data with safety status
-            formatted_products = []
-            for product in products["data"]:
-                pid = product.get("productId", "")
-                description = product.get("description", "")
-                brand = product.get("brand")
-
-                formatted_product = {
-                    "product_id": pid,
-                    "upc": product.get("upc"),
-                    "description": description,
-                    "brand": brand,
-                    "categories": product.get("categories", []),
-                }
-
-                if (
-                    "items" in product
-                    and product["items"]
-                    and "price" in product["items"][0]
-                ):
-                    price = product["items"][0]["price"]
-                    formatted_product["pricing"] = {
-                        "regular_price": price.get("regular"),
-                        "sale_price": price.get("promo"),
-                        "formatted_regular": format_currency(price.get("regular")),
-                        "formatted_sale": format_currency(price.get("promo")),
+                    result = {
+                        "product_id": pid,
+                        "description": prod_desc,
+                        "brand": prod_brand,
+                        "eligible": eligibility["eligible"],
+                        "safety_status": eligibility["safety_status"],
+                        "reason": eligibility["reason"],
+                        "matches": eligibility["matches"],
                     }
 
-                # Add safety status
-                if filtering_enabled:
-                    if pid in safe_ids:
-                        formatted_product["is_safe_listed"] = True
-                        formatted_product["is_blocked"] = False
-                        formatted_product["safety_status"] = "safe"
-                        formatted_product["flagged_ingredients"] = []
-                    elif pid in blocked_ids:
-                        formatted_product["is_safe_listed"] = False
-                        formatted_product["is_blocked"] = True
-                        formatted_product["safety_status"] = "blocked"
-                        formatted_product["flagged_ingredients"] = []
+                    if eligibility["eligible"]:
+                        qualifying_products.append(result)
+                        if _auto_add:
+                            try:
+                                with get_db_cursor() as cursor:
+                                    cursor.execute(
+                                        """
+                                        INSERT INTO whole_foods_catalog
+                                        (product_id, description, brand, added_by, safety_status, last_verified_at)
+                                        VALUES (?, ?, ?, ?, ?, ?)
+                                        ON CONFLICT(product_id) DO UPDATE SET
+                                            safety_status = excluded.safety_status,
+                                            last_verified_at = excluded.last_verified_at
+                                        """,
+                                        (
+                                            pid,
+                                            prod_desc,
+                                            prod_brand,
+                                            "auto_scan",
+                                            eligibility["safety_status"],
+                                            datetime.now().isoformat(),
+                                        ),
+                                    )
+                            except Exception:
+                                pass
                     else:
-                        formatted_product["is_safe_listed"] = False
-                        formatted_product["is_blocked"] = False
-                        safety_result = check_product_safety(
-                            description=description,
-                            brand=brand,
-                            disabled_ingredients=disabled_ingredients,
-                        )
-                        if not safety_result.has_concerns:
-                            formatted_product["safety_status"] = "unknown"
-                            formatted_product["flagged_ingredients"] = []
-                        else:
-                            formatted_product["safety_status"] = safety_result.highest_severity.value
-                            formatted_product["flagged_ingredients"] = [
-                                {
-                                    "ingredient": m.ingredient_name,
-                                    "severity": m.severity.value,
-                                    "reason": m.reason,
-                                    "matched_text": m.matched_text,
-                                }
-                                for m in safety_result.matches
-                            ]
-                else:
-                    formatted_product["is_safe_listed"] = False
-                    formatted_product["is_blocked"] = False
-                    formatted_product["safety_status"] = "unknown"
-                    formatted_product["flagged_ingredients"] = []
+                        rejected_products.append(result)
 
-                formatted_products.append(formatted_product)
+                return {
+                    "success": True,
+                    "category": category,
+                    "qualifying_products": qualifying_products,
+                    "rejected_products": rejected_products if ctx else [],
+                    "summary": {
+                        "scanned": len(scan_products),
+                        "qualifying": len(qualifying_products),
+                        "rejected": len(rejected_products),
+                        "auto_added": len(qualifying_products) if _auto_add else 0,
+                    },
+                }
 
-            # Get favorite product IDs
-            favorite_ids = set()
-            if prioritize_favorites:
-                try:
-                    favorite_ids = get_all_favorite_product_ids()
-                except Exception:
-                    pass
-
-            # Mark favorites and count safety
-            favorites_count = 0
-            safety_counts = {"safe": 0, "blocked": 0, "critical": 0, "warning": 0, "watch": 0, "unknown": 0}
-            for product in formatted_products:
-                is_fav = product.get("product_id") in favorite_ids
-                product["is_favorite"] = is_fav
-                if is_fav:
-                    favorites_count += 1
-                status = product.get("safety_status", "unknown")
-                if status in safety_counts:
-                    safety_counts[status] += 1
-
-            # Filter and sort
-            if filtering_enabled and block_mode == BlockMode.HARD:
-                formatted_products = [
-                    p for p in formatted_products
-                    if p.get("safety_status") not in ("blocked", "critical")
-                ]
-
-            if prioritize_favorites or filtering_enabled:
-                def sort_key(p):
-                    status = p.get("safety_status", "unknown")
-                    is_fav = p.get("is_favorite", False)
-                    is_safe = p.get("is_safe_listed", False)
-                    if is_safe:
-                        return 0
-                    elif is_fav and status not in ("blocked", "critical"):
-                        return 1
-                    elif status == "unknown":
-                        return 2
-                    elif status == "watch":
-                        return 3
-                    elif status == "warning":
-                        return 4
-                    elif status == "critical":
-                        return 5
-                    elif status == "blocked":
-                        return 6
-                    return 7
-                formatted_products = sorted(formatted_products, key=sort_key)
-
-            flagged = safety_counts.get("critical", 0) + safety_counts.get("warning", 0)
-            if ctx:
-                await ctx.info(
-                    f"Found {len(formatted_products)} products ({favorites_count} favorites, {flagged} flagged)"
-                )
-
-            return {
-                "success": True,
-                "search_params": {
-                    "product_id": product_id,
-                    "location_id": location_id,
-                    "prioritize_favorites": prioritize_favorites,
-                },
-                "count": len(formatted_products),
-                "favorites_count": favorites_count,
-                "safety_counts": safety_counts,
-                "filtering_enabled": filtering_enabled,
-                "data": formatted_products,
-            }
-
-        except Exception as e:
-            if ctx:
-                await ctx.error(f"Error searching products by ID: {str(e)}")
-            return {"success": False, "error": str(e), "data": []}
+            case _:
+                return {"success": False, "error": f"Unknown action: {action}"}

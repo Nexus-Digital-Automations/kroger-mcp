@@ -2,6 +2,7 @@
 Prediction and analytics tools for the Kroger MCP server.
 
 Provides MCP tools for:
+- Pantry inventory management
 - Purchase predictions and recommendations
 - Item categorization
 - Statistics and analytics
@@ -9,1587 +10,894 @@ Provides MCP tools for:
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastmcp import Context
 from pydantic import Field
+
+
+def _get_session_id(ctx) -> str:
+    """Extract session ID from MCP context."""
+    if ctx and hasattr(ctx, 'session_id'):
+        return str(ctx.session_id)
+    return 'default'
 
 
 def register_tools(mcp):
     """Register prediction and analytics tools with the FastMCP server."""
 
     @mcp.tool()
-    async def get_purchase_predictions(
-        days_ahead: int = Field(
-            default=14, ge=1, le=90,
-            description="Number of days to look ahead for predictions"
-        ),
-        category: Optional[str] = Field(
-            default=None,
-            description="Filter by category: 'routine', 'regular', or 'treat'"
-        ),
-        min_confidence: float = Field(
-            default=0.5, ge=0.0, le=1.0,
-            description="Minimum prediction confidence (0-1)"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Get predictions for items that will need to be repurchased soon.
-
-        Returns a list of items sorted by urgency, with predicted repurchase dates,
-        confidence levels, and urgency scores (both numeric 0-1 and labels).
-
-        Use this to help users stay ahead of their grocery needs and never run
-        out of essential items.
-
-        Args:
-            days_ahead: How many days ahead to predict (1-90)
-            category: Filter by 'routine', 'regular', or 'treat'
-            min_confidence: Minimum prediction confidence threshold
-
-        Returns:
-            List of predictions with urgency and confidence scores
-        """
-        try:
-            from ..analytics.predictions import get_predictions_for_period
-
-            predictions = get_predictions_for_period(
-                days_ahead=days_ahead,
-                category_filter=category,
-                min_confidence=min_confidence,
-                include_overdue=True
-            )
-
-            return {
-                "success": True,
-                "predictions": [
-                    {
-                        "product_id": p.product_id,
-                        "description": p.description,
-                        "category": p.category,
-                        "predicted_date": (p.predicted_date.isoformat()
-                                           if p.predicted_date else None),
-                        "days_until": p.days_until,
-                        "urgency": p.urgency,
-                        "urgency_label": p.urgency_label,
-                        "confidence": p.confidence,
-                        "last_purchased": p.last_purchase_date,
-                        "avg_days_between": p.avg_days_between
-                    }
-                    for p in predictions
-                ],
-                "count": len(predictions),
-                "urgent_count": sum(1 for p in predictions if p.urgency >= 0.7),
-                "overdue_count": sum(
-                    1 for p in predictions
-                    if p.days_until is not None and p.days_until < 0
-                ),
-                "timestamp": datetime.now().isoformat()
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get predictions: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def get_item_statistics(
-        product_id: str | List[str] = Field(
+    async def pantry(
+        action: Literal[
+            "get",
+            "add",
+            "update_item",
+            "restock",
+            "get_low_inventory",
+            "remove",
+            "get_attention",
+        ] = Field(
             description=(
-                "Product ID or list of IDs (e.g., '001' or ['001', '002']). "
-                "Max 20 products per batch request."
+                "Action: 'get' - view all pantry items with inventory levels, "
+                "'add' - add item(s) to pantry tracking, "
+                "'update_item' - manually set inventory level for item(s), "
+                "'restock' - mark item(s) as restocked, "
+                "'get_low_inventory' - get items running low, "
+                "'remove' - remove item(s) from pantry tracking, "
+                "'get_attention' - get items needing attention (expired, expiring, low, overdue)"
             )
         ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Get detailed purchase statistics for product(s). Supports batch operations.
-
-        SINGLE MODE:
-            get_item_statistics(product_id="0001111041700")
-
-        BATCH MODE:
-            get_item_statistics(product_id=["0001111041700", "0001111089476"])
-
-        Returns comprehensive data including purchase frequency, average quantities,
-        consumption rate, seasonality score, and detected category.
-
-        Returns:
-            Single mode: Statistics for one product
-            Batch mode: {results: {product_id: statistics, ...}}
-        """
-        # Normalize to list
-        ids = [product_id] if isinstance(product_id, str) else product_id
-        is_batch = len(ids) > 1
-
-        if len(ids) > 20:
-            return {
-                "success": False,
-                "error": "Maximum 20 products per batch request"
-            }
-
-        try:
-            from ..analytics.statistics import get_product_statistics
-            from ..analytics.predictions import predict_repurchase_date
-            from ..analytics.purchase_tracker import get_purchase_events
-
-            def get_stats_for_product(pid: str) -> Dict[str, Any]:
-                """Get statistics for a single product."""
-                stats = get_product_statistics(pid)
-
-                if not stats:
-                    return {
-                        "success": False,
-                        "error": f"No statistics found for product {pid}"
-                    }
-
-                # Get prediction
-                prediction = predict_repurchase_date(pid, stats)
-
-                # Get recent purchase history
-                events = get_purchase_events(pid, 'order_placed', limit=10)
-
-                return {
-                    "success": True,
-                    "product_id": pid,
-                    "description": stats.get('description'),
-                    "brand": stats.get('brand'),
-                    "category": stats.get('category_type'),
-                    "is_manual_category": bool(stats.get('category_override')),
-                    "statistics": {
-                        "total_purchases": stats.get('total_purchases'),
-                        "total_quantity": stats.get('total_quantity'),
-                        "avg_quantity_per_purchase": round(
-                            stats.get('avg_quantity_per_purchase') or 0, 2),
-                        "avg_days_between_purchases": round(
-                            stats.get('avg_days_between_purchases') or 0, 1),
-                        "std_dev_days": round(stats.get('std_dev_days') or 0, 1),
-                        "first_purchase": stats.get('first_purchase_date'),
-                        "last_purchase": stats.get('last_purchase_date'),
-                        "purchase_frequency_score": round(
-                            stats.get('purchase_frequency_score') or 0, 3),
-                        "seasonality_score": round(
-                            stats.get('seasonality_score') or 0, 2)
-                    },
-                    "prediction": {
-                        "next_purchase_date": (
-                            prediction.predicted_date.isoformat()
-                            if prediction.predicted_date else None
-                        ),
-                        "days_until": prediction.days_until,
-                        "urgency": prediction.urgency,
-                        "urgency_label": prediction.urgency_label,
-                        "confidence": prediction.confidence
-                    },
-                    "recent_purchases": [
-                        {
-                            "date": e.get('event_date'),
-                            "quantity": e.get('quantity'),
-                            "modality": e.get('modality')
-                        }
-                        for e in events
-                    ]
-                }
-
-            # Process all products
-            results = {pid: get_stats_for_product(pid) for pid in ids}
-
-            if is_batch:
-                success_count = sum(1 for r in results.values() if r.get('success'))
-                return {
-                    "success": True,
-                    "results": results,
-                    "summary": {
-                        "total": len(ids),
-                        "successful": success_count,
-                        "failed": len(ids) - success_count
-                    }
-                }
-            else:
-                # Single mode - return flat response
-                return results[ids[0]]
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get statistics: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def categorize_item(
-        product_id: str = Field(
+        product_id: Optional[str] = Field(
             default=None,
-            description="Single product ID to categorize"
+            description="Product ID for single-item operations (add, update_item, restock, remove)",
         ),
-        category: str = Field(
+        product_ids: Optional[List[str]] = Field(
             default=None,
-            description="Category: 'routine', 'regular', or 'treat'"
-        ),
-        items: Optional[List[Dict[str, Any]]] = Field(
-            default=None,
-            description="Batch mode: List of {product_id, category} dicts (max 50)"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Set or override the category for product(s). Supports batch operations.
-
-        SINGLE MODE:
-            categorize_item(product_id="0001111041700", category="routine")
-
-        BATCH MODE:
-            categorize_item(items=[
-                {"product_id": "001", "category": "routine"},
-                {"product_id": "002", "category": "regular"}
-            ])
-
-        Categories:
-        - routine: Items purchased almost constantly (every 1-14 days)
-          Examples: milk, bread, eggs, bananas
-        - regular: Items purchased frequently/occasionally (every 15-60 days)
-          Examples: cleaning supplies, seasonings, pasta
-        - treat: Items tied to holidays or special occasions
-          Examples: turkey (Thanksgiving), candy (Halloween)
-
-        Once manually set, the category won't be auto-changed.
-
-        Args:
-            product_id: Single product identifier (single mode)
-            category: Category for single mode
-            items: List of {product_id, category} for batch mode
-
-        Returns:
-            Single mode: Confirmation of the category change
-            Batch mode: {results: {product_id: result, ...}, summary: {...}}
-        """
-        valid_categories = ['routine', 'regular', 'treat']
-
-        # Determine mode and validate
-        if items is not None:
-            # Batch mode
-            if len(items) > 50:
-                return {
-                    "success": False,
-                    "error": "Maximum 50 products per batch request"
-                }
-
-            # Validate all items
-            for item in items:
-                if "product_id" not in item or "category" not in item:
-                    return {
-                        "success": False,
-                        "error": "Each item must have 'product_id' and 'category' fields"
-                    }
-                if item["category"] not in valid_categories:
-                    return {
-                        "success": False,
-                        "error": f"Invalid category '{item['category']}'. Must be one of: {valid_categories}"
-                    }
-
-            is_batch = True
-        else:
-            # Single mode
-            if not product_id or not category:
-                return {
-                    "success": False,
-                    "error": "Single mode requires both product_id and category parameters"
-                }
-            if category not in valid_categories:
-                return {
-                    "success": False,
-                    "error": f"Invalid category. Must be one of: {valid_categories}"
-                }
-
-            items = [{"product_id": product_id, "category": category}]
-            is_batch = False
-
-        try:
-            from ..analytics.categories import set_product_category
-
-            results = {}
-            for item in items:
-                pid = item["product_id"]
-                cat = item["category"]
-                try:
-                    result = set_product_category(pid, cat, is_override=True)
-                    results[pid] = {
-                        "success": True,
-                        "product_id": pid,
-                        "category": cat,
-                        "previous_category": result.previous_category,
-                        "was_auto_detected": not result.was_override,
-                        "message": f"Category set to '{cat}' for product {pid}"
-                    }
-                except Exception as e:
-                    results[pid] = {
-                        "success": False,
-                        "error": f"Failed to categorize {pid}: {str(e)}"
-                    }
-
-            if is_batch:
-                success_count = sum(1 for r in results.values() if r.get('success'))
-                return {
-                    "success": True,
-                    "results": results,
-                    "summary": {
-                        "total": len(items),
-                        "successful": success_count,
-                        "failed": len(items) - success_count
-                    }
-                }
-            else:
-                # Single mode - return flat response
-                return results[items[0]["product_id"]]
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to set category: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def get_items_by_category(
-        category: str = Field(
-            description="Category to filter: 'routine', 'regular', 'treat', or 'uncategorized'"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Get all items in a specific category.
-
-        Args:
-            category: The category to filter by
-
-        Returns:
-            List of items in the specified category with their statistics
-        """
-        valid_categories = ['routine', 'regular', 'treat', 'uncategorized']
-        if category not in valid_categories:
-            return {
-                "success": False,
-                "error": f"Invalid category. Must be one of: {valid_categories}"
-            }
-
-        try:
-            from ..analytics.categories import get_items_by_category
-
-            items = get_items_by_category(category, include_stats=True)
-
-            return {
-                "success": True,
-                "category": category,
-                "items": [
-                    {
-                        "product_id": item.get('product_id'),
-                        "description": item.get('description'),
-                        "brand": item.get('brand'),
-                        "total_purchases": item.get('total_purchases'),
-                        "avg_days_between": round(
-                            item.get('avg_days_between_purchases') or 0, 1),
-                        "last_purchase": item.get('last_purchase_date'),
-                        "seasonality_score": round(
-                            item.get('seasonality_score') or 0, 2)
-                    }
-                    for item in items
-                ],
-                "count": len(items)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get items: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def get_purchase_history(
-        product_id: str = Field(
-            description="The product ID to get history for"
-        ),
-        limit: int = Field(
-            default=20, ge=1, le=100,
-            description="Maximum number of events to return"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Get purchase history for a specific product.
-
-        Returns a chronological list of when this item was purchased,
-        including quantities and modalities.
-
-        Args:
-            product_id: The product identifier
-            limit: Maximum number of events (1-100)
-
-        Returns:
-            List of purchase events for the product
-        """
-        try:
-            from ..analytics.purchase_tracker import get_purchase_events
-
-            events = get_purchase_events(
-                product_id,
-                event_type='order_placed',
-                limit=limit
-            )
-
-            return {
-                "success": True,
-                "product_id": product_id,
-                "events": [
-                    {
-                        "date": e.get('event_date'),
-                        "timestamp": e.get('event_timestamp'),
-                        "quantity": e.get('quantity'),
-                        "modality": e.get('modality'),
-                        "order_id": e.get('order_id')
-                    }
-                    for e in events
-                ],
-                "count": len(events)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get history: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def get_shopping_suggestions(
-        include_routine: bool = Field(
-            default=True,
-            description="Include routine items due for repurchase"
-        ),
-        include_predicted: bool = Field(
-            default=True,
-            description="Include items predicted to run out soon"
-        ),
-        include_seasonal: bool = Field(
-            default=True,
-            description="Include upcoming seasonal/holiday items"
-        ),
-        days_ahead: int = Field(
-            default=7, ge=1, le=30,
-            description="Days to look ahead for predictions"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Generate a smart shopping list based on purchase patterns and predictions.
-
-        This combines overdue items, routine needs, predicted requirements,
-        and upcoming seasonal items into one organized list.
-
-        Use this to help users create comprehensive shopping lists without
-        forgetting important items.
-
-        Args:
-            include_routine: Include routine items needing repurchase
-            include_predicted: Include predicted needs
-            include_seasonal: Include seasonal/holiday items
-            days_ahead: Number of days to look ahead
-
-        Returns:
-            Categorized shopping suggestions with urgency levels
-        """
-        try:
-            from ..analytics.predictions import get_shopping_suggestions
-
-            suggestions = get_shopping_suggestions(
-                include_routine=include_routine,
-                include_predicted=include_predicted,
-                include_seasonal=include_seasonal,
-                days_ahead=days_ahead,
-                min_confidence=0.5
-            )
-
-            return {
-                "success": True,
-                **suggestions,
-                "timestamp": datetime.now().isoformat()
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get suggestions: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def get_smart_shopping_recommendations(
-        days_ahead: int = Field(default=14, ge=1, le=60,
-            description="Look ahead window for predictions (1-60 days)"),
-        include_low_pantry: bool = Field(default=True,
-            description="Include items with low inventory levels"),
-        include_deals: bool = Field(default=True,
-            description="Prioritize items currently on sale"),
-        include_predictions: bool = Field(default=True,
-            description="Include consumption-based predictions"),
-        include_favorites_only: bool = Field(default=False,
-            description="Only recommend items in favorite lists"),
-        min_score: int = Field(default=20, ge=0, le=100,
-            description="Filter out items below this score (0-100)"),
-        max_results: int = Field(default=50, ge=1, le=100,
-            description="Maximum recommendations to return (1-100)"),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Generate smart shopping recommendations integrating ALL available data.
-
-        This is the most comprehensive recommendation tool, combining:
-
-        1. URGENCY SIGNALS (Critical Needs):
-           - Pantry items running critically low (< 10%)
-           - Items below low inventory threshold
-           - Overdue predicted repurchases
-           - Items you're about to run out of
-
-        2. SAVINGS OPPORTUNITIES (Deal Intelligence):
-           - Current deals and promotional sales
-           - Items at or near 30-day lowest price
-           - High-value discounts on frequently purchased items
-           - Best time to buy based on price history
-
-        3. RELEVANCE INDICATORS (Personal Preferences):
-           - Items in your favorite lists
-           - Frequently purchased items (high consumption rate)
-           - Items matching your purchase patterns
-           - Recently purchased items (continuity)
-
-        4. TIMING OPTIMIZATION (Purchase Windows):
-           - Items predicted to need repurchase within specified window
-           - Seasonal items approaching their season
-           - Items on recurring schedules (from favorites)
-
-        SCORING SYSTEM:
-        Each recommendation receives 0-100 points from multiple factors:
-        - Urgency: pantry depletion (40 pts) + overdue status (15 pts)
-        - Deals: savings percentage (25 pts) + price history (10 pts)
-        - Relevance: favorites (10 pts) + frequency (10 pts) + recency (5 pts)
-        - Timing: purchase window (10 pts) + seasonal (5 pts)
-
-        PRIORITY TIERS (based on score):
-        - Urgent (80-100): Immediate action needed
-        - High Value (60-79): Great deals on relevant items
-        - Good Timing (40-59): Optimal purchase window
-        - Nice to Have (20-39): Lower priority suggestions
-        - Optional (0-19): Minimal relevance (filtered by min_score)
-
-        OUTPUT STRUCTURE:
-        Recommendations are grouped by priority tier with full context:
-        - Overall recommendation score
-        - Factor breakdown (why it's recommended)
-        - Pantry status (if tracked)
-        - Current pricing and deal quality
-        - Purchase prediction and timing
-        - Historical purchase stats
-
-        EXAMPLE USE CASES:
-        1. "What should I buy this week?" → Default params
-        2. "Show me urgent needs only" → min_score=80
-        3. "What deals should I get from my favorites?" →
-           include_favorites_only=True, include_deals=True
-        4. "Show me everything running low" →
-           include_low_pantry=True, min_score=30
-
-        Args:
-            days_ahead: Look ahead window for predictions (1-60 days)
-            include_low_pantry: Include items with low inventory levels
-            include_deals: Prioritize items currently on sale
-            include_predictions: Include consumption-based predictions
-            include_favorites_only: Only recommend items in favorite lists
-            min_score: Filter out items below this score (0-100)
-            max_results: Maximum recommendations to return (1-100)
-
-        Returns:
-            Prioritized recommendations grouped by tier with comprehensive data
-        """
-        try:
-            from ..analytics.recommendations import get_comprehensive_recommendations
-
-            # Get user's preferred location for deal context
-            location_id = None
-            try:
-                from ..storage import get_preferred_location
-                location = get_preferred_location()
-                if location:
-                    location_id = location.get('location_id')
-            except Exception:
-                pass  # Location is optional
-
-            return get_comprehensive_recommendations(
-                days_ahead=days_ahead,
-                include_low_pantry=include_low_pantry,
-                include_deals=include_deals,
-                include_predictions=include_predictions,
-                include_favorites_only=include_favorites_only,
-                min_score=min_score,
-                max_results=max_results,
-                location_id=location_id
-            )
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get smart recommendations: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def get_seasonal_items(
-        days_ahead: int = Field(
-            default=30, ge=1, le=90,
-            description="Days ahead to look for seasonal items"
-        ),
-        holiday: Optional[str] = Field(
-            default=None,
-            description="Filter by holiday: thanksgiving, christmas, halloween, easter, july_4th"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Get items associated with upcoming holidays or seasons.
-
-        Identifies items that you typically buy around specific holidays
-        based on your purchase history.
-
-        Args:
-            days_ahead: Number of days to look ahead (1-90)
-            holiday: Optional filter for specific holiday
-
-        Returns:
-            List of seasonal items with their holiday associations
-        """
-        try:
-            if holiday:
-                from ..analytics.seasonal import get_holiday_items
-                items = get_holiday_items(holiday)
-                return {
-                    "success": True,
-                    "holiday": holiday,
-                    "items": items,
-                    "count": len(items)
-                }
-            else:
-                from ..analytics.seasonal import get_upcoming_seasonal_items
-                items = get_upcoming_seasonal_items(days_ahead)
-                return {
-                    "success": True,
-                    "days_ahead": days_ahead,
-                    "items": items,
-                    "count": len(items)
-                }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get seasonal items: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def migrate_purchase_data(
-        force: bool = Field(
-            default=False,
-            description="Force migration even if already done (use with caution)"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Migrate existing purchase data from JSON files to the analytics database.
-
-        This is typically run automatically on first use, but can be triggered
-        manually if needed. The migration imports:
-        - Order history from kroger_order_history.json
-        - Current cart from kroger_cart.json
-
-        Args:
-            force: If True, re-run migration (may duplicate data)
-
-        Returns:
-            Summary of migrated data
-        """
-        try:
-            from ..analytics.migration import (
-                migrate_json_to_sqlite,
-                force_remigration,
-                get_migration_status
-            )
-
-            if force:
-                result = force_remigration()
-            else:
-                result = migrate_json_to_sqlite()
-
-            status = get_migration_status()
-
-            return {
-                "success": result.get('success', False),
-                "migration_result": result,
-                "current_status": status
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Migration failed: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def get_category_summary(
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Get a summary of items by category.
-
-        Returns counts of items in each category (routine, regular, treat)
-        to help understand your purchase patterns.
-
-        Returns:
-            Category counts and totals
-        """
-        try:
-            from ..analytics.categories import get_category_summary
-
-            summary = get_category_summary()
-
-            total = sum(summary.values())
-
-            return {
-                "success": True,
-                "categories": summary,
-                "total_products": total,
-                "timestamp": datetime.now().isoformat()
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get summary: {str(e)}"
-            }
-
-    # ========== Pantry Inventory Tools ==========
-
-    @mcp.tool()
-    async def get_pantry(
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        View all pantry items with current estimated inventory levels.
-
-        Levels are automatically estimated based on consumption rate since
-        last restock. Items are sorted by level (lowest first).
-
-        Returns:
-            List of pantry items with status (ok/low/out), level percentage,
-            and days until empty
-        """
-        try:
-            from ..analytics.pantry import get_pantry_status
-
-            items = get_pantry_status(apply_depletion=True)
-
-            return {
-                "success": True,
-                "items": items,
-                "count": len(items),
-                "low_count": sum(1 for i in items if i['status'] == 'low'),
-                "out_count": sum(1 for i in items if i['status'] == 'out'),
-                "timestamp": datetime.now().isoformat()
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get pantry: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def update_pantry_item(
-        product_id: str | List[str] = Field(
-            description=(
-                "Product ID or list of IDs to update. "
-                "Max 50 products per batch request."
-            )
-        ),
-        level: int = Field(
-            ge=0, le=100,
-            description="New inventory level (0-100%, applied to all items in batch)"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Manually set the inventory level for pantry item(s). Supports batch operations.
-
-        SINGLE MODE:
-            update_pantry_item(product_id="0001111041700", level=50)
-
-        BATCH MODE:
-            update_pantry_item(product_id=["001", "002", "003"], level=50)
-
-        Use this to correct the estimate when it's off, e.g., "I'm actually
-        almost out of milk" -> set to 10%.
-
-        Args:
-            product_id: Product ID or list of IDs to update
-            level: New percentage level (0=out, 100=full)
-
-        Returns:
-            Single mode: Updated item info
-            Batch mode: {results: {product_id: result, ...}, summary: {...}}
-        """
-        # Normalize to list
-        ids = [product_id] if isinstance(product_id, str) else product_id
-        is_batch = len(ids) > 1
-
-        if len(ids) > 50:
-            return {
-                "success": False,
-                "error": "Maximum 50 products per batch request"
-            }
-
-        try:
-            from ..analytics.pantry import update_pantry_level
-
-            results = {}
-            for pid in ids:
-                try:
-                    result = update_pantry_level(pid, level)
-                    results[pid] = result
-                except Exception as e:
-                    results[pid] = {
-                        "success": False,
-                        "error": f"Failed to update {pid}: {str(e)}"
-                    }
-
-            if is_batch:
-                success_count = sum(1 for r in results.values() if r.get('success'))
-                return {
-                    "success": True,
-                    "results": results,
-                    "summary": {
-                        "total": len(ids),
-                        "successful": success_count,
-                        "failed": len(ids) - success_count,
-                        "level_set": level
-                    }
-                }
-            else:
-                # Single mode - return flat response
-                return results[ids[0]]
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to update pantry: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def restock_pantry_item(
-        product_id: str | List[str] = Field(
-            description=(
-                "Product ID or list of IDs to mark as restocked. "
-                "Max 50 products per batch request."
-            )
-        ),
-        level: int = Field(
-            default=100, ge=0, le=100,
-            description="Level to set (default 100%)"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Mark pantry item(s) as restocked. Supports batch operations.
-
-        SINGLE MODE:
-            restock_pantry_item(product_id="0001111041700", level=100)
-
-        BATCH MODE:
-            restock_pantry_item(product_id=["001", "002", "003"], level=100)
-
-        This is automatically called when orders are placed, but can be
-        used manually when you restock from another source.
-
-        Args:
-            product_id: Product ID or list of IDs to restock
-            level: Level to set (default 100%)
-
-        Returns:
-            Single mode: Updated item info with new depletion rate
-            Batch mode: {results: {product_id: result, ...}}
-        """
-        # Normalize to list
-        ids = [product_id] if isinstance(product_id, str) else product_id
-        is_batch = len(ids) > 1
-
-        if len(ids) > 50:
-            return {
-                "success": False,
-                "error": "Maximum 50 products per batch request"
-            }
-
-        try:
-            from ..analytics.pantry import restock_item
-
-            results = {}
-            for pid in ids:
-                try:
-                    result = restock_item(pid, level)
-                    results[pid] = result
-                except Exception as e:
-                    results[pid] = {
-                        "success": False,
-                        "error": f"Failed to restock {pid}: {str(e)}"
-                    }
-
-            if is_batch:
-                success_count = sum(1 for r in results.values() if r.get('success'))
-                return {
-                    "success": True,
-                    "results": results,
-                    "summary": {
-                        "total": len(ids),
-                        "successful": success_count,
-                        "failed": len(ids) - success_count,
-                        "level_set": level
-                    }
-                }
-            else:
-                # Single mode - return flat response
-                return results[ids[0]]
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to restock: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def get_low_inventory(
-        threshold: int = Field(
-            default=20, ge=0, le=100,
-            description="Threshold percentage to consider 'low'"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Get pantry items that are running low.
-
-        Returns items below the specified threshold (default 20%).
-
-        Args:
-            threshold: Consider items below this level as low
-
-        Returns:
-            List of low inventory items sorted by level
-        """
-        try:
-            from ..analytics.pantry import get_low_inventory_items
-
-            items = get_low_inventory_items(threshold)
-
-            return {
-                "success": True,
-                "threshold": threshold,
-                "items": items,
-                "count": len(items),
-                "out_count": sum(1 for i in items if i['level_percent'] <= 0)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get low inventory: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def add_to_pantry(
-        product_id: str | List[str] = Field(
-            description=(
-                "Product ID or list of IDs to add to pantry tracking. "
-                "Max 50 products per batch request."
-            )
+            description="List of product IDs for batch operations (max 50) (add, update_item, restock, remove)",
         ),
         description: Optional[str] = Field(
             default=None,
-            description="Product description (applied to all items in batch, fetched automatically if not provided)"
+            description="Product description (for add, applied to all items in batch if provided)",
         ),
-        level: int = Field(
-            default=100, ge=0, le=100,
-            description="Initial inventory level (default 100%)"
+        level: Optional[int] = Field(
+            default=None,
+            description="Inventory level 0-100% (for add default 100, update_item required, restock default 100)",
         ),
-        low_threshold: int = Field(
-            default=20, ge=0, le=100,
-            description="Alert when level drops below this (default 20%)"
+        low_threshold: Optional[int] = Field(
+            default=None,
+            description="Alert when level drops below this % (for add, default 20)",
         ),
-        ctx: Context = None
+        threshold: Optional[int] = Field(
+            default=None,
+            description="Threshold % to consider 'low' (for get_low_inventory, default 20)",
+        ),
+        days_ahead: Optional[int] = Field(
+            default=None,
+            description="Days ahead to check for expiring items (1-30, default 7, for get_attention)",
+        ),
+        ctx: Context = None,
     ) -> Dict[str, Any]:
-        """
-        Add item(s) to pantry tracking. Supports batch operations.
-
-        SINGLE MODE:
-            add_to_pantry(product_id="0001111041700", level=100)
-
-        BATCH MODE:
-            add_to_pantry(product_id=["001", "002", "003"], level=100)
-
-        The system will automatically estimate depletion based on your
-        purchase history for this item.
-
-        Args:
-            product_id: Product ID or list of IDs to add
-            description: Optional product description (applied to all)
-            level: Initial level (default 100%)
-            low_threshold: Warn when below this level (default 20%)
-
-        Returns:
-            Single mode: Confirmation with depletion rate info
-            Batch mode: {results: {product_id: result, ...}, summary: {...}}
-        """
-        # Normalize to list
-        ids = [product_id] if isinstance(product_id, str) else product_id
-        is_batch = len(ids) > 1
-
-        if len(ids) > 50:
-            return {
-                "success": False,
-                "error": "Maximum 50 products per batch request"
-            }
-
-        try:
-            from ..analytics.pantry import add_to_pantry
-
-            results = {}
-            for pid in ids:
+        """Pantry inventory management operations."""
+        match action:
+            case "get":
                 try:
-                    result = add_to_pantry(
-                        product_id=pid,
-                        description=description,
-                        level=level,
-                        low_threshold=low_threshold,
-                        auto_deplete=True
-                    )
-                    results[pid] = result
-                except Exception as e:
-                    results[pid] = {
-                        "success": False,
-                        "error": f"Failed to add {pid}: {str(e)}"
-                    }
+                    from ..analytics.pantry import get_pantry_status
 
-            if is_batch:
-                success_count = sum(1 for r in results.values() if r.get('success'))
-                return {
-                    "success": True,
-                    "results": results,
-                    "summary": {
-                        "total": len(ids),
-                        "successful": success_count,
-                        "failed": len(ids) - success_count,
-                        "level": level,
-                        "low_threshold": low_threshold
-                    }
-                }
-            else:
-                # Single mode - return flat response
-                return results[ids[0]]
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to add to pantry: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def remove_from_pantry(
-        product_id: str | List[str] = Field(
-            description=(
-                "Product ID or list of IDs to remove from pantry tracking. "
-                "Max 50 products per batch request."
-            )
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Remove item(s) from pantry tracking. Supports batch operations.
-
-        SINGLE MODE:
-            remove_from_pantry(product_id="0001111041700")
-
-        BATCH MODE:
-            remove_from_pantry(product_id=["001", "002", "003"])
-
-        Args:
-            product_id: Product ID or list of IDs to stop tracking
-
-        Returns:
-            Single mode: Confirmation of removal
-            Batch mode: {results: {product_id: result, ...}, summary: {...}}
-        """
-        # Normalize to list
-        ids = [product_id] if isinstance(product_id, str) else product_id
-        is_batch = len(ids) > 1
-
-        if len(ids) > 50:
-            return {
-                "success": False,
-                "error": "Maximum 50 products per batch request"
-            }
-
-        try:
-            from ..analytics.pantry import remove_from_pantry
-
-            results = {}
-            for pid in ids:
-                try:
-                    result = remove_from_pantry(pid)
-                    results[pid] = result
-                except Exception as e:
-                    results[pid] = {
-                        "success": False,
-                        "error": f"Failed to remove {pid}: {str(e)}"
-                    }
-
-            if is_batch:
-                success_count = sum(1 for r in results.values() if r.get('success'))
-                return {
-                    "success": True,
-                    "results": results,
-                    "summary": {
-                        "total": len(ids),
-                        "successful": success_count,
-                        "failed": len(ids) - success_count
-                    }
-                }
-            else:
-                # Single mode - return flat response
-                return results[ids[0]]
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to remove from pantry: {str(e)}"
-            }
-
-    # ========== Configuration Tools ==========
-
-    @mcp.tool()
-    async def configure_predictions(
-        ewma_alpha: Optional[float] = Field(
-            default=None, ge=0.1, le=0.9,
-            description="EWMA decay factor (0.1-0.9). Lower = more weight on recent"
-        ),
-        routine_buffer: Optional[float] = Field(
-            default=None, ge=0.0, le=2.0,
-            description="Safety buffer for routine items (std dev multiplier)"
-        ),
-        regular_buffer: Optional[float] = Field(
-            default=None, ge=0.0, le=2.0,
-            description="Safety buffer for regular items (std dev multiplier)"
-        ),
-        treat_buffer: Optional[float] = Field(
-            default=None, ge=0.0, le=2.0,
-            description="Safety buffer for treat items (std dev multiplier)"
-        ),
-        routine_max_days: Optional[int] = Field(
-            default=None, ge=1, le=30,
-            description="Max days between purchases for 'routine' category"
-        ),
-        regular_max_days: Optional[int] = Field(
-            default=None, ge=15, le=120,
-            description="Max days between purchases for 'regular' category"
-        ),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Configure prediction parameters and category thresholds.
-
-        All parameters are optional - only specified values will be updated.
-        Use this to tune predictions based on your preferences.
-
-        Examples:
-        - Set ewma_alpha=0.2 to give more weight to recent purchases
-        - Set routine_buffer=1.5 for extra safety on essentials
-        - Set routine_max_days=7 for stricter routine classification
-
-        Args:
-            ewma_alpha: EWMA decay factor (lower = more weight on recent)
-            routine_buffer: Std dev multiplier for routine items
-            regular_buffer: Std dev multiplier for regular items
-            treat_buffer: Std dev multiplier for treat items
-            routine_max_days: Category threshold for routine items
-            regular_max_days: Category threshold for regular items
-
-        Returns:
-            Updated configuration
-        """
-        try:
-            from ..analytics.config import update_config, get_config_summary
-
-            # Build update kwargs from provided values
-            kwargs = {}
-            if ewma_alpha is not None:
-                kwargs['ewma_alpha'] = ewma_alpha
-            if routine_buffer is not None:
-                kwargs['buffer_routine'] = routine_buffer
-            if regular_buffer is not None:
-                kwargs['buffer_regular'] = regular_buffer
-            if treat_buffer is not None:
-                kwargs['buffer_treat'] = treat_buffer
-            if routine_max_days is not None:
-                kwargs['routine_max_days'] = routine_max_days
-            if regular_max_days is not None:
-                kwargs['regular_max_days'] = regular_max_days
-
-            if kwargs:
-                result = update_config(**kwargs)
-            else:
-                result = {'success': True, 'message': 'No changes specified'}
-
-            # Always return current config summary
-            result['current_config'] = get_config_summary()
-            return result
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to configure predictions: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def get_prediction_config(
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        View current prediction configuration settings.
-
-        Returns all configurable parameters with their current values
-        and descriptions.
-
-        Returns:
-            Current configuration summary
-        """
-        try:
-            from ..analytics.config import get_config_summary
-
-            return {
-                "success": True,
-                "config": get_config_summary()
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get config: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def reset_prediction_config(
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Reset prediction configuration to defaults.
-
-        This will reset all prediction parameters to their default values.
-
-        Returns:
-            Default configuration
-        """
-        try:
-            from ..analytics.config import reset_config, get_config_summary
-
-            reset_config()
-            return {
-                "success": True,
-                "message": "Configuration reset to defaults",
-                "config": get_config_summary()
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to reset config: {str(e)}"
-            }
-
-    # ========== Expiration Date Tools ==========
-
-    @mcp.tool()
-    async def set_expiration_dates(
-        product_id: str | List[str] = Field(...),
-        expiration_date: Optional[str] = Field(...),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Manually override auto-calculated expiration date(s) for pantry item(s).
-
-        NORMALLY NOT NEEDED - expiration dates are automatically calculated when
-        you mark orders as placed based on product category and purchase date.
-
-        USE THIS ONLY FOR:
-        - Correcting incorrect auto-calculated dates
-        - Items with non-standard shelf life (e.g., opened milk expires sooner)
-        - Clearing expiration for long-lasting items
-
-        SINGLE MODE:
-            set_expiration_dates(product_id="0001111041700", expiration_date="2026-03-15")
-
-        BATCH MODE:
-            set_expiration_dates(
-                product_id=["001", "002", "003"],
-                expiration_date="2026-03-15"
-            )
-
-        CLEAR EXPIRATION:
-            set_expiration_dates(product_id="001", expiration_date=null)
-
-        Args:
-            product_id: Product ID or list of IDs (max 50)
-            expiration_date: ISO date (YYYY-MM-DD) or null to clear
-
-        Returns:
-            Single mode: Flat response with success status
-            Batch mode: {results: {id: data}, summary: {...}}
-        """
-        # Normalize to list
-        ids = [product_id] if isinstance(product_id, str) else product_id
-        is_batch = len(ids) > 1
-
-        if len(ids) > 50:
-            return {
-                "success": False,
-                "error": "Maximum 50 products per batch request"
-            }
-
-        # Validate expiration_date format if provided
-        if expiration_date is not None:
-            try:
-                datetime.fromisoformat(expiration_date)
-            except (ValueError, TypeError):
-                return {
-                    "success": False,
-                    "error": f"Invalid date format. Use YYYY-MM-DD (e.g., '2026-03-15')"
-                }
-
-        try:
-            from ..analytics.database import get_db_connection, ensure_initialized
-            from ..analytics.pantry import calculate_days_to_expiration
-
-            ensure_initialized()
-
-            def set_expiration_for_product(pid: str) -> Dict[str, Any]:
-                """Set expiration date for a single product."""
-                conn = get_db_connection()
-                try:
-                    # Check if item exists in pantry
-                    cursor = conn.execute(
-                        "SELECT product_id, description FROM pantry_items WHERE product_id = ?",
-                        (pid,)
-                    )
-                    row = cursor.fetchone()
-                    if not row:
-                        return {
-                            "success": False,
-                            "error": f"Product {pid} not in pantry. Add to pantry first."
-                        }
-
-                    description = row['description']
-
-                    # Calculate days_to_expiration
-                    days_to_exp = calculate_days_to_expiration(expiration_date)
-
-                    # Update expiration fields
-                    conn.execute("""
-                        UPDATE pantry_items
-                        SET expiration_date = ?,
-                            days_to_expiration = ?
-                        WHERE product_id = ?
-                    """, (expiration_date, days_to_exp, pid))
-                    conn.commit()
-
+                    items = get_pantry_status(apply_depletion=True)
                     return {
                         "success": True,
-                        "product_id": pid,
-                        "description": description,
-                        "expiration_date": expiration_date,
-                        "days_to_expiration": days_to_exp,
-                        "message": f"Expiration date {'cleared' if not expiration_date else 'set'}"
+                        "items": items,
+                        "count": len(items),
+                        "low_count": sum(1 for i in items if i["status"] == "low"),
+                        "out_count": sum(1 for i in items if i["status"] == "out"),
+                        "timestamp": datetime.now().isoformat(),
                     }
-                finally:
-                    conn.close()
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get pantry: {str(e)}"}
 
-            # Process all products
-            results = {pid: set_expiration_for_product(pid) for pid in ids}
+            case "add":
+                ids = product_ids if product_ids else ([product_id] if product_id else [])
+                if not ids:
+                    return {"success": False, "error": "product_id or product_ids is required"}
+                is_batch = len(ids) > 1
 
-            if is_batch:
-                success_count = sum(1 for r in results.values() if r.get('success'))
-                return {
-                    "success": True,
-                    "results": results,
-                    "summary": {
-                        "total": len(ids),
-                        "successful": success_count,
-                        "failed": len(ids) - success_count
+                if len(ids) > 50:
+                    return {"success": False, "error": "Maximum 50 products per batch request"}
+
+                _level = level if level is not None else 100
+                _low_threshold = low_threshold if low_threshold is not None else 20
+
+                try:
+                    from ..analytics.pantry import add_to_pantry as _add_to_pantry
+
+                    results = {}
+                    for pid in ids:
+                        try:
+                            result = _add_to_pantry(
+                                product_id=pid,
+                                description=description,
+                                level=_level,
+                                low_threshold=_low_threshold,
+                                auto_deplete=True,
+                            )
+                            results[pid] = result
+                        except Exception as e:
+                            results[pid] = {"success": False, "error": f"Failed to add {pid}: {str(e)}"}
+
+                    if is_batch:
+                        success_count = sum(1 for r in results.values() if r.get("success"))
+                        return {
+                            "success": True,
+                            "results": results,
+                            "summary": {
+                                "total": len(ids),
+                                "successful": success_count,
+                                "failed": len(ids) - success_count,
+                                "level": _level,
+                                "low_threshold": _low_threshold,
+                            },
+                        }
+                    return results[ids[0]]
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to add to pantry: {str(e)}"}
+
+            case "update_item":
+                ids = product_ids if product_ids else ([product_id] if product_id else [])
+                if not ids:
+                    return {"success": False, "error": "product_id or product_ids is required"}
+                if level is None:
+                    return {"success": False, "error": "level is required for update_item"}
+                is_batch = len(ids) > 1
+
+                if len(ids) > 50:
+                    return {"success": False, "error": "Maximum 50 products per batch request"}
+
+                try:
+                    from ..analytics.pantry import update_pantry_level
+
+                    results = {}
+                    for pid in ids:
+                        try:
+                            results[pid] = update_pantry_level(pid, level)
+                        except Exception as e:
+                            results[pid] = {"success": False, "error": f"Failed to update {pid}: {str(e)}"}
+
+                    if is_batch:
+                        success_count = sum(1 for r in results.values() if r.get("success"))
+                        return {
+                            "success": True,
+                            "results": results,
+                            "summary": {
+                                "total": len(ids),
+                                "successful": success_count,
+                                "failed": len(ids) - success_count,
+                                "level_set": level,
+                            },
+                        }
+                    return results[ids[0]]
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to update pantry: {str(e)}"}
+
+            case "restock":
+                ids = product_ids if product_ids else ([product_id] if product_id else [])
+                if not ids:
+                    return {"success": False, "error": "product_id or product_ids is required"}
+                is_batch = len(ids) > 1
+
+                if len(ids) > 50:
+                    return {"success": False, "error": "Maximum 50 products per batch request"}
+
+                _level = level if level is not None else 100
+
+                try:
+                    from ..analytics.pantry import restock_item
+
+                    results = {}
+                    for pid in ids:
+                        try:
+                            results[pid] = restock_item(pid, _level)
+                        except Exception as e:
+                            results[pid] = {"success": False, "error": f"Failed to restock {pid}: {str(e)}"}
+
+                    if is_batch:
+                        success_count = sum(1 for r in results.values() if r.get("success"))
+                        return {
+                            "success": True,
+                            "results": results,
+                            "summary": {
+                                "total": len(ids),
+                                "successful": success_count,
+                                "failed": len(ids) - success_count,
+                                "level_set": _level,
+                            },
+                        }
+                    return results[ids[0]]
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to restock: {str(e)}"}
+
+            case "get_low_inventory":
+                _threshold = threshold if threshold is not None else 20
+                try:
+                    from ..analytics.pantry import get_low_inventory_items
+
+                    items = get_low_inventory_items(_threshold)
+                    return {
+                        "success": True,
+                        "threshold": _threshold,
+                        "items": items,
+                        "count": len(items),
+                        "out_count": sum(1 for i in items if i["level_percent"] <= 0),
                     }
-                }
-            else:
-                # Single mode - return flat response
-                return results[ids[0]]
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get low inventory: {str(e)}"}
 
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to set expiration date: {str(e)}"
-            }
+            case "remove":
+                ids = product_ids if product_ids else ([product_id] if product_id else [])
+                if not ids:
+                    return {"success": False, "error": "product_id or product_ids is required"}
+                is_batch = len(ids) > 1
+
+                if len(ids) > 50:
+                    return {"success": False, "error": "Maximum 50 products per batch request"}
+
+                try:
+                    from ..analytics.pantry import remove_from_pantry as _remove_from_pantry
+
+                    results = {}
+                    for pid in ids:
+                        try:
+                            results[pid] = _remove_from_pantry(pid)
+                        except Exception as e:
+                            results[pid] = {"success": False, "error": f"Failed to remove {pid}: {str(e)}"}
+
+                    if is_batch:
+                        success_count = sum(1 for r in results.values() if r.get("success"))
+                        return {
+                            "success": True,
+                            "results": results,
+                            "summary": {
+                                "total": len(ids),
+                                "successful": success_count,
+                                "failed": len(ids) - success_count,
+                            },
+                        }
+                    return results[ids[0]]
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to remove from pantry: {str(e)}"}
+
+            case "get_attention":
+                days_ahead_val = days_ahead if days_ahead is not None else 7
+                try:
+                    from ..analytics.pantry import get_pantry_status
+                    from ..analytics.predictions import get_predictions_for_period
+                    from ..config.session_state import get_session_manager
+
+                    session_id = _get_session_id(ctx)
+                    pantry_items = get_pantry_status(apply_depletion=True)
+                    overdue_predictions = get_predictions_for_period(
+                        days_ahead=0,
+                        min_confidence=0.5,
+                        include_overdue=True
+                    )
+                    overdue_ids = {p.product_id: p for p in overdue_predictions if p.days_until is not None and p.days_until < 0}
+                    attention_items = []
+
+                    for item in pantry_items:
+                        pid = item['product_id']
+                        reasons = []
+                        urgency_level = None
+                        action_msg = None
+                        exp_status = item.get('expiration_status', 'none')
+                        days_to_exp = item.get('days_to_expiration')
+                        if exp_status == 'expired':
+                            reasons.append('expired')
+                            urgency_level = 'critical'
+                            action_msg = f"Use immediately or discard - expired {abs(days_to_exp)} days ago"
+                        elif exp_status == 'critical':
+                            reasons.append('expiring_critical')
+                            urgency_level = 'critical'
+                            action_msg = f"Expires in {days_to_exp} days"
+                        elif exp_status == 'warning' and days_to_exp is not None and days_to_exp <= days_ahead_val:
+                            reasons.append('expiring_soon')
+                            urgency_level = urgency_level or 'high'
+                            action_msg = action_msg or f"Expiring soon ({days_to_exp} days)"
+                        level = item.get('level_percent', 100)
+                        status = item.get('status', 'ok')
+                        if level <= 10:
+                            reasons.append('critical_inventory')
+                            urgency_level = 'critical'
+                            action_msg = action_msg or f"Running critically low ({level}%) - reorder immediately"
+                        elif level <= 25 and status == 'low':
+                            reasons.append('low_inventory')
+                            urgency_level = urgency_level or 'medium'
+                            action_msg = action_msg or f"Running low ({level}%) - reorder soon"
+                        if pid in overdue_ids:
+                            pred = overdue_ids[pid]
+                            days_overdue = abs(pred.days_until)
+                            reasons.append('overdue')
+                            urgency_level = urgency_level or 'medium'
+                            action_msg = action_msg or f"Overdue by {days_overdue} days - time to repurchase"
+                        if reasons:
+                            attention_items.append({
+                                "product_id": pid,
+                                "description": item['description'],
+                                "attention_reason": reasons[0],
+                                "urgency_level": urgency_level,
+                                "details": {
+                                    "expiration_date": item.get('expiration_date'),
+                                    "days_to_expiration": days_to_exp,
+                                    "pantry_level": level,
+                                    "days_overdue": abs(overdue_ids[pid].days_until) if pid in overdue_ids else 0,
+                                    "days_until_empty": item.get('days_until_empty')
+                                },
+                                "action": action_msg
+                            })
+
+                    urgency_order = {'critical': 0, 'high': 1, 'medium': 2}
+                    attention_items.sort(key=lambda x: urgency_order.get(x['urgency_level'], 3))
+                    summary = {
+                        "total_items": len(attention_items),
+                        "expired": sum(1 for i in attention_items if i['attention_reason'] == 'expired'),
+                        "expiring_critical": sum(1 for i in attention_items if i['attention_reason'] == 'expiring_critical'),
+                        "expiring_soon": sum(1 for i in attention_items if i['attention_reason'] == 'expiring_soon'),
+                        "critical_inventory": sum(1 for i in attention_items if i['attention_reason'] == 'critical_inventory'),
+                        "low_inventory": sum(1 for i in attention_items if i['attention_reason'] == 'low_inventory'),
+                        "overdue": sum(1 for i in attention_items if i['attention_reason'] == 'overdue')
+                    }
+                    session_manager = get_session_manager()
+                    session_manager.mark_tool_called(session_id, "get_pantry_attention")
+                    return {
+                        "success": True,
+                        "items": attention_items,
+                        "summary": summary,
+                        "timestamp": datetime.now().isoformat(),
+                        "_session_requirement_fulfilled": True
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get pantry attention items: {str(e)}"}
+
+            case _:
+                return {"success": False, "error": f"Unknown action: {action}"}
 
     @mcp.tool()
-    async def get_pantry_attention(
-        days_ahead: int = Field(default=7, ge=1, le=30),
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Get all items needing attention RIGHT NOW - expiring soon, running low, or overdue.
-
-        ⚠️ REQUIRED: This tool MUST be called at least once per session before you can
-        add items to the cart. This ensures you review what needs attention before shopping.
-
-        This is the unified "what do I need to deal with?" tool. Shows:
-        - Items expiring within the next N days
-        - Items with low inventory (below threshold)
-        - Items overdue for repurchase based on predictions
-
-        Results are sorted by urgency:
-        1. Expired items (URGENT - past expiration date)
-        2. Critical expiration (0-2 days until expiration)
-        3. Critical inventory (≤10% pantry level)
-        4. Expiring soon (3-7 days)
-        5. Low inventory (≤25% pantry level)
-        6. Overdue for reorder
-
-        After calling this tool, you'll be able to use add_to_cart for the rest of
-        the session. The session requirement resets when the conversation ends.
-
-        Args:
-            days_ahead: How many days ahead to check for expiring items (1-30)
-
-        Returns:
-            Simple list of items needing attention, sorted by urgency
-        """
-        try:
-            from ..analytics.pantry import get_pantry_status
-            from ..analytics.predictions import predict_repurchase_date, get_predictions_for_period
-            from ..config.session_state import get_session_manager
-
-            # Get session ID from context
-            session_id = _get_session_id(ctx)
-
-            # Get all pantry items with expiration status
-            pantry_items = get_pantry_status(apply_depletion=True)
-
-            # Get overdue predictions
-            overdue_predictions = get_predictions_for_period(
-                days_ahead=0,
-                min_confidence=0.5,
-                include_overdue=True
+    async def predictions(
+        action: Literal[
+            "get_predictions",
+            "get_item_stats",
+            "categorize",
+            "get_by_category",
+            "get_history",
+            "get_suggestions",
+            "get_smart_recommendations",
+            "get_seasonal",
+            "migrate_data",
+            "get_category_summary",
+            "configure",
+            "get_config",
+            "reset_config",
+        ] = Field(
+            description=(
+                "Action: 'get_predictions' - get items needing repurchase soon, "
+                "'get_item_stats' - get purchase statistics for product(s), "
+                "'categorize' - set category for product(s), "
+                "'get_by_category' - get all items in a category, "
+                "'get_history' - get purchase history for a product, "
+                "'get_suggestions' - generate smart shopping list from patterns, "
+                "'get_smart_recommendations' - comprehensive recommendations with scoring, "
+                "'get_seasonal' - get upcoming seasonal/holiday items, "
+                "'migrate_data' - migrate purchase data from JSON to database, "
+                "'get_category_summary' - get counts per category, "
+                "'configure' - update prediction parameters, "
+                "'get_config' - view current prediction config, "
+                "'reset_config' - reset prediction config to defaults"
             )
-            overdue_ids = {p.product_id: p for p in overdue_predictions if p.days_until is not None and p.days_until < 0}
+        ),
+        days_ahead: Optional[int] = Field(
+            default=None,
+            description="Days to look ahead for predictions (for get_predictions default 14, get_suggestions default 7, get_smart_recommendations default 14, get_seasonal default 30)",
+        ),
+        category: Optional[str] = Field(
+            default=None,
+            description="Category filter: 'routine', 'regular', 'treat' (for get_predictions, get_by_category also accepts 'uncategorized', categorize single mode)",
+        ),
+        min_confidence: Optional[float] = Field(
+            default=None,
+            description="Minimum prediction confidence 0-1 (for get_predictions, default 0.5)",
+        ),
+        product_id: Optional[str] = Field(
+            default=None,
+            description="Product ID for single-item operations (get_item_stats, categorize, get_history)",
+        ),
+        product_ids: Optional[List[str]] = Field(
+            default=None,
+            description="List of product IDs for batch get_item_stats (max 20)",
+        ),
+        items: Optional[List[Dict[str, Any]]] = Field(
+            default=None,
+            description="Batch categorize list: [{product_id, category}, ...] max 50 (for categorize batch mode)",
+        ),
+        history_limit: Optional[int] = Field(
+            default=None,
+            description="Max history events to return 1-100 (for get_history, default 20)",
+        ),
+        include_routine: Optional[bool] = Field(
+            default=None,
+            description="Include routine items (for get_suggestions, default True)",
+        ),
+        include_predicted: Optional[bool] = Field(
+            default=None,
+            description="Include predicted items (for get_suggestions, default True)",
+        ),
+        include_seasonal: Optional[bool] = Field(
+            default=None,
+            description="Include seasonal items (for get_suggestions, default True)",
+        ),
+        include_low_pantry: Optional[bool] = Field(
+            default=None,
+            description="Include items with low inventory (for get_smart_recommendations, default True)",
+        ),
+        include_deals: Optional[bool] = Field(
+            default=None,
+            description="Prioritize items on sale (for get_smart_recommendations, default True)",
+        ),
+        include_predictions_flag: Optional[bool] = Field(
+            default=None,
+            description="Include consumption-based predictions (for get_smart_recommendations, default True)",
+        ),
+        include_favorites_only: Optional[bool] = Field(
+            default=None,
+            description="Only recommend items in favorites (for get_smart_recommendations, default False)",
+        ),
+        min_score: Optional[int] = Field(
+            default=None,
+            description="Filter items below this score 0-100 (for get_smart_recommendations, default 20)",
+        ),
+        max_results: Optional[int] = Field(
+            default=None,
+            description="Max recommendations to return 1-100 (for get_smart_recommendations, default 50)",
+        ),
+        holiday: Optional[str] = Field(
+            default=None,
+            description="Holiday filter: thanksgiving, christmas, halloween, easter, july_4th (for get_seasonal)",
+        ),
+        force: Optional[bool] = Field(
+            default=None,
+            description="Force re-migration even if already done (for migrate_data, default False)",
+        ),
+        ewma_alpha: Optional[float] = Field(
+            default=None,
+            description="EWMA decay factor 0.1-0.9 (for configure)",
+        ),
+        routine_buffer: Optional[float] = Field(
+            default=None,
+            description="Safety buffer for routine items std dev multiplier (for configure)",
+        ),
+        regular_buffer: Optional[float] = Field(
+            default=None,
+            description="Safety buffer for regular items std dev multiplier (for configure)",
+        ),
+        treat_buffer: Optional[float] = Field(
+            default=None,
+            description="Safety buffer for treat items std dev multiplier (for configure)",
+        ),
+        routine_max_days: Optional[int] = Field(
+            default=None,
+            description="Max days between purchases for 'routine' category (for configure)",
+        ),
+        regular_max_days: Optional[int] = Field(
+            default=None,
+            description="Max days between purchases for 'regular' category (for configure)",
+        ),
+        ctx: Context = None,
+    ) -> Dict[str, Any]:
+        """Purchase predictions, analytics, and configuration operations."""
+        match action:
+            case "get_predictions":
+                try:
+                    from ..analytics.predictions import get_predictions_for_period
 
-            attention_items = []
+                    _days = days_ahead if days_ahead is not None else 14
+                    _conf = min_confidence if min_confidence is not None else 0.5
 
-            for item in pantry_items:
-                pid = item['product_id']
-                reasons = []
-                urgency_level = None
-                action = None
+                    preds = get_predictions_for_period(
+                        days_ahead=_days,
+                        category_filter=category,
+                        min_confidence=_conf,
+                        include_overdue=True,
+                    )
+                    return {
+                        "success": True,
+                        "predictions": [
+                            {
+                                "product_id": p.product_id,
+                                "description": p.description,
+                                "category": p.category,
+                                "predicted_date": (
+                                    p.predicted_date.isoformat() if p.predicted_date else None
+                                ),
+                                "days_until": p.days_until,
+                                "urgency": p.urgency,
+                                "urgency_label": p.urgency_label,
+                                "confidence": p.confidence,
+                                "last_purchased": p.last_purchase_date,
+                                "avg_days_between": p.avg_days_between,
+                            }
+                            for p in preds
+                        ],
+                        "count": len(preds),
+                        "urgent_count": sum(1 for p in preds if p.urgency >= 0.7),
+                        "overdue_count": sum(
+                            1 for p in preds if p.days_until is not None and p.days_until < 0
+                        ),
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get predictions: {str(e)}"}
 
-                # Check expiration status
-                exp_status = item.get('expiration_status', 'none')
-                days_to_exp = item.get('days_to_expiration')
+            case "get_item_stats":
+                ids = product_ids if product_ids else ([product_id] if product_id else [])
+                if not ids:
+                    return {"success": False, "error": "product_id or product_ids is required"}
+                is_batch = len(ids) > 1
 
-                if exp_status == 'expired':
-                    reasons.append('expired')
-                    urgency_level = 'critical'
-                    action = f"Use immediately or discard - expired {abs(days_to_exp)} days ago"
-                elif exp_status == 'critical':
-                    reasons.append('expiring_critical')
-                    urgency_level = 'critical'
-                    action = f"Expires in {days_to_exp} days"
-                elif exp_status == 'warning' and days_to_exp <= days_ahead:
-                    reasons.append('expiring_soon')
-                    urgency_level = urgency_level or 'high'
-                    action = action or f"Expiring soon ({days_to_exp} days)"
+                if len(ids) > 20:
+                    return {"success": False, "error": "Maximum 20 products per batch request"}
 
-                # Check pantry level
-                level = item.get('level_percent', 100)
-                status = item.get('status', 'ok')
+                try:
+                    from ..analytics.statistics import get_product_statistics
+                    from ..analytics.predictions import predict_repurchase_date
+                    from ..analytics.purchase_tracker import get_purchase_events
 
-                if level <= 10:
-                    reasons.append('critical_inventory')
-                    urgency_level = 'critical'
-                    days_until_empty = item.get('days_until_empty')
-                    action = action or f"Running critically low ({level}%) - reorder immediately"
-                elif level <= 25 and status == 'low':
-                    reasons.append('low_inventory')
-                    urgency_level = urgency_level or 'medium'
-                    action = action or f"Running low ({level}%) - reorder soon"
+                    def get_stats_for(pid: str) -> Dict[str, Any]:
+                        stats = get_product_statistics(pid)
+                        if not stats:
+                            return {"success": False, "error": f"No statistics found for product {pid}"}
+                        prediction = predict_repurchase_date(pid, stats)
+                        events = get_purchase_events(pid, "order_placed", limit=10)
+                        return {
+                            "success": True,
+                            "product_id": pid,
+                            "description": stats.get("description"),
+                            "brand": stats.get("brand"),
+                            "category": stats.get("category_type"),
+                            "is_manual_category": bool(stats.get("category_override")),
+                            "statistics": {
+                                "total_purchases": stats.get("total_purchases"),
+                                "total_quantity": stats.get("total_quantity"),
+                                "avg_quantity_per_purchase": round(
+                                    stats.get("avg_quantity_per_purchase") or 0, 2
+                                ),
+                                "avg_days_between_purchases": round(
+                                    stats.get("avg_days_between_purchases") or 0, 1
+                                ),
+                                "std_dev_days": round(stats.get("std_dev_days") or 0, 1),
+                                "first_purchase": stats.get("first_purchase_date"),
+                                "last_purchase": stats.get("last_purchase_date"),
+                                "purchase_frequency_score": round(
+                                    stats.get("purchase_frequency_score") or 0, 3
+                                ),
+                                "seasonality_score": round(
+                                    stats.get("seasonality_score") or 0, 2
+                                ),
+                            },
+                            "prediction": {
+                                "next_purchase_date": (
+                                    prediction.predicted_date.isoformat()
+                                    if prediction.predicted_date
+                                    else None
+                                ),
+                                "days_until": prediction.days_until,
+                                "urgency": prediction.urgency,
+                                "urgency_label": prediction.urgency_label,
+                                "confidence": prediction.confidence,
+                            },
+                            "recent_purchases": [
+                                {
+                                    "date": e.get("event_date"),
+                                    "quantity": e.get("quantity"),
+                                    "modality": e.get("modality"),
+                                }
+                                for e in events
+                            ],
+                        }
 
-                # Check if overdue for reorder
-                if pid in overdue_ids:
-                    pred = overdue_ids[pid]
-                    days_overdue = abs(pred.days_until)
-                    reasons.append('overdue')
-                    urgency_level = urgency_level or 'medium'
-                    action = action or f"Overdue by {days_overdue} days - time to repurchase"
+                    results = {pid: get_stats_for(pid) for pid in ids}
 
-                # Only include items with attention needs
-                if reasons:
-                    # Determine primary reason (first one in list)
-                    primary_reason = reasons[0]
+                    if is_batch:
+                        success_count = sum(1 for r in results.values() if r.get("success"))
+                        return {
+                            "success": True,
+                            "results": results,
+                            "summary": {
+                                "total": len(ids),
+                                "successful": success_count,
+                                "failed": len(ids) - success_count,
+                            },
+                        }
+                    return results[ids[0]]
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get statistics: {str(e)}"}
 
-                    attention_items.append({
-                        "product_id": pid,
-                        "description": item['description'],
-                        "attention_reason": primary_reason,
-                        "urgency_level": urgency_level,
-                        "details": {
-                            "expiration_date": item.get('expiration_date'),
-                            "days_to_expiration": days_to_exp,
-                            "pantry_level": level,
-                            "days_overdue": abs(overdue_ids[pid].days_until) if pid in overdue_ids else 0,
-                            "days_until_empty": item.get('days_until_empty')
-                        },
-                        "action": action
-                    })
+            case "categorize":
+                valid_categories = ["routine", "regular", "treat"]
 
-            # Sort by urgency (critical first, then high, then medium)
-            urgency_order = {'critical': 0, 'high': 1, 'medium': 2}
-            attention_items.sort(key=lambda x: urgency_order.get(x['urgency_level'], 3))
+                if items is not None:
+                    if len(items) > 50:
+                        return {"success": False, "error": "Maximum 50 products per batch request"}
+                    for item in items:
+                        if "product_id" not in item or "category" not in item:
+                            return {
+                                "success": False,
+                                "error": "Each item must have 'product_id' and 'category' fields",
+                            }
+                        if item["category"] not in valid_categories:
+                            return {
+                                "success": False,
+                                "error": f"Invalid category '{item['category']}'. Must be one of: {valid_categories}",
+                            }
+                    is_batch = True
+                    items_to_process = items
+                else:
+                    if not product_id or not category:
+                        return {
+                            "success": False,
+                            "error": "Single mode requires both product_id and category parameters",
+                        }
+                    if category not in valid_categories:
+                        return {
+                            "success": False,
+                            "error": f"Invalid category. Must be one of: {valid_categories}",
+                        }
+                    is_batch = False
+                    items_to_process = [{"product_id": product_id, "category": category}]
 
-            # Build summary
-            summary = {
-                "total_items": len(attention_items),
-                "expired": sum(1 for i in attention_items if i['attention_reason'] == 'expired'),
-                "expiring_critical": sum(1 for i in attention_items if i['attention_reason'] == 'expiring_critical'),
-                "expiring_soon": sum(1 for i in attention_items if i['attention_reason'] == 'expiring_soon'),
-                "critical_inventory": sum(1 for i in attention_items if i['attention_reason'] == 'critical_inventory'),
-                "low_inventory": sum(1 for i in attention_items if i['attention_reason'] == 'low_inventory'),
-                "overdue": sum(1 for i in attention_items if i['attention_reason'] == 'overdue')
-            }
+                try:
+                    from ..analytics.categories import set_product_category
 
-            # SUCCESS - Mark tool as called in this session
-            session_manager = get_session_manager()
-            session_manager.mark_tool_called(session_id, "get_pantry_attention")
+                    results = {}
+                    for item in items_to_process:
+                        pid = item["product_id"]
+                        cat = item["category"]
+                        try:
+                            result = set_product_category(pid, cat, is_override=True)
+                            results[pid] = {
+                                "success": True,
+                                "product_id": pid,
+                                "category": cat,
+                                "previous_category": result.previous_category,
+                                "was_auto_detected": not result.was_override,
+                                "message": f"Category set to '{cat}' for product {pid}",
+                            }
+                        except Exception as e:
+                            results[pid] = {
+                                "success": False,
+                                "error": f"Failed to categorize {pid}: {str(e)}",
+                            }
 
-            return {
-                "success": True,
-                "items": attention_items,
-                "summary": summary,
-                "timestamp": datetime.now().isoformat(),
-                "_session_requirement_fulfilled": True  # Hint to client
-            }
+                    if is_batch:
+                        success_count = sum(1 for r in results.values() if r.get("success"))
+                        return {
+                            "success": True,
+                            "results": results,
+                            "summary": {
+                                "total": len(items_to_process),
+                                "successful": success_count,
+                                "failed": len(items_to_process) - success_count,
+                            },
+                        }
+                    return results[items_to_process[0]["product_id"]]
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to set category: {str(e)}"}
 
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get pantry attention items: {str(e)}"
-            }
+            case "get_by_category":
+                if not category:
+                    return {"success": False, "error": "category is required"}
+                valid_categories = ["routine", "regular", "treat", "uncategorized"]
+                if category not in valid_categories:
+                    return {
+                        "success": False,
+                        "error": f"Invalid category. Must be one of: {valid_categories}",
+                    }
+                try:
+                    from ..analytics.categories import get_items_by_category
 
+                    cat_items = get_items_by_category(category, include_stats=True)
+                    return {
+                        "success": True,
+                        "category": category,
+                        "items": [
+                            {
+                                "product_id": item.get("product_id"),
+                                "description": item.get("description"),
+                                "brand": item.get("brand"),
+                                "total_purchases": item.get("total_purchases"),
+                                "avg_days_between": round(
+                                    item.get("avg_days_between_purchases") or 0, 1
+                                ),
+                                "last_purchase": item.get("last_purchase_date"),
+                                "seasonality_score": round(
+                                    item.get("seasonality_score") or 0, 2
+                                ),
+                            }
+                            for item in cat_items
+                        ],
+                        "count": len(cat_items),
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get items: {str(e)}"}
 
-def _get_session_id(ctx: Context) -> str:
-    """
-    Extract session ID from MCP context.
+            case "get_history":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+                _limit = history_limit if history_limit is not None else 20
+                try:
+                    from ..analytics.purchase_tracker import get_purchase_events
 
-    Falls back to 'default' if no context available (testing, etc.)
-    """
-    if ctx and hasattr(ctx, 'session_id'):
-        return str(ctx.session_id)
-    # Fallback for testing or when context unavailable
-    return 'default'
+                    events = get_purchase_events(product_id, event_type="order_placed", limit=_limit)
+                    return {
+                        "success": True,
+                        "product_id": product_id,
+                        "events": [
+                            {
+                                "date": e.get("event_date"),
+                                "timestamp": e.get("event_timestamp"),
+                                "quantity": e.get("quantity"),
+                                "modality": e.get("modality"),
+                                "order_id": e.get("order_id"),
+                            }
+                            for e in events
+                        ],
+                        "count": len(events),
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get history: {str(e)}"}
+
+            case "get_suggestions":
+                try:
+                    from ..analytics.predictions import get_shopping_suggestions
+
+                    _days = days_ahead if days_ahead is not None else 7
+                    _routine = include_routine if include_routine is not None else True
+                    _predicted = include_predicted if include_predicted is not None else True
+                    _seasonal = include_seasonal if include_seasonal is not None else True
+
+                    suggestions = get_shopping_suggestions(
+                        include_routine=_routine,
+                        include_predicted=_predicted,
+                        include_seasonal=_seasonal,
+                        days_ahead=_days,
+                        min_confidence=0.5,
+                    )
+                    return {"success": True, **suggestions, "timestamp": datetime.now().isoformat()}
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get suggestions: {str(e)}"}
+
+            case "get_smart_recommendations":
+                try:
+                    from ..analytics.recommendations import get_comprehensive_recommendations
+
+                    _days = days_ahead if days_ahead is not None else 14
+                    _low_pantry = include_low_pantry if include_low_pantry is not None else True
+                    _deals = include_deals if include_deals is not None else True
+                    _preds = include_predictions_flag if include_predictions_flag is not None else True
+                    _fav_only = include_favorites_only if include_favorites_only is not None else False
+                    _min_score = min_score if min_score is not None else 20
+                    _max_res = max_results if max_results is not None else 50
+
+                    location_id = None
+                    try:
+                        from ..storage import get_preferred_location
+                        location = get_preferred_location()
+                        if location:
+                            location_id = location.get("location_id")
+                    except Exception:
+                        pass
+
+                    return get_comprehensive_recommendations(
+                        days_ahead=_days,
+                        include_low_pantry=_low_pantry,
+                        include_deals=_deals,
+                        include_predictions=_preds,
+                        include_favorites_only=_fav_only,
+                        min_score=_min_score,
+                        max_results=_max_res,
+                        location_id=location_id,
+                    )
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get smart recommendations: {str(e)}"}
+
+            case "get_seasonal":
+                try:
+                    _days = days_ahead if days_ahead is not None else 30
+                    if holiday:
+                        from ..analytics.seasonal import get_holiday_items
+                        sea_items = get_holiday_items(holiday)
+                        return {"success": True, "holiday": holiday, "items": sea_items, "count": len(sea_items)}
+                    else:
+                        from ..analytics.seasonal import get_upcoming_seasonal_items
+                        sea_items = get_upcoming_seasonal_items(_days)
+                        return {"success": True, "days_ahead": _days, "items": sea_items, "count": len(sea_items)}
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get seasonal items: {str(e)}"}
+
+            case "migrate_data":
+                try:
+                    from ..analytics.migration import (
+                        force_remigration,
+                        get_migration_status,
+                        migrate_json_to_sqlite,
+                    )
+
+                    _force = force if force is not None else False
+                    result = force_remigration() if _force else migrate_json_to_sqlite()
+                    status = get_migration_status()
+                    return {
+                        "success": result.get("success", False),
+                        "migration_result": result,
+                        "current_status": status,
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Migration failed: {str(e)}"}
+
+            case "get_category_summary":
+                try:
+                    from ..analytics.categories import get_category_summary
+
+                    summary = get_category_summary()
+                    total = sum(summary.values())
+                    return {
+                        "success": True,
+                        "categories": summary,
+                        "total_products": total,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get summary: {str(e)}"}
+
+            case "configure":
+                try:
+                    from ..analytics.config import get_config_summary, update_config
+
+                    kwargs = {}
+                    if ewma_alpha is not None:
+                        kwargs["ewma_alpha"] = ewma_alpha
+                    if routine_buffer is not None:
+                        kwargs["buffer_routine"] = routine_buffer
+                    if regular_buffer is not None:
+                        kwargs["buffer_regular"] = regular_buffer
+                    if treat_buffer is not None:
+                        kwargs["buffer_treat"] = treat_buffer
+                    if routine_max_days is not None:
+                        kwargs["routine_max_days"] = routine_max_days
+                    if regular_max_days is not None:
+                        kwargs["regular_max_days"] = regular_max_days
+
+                    result = update_config(**kwargs) if kwargs else {"success": True, "message": "No changes specified"}
+                    result["current_config"] = get_config_summary()
+                    return result
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to configure predictions: {str(e)}"}
+
+            case "get_config":
+                try:
+                    from ..analytics.config import get_config_summary
+
+                    return {"success": True, "config": get_config_summary()}
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to get config: {str(e)}"}
+
+            case "reset_config":
+                try:
+                    from ..analytics.config import get_config_summary, reset_config
+
+                    reset_config()
+                    return {
+                        "success": True,
+                        "message": "Configuration reset to defaults",
+                        "config": get_config_summary(),
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to reset config: {str(e)}"}
+
+            case _:
+                return {"success": False, "error": f"Unknown action: {action}"}
