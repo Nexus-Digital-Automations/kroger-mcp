@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Smart Shopper{% endblock %}
+{% block heading %}Dashboard{% endblock %}
+
+{% block content %}
+
+<!-- Stat Cards -->
+<div class="grid grid-cols-4 gap-4 mb-8">
+  {% set stats = [
+    ("Recipes", recipe_count, "text-emerald-600"),
+    ("Pantry Alerts", pantry_alert_count, "text-amber-600"),
+    ("Meal Plans", meal_plan_count, "text-blue-600"),
+    ("Favorites Lists", favorites_count, "text-purple-600"),
+  ] %}
+  {% for label, value, color in stats %}
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <p class="text-sm text-gray-500 font-medium">{{ label }}</p>
+    <p class="text-3xl font-bold mt-1 {{ color }}">{{ value }}</p>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Two-column body -->
+<div class="grid grid-cols-2 gap-6 mb-6">
+
+  <!-- Pantry Needs Attention -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Pantry Needs Attention</h2>
+    {% if pantry_alerts %}
+    <ul class="space-y-2">
+      {% for item in pantry_alerts %}
+      <li class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+        <span class="text-sm text-gray-700 truncate flex-1 mr-3">{{ item.description }}</span>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          {% if item.is_expiring %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+            Exp {{ item.days_to_expiration }}d
+          </span>
+          {% endif %}
+          {% if item.level_percent <= 0 %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">OUT</span>
+          {% elif item.is_low %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+            {{ item.level_percent }}%
+          </span>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-sm text-gray-400">All pantry items are well stocked.</p>
+    {% endif %}
+  </div>
+
+  <!-- This Week's Meals -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">This Week's Meals</h2>
+    <div class="grid grid-cols-7 gap-1">
+      {% set day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
+      {% for day in week_days %}
+      {% set date_str = day.isoformat() %}
+      {% set is_today = (day == today) %}
+      <div class="rounded-lg p-2 text-center {% if is_today %}bg-emerald-50 ring-1 ring-emerald-300{% else %}bg-gray-50{% endif %}">
+        <p class="text-xs font-semibold {% if is_today %}text-emerald-700{% else %}text-gray-500{% endif %}">
+          {{ day_names[loop.index0] }}
+        </p>
+        <p class="text-xs {% if is_today %}text-emerald-600{% else %}text-gray-400{% endif %} mb-1">
+          {{ day.strftime("%-d") }}
+        </p>
+        {% if date_str in meals_by_date %}
+          {% for meal in meals_by_date[date_str] %}
+          <p class="text-xs text-gray-600 leading-tight truncate">{{ meal }}</p>
+          {% endfor %}
+        {% else %}
+          <p class="text-xs text-gray-300">&mdash;</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+<!-- Overdue Favorites -->
+{% if overdue_favorites %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+  <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Favorites Overdue for Reorder</h2>
+  <div class="grid grid-cols-3 gap-3">
+    {% for fav in overdue_favorites %}
+    <a href="/favorites/{{ fav.list_id }}"
+       class="flex items-center justify-between p-3 rounded-lg border border-red-100 bg-red-50 hover:bg-red-100 transition-colors">
+      <span class="text-sm font-medium text-gray-800 truncate">{{ fav.name }}</span>
+      <span class="text-xs text-red-600 font-semibold ml-2 flex-shrink-0">
+        {% if fav.days_overdue > 0 %}{{ fav.days_overdue }}d overdue{% else %}Due now{% endif %}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

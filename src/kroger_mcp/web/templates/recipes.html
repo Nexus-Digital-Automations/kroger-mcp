@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Recipes — Smart Shopper{% endblock %}
+{% block heading %}Recipes{% endblock %}
+
+{% block content %}
+
+<div x-data="{
+  search: '',
+  activeTags: [],
+  toggleTag(tag) {
+    if (this.activeTags.includes(tag)) {
+      this.activeTags = this.activeTags.filter(t => t !== tag);
+    } else {
+      this.activeTags.push(tag);
+    }
+  },
+  matches(el) {
+    const name = el.dataset.name || '';
+    const tags = JSON.parse(el.dataset.tags || '[]');
+    const q = this.search.toLowerCase();
+    const nameMatch = !q || name.toLowerCase().includes(q);
+    const tagMatch = this.activeTags.length === 0 ||
+      this.activeTags.every(t => tags.includes(t));
+    return nameMatch && tagMatch;
+  }
+}">
+
+  <!-- Search + Filters -->
+  <div class="mb-6 space-y-3">
+    <div class="flex items-center gap-3">
+      <div class="relative flex-1 max-w-sm">
+        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+        <input
+          type="text"
+          x-model="search"
+          placeholder="Search recipes..."
+          class="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+        />
+      </div>
+      <span class="text-sm text-gray-500">{{ recipe_count }} recipes</span>
+    </div>
+
+    <!-- Tag chips -->
+    {% if all_tags %}
+    <div class="flex flex-wrap gap-2">
+      {% for tag in all_tags %}
+      <button
+        @click="toggleTag('{{ tag }}')"
+        :class="activeTags.includes('{{ tag }}')
+          ? 'bg-emerald-600 text-white border-emerald-600'
+          : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-400'"
+        class="px-3 py-1 text-xs font-medium rounded-full border transition-colors">
+        {{ tag }}
+      </button>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Recipe Grid -->
+  <div class="grid grid-cols-3 gap-4">
+    {% for recipe in recipes %}
+    <div x-show="matches($el)"
+       data-name="{{ recipe.name | e }}"
+       data-tags='{{ recipe.tags | tojson }}'
+       class="relative bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-emerald-200 transition-all">
+      <!-- Delete button -->
+      <button
+        onclick="event.stopPropagation(); event.preventDefault();
+          if(confirm('Delete &quot;{{ recipe.name | e }}&quot;? This cannot be undone.')) {
+            fetch('/api/recipes/{{ recipe.id }}', {method:'DELETE'})
+              .then(r => r.ok ? window.location.reload() : alert('Failed to delete recipe'));
+          }"
+        class="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-full
+          bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors z-10"
+        title="Delete recipe">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+      <a href="/recipes/{{ recipe.id }}" class="block p-5">
+      <div class="flex items-start justify-between mb-2">
+        <h3 class="text-sm font-semibold text-gray-900 leading-tight pr-6">{{ recipe.name }}</h3>
+        {% if recipe.times_ordered %}
+        <span class="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-medium ml-2 flex-shrink-0">
+          x{{ recipe.times_ordered }}
+        </span>
+        {% endif %}
+      </div>
+
+      <div class="flex items-center gap-3 text-xs text-gray-500 mb-3">
+        {% if recipe.servings %}
+        <span>{{ recipe.servings }} servings</span>
+        {% endif %}
+        {% if recipe.ingredients %}
+        <span>{{ recipe.ingredients | length }} ingredients</span>
+        {% endif %}
+      </div>
+
+      {% if recipe.tags %}
+      <div class="flex flex-wrap gap-1">
+        {% for tag in recipe.tags[:4] %}
+        <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{{ tag }}</span>
+        {% endfor %}
+        {% if recipe.tags | length > 4 %}
+        <span class="text-xs text-gray-400">+{{ recipe.tags | length - 4 }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Empty state -->
+  <div x-show="{{ recipes | length }} === 0" class="text-center py-16 text-gray-400">
+    <p class="text-sm">No recipes saved yet. Add recipes through Claude.</p>
+  </div>
+
+</div>
+{% endblock %}

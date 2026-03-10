@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}Favorites — Smart Shopper{% endblock %}
+{% block heading %}Favorites{% endblock %}
+
+{% block content %}
+
+<!-- New List Modal -->
+<div x-data="{
+  open: false,
+  name: '',
+  description: '',
+  loading: false,
+  error: '',
+  async submit() {
+    if (!this.name.trim()) { this.error = 'Name is required'; return; }
+    this.loading = true; this.error = '';
+    try {
+      const r = await fetch('/api/favorites/lists', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: this.name.trim(), description: this.description.trim()})
+      });
+      const d = await r.json();
+      if (r.ok && d.success) {
+        window.location.reload();
+      } else {
+        this.error = d.error || 'Failed to create list';
+      }
+    } catch(e) { this.error = 'Network error'; }
+    this.loading = false;
+  }
+}">
+  <!-- Trigger button -->
+  <div class="flex items-center justify-between mb-6">
+    <div></div>
+    <button @click="open = true"
+      class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+      + New List
+    </button>
+  </div>
+
+  <!-- Modal overlay -->
+  <div x-show="open" x-cloak
+    class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+    @click.self="open = false">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+      <h2 class="text-base font-semibold text-gray-900 mb-4">New Favorites List</h2>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Name <span class="text-red-500">*</span></label>
+          <input x-model="name" type="text" placeholder="e.g. Weekly Staples"
+            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            @keydown.enter="submit()"/>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
+          <input x-model="description" type="text" placeholder="Optional description"
+            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+        </div>
+        <p x-show="error" class="text-xs text-red-600" x-text="error"></p>
+      </div>
+      <div class="flex justify-end gap-3 mt-6">
+        <button @click="open = false; name=''; description=''; error='';"
+          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">
+          Cancel
+        </button>
+        <button @click="submit()" :disabled="loading"
+          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+          <span x-show="!loading">Create List</span>
+          <span x-show="loading">Creating...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if not lists %}
+<div class="text-center py-16 text-gray-400">
+  <p class="text-sm">No favorites lists yet. Create your first list above.</p>
+</div>
+{% else %}
+
+<div class="grid grid-cols-3 gap-4">
+  {% for lst in lists %}
+  {% set color_map = {"red": "bg-red-100 text-red-700", "amber": "bg-amber-100 text-amber-700", "emerald": "bg-emerald-100 text-emerald-700", "gray": "bg-gray-100 text-gray-500"} %}
+  <a href="/favorites/{{ lst.id }}"
+     class="block bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md hover:border-emerald-200 transition-all">
+    <div class="flex items-start justify-between mb-3">
+      <h3 class="text-sm font-semibold text-gray-900">{{ lst.name }}</h3>
+      <span class="text-xs px-2 py-0.5 rounded-full font-medium ml-2 flex-shrink-0
+        {{ color_map.get(lst.badge_color, 'bg-gray-100 text-gray-500') }}">
+        {{ lst.badge_label }}
+      </span>
+    </div>
+
+    {% if lst.description %}
+    <p class="text-xs text-gray-500 mb-3 line-clamp-2">{{ lst.description }}</p>
+    {% endif %}
+
+    <div class="flex items-center justify-between text-xs text-gray-500">
+      <span>{{ lst.item_count }} item{{ 's' if lst.item_count != 1 else '' }}</span>
+      {% set rs = lst.reorder_status %}
+      {% if rs.has_schedule %}
+        {% if rs.status == 'overdue' %}
+        <span class="text-red-600 font-medium">{{ rs.days_overdue }}d overdue</span>
+        {% elif rs.status == 'due_soon' %}
+        <span class="text-amber-600 font-medium">Due in {{ rs.days_until_due }}d</span>
+        {% elif rs.status == 'never_ordered' %}
+        <span class="text-red-600 font-medium">Never ordered</span>
+        {% else %}
+        <span class="text-emerald-600 font-medium">{{ rs.days_until_due }}d until due</span>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {% if lst.reorder_weeks %}
+    <p class="text-xs text-gray-400 mt-2">Every {{ lst.reorder_weeks }} week{{ 's' if lst.reorder_weeks != 1 else '' }}</p>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+
+{% endif %}
+{% endblock %}

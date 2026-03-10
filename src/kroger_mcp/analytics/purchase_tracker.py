@@ -2,10 +2,40 @@
 Purchase event tracking - records cart additions and completed orders.
 """
 
+import sqlite3
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .database import get_db_connection, ensure_initialized
+
+
+def _ensure_product_exists_conn(
+    conn: sqlite3.Connection,
+    product_id: str,
+    product_details: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Ensure a product record exists using an existing connection (no commit)."""
+    cursor = conn.execute(
+        "SELECT id FROM products WHERE product_id = ?",
+        (product_id,),
+    )
+    if cursor.fetchone() is None:
+        now = datetime.now().isoformat()
+        conn.execute(
+            """
+            INSERT INTO products
+            (product_id, upc, description, brand, first_purchased_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                product_id,
+                product_details.get("upc") if product_details else None,
+                product_details.get("description") if product_details else None,
+                product_details.get("brand") if product_details else None,
+                now,
+                now,
+            ),
+        )
 
 
 def ensure_product_exists(
@@ -137,8 +167,8 @@ def record_order(
             quantity = item.get('quantity', 1)
             modality = item.get('modality', 'PICKUP')
 
-            # Ensure product exists with any available details
-            ensure_product_exists(product_id, item)
+            # Ensure product exists using the same connection to avoid DB lock
+            _ensure_product_exists_conn(conn, product_id, item)
 
             # Insert purchase event
             conn.execute("""
@@ -169,25 +199,28 @@ def _restock_pantry_items(cart_items: List[Dict[str, Any]]) -> None:
     """
     Restock pantry items for products in the order.
 
-    Only restocks items that are already being tracked in the pantry.
+    Adds items to pantry tracking if not already there, then sets level to 100%.
 
     Args:
         cart_items: List of cart items from the order
     """
     try:
-        from .pantry import restock_item, get_pantry_item
+        from .pantry import restock_item, get_pantry_item, add_to_pantry
 
         for item in cart_items:
             product_id = item.get('product_id')
-            if product_id:
-                # Only restock if item is in pantry
-                pantry_item = get_pantry_item(product_id)
-                if pantry_item:
-                    description = item.get('description')
-                    restock_item(product_id, level=100, description=description)
-    except Exception:
-        # Don't fail the order if pantry update fails
-        pass
+            if not product_id:
+                continue
+            description = item.get('description')
+            pantry_item = get_pantry_item(product_id)
+            if pantry_item:
+                restock_item(product_id, level=100, description=description)
+            else:
+                # Not yet tracked — add to pantry at 100%
+                add_to_pantry(product_id=product_id, description=description, level=100)
+    except Exception as e:
+        import traceback
+        print(f"Warning: Could not restock pantry items: {e}\n{traceback.format_exc()}")
 
 
 def get_purchase_events(

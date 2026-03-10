@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}Pantry — Smart Shopper{% endblock %}
+{% block heading %}Pantry{% endblock %}
+
+{% block content %}
+
+<!-- Add Item Modal (Alpine.js) -->
+<div x-data="{ open: false, pid: '', desc: '', level: 100, saving: false, err: '' }"
+     x-show="open"
+     x-cloak
+     class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+     @keydown.escape.window="open = false">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6"
+       @click.stop>
+    <h3 class="text-base font-semibold text-gray-800 mb-4">Add Pantry Item</h3>
+    <p x-show="err" class="text-xs text-red-600 mb-3" x-text="err"></p>
+    <div class="space-y-3">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Product ID</label>
+        <input x-model="pid" type="text" placeholder="e.g. 0001111042018"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Description (optional)</label>
+        <input x-model="desc" type="text" placeholder="e.g. Organic Whole Milk"
+               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Initial Level: <span x-text="level"></span>%</label>
+        <input x-model.number="level" type="range" min="0" max="100"
+               class="w-full accent-emerald-500" />
+      </div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button @click="open = false"
+              class="flex-1 px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
+        Cancel
+      </button>
+      <button :disabled="saving || !pid.trim()"
+              @click="
+                saving = true; err = '';
+                fetch('/api/pantry/add', {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({product_id: pid.trim(), description: desc.trim() || null, level_percent: level})
+                })
+                .then(r => r.json())
+                .then(d => { if (d.error) { err = d.error; saving = false; } else { window.location.reload(); } })
+                .catch(() => { err = 'Network error'; saving = false; });
+              "
+              class="flex-1 px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50">
+        <span x-show="!saving">Add Item</span>
+        <span x-show="saving">Adding…</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Page action bar -->
+<div x-data="{ addOpen() { $dispatch('open-add-modal') } }"
+     class="flex items-center justify-between mb-5">
+  <div class="flex gap-2">
+    <!-- Trigger for the add modal -->
+    <button
+      @click="
+        document.querySelector('[x-data]').__x.$data.open = true;
+        document.querySelector('[x-data]').__x.$data.pid = '';
+        document.querySelector('[x-data]').__x.$data.desc = '';
+        document.querySelector('[x-data]').__x.$data.level = 100;
+        document.querySelector('[x-data]').__x.$data.err = '';
+      "
+      class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors shadow-sm">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+      Add Item
+    </button>
+
+    <!-- Restock All Low button -->
+    <button
+      x-data="{ restocking: false }"
+      @click="
+        restocking = true;
+        const lowIds = [...document.querySelectorAll('[data-low-id]')].map(el => el.dataset.lowId);
+        if (!lowIds.length) { alert('No low items to restock.'); restocking = false; return; }
+        Promise.all(lowIds.map(id =>
+          fetch('/api/pantry/restock', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({product_id: id})
+          })
+        )).then(() => window.location.reload())
+        .catch(() => { alert('Restock failed'); restocking = false; });
+      "
+      :disabled="restocking"
+      class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors shadow-sm disabled:opacity-50">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Restock All Low
+    </button>
+  </div>
+</div>
+
+<!-- Summary strip -->
+<div class="grid grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+    <p class="text-xs text-gray-500 font-medium">Tracked Items</p>
+    <p class="text-2xl font-bold text-gray-900 mt-1">{{ total_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+    <p class="text-xs text-gray-500 font-medium">Out of Stock</p>
+    <p class="text-2xl font-bold text-red-600 mt-1">{{ out_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+    <p class="text-xs text-gray-500 font-medium">Running Low</p>
+    <p class="text-2xl font-bold text-amber-600 mt-1">{{ low_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+    <p class="text-xs text-gray-500 font-medium">Expiring Soon</p>
+    <p class="text-2xl font-bold text-orange-600 mt-1">{{ expiring_soon_count }}</p>
+  </div>
+</div>
+
+{% if not all_items %}
+<div class="text-center py-16 text-gray-400">
+  <p class="text-sm">No pantry items tracked yet. Add items to cart through Claude to start tracking.</p>
+</div>
+{% else %}
+
+<!-- All items table (sorted by level ASC already from data layer) -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-100">
+    <h2 class="text-sm font-semibold text-gray-700">All Items <span class="text-gray-400 font-normal ml-1">(sorted by level)</span></h2>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-100">
+      <tr>
+        <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Item</th>
+        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-48">Level</th>
+        <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Days Left</th>
+        <th class="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Expiration</th>
+        <th class="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for item in all_items %}
+      {% set level = item.level_percent %}
+      {% set status = item.status %}
+      <tr class="hover:bg-gray-50 transition-colors"
+          {% if status == 'low' or status == 'out' %}data-low-id="{{ item.product_id }}"{% endif %}>
+        <td class="px-6 py-3">
+          <span class="font-medium text-gray-800">{{ item.description or item.product_id }}</span>
+        </td>
+        <td class="px-4 py-3">
+          <div class="flex items-center gap-2">
+            <div class="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+              <div class="h-2 rounded-full transition-all
+                {% if status == 'out' %}bg-red-500
+                {% elif status == 'low' %}bg-amber-500
+                {% else %}bg-emerald-500{% endif %}"
+                style="width: {{ [level, 100] | min }}%">
+              </div>
+            </div>
+            <span class="text-xs text-gray-500 w-8 text-right">{{ level }}%</span>
+          </div>
+        </td>
+        <td class="px-4 py-3 text-center">
+          {% if status == 'out' %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">OUT</span>
+          {% elif status == 'low' %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">LOW</span>
+          {% else %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">OK</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-right text-gray-500 text-xs">
+          {% if item.days_until_empty is not none %}
+          {{ item.days_until_empty }}d
+          {% else %}
+          —
+          {% endif %}
+        </td>
+        <td class="px-6 py-3 text-right">
+          {% if item.days_to_expiration is not none %}
+            {% if item.days_to_expiration <= 0 %}
+            <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">Expired</span>
+            {% elif item.days_to_expiration <= 3 %}
+            <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">{{ item.days_to_expiration }}d</span>
+            {% elif item.days_to_expiration <= 7 %}
+            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">{{ item.days_to_expiration }}d</span>
+            {% else %}
+            <span class="text-xs text-gray-400">{{ item.days_to_expiration }}d</span>
+            {% endif %}
+          {% else %}
+          <span class="text-xs text-gray-300">—</span>
+          {% endif %}
+        </td>
+        <!-- Actions cell -->
+        <td class="px-6 py-3 text-right"
+            x-data="{ editing: false, newLevel: {{ level }}, saving: false }">
+          <div class="flex items-center justify-end gap-2">
+
+            <!-- Inline level editor (collapsed by default) -->
+            <template x-if="editing">
+              <div class="flex items-center gap-1">
+                <input x-model.number="newLevel" type="number" min="0" max="100"
+                       class="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                       @keydown.enter="
+                         saving = true;
+                         fetch('/api/pantry/update', {
+                           method: 'POST',
+                           headers: {'Content-Type': 'application/json'},
+                           body: JSON.stringify({product_id: '{{ item.product_id }}', level_percent: newLevel})
+                         }).then(() => window.location.reload());
+                       "
+                       @keydown.escape="editing = false" />
+                <button :disabled="saving"
+                        @click="
+                          saving = true;
+                          fetch('/api/pantry/update', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({product_id: '{{ item.product_id }}', level_percent: newLevel})
+                          }).then(() => window.location.reload());
+                        "
+                        class="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50">
+                  Save
+                </button>
+                <button @click="editing = false"
+                        class="text-xs px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
+                  ✕
+                </button>
+              </div>
+            </template>
+
+            <!-- Edit level button -->
+            <template x-if="!editing">
+              <button @click="editing = true"
+                      title="Edit level"
+                      class="text-xs px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-100 transition-colors">
+                Edit %
+              </button>
+            </template>
+
+            <!-- Restock to 100% -->
+            <button x-data="{ busy: false }"
+                    :disabled="busy"
+                    @click="
+                      busy = true;
+                      fetch('/api/pantry/restock', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({product_id: '{{ item.product_id }}'})
+                      }).then(() => window.location.reload());
+                    "
+                    title="Restock to 100%"
+                    class="text-xs px-2 py-0.5 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-50">
+              Restock
+            </button>
+
+            <!-- Remove button -->
+            <button x-data="{ busy: false }"
+                    :disabled="busy"
+                    @click="
+                      if (!confirm('Remove {{ (item.description or item.product_id) | replace("'", "\\'") }} from pantry?')) return;
+                      busy = true;
+                      fetch('/api/pantry/{{ item.product_id }}', {method: 'DELETE'})
+                        .then(() => window.location.reload());
+                    "
+                    title="Remove from pantry"
+                    class="text-xs px-2 py-0.5 rounded border border-red-200 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50">
+              Remove
+            </button>
+
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endif %}
+{% endblock %}

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Products — Smart Shopper{% endblock %}
+{% block heading %}Product Search{% endblock %}
+{% block content %}
+
+<div x-data="{
+  query: '',
+  category: '',
+  products: [],
+  loading: false,
+  error: '',
+  cartMsg: {},
+  async search() {
+    if (!this.query.trim() && !this.category) return;
+    this.loading = true; this.error = ''; this.products = [];
+    try {
+      const params = new URLSearchParams();
+      if (this.query) params.set('q', this.query);
+      if (this.category) params.set('category', this.category);
+      const r = await fetch('/api/products/search?' + params);
+      const data = await r.json();
+      if (r.ok) this.products = data;
+      else this.error = data.error || 'Search failed';
+    } catch(e) { this.error = 'Search failed: ' + e.message; }
+    this.loading = false;
+  },
+  async addToCart(product) {
+    this.cartMsg[product.product_id] = 'Adding...';
+    try {
+      const r = await fetch('/api/products/' + product.product_id + '/add-to-cart', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          quantity: 1,
+          modality: 'PICKUP',
+          description: product.description,
+          price: product.regular_price || 0
+        })
+      });
+      const data = await r.json();
+      this.cartMsg[product.product_id] = r.ok ? '\u2713 Added' : (data.error || 'Failed');
+    } catch(e) { this.cartMsg[product.product_id] = 'Error'; }
+    const pid = product.product_id;
+    setTimeout(() => {
+      const msgs = {...this.cartMsg};
+      delete msgs[pid];
+      this.cartMsg = msgs;
+    }, 3000);
+  }
+}">
+
+  <!-- Search bar -->
+  <div class="mb-6 flex gap-3">
+    <div class="relative flex-1 max-w-xl">
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+      <input
+        type="text"
+        x-model="query"
+        placeholder="Search products..."
+        @keydown.enter="search()"
+        class="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      />
+    </div>
+    <button
+      @click="search()"
+      :disabled="loading"
+      class="px-6 py-3 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+    >
+      <span x-show="!loading">Search</span>
+      <span x-show="loading">Searching...</span>
+    </button>
+  </div>
+
+  <!-- Category chips -->
+  <div class="flex flex-wrap gap-2 mb-6">
+    <template x-for="cat in ['dairy', 'meat', 'produce', 'bakery', 'frozen', 'beverages', 'snacks', 'pantry']">
+      <button
+        @click="category = (category === cat ? '' : cat); search()"
+        :class="category === cat
+          ? 'bg-emerald-600 text-white border-emerald-600'
+          : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-400'"
+        class="px-4 py-1.5 text-xs font-medium rounded-full border capitalize transition-colors"
+        x-text="cat"
+      ></button>
+    </template>
+  </div>
+
+  <!-- Error state -->
+  <div
+    x-show="error"
+    class="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700"
+    x-text="error"
+  ></div>
+
+  <!-- Loading state -->
+  <div x-show="loading" class="flex items-center justify-center py-16">
+    <div class="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+  </div>
+
+  <!-- Results grid -->
+  <div x-show="products.length > 0 && !loading" class="grid grid-cols-3 gap-4">
+    <template x-for="product in products" :key="product.product_id">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col hover:shadow-md transition-shadow">
+
+        <!-- Product info -->
+        <div class="flex-1">
+          <div class="flex items-start justify-between mb-1">
+            <h3 class="text-sm font-semibold text-gray-900 leading-tight" x-text="product.description"></h3>
+            <span
+              x-show="product.on_sale"
+              class="ml-2 flex-shrink-0 text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium"
+              x-text="'-' + product.savings_percent + '%'"
+            ></span>
+          </div>
+          <p class="text-xs text-gray-500 mb-2" x-text="product.brand"></p>
+          <div class="flex items-center gap-2 mb-3">
+            <span
+              x-show="product.on_sale"
+              class="text-base font-bold text-red-600"
+              x-text="'$' + (product.sale_price || 0).toFixed(2)"
+            ></span>
+            <span
+              :class="product.on_sale ? 'text-xs text-gray-400 line-through' : 'text-base font-bold text-gray-900'"
+              x-text="product.regular_price ? '$' + product.regular_price.toFixed(2) : 'Price N/A'"
+            ></span>
+          </div>
+        </div>
+
+        <!-- Add to cart -->
+        <button
+          @click="addToCart(product)"
+          :class="cartMsg[product.product_id] === '\u2713 Added'
+            ? 'bg-emerald-600'
+            : 'bg-gray-900 hover:bg-gray-800'"
+          class="w-full py-2 text-xs font-medium text-white rounded-lg transition-colors"
+          x-text="cartMsg[product.product_id] || 'Add to Cart'"
+        ></button>
+
+      </div>
+    </template>
+  </div>
+
+  <!-- Empty state -->
+  <div
+    x-show="!loading && products.length === 0 && !error"
+    class="text-center py-16 text-gray-400"
+  >
+    <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+    </svg>
+    <p class="text-sm">Search for products or click a category above</p>
+  </div>
+
+</div>
+{% endblock %}

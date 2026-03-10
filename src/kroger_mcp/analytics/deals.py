@@ -52,6 +52,12 @@ def record_price_observation(
     # Use UPSERT to avoid exact duplicates within same hour
     # (same product, location, hour = single record)
     with get_db_cursor() as cursor:
+        # Ensure product exists (FK requirement for price_history)
+        cursor.execute(
+            "INSERT OR IGNORE INTO products (product_id) VALUES (?)",
+            (product_id,),
+        )
+
         # Check if we have a recent observation (within last hour)
         hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
         cursor.execute(

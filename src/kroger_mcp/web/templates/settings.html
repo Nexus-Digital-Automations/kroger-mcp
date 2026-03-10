@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Settings — Smart Shopper{% endblock %}
+{% block heading %}Settings{% endblock %}
+{% block content %}
+
+<div x-data="{
+  locationId: '{{ location_id }}',
+  servings: {{ servings }},
+  locationSearch: '',
+  locationResults: [],
+  searching: false,
+  msg: {},
+  async saveServings() {
+    const r = await fetch('/api/settings/servings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({servings: this.servings})
+    });
+    this.msg.servings = r.ok ? 'Saved!' : 'Error saving';
+    setTimeout(() => { delete this.msg.servings; this.msg = {...this.msg}; }, 3000);
+  },
+  async searchLocations() {
+    if (!this.locationSearch) return;
+    this.searching = true;
+    this.locationResults = [];
+    const r = await fetch('/api/settings/location/search?zip=' + encodeURIComponent(this.locationSearch));
+    if (r.ok) { const d = await r.json(); this.locationResults = d; }
+    this.searching = false;
+  },
+  async setLocation(locId) {
+    const r = await fetch('/api/settings/location', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({location_id: locId})
+    });
+    if (r.ok) {
+      this.locationId = locId;
+      this.locationResults = [];
+      this.msg.location = 'Location saved!';
+    } else {
+      this.msg.location = 'Error saving location';
+    }
+    setTimeout(() => { delete this.msg.location; this.msg = {...this.msg}; }, 3000);
+  }
+}" class="max-w-2xl space-y-6">
+
+<!-- Store Location -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-sm font-semibold text-gray-700">Store Location</h2>
+    <span x-show="msg.location" class="text-sm text-emerald-600" x-text="msg.location"></span>
+  </div>
+  <div class="mb-3">
+    <p class="text-xs text-gray-500 mb-1">Current location ID</p>
+    <p class="text-sm font-mono text-gray-700 bg-gray-50 rounded-lg px-3 py-2"
+      x-text="locationId || 'Not set'"></p>
+  </div>
+  <div class="flex gap-2 mb-3">
+    <input x-model="locationSearch"
+      placeholder="Search by ZIP code..."
+      @keydown.enter="searchLocations()"
+      class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+    <button @click="searchLocations()" :disabled="searching"
+      class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+      <span x-show="!searching">Search</span>
+      <span x-show="searching">...</span>
+    </button>
+  </div>
+  <div class="space-y-2" x-show="locationResults.length > 0">
+    <template x-for="loc in locationResults" :key="loc.location_id">
+      <button @click="setLocation(loc.location_id)"
+        :class="loc.location_id === locationId
+          ? 'border-emerald-500 bg-emerald-50'
+          : 'border-gray-200 hover:border-emerald-300'"
+        class="w-full text-left p-3 rounded-lg border transition-colors">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-gray-800" x-text="loc.name"></p>
+            <p class="text-xs text-gray-500" x-text="loc.address"></p>
+          </div>
+          <span x-show="loc.location_id === locationId"
+            class="text-xs text-emerald-600 font-medium">Active</span>
+        </div>
+      </button>
+    </template>
+  </div>
+</div>
+
+<!-- Household Size -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-sm font-semibold text-gray-700">Household Size</h2>
+    <span x-show="msg.servings" class="text-sm text-emerald-600" x-text="msg.servings"></span>
+  </div>
+  <p class="text-xs text-gray-500 mb-3">
+    Default number of servings per meal. Used when adding recipes to shopping list.
+  </p>
+  <div class="flex items-center gap-4">
+    <input type="number" x-model.number="servings" min="1" max="20"
+      class="w-24 text-sm border border-gray-200 rounded-lg px-3 py-2 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+    <button @click="saveServings()"
+      class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+      Save
+    </button>
+  </div>
+</div>
+
+<!-- Auth Status -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+  <h2 class="text-sm font-semibold text-gray-700 mb-4">Kroger Authentication</h2>
+  <div class="flex items-center gap-3">
+    {% if auth_status == 'authenticated' %}
+    <div class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>
+    <span class="text-sm text-gray-700">Authenticated — cart operations available</span>
+    {% elif auth_status == 'not_authenticated' %}
+    <div class="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
+    <span class="text-sm text-gray-700">Not authenticated — use Claude to authenticate via OAuth</span>
+    {% else %}
+    <div class="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
+    <span class="text-sm text-gray-700">Not configured — check KROGER_CLIENT_ID / KROGER_CLIENT_SECRET in .env</span>
+    {% endif %}
+  </div>
+  <p class="text-xs text-gray-400 mt-3">
+    To authenticate: ask Claude to "start Kroger authentication" and follow the OAuth flow.
+  </p>
+</div>
+
+</div>
+{% endblock %}
