@@ -95,17 +95,17 @@ async def find_deals(
         client = get_client_credentials_client()
         location_id = get_preferred_location_id() or "03400014"
 
-        result = client.products.search(
-            search_term=search_term,
+        result = client.product.search_products(
+            term=search_term,
             location_id=location_id,
             limit=50,
         )
 
         raw_products = []
-        if hasattr(result, 'data'):
+        if isinstance(result, dict):
+            raw_products = result.get('data', []) or []
+        elif hasattr(result, 'data'):
             raw_products = result.data or []
-        elif isinstance(result, dict):
-            raw_products = result.get('data', result) or []
         elif isinstance(result, list):
             raw_products = result
 

@@ -9,6 +9,36 @@ import os
 import signal
 from pathlib import Path
 
+# Load .env from project root before any other imports that need env vars
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
+
+# Fall back to Claude Desktop config for Kroger credentials if not in env
+def _load_claude_desktop_env():
+    """Load Kroger credentials from Claude Desktop config if not already set."""
+    if os.environ.get("KROGER_CLIENT_ID"):
+        return
+    config_path = (
+        Path.home()
+        / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    )
+    if not config_path.exists():
+        return
+    try:
+        import json
+        config = json.loads(config_path.read_text())
+        for server in config.get("mcpServers", {}).values():
+            env = server.get("env", {})
+            if env.get("KROGER_CLIENT_ID"):
+                for key, val in env.items():
+                    if key.startswith("KROGER_") and not os.environ.get(key):
+                        os.environ[key] = val
+                return
+    except Exception:
+        pass
+
+_load_claude_desktop_env()
+
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles

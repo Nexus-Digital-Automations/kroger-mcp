@@ -5,30 +5,75 @@
 
 {% block content %}
 
-<!-- New Plan Modal -->
 <div x-data="{
+  /* ── New Plan Modal ── */
   open: false,
   name: '',
   startDate: '',
   planType: 'weekly',
   loading: false,
   error: '',
+
+  /* ── Add Meal Modal ── */
   addMealOpen: false,
   addMealDate: '',
   addMealSlot: '',
   addMealRecipe: '',
   addMealLoading: false,
   addMealError: '',
+
+  /* ── Swap Mode ── */
+  swapMode: false,
+  swapTarget: null,
+
+  /* ── Shopping Preview ── */
+  shopPreviewOpen: false,
+  shopPreviewLoading: false,
+  shopPreviewData: null,
+
+  /* ── Add to Cart Modal ── */
+  cartModalOpen: false,
+  cartModality: 'PICKUP',
+  cartLoading: false,
+  cartDone: false,
+  cartError: '',
+
+  /* ── Copy Week Modal ── */
+  copyWeekOpen: false,
+  copyWeekName: '',
+  copyWeekDate: '',
+  copyWeekLoading: false,
+  copyWeekError: '',
+
+  /* ── From Template Modal ── */
+  fromTemplateOpen: false,
+  fromTemplatePlanId: '',
+  fromTemplateName: '',
+  fromTemplateDate: '',
+  fromTemplateLoading: false,
+  fromTemplateError: '',
+
+  /* ── Toast ── */
+  toast: '',
+  toastTimer: null,
+
+  showToast(msg) {
+    this.toast = msg;
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => { this.toast = ''; }, 3000);
+  },
+
   openAddMeal(date, slot) {
     this.addMealDate = date; this.addMealSlot = slot;
     this.addMealRecipe = ''; this.addMealError = '';
     this.addMealOpen = true;
   },
+
   async submitMeal() {
     if (!this.addMealRecipe) { this.addMealError = 'Please select a recipe'; return; }
     this.addMealLoading = true; this.addMealError = '';
     try {
-      const planId = '{{ active_plan.id if active_plan else "" }}';
+      const planId = '{{ active_plan.id if active_plan else '' }}';
       const r = await fetch('/api/meal-plan/' + planId + '/meals', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -40,6 +85,7 @@
     } catch(e) { this.addMealError = 'Network error'; }
     this.addMealLoading = false;
   },
+
   async submit() {
     if (!this.name.trim() || !this.startDate) { this.error = 'Name and start date are required'; return; }
     this.loading = true; this.error = '';
@@ -47,63 +93,209 @@
       const r = await fetch('/api/meal-plan', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: this.name.trim(), start_date: this.startDate, plan_type: this.planType})
+      });
+      const d = await r.json();
+      if (r.ok && (d.success !== false)) { window.location.reload(); }
+      else { this.error = d.error || 'Failed to create plan'; }
+    } catch(e) { this.error = 'Network error'; }
+    this.loading = false;
+  },
+
+  /* ── Swap ── */
+  enterSwap(date, slot, recipeName) {
+    this.swapMode = true;
+    this.swapTarget = {date, slot, recipeName};
+  },
+
+  cancelSwap() {
+    this.swapMode = false;
+    this.swapTarget = null;
+  },
+
+  async doSwap(date2, slot2) {
+    if (!this.swapTarget) return;
+    const planId = '{{ active_plan.id if active_plan else '' }}';
+    const {date: date1, slot: slot1} = this.swapTarget;
+    this.swapMode = false; this.swapTarget = null;
+    try {
+      const r = await fetch('/api/meal-plan/' + planId + '/meals/swap', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({date1, slot1, date2, slot2})
+      });
+      const d = await r.json();
+      if (r.ok) { window.location.reload(); }
+      else { this.showToast('Swap failed: ' + (d.error || 'unknown error')); }
+    } catch(e) { this.showToast('Network error during swap'); }
+  },
+
+  /* ── Remove Meal ── */
+  async removeMeal(planId, date, slot) {
+    const r = await fetch('/api/meal-plan/' + planId + '/meals?meal_date=' + date + '&meal_slot=' + slot, {method: 'DELETE'});
+    if (r.ok) { window.location.reload(); }
+    else { alert('Failed to remove meal'); }
+  },
+  async deletePlan(planId, planName) {
+    if (!confirm('Delete \u201c' + planName + '\u201d and all its meals? This cannot be undone.')) return;
+    const r = await fetch('/api/meal-plan/' + planId, {method: 'DELETE'});
+    if (r.ok) { window.location.href = '/meal-plan'; }
+    else { alert('Failed to delete plan'); }
+  },
+
+  /* ── Toggle Cooked ── */
+  async toggleCooked(date, slot, checked) {
+    const planId = '{{ active_plan.id if active_plan else '' }}';
+    try {
+      await fetch('/api/meal-plan/' + planId + '/meals/' + date + '/' + slot + '/cooked', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({cooked: checked})
+      });
+    } catch(e) { /* silent */ }
+  },
+
+  /* ── Shopping Preview ── */
+  async openShoppingPreview() {
+    const planId = '{{ active_plan.id if active_plan else '' }}';
+    this.shopPreviewLoading = true; this.shopPreviewOpen = true; this.shopPreviewData = null;
+    try {
+      const r = await fetch('/api/meal-plan/' + planId + '/shopping-preview');
+      this.shopPreviewData = await r.json();
+    } catch(e) { this.shopPreviewData = {error: 'Network error'}; }
+    this.shopPreviewLoading = false;
+  },
+
+  /* ── Add to Cart ── */
+  async addAllToCart() {
+    const planId = '{{ active_plan.id if active_plan else '' }}';
+    this.cartLoading = true; this.cartError = ''; this.cartDone = false;
+    try {
+      const r = await fetch('/api/meal-plan/' + planId + '/add-to-cart', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({modality: this.cartModality})
+      });
+      const d = await r.json();
+      if (r.ok && d.success) { this.cartDone = true; this.shopPreviewOpen = false; }
+      else if (d.auth_required) { this.cartError = d.error; }
+      else { this.cartError = d.error || 'Failed to add to cart'; }
+    } catch(e) { this.cartError = 'Network error'; }
+    this.cartLoading = false;
+  },
+
+  /* ── Copy Week ── */
+  async copyWeek() {
+    if (!this.copyWeekName.trim() || !this.copyWeekDate) {
+      this.copyWeekError = 'Name and start date are required'; return;
+    }
+    const planId = '{{ active_plan.id if active_plan else '' }}';
+    this.copyWeekLoading = true; this.copyWeekError = '';
+    try {
+      const r = await fetch('/api/meal-plan/' + planId + '/copy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({new_name: this.copyWeekName.trim(), new_start_date: this.copyWeekDate})
+      });
+      const d = await r.json();
+      if (r.ok && d.success) { window.location.href = '/meal-plan?plan_id=' + d.plan_id; }
+      else { this.copyWeekError = d.error || 'Copy failed'; }
+    } catch(e) { this.copyWeekError = 'Network error'; }
+    this.copyWeekLoading = false;
+  },
+
+  /* ── Save as Template ── */
+  async saveAsTemplate() {
+    const planId = '{{ active_plan.id if active_plan else '' }}';
+    try {
+      const r = await fetch('/api/meal-plan/' + planId + '/template', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({is_template: true})
+      });
+      const d = await r.json();
+      if (r.ok) { this.showToast('Saved as template!'); }
+      else { this.showToast('Error: ' + (d.error || 'failed')); }
+    } catch(e) { this.showToast('Network error'); }
+  },
+
+  /* ── From Template ── */
+  async createFromTemplate() {
+    if (!this.fromTemplatePlanId || !this.fromTemplateName.trim() || !this.fromTemplateDate) {
+      this.fromTemplateError = 'All fields required'; return;
+    }
+    this.fromTemplateLoading = true; this.fromTemplateError = '';
+    try {
+      const r = await fetch('/api/meal-plan/from-template', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          name: this.name.trim(),
-          start_date: this.startDate,
-          plan_type: this.planType
+          source_plan_id: this.fromTemplatePlanId,
+          new_name: this.fromTemplateName.trim(),
+          new_start_date: this.fromTemplateDate
         })
       });
       const d = await r.json();
-      if (r.ok && (d.success !== false)) {
-        window.location.reload();
-      } else {
-        this.error = d.error || 'Failed to create plan';
-      }
-    } catch(e) { this.error = 'Network error'; }
-    this.loading = false;
+      if (r.ok && d.success) { window.location.href = '/meal-plan?plan_id=' + d.plan_id; }
+      else { this.fromTemplateError = d.error || 'Failed'; }
+    } catch(e) { this.fromTemplateError = 'Network error'; }
+    this.fromTemplateLoading = false;
   }
 }">
-  <!-- Modal overlay -->
-  <div x-show="open" x-cloak
-    class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-    @click.self="open = false">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-      <h2 class="text-base font-semibold text-gray-900 mb-4">New Meal Plan</h2>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Plan Name <span class="text-red-500">*</span></label>
-          <input x-model="name" type="text" placeholder="e.g. Week of March 10"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Start Date <span class="text-red-500">*</span></label>
-          <input x-model="startDate" type="date"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Plan Type</label>
-          <select x-model="planType"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-        <p x-show="error" class="text-xs text-red-600" x-text="error"></p>
+
+<!-- ── Toast ── -->
+<div x-show="toast" x-cloak x-transition
+  class="fixed bottom-6 right-6 z-50 px-4 py-2 bg-gray-900 text-white text-sm rounded-lg shadow-lg"
+  x-text="toast"></div>
+
+<!-- ── Swap Mode Badge ── -->
+<div x-show="swapMode" x-cloak
+  class="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-amber-500 text-white text-sm font-medium rounded-lg shadow-lg flex items-center gap-3">
+  <span>⇄ Swap mode — click another slot to swap, or</span>
+  <button @click="cancelSwap()" class="underline hover:no-underline">Cancel</button>
+</div>
+
+<!-- ── New Plan Modal ── -->
+<div x-show="open" x-cloak
+  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+  @click.self="open = false">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">New Meal Plan</h2>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Plan Name <span class="text-red-500">*</span></label>
+        <input x-model="name" type="text" placeholder="e.g. Week of March 10"
+          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
       </div>
-      <div class="flex justify-end gap-3 mt-6">
-        <button @click="open = false; name=''; startDate=''; error='';"
-          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
-        <button @click="submit()" :disabled="loading"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-          <span x-show="!loading">Create Plan</span>
-          <span x-show="loading">Creating...</span>
-        </button>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Start Date <span class="text-red-500">*</span></label>
+        <input x-model="startDate" type="date"
+          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
       </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Plan Type</label>
+        <select x-model="planType"
+          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <p x-show="error" class="text-xs text-red-600" x-text="error"></p>
+    </div>
+    <div class="flex justify-end gap-3 mt-6">
+      <button @click="open = false; name=''; startDate=''; error='';"
+        class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
+      <button @click="submit()" :disabled="loading"
+        class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+        <span x-show="!loading">Create Plan</span>
+        <span x-show="loading">Creating...</span>
+      </button>
     </div>
   </div>
+</div>
 
-<!-- Add Meal Modal -->
+<!-- ── Add Meal Modal ── -->
 <div x-show="addMealOpen" x-cloak
   class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
   @click.self="addMealOpen = false">
@@ -132,6 +324,162 @@
   </div>
 </div>
 
+<!-- ── Copy Week Modal ── -->
+<div x-show="copyWeekOpen" x-cloak
+  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+  @click.self="copyWeekOpen = false">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Copy Plan</h2>
+    <div class="space-y-3">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">New Plan Name <span class="text-red-500">*</span></label>
+        <input x-model="copyWeekName" type="text" placeholder="Copy of current plan"
+          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">New Start Date <span class="text-red-500">*</span></label>
+        <input x-model="copyWeekDate" type="date"
+          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      </div>
+      <p x-show="copyWeekError" class="text-xs text-red-600" x-text="copyWeekError"></p>
+    </div>
+    <div class="flex justify-end gap-3 mt-5">
+      <button @click="copyWeekOpen = false; copyWeekError = ''"
+        class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
+      <button @click="copyWeek()" :disabled="copyWeekLoading"
+        class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+        <span x-show="!copyWeekLoading">Copy Plan</span>
+        <span x-show="copyWeekLoading">Copying...</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── From Template Modal ── -->
+<div x-show="fromTemplateOpen" x-cloak
+  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+  @click.self="fromTemplateOpen = false">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">New Plan from Template</h2>
+    <div class="space-y-3">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Template</label>
+        <select x-model="fromTemplatePlanId"
+          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          <option value="">Select template...</option>
+          {% for t in templates_list %}
+          <option value="{{ t.id }}">{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">New Plan Name <span class="text-red-500">*</span></label>
+        <input x-model="fromTemplateName" type="text" placeholder="Week of..."
+          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Start Date <span class="text-red-500">*</span></label>
+        <input x-model="fromTemplateDate" type="date"
+          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      </div>
+      <p x-show="fromTemplateError" class="text-xs text-red-600" x-text="fromTemplateError"></p>
+    </div>
+    <div class="flex justify-end gap-3 mt-5">
+      <button @click="fromTemplateOpen = false; fromTemplateError = ''"
+        class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
+      <button @click="createFromTemplate()" :disabled="fromTemplateLoading"
+        class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+        <span x-show="!fromTemplateLoading">Create</span>
+        <span x-show="fromTemplateLoading">Creating...</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Shopping Preview Modal ── -->
+<div x-show="shopPreviewOpen" x-cloak
+  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+  @click.self="shopPreviewOpen = false">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-lg flex flex-col max-h-[80vh]">
+    <!-- Header -->
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+      <h3 class="text-base font-semibold text-gray-900">Shopping Preview</h3>
+      <button @click="shopPreviewOpen = false" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Body -->
+    <div class="flex-1 overflow-y-auto px-6 py-4">
+      <div x-show="shopPreviewLoading" class="flex justify-center py-8">
+        <div class="animate-spin w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+      </div>
+
+      <div x-show="!shopPreviewLoading && shopPreviewData">
+        <!-- Items to add -->
+        <div x-show="(shopPreviewData?.items_to_add || []).length > 0" class="mb-4">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            To Buy (<span x-text="(shopPreviewData?.items_to_add || []).length"></span>)
+          </p>
+          <div class="space-y-1">
+            <template x-for="item in (shopPreviewData?.items_to_add || [])" :key="item.name">
+              <div class="flex items-center justify-between py-1.5 border-b border-gray-50 text-sm">
+                <span class="text-gray-700" x-text="item.name"></span>
+                <span class="text-gray-400 text-xs"
+                  x-text="(item.quantity || '') + (item.unit ? ' ' + item.unit : '')"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Items to skip (in pantry) -->
+        <div x-show="(shopPreviewData?.items_to_skip || []).length > 0" class="mb-4">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            In Pantry — Skipping (<span x-text="(shopPreviewData?.items_to_skip || []).length"></span>)
+          </p>
+          <div class="space-y-1">
+            <template x-for="item in (shopPreviewData?.items_to_skip || [])" :key="item.name">
+              <div class="flex items-center justify-between py-1 text-sm">
+                <span class="text-gray-400 line-through" x-text="item.name"></span>
+                <span class="text-xs text-emerald-600">in pantry</span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <p x-show="shopPreviewData?.error" class="text-sm text-red-600" x-text="shopPreviewData?.error"></p>
+        <p x-show="!shopPreviewData?.error && !(shopPreviewData?.items_to_add || []).length && !(shopPreviewData?.items_to_skip || []).length"
+          class="text-sm text-gray-500 py-4 text-center">No items found. Add meals to this plan first.</p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div x-show="!shopPreviewLoading" class="px-6 py-4 border-t border-gray-100 flex-shrink-0">
+      <div x-show="cartDone" class="text-center text-sm text-emerald-700 font-medium mb-3">
+        ✅ Items added to cart!
+      </div>
+      <p x-show="cartError" class="text-xs text-red-600 mb-3" x-text="cartError"></p>
+      <div x-show="!cartDone" class="flex items-center gap-3">
+        <div class="flex gap-2 flex-1">
+          <button @click="cartModality='PICKUP'"
+            :class="cartModality==='PICKUP' ? 'bg-emerald-600 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'"
+            class="flex-1 py-2 text-xs font-medium rounded-lg transition-colors">Pickup</button>
+          <button @click="cartModality='DELIVERY'"
+            :class="cartModality==='DELIVERY' ? 'bg-emerald-600 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'"
+            class="flex-1 py-2 text-xs font-medium rounded-lg transition-colors">Delivery</button>
+        </div>
+        <button @click="addAllToCart()" :disabled="cartLoading"
+          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+          <span x-show="!cartLoading">Add to Cart</span>
+          <span x-show="cartLoading">Adding...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% if not plans %}
 <div class="flex flex-col items-center py-16 text-gray-400 gap-4">
   <p class="text-sm">No meal plans yet.</p>
@@ -152,9 +500,9 @@
       </div>
       <ul class="divide-y divide-gray-50">
         {% for plan in plans %}
-        <li>
+        <li class="relative group">
           <a href="/meal-plan?plan_id={{ plan.id }}"
-             class="block px-4 py-3 text-sm transition-colors
+             class="block px-4 py-3 pr-8 text-sm transition-colors
                {% if active_plan and active_plan.id == plan.id %}
                  bg-emerald-50 text-emerald-700 font-semibold
                {% else %}
@@ -165,15 +513,28 @@
               {{ plan.start_date }} &mdash; {{ plan.end_date }}
             </span>
           </a>
+          <button
+            @click.prevent="deletePlan('{{ plan.id }}', '{{ plan.name | e }}')"
+            class="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-600 transition-all"
+            title="Delete plan">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
         </li>
         {% endfor %}
       </ul>
-      <!-- New plan button in sidebar -->
-      <div class="px-4 py-3 border-t border-gray-100">
+      <div class="px-4 py-3 border-t border-gray-100 space-y-2">
         <button @click="open = true"
           class="w-full px-3 py-2 text-xs font-medium text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors">
           + New Plan
         </button>
+        {% if templates_list %}
+        <button @click="fromTemplateOpen = true"
+          class="w-full px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+          📋 From Template
+        </button>
+        {% endif %}
       </div>
     </div>
   </aside>
@@ -182,18 +543,37 @@
   <div class="flex-1 min-w-0">
 
     {% if active_plan %}
-    <!-- Plan metadata strip -->
+    <!-- Plan metadata strip + toolbar -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 mb-4 flex items-center justify-between">
       <div>
         <h2 class="text-base font-semibold text-gray-900">{{ active_plan.name }}</h2>
         <p class="text-xs text-gray-500 mt-0.5">
           {{ active_plan.start_date }} to {{ active_plan.end_date }}
-          &bull; {{ total_meals }} meal{{ 's' if total_meals != 1 else '' }}
-          &bull; {{ unique_recipe_count }} unique recipe{{ 's' if unique_recipe_count != 1 else '' }}
         </p>
       </div>
-      <!-- Week navigation -->
-      <div class="flex items-center gap-2">
+
+      <!-- Toolbar + Week nav -->
+      <div class="flex items-center gap-3">
+        <!-- Toolbar buttons -->
+        <button @click="copyWeekOpen = true; copyWeekName = ''; copyWeekDate = ''"
+          class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          title="Copy this plan to new dates">
+          ⊞ Copy Plan
+        </button>
+        <button @click="saveAsTemplate()"
+          class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          title="Save as reusable template">
+          ★ Template
+        </button>
+        {% if templates_list %}
+        <button @click="fromTemplateOpen = true"
+          class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          title="Create plan from template">
+          📋 From Template
+        </button>
+        {% endif %}
+
+        <!-- Week navigation -->
         <a href="/meal-plan?plan_id={{ active_plan.id }}&week={{ week_offset - 1 }}"
            class="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -244,21 +624,92 @@
         <!-- Cells -->
         {% for cell in row.cells %}
         {% set is_today = (cell.date == today) %}
-        <div class="px-2 py-3 border-l border-gray-50 min-h-12
-          {% if is_today %}bg-emerald-50/40{% endif %}">
+        <div class="px-2 py-2 border-l border-gray-50 min-h-14
+          {% if is_today %}bg-emerald-50/40{% endif %}"
+          :class="swapMode && !swapTarget ? 'ring-2 ring-inset ring-blue-200 cursor-pointer' :
+                  swapMode && swapTarget && '{{ cell.date_str }}' === swapTarget.date && '{{ row.slot }}' === swapTarget.slot ? 'ring-2 ring-inset ring-amber-400' :
+                  swapMode ? 'hover:ring-2 hover:ring-inset hover:ring-blue-300 cursor-pointer' : ''">
+
           {% if cell.recipe_name %}
-          <p class="text-xs text-gray-700 leading-snug">{{ cell.recipe_name }}</p>
+          <!-- Filled cell -->
+          <div class="h-full flex flex-col gap-1"
+            :class="{ 'opacity-60': {{ 'true' if cell.cooked_at else 'false' }} }">
+
+            <div class="group relative flex-1">
+              <p class="text-xs text-gray-700 leading-snug pr-4
+                {{ 'line-through text-gray-400' if cell.cooked_at else '' }}"
+                :class="swapMode ? 'cursor-pointer' : ''"
+                @click="swapMode ? doSwap('{{ cell.date_str }}', '{{ row.slot }}') : null">
+                {{ cell.recipe_name[:22] }}{% if cell.recipe_name | length > 22 %}…{% endif %}
+              </p>
+              <button
+                @click="removeMeal('{{ active_plan.id }}', '{{ cell.date_str }}', '{{ row.slot }}')"
+                class="absolute top-0 right-0 w-4 h-4 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 bg-gray-200 hover:bg-red-200 text-gray-400 hover:text-red-600 transition-all"
+                title="Remove meal">
+                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Controls row -->
+            <div class="flex items-center gap-1.5">
+              <!-- Cook checkbox -->
+              <label class="flex items-center gap-1 cursor-pointer" title="{{ 'Cooked' if cell.cooked_at else 'Mark as cooked' }}">
+                <input type="checkbox"
+                  {{ 'checked' if cell.cooked_at else '' }}
+                  @change="toggleCooked('{{ cell.date_str }}', '{{ row.slot }}', $event.target.checked)"
+                  class="w-3 h-3 accent-emerald-600 cursor-pointer"/>
+                <span class="text-xs text-gray-400">✓</span>
+              </label>
+
+              {% if not cell.cooked_at %}
+              <!-- Swap button (only if not cooked) -->
+              <button @click="swapMode ? doSwap('{{ cell.date_str }}', '{{ row.slot }}') : enterSwap('{{ cell.date_str }}', '{{ row.slot }}', '{{ cell.recipe_name | replace("'", "\\'") }}')"
+                class="text-xs text-gray-300 hover:text-blue-500 transition-colors"
+                title="Swap this meal">⇄</button>
+              {% endif %}
+
+              <!-- Remove button -->
+              <button @click="removeMeal('{{ active_plan.id }}', '{{ cell.date_str }}', '{{ row.slot }}')"
+                class="text-xs text-gray-300 hover:text-red-400 transition-colors ml-auto"
+                title="Remove meal">×</button>
+            </div>
+          </div>
+
           {% else %}
-          <button @click="openAddMeal('{{ cell.date }}', '{{ row.slot }}')"
-            class="group flex items-center justify-center h-full min-h-12 w-full cursor-pointer">
-            <span class="text-xs text-gray-200 group-hover:hidden">&mdash;</span>
-            <span class="hidden group-hover:flex items-center justify-center w-5 h-5 bg-emerald-100 text-emerald-600 rounded-full text-sm font-medium leading-none">+</span>
+          <!-- Empty cell -->
+          <button
+            @click="swapMode ? doSwap('{{ cell.date_str }}', '{{ row.slot }}') : openAddMeal('{{ cell.date_str }}', '{{ row.slot }}')"
+            class="group flex items-center justify-center h-full min-h-10 w-full cursor-pointer
+              {% if not cell.cooked_at %}hover:bg-emerald-50/50{% endif %} rounded transition-colors"
+            :class="swapMode ? 'hover:ring-2 hover:ring-blue-300 ring-inset' : ''">
+            <span x-show="!swapMode" class="text-xs text-gray-200 group-hover:hidden">&mdash;</span>
+            <span x-show="!swapMode"
+              class="hidden group-hover:flex items-center justify-center w-5 h-5 bg-emerald-100 text-emerald-600 rounded-full text-sm font-medium leading-none">+</span>
+            <span x-show="swapMode" class="text-xs text-blue-300">here</span>
           </button>
           {% endif %}
+
         </div>
         {% endfor %}
       </div>
       {% endfor %}
+    </div>
+
+    <!-- Bottom Stats + Action Bar -->
+    <div class="mt-4 bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-6 text-sm text-gray-600">
+        <span>✅ <strong>{{ cooked_count }}</strong> cooked</span>
+        <span>🍽 <strong>{{ total_meals }}</strong> meal{{ 's' if total_meals != 1 else '' }}</span>
+        <span>📖 <strong>{{ unique_recipe_count }}</strong> recipe{{ 's' if unique_recipe_count != 1 else '' }}</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <button @click="cartDone = false; cartError = ''; openShoppingPreview()"
+          class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+          🧾 Preview Shopping
+        </button>
+      </div>
     </div>
 
     {% endif %}
@@ -267,6 +718,6 @@
 </div>
 {% endif %}
 
-</div><!-- end x-data modal wrapper -->
+</div><!-- end x-data wrapper -->
 
 {% endblock %}

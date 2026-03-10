@@ -73,7 +73,7 @@ async def search_locations(zip: str = Query(..., description="ZIP code to search
     try:
         from kroger_mcp.tools.shared import get_client_credentials_client
         client = get_client_credentials_client()
-        raw = client.locations.search(zip_code=zip, limit=5)
+        raw = client.location.search_locations(zip_code=zip, limit=5)
 
         # Normalise to a flat list of dicts
         locations = []
