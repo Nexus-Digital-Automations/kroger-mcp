@@ -87,19 +87,50 @@ async def shutdown():
     return {"message": "Server shutting down"}
 
 
+PORT = 8443
+CERT_DIR = Path.home() / ".kroger-mcp"
+CERT_FILE = CERT_DIR / "cert.pem"
+KEY_FILE = CERT_DIR / "key.pem"
+
+
+def _ensure_cert():
+    """Generate a self-signed cert if one doesn't exist."""
+    if CERT_FILE.exists() and KEY_FILE.exists():
+        return
+    CERT_DIR.mkdir(parents=True, exist_ok=True)
+    import subprocess
+    subprocess.run([
+        "openssl", "req", "-x509", "-newkey", "rsa:4096",
+        "-keyout", str(KEY_FILE), "-out", str(CERT_FILE),
+        "-days", "3650", "-nodes",
+        "-subj", "/C=US/ST=TX/L=Conroe/O=SmartShopper/CN=localhost",
+        "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+    ], check=True, capture_output=True)
+    print(f"Generated TLS certificate at {CERT_DIR}")
+
+
 def run():
     import uvicorn
-    uvicorn.run("kroger_mcp.web.app:app", host="0.0.0.0", port=8080, reload=False)
+    _ensure_cert()
+    print(f"Smart Shopper running at https://localhost:{PORT}")
+    uvicorn.run(
+        "kroger_mcp.web.app:app",
+        host="0.0.0.0",
+        port=PORT,
+        reload=False,
+        ssl_keyfile=str(KEY_FILE),
+        ssl_certfile=str(CERT_FILE),
+    )
 
 
 def stop():
-    """Kill any process running on port 8080."""
+    """Kill any process running on the web port."""
     import subprocess
-    result = subprocess.run(['lsof', '-ti', ':8080'], capture_output=True, text=True)
+    result = subprocess.run(['lsof', '-ti', f':{PORT}'], capture_output=True, text=True)
     pids = [p.strip() for p in result.stdout.strip().split('\n') if p.strip()]
     if not pids:
-        print("No server found on port 8080")
+        print(f"No server found on port {PORT}")
         return
     for pid in pids:
         os.kill(int(pid), signal.SIGTERM)
-    print(f"Stopped {len(pids)} process(es) on port 8080")
+    print(f"Stopped {len(pids)} process(es) on port {PORT}")
