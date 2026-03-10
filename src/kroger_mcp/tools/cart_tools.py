@@ -1,9 +1,11 @@
 """
 Cart tracking and management functionality
 """
+import asyncio
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from fastmcp import Context
@@ -21,8 +23,9 @@ from ..analytics.deals import record_price_observation, calculate_cart_savings
 
 
 # Cart storage file
-CART_FILE = "kroger_cart.json"
-ORDER_HISTORY_FILE = "kroger_order_history.json"
+_BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
+CART_FILE = str(_BASE_DIR / "kroger_cart.json")
+ORDER_HISTORY_FILE = str(_BASE_DIR / "kroger_order_history.json")
 
 
 def _load_cart_data() -> Dict[str, Any]:
@@ -123,9 +126,10 @@ def _add_item_to_local_cart(
 
     try:
         from ..analytics.pantry import add_to_pantry
-        add_to_pantry(product_id=product_id)
-    except Exception:
-        pass
+        description = (product_details or {}).get("description") or None
+        add_to_pantry(product_id=product_id, description=description)
+    except Exception as e:
+        print(f"Warning: Could not add product {product_id} to pantry: {e}")
 
 
 def register_tools(mcp):
@@ -143,66 +147,65 @@ def register_tools(mcp):
             "get_context",
         ] = Field(
             description=(
-                "Action: 'view' - view current cart contents, "
-                "'add' - add item(s) to cart (single: product_id+quantity+modality; batch: items list), "
-                "'remove' - remove item from local cart tracking, "
-                "'clear' - clear all items from local cart tracking, "
-                "'mark_placed' - mark current cart as placed order and move to history, "
-                "'view_history' - view history of placed orders, "
-                "'get_context' - get pantry/favorites context for shopping decisions"
-            )
+            "add — supports BATCH via items=[...] (max 50). "
+            "To order a favorites list, use favorites(action='order') instead. "
+            "Other: view|remove|clear|mark_placed|view_history|get_context"
+        )
         ),
         product_id: Optional[str] = Field(
             default=None,
-            description="Product ID (for add single mode, remove)",
+            description="Product ID",
         ),
         quantity: Optional[int] = Field(
             default=1,
-            description="Quantity to add, 1-99 (for add single mode)",
+            description="Quantity to add 1-99",
         ),
         modality: Optional[str] = Field(
             default="PICKUP",
-            description=(
-                "PICKUP or DELIVERY (for add single mode; "
-                "for remove: filter by modality or None to remove all instances)"
-            ),
+            description="PICKUP or DELIVERY",
         ),
         items: Optional[List[Dict[str, Any]]] = Field(
             default=None,
             description=(
-                "Batch items for add: list of {product_id, quantity?, modality?, description?} (max 50)"
+                "PREFERRED for multi-item adds. List of dicts: "
+                "[{product_id, quantity, modality, description}] max 50. "
+                "Always use this instead of calling add multiple times."
             ),
         ),
         preview_only: Optional[bool] = Field(
             default=False,
-            description="Return preview without adding to cart (for add)",
+            description="Preview without adding",
         ),
         confirm_unsafe: Optional[bool] = Field(
             default=False,
-            description="Override safety warnings and add flagged products (for add)",
+            description="Override safety warnings",
         ),
         order_notes: Optional[str] = Field(
             default=None,
-            description="Optional notes about the order (for mark_placed)",
+            description="Order notes",
         ),
         limit: Optional[int] = Field(
             default=10,
-            description="Number of recent orders to show, 1-50 (for view_history)",
+            description="Recent orders to show 1-50",
         ),
         product_ids: Optional[List[str]] = Field(
             default=None,
-            description=(
-                "Product IDs to check context for (for get_context); "
-                "if None, returns all pantry/favorites context"
-            ),
+            description="Product IDs to check context for",
         ),
         pantry_threshold: Optional[int] = Field(
             default=30,
-            description="Items above this pantry level % are suggested to skip (for get_context)",
+            description="Skip items above this pantry %",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Cart management operations."""
+        """Cart management operations.
+
+        BATCH ADD: Use items=[{product_id, quantity, modality}, ...] to add up to 50
+        items in ONE call. Never loop single adds.
+
+        TO ORDER A FAVORITES LIST: Use favorites(action='order', list_id='...') instead
+        of manually compiling items — it handles pantry skipping automatically.
+        """
         match action:
             case "view":
                 try:
@@ -384,7 +387,7 @@ def register_tools(mcp):
                     if ctx:
                         await ctx.info(f"Adding {len(formatted_items)} item(s) to cart")
 
-                    client = get_authenticated_client()
+                    client = await asyncio.to_thread(get_authenticated_client)
                     cart_items = [
                         {
                             "upc": item["product_id"],
@@ -397,7 +400,7 @@ def register_tools(mcp):
                     if ctx:
                         await ctx.info(f"Calling Kroger API to add {len(cart_items)} item(s)")
 
-                    client.cart.add_to_cart(cart_items)
+                    await asyncio.to_thread(client.cart.add_to_cart, cart_items)
 
                     if ctx:
                         await ctx.info("Successfully added item(s) to Kroger cart")
@@ -456,25 +459,27 @@ def register_tools(mcp):
                         }
 
             case "remove":
-                if not product_id:
-                    return {"success": False, "error": "product_id is required"}
+                ids_to_remove = product_ids if product_ids else ([product_id] if product_id else None)
+                if not ids_to_remove:
+                    return {"success": False, "error": "product_id or product_ids is required"}
                 try:
                     cart_data = _load_cart_data()
                     current_cart = cart_data.get("current_cart", [])
                     original_count = len(current_cart)
+                    ids_set = set(ids_to_remove)
 
                     if modality:
                         cart_data["current_cart"] = [
                             item for item in current_cart
                             if not (
-                                item.get("product_id") == product_id
+                                item.get("product_id") in ids_set
                                 and item.get("modality") == modality
                             )
                         ]
                     else:
                         cart_data["current_cart"] = [
                             item for item in current_cart
-                            if item.get("product_id") != product_id
+                            if item.get("product_id") not in ids_set
                         ]
 
                     items_removed = original_count - len(cart_data["current_cart"])
@@ -482,11 +487,19 @@ def register_tools(mcp):
                         cart_data["last_updated"] = datetime.now().isoformat()
                         _save_cart_data(cart_data)
 
+                    if len(ids_to_remove) == 1:
+                        return {
+                            "success": True,
+                            "message": f"Removed {items_removed} items from local cart tracking",
+                            "items_removed": items_removed,
+                            "product_id": ids_to_remove[0],
+                            "modality": modality,
+                        }
                     return {
                         "success": True,
                         "message": f"Removed {items_removed} items from local cart tracking",
                         "items_removed": items_removed,
-                        "product_id": product_id,
+                        "product_ids_removed": ids_to_remove,
                         "modality": modality,
                     }
                 except Exception as e:
