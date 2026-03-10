@@ -87,40 +87,13 @@ async def shutdown():
     return {"message": "Server shutting down"}
 
 
-PORT = 8443
-CERT_DIR = Path.home() / ".kroger-mcp"
-CERT_FILE = CERT_DIR / "cert.pem"
-KEY_FILE = CERT_DIR / "key.pem"
-
-
-def _ensure_cert():
-    """Generate a self-signed cert if one doesn't exist."""
-    if CERT_FILE.exists() and KEY_FILE.exists():
-        return
-    CERT_DIR.mkdir(parents=True, exist_ok=True)
-    import subprocess
-    subprocess.run([
-        "openssl", "req", "-x509", "-newkey", "rsa:4096",
-        "-keyout", str(KEY_FILE), "-out", str(CERT_FILE),
-        "-days", "3650", "-nodes",
-        "-subj", "/C=US/ST=TX/L=Conroe/O=SmartShopper/CN=localhost",
-        "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
-    ], check=True, capture_output=True)
-    print(f"Generated TLS certificate at {CERT_DIR}")
+PORT = 8080
 
 
 def run():
     import uvicorn
-    _ensure_cert()
-    print(f"Smart Shopper running at https://localhost:{PORT}")
-    uvicorn.run(
-        "kroger_mcp.web.app:app",
-        host="0.0.0.0",
-        port=PORT,
-        reload=False,
-        ssl_keyfile=str(KEY_FILE),
-        ssl_certfile=str(CERT_FILE),
-    )
+    print(f"Smart Shopper running at http://localhost:{PORT}")
+    uvicorn.run("kroger_mcp.web.app:app", host="0.0.0.0", port=PORT, reload=False)
 
 
 def stop():
