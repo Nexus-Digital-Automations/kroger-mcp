@@ -17,9 +17,9 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from kroger_api import KrogerAPI
-from kroger_mcp.analytics.database import get_db_connection, ensure_initialized
-from kroger_mcp.analytics.deals import record_price_observation
+from kroger_api import KrogerAPI  # noqa: E402
+from kroger_mcp.analytics.database import get_db_connection, ensure_initialized  # noqa: E402
+from kroger_mcp.analytics.deals import record_price_observation  # noqa: E402
 
 # Setup logging
 log_dir = Path.home() / "Library/Logs/KrogerScanner"

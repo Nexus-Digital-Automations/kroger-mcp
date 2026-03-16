@@ -3,8 +3,7 @@ Integration tests for session-based tool requirements.
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock
-from src.kroger_mcp.session_state import get_session_manager
+from kroger_mcp.config.session_state import get_session_manager
 
 
 # Mock Context for testing
@@ -35,7 +34,7 @@ def reset_session_state():
 @pytest.mark.asyncio
 async def test_add_to_cart_blocks_without_attention():
     """Test that add_to_cart blocks if attention not called."""
-    from src.kroger_mcp.tools.cart_tools import register_tools
+    from kroger_mcp.tools.cart_tools import register_tools
     from fastmcp import FastMCP
 
     # Create a minimal MCP instance
@@ -46,10 +45,10 @@ async def test_add_to_cart_blocks_without_attention():
     # Note: We need to call it directly as a function
     # For now, we'll test the logic by importing the session manager
 
-    from src.kroger_mcp.session_state import get_session_manager
+    from kroger_mcp.config.session_state import get_session_manager
 
     manager = get_session_manager()
-    ctx = MockContext("test_session_1")
+    MockContext("test_session_1")
 
     # Verify attention not called yet
     assert not manager.was_tool_called("test_session_1", "get_pantry_attention")
@@ -60,10 +59,10 @@ async def test_add_to_cart_blocks_without_attention():
 @pytest.mark.asyncio
 async def test_get_pantry_attention_sets_session_flag():
     """Test that get_pantry_attention marks session state."""
-    from src.kroger_mcp.session_state import get_session_manager
+    from kroger_mcp.config.session_state import get_session_manager
 
     manager = get_session_manager()
-    ctx = MockContext("test_session_2")
+    MockContext("test_session_2")
 
     # Initially not called
     assert not manager.was_tool_called("test_session_2", "get_pantry_attention")
@@ -78,7 +77,7 @@ async def test_get_pantry_attention_sets_session_flag():
 @pytest.mark.asyncio
 async def test_session_independence():
     """Test that different sessions are independent."""
-    from src.kroger_mcp.session_state import get_session_manager
+    from kroger_mcp.config.session_state import get_session_manager
 
     manager = get_session_manager()
 
@@ -95,7 +94,7 @@ async def test_session_independence():
 @pytest.mark.asyncio
 async def test_session_persists_across_multiple_tool_calls():
     """Test that session state persists across multiple tool calls."""
-    from src.kroger_mcp.session_state import get_session_manager
+    from kroger_mcp.config.session_state import get_session_manager
 
     manager = get_session_manager()
 
@@ -110,7 +109,7 @@ async def test_session_persists_across_multiple_tool_calls():
 
 def test_session_id_extraction_with_context():
     """Test session ID extraction from context."""
-    from src.kroger_mcp.tools.cart_tools import _get_session_id
+    from kroger_mcp.tools.cart_tools import _get_session_id
 
     ctx = MockContext("my_session_id")
     session_id = _get_session_id(ctx)
@@ -120,7 +119,7 @@ def test_session_id_extraction_with_context():
 
 def test_session_id_fallback_without_context():
     """Test session ID fallback when no context provided."""
-    from src.kroger_mcp.tools.cart_tools import _get_session_id
+    from kroger_mcp.tools.cart_tools import _get_session_id
 
     session_id = _get_session_id(None)
 

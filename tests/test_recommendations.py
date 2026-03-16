@@ -3,8 +3,7 @@ Tests for the comprehensive recommendation engine.
 """
 
 import pytest
-from datetime import datetime, timedelta
-from src.kroger_mcp.analytics.recommendations import (
+from kroger_mcp.analytics.recommendations import (
     calculate_recommendation_score,
     get_priority_tier,
     get_comprehensive_recommendations,
@@ -99,7 +98,7 @@ class TestScoringAlgorithm:
         }
         score, factors = calculate_recommendation_score(data)
 
-        assert factors['deals']['at_best_price'] == True
+        assert factors['deals']['at_best_price']
         assert factors['deals']['best_price_bonus'] == 10
 
     def test_scoring_favorites_bonus(self):
@@ -107,7 +106,7 @@ class TestScoringAlgorithm:
         data = {'in_favorites': True}
         score, factors = calculate_recommendation_score(data)
 
-        assert factors['relevance']['in_favorites'] == True
+        assert factors['relevance']['in_favorites']
         assert score >= 10
 
     def test_scoring_high_frequency(self):
@@ -131,7 +130,7 @@ class TestScoringAlgorithm:
         data = {'last_purchase_days_ago': 20}
         score, factors = calculate_recommendation_score(data)
 
-        assert factors['relevance']['recently_purchased'] == True
+        assert factors['relevance']['recently_purchased']
         assert score >= 5
 
     def test_scoring_optimal_timing(self):
@@ -155,7 +154,7 @@ class TestScoringAlgorithm:
         data = {'is_seasonal': True}
         score, factors = calculate_recommendation_score(data)
 
-        assert factors['timing']['seasonal'] == True
+        assert factors['timing']['seasonal']
 
     def test_scoring_maximum_score(self):
         """Maximum possible score should be 100."""
@@ -296,7 +295,7 @@ class TestComprehensiveRecommendations:
             max_results=10
         )
 
-        assert result['success'] == True
+        assert result['success']
         assert 'urgent_needs' in result
         assert 'high_value_deals' in result
         assert 'good_timing' in result
@@ -352,7 +351,7 @@ class TestComprehensiveRecommendations:
         # All returned items should be in favorites
         for tier in ['urgent_needs', 'high_value_deals', 'good_timing', 'nice_to_have']:
             for item in result[tier]:
-                assert item['relevance_factors'].get('in_favorites') == True
+                assert item['relevance_factors'].get('in_favorites')
 
 
 class TestExpirationScoring:
