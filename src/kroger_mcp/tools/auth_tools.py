@@ -2,7 +2,12 @@
 Authentication and user profile tools for Kroger MCP server.
 """
 
+import asyncio
+import functools
+import json
 import os
+import pathlib
+import tempfile
 from typing import Any, Dict, Literal, Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -21,6 +26,28 @@ load_dotenv()
 _pkce_params = None
 _auth_state = None
 
+# Disk-backed state file so PKCE survives MCP server restarts between start/complete
+_AUTH_STATE_FILE = pathlib.Path(tempfile.gettempdir()) / "kroger_mcp_auth_state.json"
+
+
+def _save_auth_state(pkce_params, auth_state):
+    _AUTH_STATE_FILE.write_text(json.dumps({"pkce_params": pkce_params, "auth_state": auth_state}))
+
+
+def _load_auth_state():
+    """Return (pkce_params, auth_state) from disk if the file exists, else (None, None)."""
+    if _AUTH_STATE_FILE.exists():
+        try:
+            data = json.loads(_AUTH_STATE_FILE.read_text())
+            return data.get("pkce_params"), data.get("auth_state")
+        except Exception:
+            pass
+    return None, None
+
+
+def _clear_auth_state():
+    _AUTH_STATE_FILE.unlink(missing_ok=True)
+
 
 def register_tools(mcp):
     """Register authentication and profile tools with the FastMCP server."""
@@ -36,21 +63,24 @@ def register_tools(mcp):
             "force_reauth",
         ] = Field(
             description=(
-                "Action: 'start' - begin OAuth authentication flow, "
-                "'complete' - finish OAuth using redirect URL from browser, "
-                "'get_profile' - get authenticated user's Kroger profile, "
-                "'test' - test if current authentication token is valid, "
-                "'get_info' - get details about current authentication state, "
-                "'force_reauth' - clear token and force re-authentication"
+                "start — begin OAuth2 login (returns URL). "
+                "complete — finish login with redirect_url. "
+                "force_reauth — clear tokens and re-login. "
+                "Other: get_profile|test|get_info"
             )
         ),
         redirect_url: Optional[str] = Field(
             default=None,
-            description="Full redirect URL from browser after authorization (for complete)",
+            description="Full redirect URL from browser after authorization",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Authentication and user profile operations."""
+        """Authentication and user profile operations.
+
+        Flow: auth(action='start') → open URL in browser → copy redirect URL →
+        auth(action='complete', redirect_url='...'). Tokens persist automatically.
+        Use force_reauth to clear cached tokens and re-authenticate.
+        """
         global _pkce_params, _auth_state
 
         match action:
@@ -62,6 +92,9 @@ def register_tools(mcp):
                 _auth_state = _pkce_params.get(
                     "state", _pkce_params.get("code_verifier")[:16]
                 )
+
+                # Persist to disk so state survives MCP server restarts
+                _save_auth_state(_pkce_params, _auth_state)
 
                 # Get client_id from environment
                 client_id = os.environ.get("KROGER_CLIENT_ID")
@@ -109,6 +142,10 @@ def register_tools(mcp):
             case "complete":
                 if not redirect_url:
                     return {"success": False, "error": "redirect_url is required"}
+
+                # Restore from disk if module-level globals were lost (e.g. server restart)
+                if not _pkce_params or not _auth_state:
+                    _pkce_params, _auth_state = _load_auth_state()
 
                 if not _pkce_params or not _auth_state:
                     if ctx:
@@ -179,14 +216,18 @@ def register_tools(mcp):
                         )
 
                     # Exchange the authorization code for tokens with the code verifier
-                    token_info = kroger.authorization.get_token_with_authorization_code(
-                        auth_code,
-                        code_verifier=_pkce_params["code_verifier"],
+                    token_info = await asyncio.to_thread(
+                        functools.partial(
+                            kroger.authorization.get_token_with_authorization_code,
+                            auth_code,
+                            code_verifier=_pkce_params["code_verifier"],
+                        )
                     )
 
                     # Clear PKCE parameters and state after successful exchange
                     _pkce_params = None
                     _auth_state = None
+                    _clear_auth_state()
 
                     if ctx:
                         await ctx.info("Authentication successful!")
@@ -221,8 +262,8 @@ def register_tools(mcp):
                     await ctx.info("Getting user profile information")
 
                 try:
-                    client = get_authenticated_client()
-                    profile = client.identity.get_profile()
+                    client = await asyncio.to_thread(get_authenticated_client)
+                    profile = await asyncio.to_thread(client.identity.get_profile)
 
                     if profile and "data" in profile:
                         profile_id = profile["data"].get("id", "N/A")
@@ -252,8 +293,8 @@ def register_tools(mcp):
                     await ctx.info("Testing authentication token validity")
 
                 try:
-                    client = get_authenticated_client()
-                    is_valid = client.test_current_token()
+                    client = await asyncio.to_thread(get_authenticated_client)
+                    is_valid = await asyncio.to_thread(client.test_current_token)
 
                     if ctx:
                         await ctx.info(
@@ -296,7 +337,7 @@ def register_tools(mcp):
                     await ctx.info("Getting authentication information")
 
                 try:
-                    client = get_authenticated_client()
+                    client = await asyncio.to_thread(get_authenticated_client)
 
                     result = {
                         "success": True,
