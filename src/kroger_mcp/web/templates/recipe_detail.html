@@ -279,14 +279,15 @@
     Alpine.data('ingredientPanel', () => ({
       ingView: 'usage',
       ings: {{ ingredients | tojson }},
-      catLabels: { produce: 'Produce', meat: 'Meat', seafood: 'Seafood', dairy: 'Dairy', frozen: 'Frozen', pantry: 'Pantry', bakery: 'Bakery', other: 'Other' },
-      catOrder: ['produce', 'meat', 'seafood', 'dairy', 'frozen', 'pantry', 'bakery', 'other'],
+      catLabels: { produce: 'Produce', meat: 'Meat', seafood: 'Seafood', dairy: 'Dairy', frozen: 'Frozen', pantry: 'Pantry', beverages: 'Beverages', bakery: 'Bakery', other: 'Other' },
+      catOrder: ['produce', 'meat', 'seafood', 'dairy', 'frozen', 'pantry', 'beverages', 'bakery', 'other'],
+      catNorm: { vegetables: 'produce', aromatics: 'produce', greens: 'produce', herbs: 'produce', protein: 'meat', poultry: 'meat', baking: 'pantry', 'canned goods': 'pantry', condiments: 'pantry', grains: 'pantry', oil: 'pantry', oils: 'pantry', sauce: 'pantry', sauces: 'pantry', spices: 'pantry', acid: 'pantry', seasoning: 'pantry' },
       get groups() {
         if (this.ingView === 'usage') return [{ header: null, items: this.ings }];
         const map = {};
         this.ings.forEach(i => {
           const raw = ((i.category || '') + '').toLowerCase().trim();
-          const key = this.catOrder.includes(raw) ? raw : 'other';
+          const key = this.catOrder.includes(this.catNorm[raw] || raw) ? (this.catNorm[raw] || raw) : 'other';
           (map[key] = map[key] || []).push(i);
         });
         return this.catOrder.filter(k => map[k]).map(k => ({ header: this.catLabels[k], items: map[k] }));
