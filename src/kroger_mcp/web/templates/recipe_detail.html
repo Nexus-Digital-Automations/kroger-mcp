@@ -274,8 +274,9 @@
 <div class="grid grid-cols-2 gap-6">
 
   <!-- Ingredients -->
-  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6"
-    x-data="{
+  <script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data('ingredientPanel', () => ({
       ingView: 'usage',
       ings: {{ ingredients | tojson }},
       catLabels: { produce: 'Produce', meat: 'Meat', seafood: 'Seafood', dairy: 'Dairy', frozen: 'Frozen', pantry: 'Pantry', bakery: 'Bakery', other: 'Other' },
@@ -290,7 +291,10 @@
         });
         return this.catOrder.filter(k => map[k]).map(k => ({ header: this.catLabels[k], items: map[k] }));
       }
-    }">
+    }));
+  });
+  </script>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6" x-data="ingredientPanel()">
     <div class="flex items-center justify-between mb-4">
       <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Ingredients</h3>
       <div x-show="ings.length > 0" class="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
