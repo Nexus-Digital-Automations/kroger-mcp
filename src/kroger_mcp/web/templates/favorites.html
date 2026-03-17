@@ -43,7 +43,6 @@
     this.loading = false;
   },
   async deleteList(id, name) {
-    if (!confirm('Delete \u201c' + name + '\u201d and all its items? This cannot be undone.')) return;
     const r = await fetch('/api/favorites/lists/' + id, {method: 'DELETE'});
     if (r.ok) { window.location.reload(); }
     else { alert('Failed to delete list'); }

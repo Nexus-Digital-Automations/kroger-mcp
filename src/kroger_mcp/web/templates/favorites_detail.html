@@ -14,7 +14,73 @@
 </a>
 
 <!-- Header -->
-<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+<div x-data="{
+  editOpen: false,
+  editName: '{{ lst.name | e }}',
+  editDescription: '{{ lst.description | e }}',
+  editReorderWeeks: '{{ lst.reorder_weeks or '' }}',
+  loading: false,
+  error: '',
+  async submitEdit() {
+    if (!this.editName.trim()) { this.error = 'Name is required'; return; }
+    this.loading = true; this.error = '';
+    const body = {name: this.editName.trim(), description: this.editDescription.trim()};
+    const weeks = parseInt(this.editReorderWeeks);
+    if (this.editReorderWeeks !== '') body.reorder_weeks = isNaN(weeks) ? 0 : weeks;
+    try {
+      const r = await fetch('/api/favorites/lists/{{ lst.id }}', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      const d = await r.json();
+      if (r.ok && d.success) { window.location.reload(); }
+      else { this.error = d.error || 'Failed to update list'; }
+    } catch(e) { this.error = 'Network error'; }
+    this.loading = false;
+  }
+}">
+
+  <!-- Edit Modal -->
+  <div x-show="editOpen" x-cloak
+    class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+    @click.self="editOpen = false">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+      <h2 class="text-base font-semibold text-gray-900 mb-4">Edit List</h2>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Name <span class="text-red-500">*</span></label>
+          <input x-model="editName" type="text"
+            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            @keydown.enter="submitEdit()"/>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
+          <input x-model="editDescription" type="text" placeholder="Optional description"
+            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Reorder schedule (weeks)</label>
+          <input x-model="editReorderWeeks" type="number" min="0" max="52"
+            placeholder="0 = no schedule"
+            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+          <p class="text-xs text-gray-400 mt-1">Set to 0 to disable reorder reminders.</p>
+        </div>
+        <p x-show="error" class="text-xs text-red-600" x-text="error"></p>
+      </div>
+      <div class="flex justify-end gap-3 mt-6">
+        <button @click="editOpen = false; error = '';"
+          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
+        <button @click="submitEdit()" :disabled="loading"
+          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+          <span x-show="!loading">Save Changes</span>
+          <span x-show="loading">Saving...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
   <div class="flex items-start justify-between">
     <div>
       <h2 class="text-xl font-bold text-gray-900 mb-1">{{ lst.name }}</h2>
@@ -22,11 +88,17 @@
       <p class="text-sm text-gray-500">{{ lst.description }}</p>
       {% endif %}
     </div>
-    {% set color_map = {"red": "bg-red-100 text-red-700", "amber": "bg-amber-100 text-amber-700", "emerald": "bg-emerald-100 text-emerald-700", "gray": "bg-gray-100 text-gray-500"} %}
-    <span class="text-sm px-3 py-1 rounded-full font-medium
-      {{ color_map.get(badge_color, 'bg-gray-100 text-gray-500') }}">
-      {{ badge_label }}
-    </span>
+    <div class="flex items-center gap-2">
+      <button @click="editOpen = true"
+        class="px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+        Edit
+      </button>
+      {% set color_map = {"red": "bg-red-100 text-red-700", "amber": "bg-amber-100 text-amber-700", "emerald": "bg-emerald-100 text-emerald-700", "gray": "bg-gray-100 text-gray-500"} %}
+      <span class="text-sm px-3 py-1 rounded-full font-medium
+        {{ color_map.get(badge_color, 'bg-gray-100 text-gray-500') }}">
+        {{ badge_label }}
+      </span>
+    </div>
   </div>
 
   <!-- Reorder info -->
@@ -41,6 +113,8 @@
     {% endif %}
   </div>
   {% endif %}
+</div>
+
 </div>
 
 <!-- Add Item Form -->
@@ -156,10 +230,8 @@
         </td>
         <td class="px-4 py-4 text-right">
           <button
-            onclick="if(confirm('Remove {{ item.description | e }} from this list?')) {
-              fetch('/api/favorites/lists/{{ lst.id }}/items/{{ item.product_id }}', {method:'DELETE'})
-                .then(r => r.ok ? window.location.reload() : alert('Failed to remove item'));
-            }"
+            onclick="fetch('/api/favorites/lists/{{ lst.id }}/items/{{ item.product_id }}', {method:'DELETE'})
+              .then(r => r.ok ? window.location.reload() : alert('Failed to remove item'));"
             class="text-xs text-red-500 hover:text-red-700 font-medium transition-colors px-2 py-1 rounded hover:bg-red-50">
             Remove
           </button>

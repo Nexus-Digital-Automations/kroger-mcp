@@ -137,7 +137,6 @@
     else { alert('Failed to remove meal'); }
   },
   async deletePlan(planId, planName) {
-    if (!confirm('Delete \u201c' + planName + '\u201d and all its meals? This cannot be undone.')) return;
     const r = await fetch('/api/meal-plan/' + planId, {method: 'DELETE'});
     if (r.ok) { window.location.href = '/meal-plan'; }
     else { alert('Failed to delete plan'); }
@@ -539,6 +538,11 @@
           class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
           title="Save as reusable template">
           ★ Template
+        </button>
+        <button @click="deletePlan('{{ active_plan.id }}', '{{ active_plan.name | replace("'", "\\'") }}')"
+          class="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+          title="Delete this plan">
+          🗑 Delete
         </button>
         {% if templates_list %}
         <button @click="fromTemplateOpen = true"

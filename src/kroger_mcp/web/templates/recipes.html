@@ -43,19 +43,40 @@
       <span class="text-sm text-gray-500">{{ recipe_count }} recipes</span>
     </div>
 
-    <!-- Tag chips -->
+    <!-- Tag filter dropdown -->
     {% if all_tags %}
-    <div class="flex flex-wrap gap-2">
-      {% for tag in all_tags %}
-      <button
-        @click="toggleTag('{{ tag }}')"
-        :class="activeTags.includes('{{ tag }}')
-          ? 'bg-emerald-600 text-white border-emerald-600'
-          : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-400'"
-        class="px-3 py-1 text-xs font-medium rounded-full border transition-colors">
-        {{ tag }}
+    <div class="relative" x-data="{ tagOpen: false }" @click.away="tagOpen = false">
+      <button @click="tagOpen = !tagOpen"
+        :class="activeTags.length > 0 ? 'border-emerald-400 text-emerald-700 bg-emerald-50' : 'border-gray-200 text-gray-600 bg-white'"
+        class="flex items-center gap-2 px-3 py-2 text-sm border rounded-lg hover:border-emerald-400 transition-colors">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"/>
+        </svg>
+        <span x-show="activeTags.length === 0">Filter by tag</span>
+        <span x-show="activeTags.length > 0" x-text="activeTags.length + ' tag' + (activeTags.length !== 1 ? 's' : '') + ' selected'"></span>
+        <svg class="w-3.5 h-3.5 flex-shrink-0 transition-transform" :class="tagOpen ? 'rotate-180' : ''"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
       </button>
-      {% endfor %}
+      <div x-show="tagOpen" x-cloak
+        class="absolute top-full mt-1 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-44 z-20">
+        <button @click="activeTags = []"
+          class="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors">
+          Clear all
+        </button>
+        <div class="border-t border-gray-100 mt-1 pt-1 max-h-60 overflow-y-auto">
+          {% for tag in all_tags %}
+          <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
+            <input type="checkbox"
+              :checked="activeTags.includes('{{ tag }}')"
+              @change="toggleTag('{{ tag }}')"
+              class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0"/>
+            <span class="text-sm text-gray-700">{{ tag }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
     </div>
     {% endif %}
   </div>
@@ -66,14 +87,12 @@
     <div x-show="matches($el)"
        data-name="{{ recipe.name | e }}"
        data-tags='{{ recipe.tags | tojson }}'
-       class="relative bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-emerald-200 transition-all">
+       class="relative bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-emerald-200 transition-all flex flex-col">
       <!-- Delete button -->
       <button
         onclick="event.stopPropagation(); event.preventDefault();
-          if(confirm('Delete &quot;{{ recipe.name | e }}&quot;? This cannot be undone.')) {
-            fetch('/api/recipes/{{ recipe.id }}', {method:'DELETE'})
-              .then(r => r.ok ? window.location.reload() : alert('Failed to delete recipe'));
-          }"
+          fetch('/api/recipes/{{ recipe.id }}', {method:'DELETE'})
+            .then(r => r.ok ? window.location.reload() : alert('Failed to delete recipe'));"
         class="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-full
           bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors z-10"
         title="Delete recipe">
@@ -81,7 +100,7 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
       </button>
-      <a href="/recipes/{{ recipe.id }}" class="block p-5">
+      <a href="/recipes/{{ recipe.id }}" class="block p-5 flex-1">
       <div class="flex items-start justify-between mb-2">
         <h3 class="text-sm font-semibold text-gray-900 leading-tight pr-6">{{ recipe.name }}</h3>
         {% if recipe.times_ordered %}
@@ -111,6 +130,16 @@
       </div>
       {% endif %}
       </a>
+
+      <!-- Add to Meal Plan button -->
+      <div class="px-5 pb-4">
+        <button
+          @click.prevent="$dispatch('open-meal-panel', {recipeId: '{{ recipe.id }}', recipeName: '{{ recipe.name | replace("'", "\\'") | replace('"', '\\"') }}'})"
+          class="w-full text-xs text-emerald-600 border border-emerald-200 rounded-lg py-1.5
+                 hover:bg-emerald-50 transition-colors">
+          + Add to Meal Plan
+        </button>
+      </div>
     </div>
     {% endfor %}
   </div>
@@ -121,4 +150,180 @@
   </div>
 
 </div>
+
+<!-- ── Meal Plan Slide-Out Panel ── -->
+<div x-data="{
+  open: false,
+  recipeId: '',
+  recipeName: '',
+  plans: [],
+  planId: '',
+  weekOffset: 0,
+  weekData: null,
+  loading: false,
+  success: '',
+  slots: ['breakfast', 'lunch', 'dinner', 'snack'],
+
+  async init() {
+    try {
+      const r = await fetch('/api/meal-plan/list');
+      const d = await r.json();
+      this.plans = d.plans || [];
+      if (this.plans.length) this.planId = this.plans[0].id;
+    } catch(e) {}
+  },
+
+  async openPanel(rid, rname) {
+    this.recipeId = rid;
+    this.recipeName = rname;
+    this.weekOffset = 0;
+    this.success = '';
+    this.weekData = null;
+    if (this.plans.length && this.planId) await this.loadWeek();
+    this.open = true;
+  },
+
+  async loadWeek() {
+    if (!this.planId) return;
+    this.loading = true;
+    try {
+      const r = await fetch('/api/meal-plan/' + this.planId + '/week?week_offset=' + this.weekOffset);
+      this.weekData = await r.json();
+    } catch(e) { this.weekData = null; }
+    this.loading = false;
+  },
+
+  async assignToSlot(date, slot) {
+    const r = await fetch('/api/meal-plan/' + this.planId + '/meals', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({recipe_id: this.recipeId, meal_date: date, meal_slot: slot})
+    });
+    const d = await r.json();
+    if (r.ok) {
+      this.success = slot.charAt(0).toUpperCase() + slot.slice(1) + ' on ' + date + ' — added!';
+      await this.loadWeek();
+    }
+  }
+}"
+@open-meal-panel.window="openPanel($event.detail.recipeId, $event.detail.recipeName)">
+
+  <!-- Overlay -->
+  <div x-show="open" x-cloak @click.self="open = false"
+    class="fixed inset-0 bg-black/20 z-40 transition-opacity"></div>
+
+  <!-- Panel -->
+  <div x-show="open" x-cloak
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="translate-x-full"
+    x-transition:enter-end="translate-x-0"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="translate-x-0"
+    x-transition:leave-end="translate-x-full"
+    class="fixed inset-y-0 right-0 w-96 bg-white shadow-2xl z-50 flex flex-col">
+
+    <!-- Header -->
+    <div class="p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+      <div class="min-w-0">
+        <div class="text-xs text-gray-500">Adding to plan:</div>
+        <div class="font-medium text-gray-900 truncate text-sm" x-text="recipeName"></div>
+      </div>
+      <button @click="open = false" class="ml-3 text-gray-400 hover:text-gray-600 flex-shrink-0">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- No plans state -->
+    <div x-show="plans.length === 0" class="flex-1 flex items-center justify-center p-6 text-center">
+      <div>
+        <p class="text-sm text-gray-500 mb-3">No meal plans yet.</p>
+        <a href="/meal-plan" class="text-sm text-emerald-600 hover:underline">Create a plan →</a>
+      </div>
+    </div>
+
+    <!-- Plan content -->
+    <div x-show="plans.length > 0" class="flex flex-col flex-1 min-h-0">
+
+      <!-- Plan selector -->
+      <div class="px-4 pt-3 pb-2 flex-shrink-0">
+        <select x-model="planId" @change="weekOffset=0; success=''; loadWeek()"
+          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          <template x-for="p in plans" :key="p.id">
+            <option :value="p.id" x-text="p.name"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- Week nav -->
+      <div class="px-4 pb-2 flex items-center gap-2 flex-shrink-0">
+        <button @click="weekOffset--; success=''; loadWeek()"
+          class="p-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors text-xs">‹</button>
+        <span class="flex-1 text-center text-xs text-gray-600" x-text="weekData?.week_label || '—'"></span>
+        <button @click="weekOffset++; success=''; loadWeek()"
+          class="p-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors text-xs">›</button>
+      </div>
+
+      <!-- Mini calendar grid -->
+      <div class="flex-1 overflow-auto px-4 pb-4">
+        <div x-show="loading" class="flex justify-center py-6">
+          <div class="animate-spin w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+        </div>
+
+        <div x-show="!loading && weekData" class="text-xs">
+          <!-- Header row: blank + day initials -->
+          <div class="grid gap-0.5 mb-1" style="grid-template-columns: 60px repeat(7, 1fr)">
+            <div></div>
+            <template x-for="day in (weekData?.days || [])" :key="day.date">
+              <div class="text-center text-gray-400 font-medium py-1" x-text="day.day_short"></div>
+            </template>
+          </div>
+
+          <!-- 4 slot rows -->
+          <template x-for="slot in slots" :key="slot">
+            <div class="grid gap-0.5 mb-0.5" style="grid-template-columns: 60px repeat(7, 1fr)">
+              <!-- Slot label -->
+              <div class="flex items-center pr-1">
+                <span class="text-gray-400 capitalize text-xs truncate" x-text="slot.slice(0,3)"></span>
+              </div>
+              <!-- Day cells -->
+              <template x-for="day in (weekData?.days || [])" :key="day.date + slot">
+                <div>
+                  <template x-if="day.slots[slot]">
+                    <!-- Filled: grayed, not clickable -->
+                    <div class="rounded p-1 bg-gray-50 border border-gray-100 min-h-7 flex items-center"
+                      :title="day.slots[slot].recipe_name">
+                      <span class="text-gray-400 truncate text-xs leading-tight"
+                        x-text="(day.slots[slot].recipe_name || '').slice(0, 8) + ((day.slots[slot].recipe_name || '').length > 8 ? '…' : '')">
+                      </span>
+                    </div>
+                  </template>
+                  <template x-if="!day.slots[slot]">
+                    <!-- Empty: clickable -->
+                    <button @click="assignToSlot(day.date, slot)"
+                      class="w-full rounded p-1 min-h-7 border border-transparent
+                             hover:bg-emerald-50 hover:border-emerald-200 transition-colors
+                             flex items-center justify-center text-emerald-300 hover:text-emerald-500">
+                      <span>+</span>
+                    </button>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <p x-show="!loading && !weekData" class="text-xs text-gray-400 text-center py-4">No data</p>
+      </div>
+
+      <!-- Success toast -->
+      <div x-show="success" x-transition
+        class="mx-4 mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700 flex-shrink-0"
+        x-text="success"></div>
+    </div>
+
+  </div>
+</div>
+
 {% endblock %}

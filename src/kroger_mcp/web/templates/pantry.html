@@ -261,7 +261,6 @@
             <button x-data="{ busy: false }"
                     :disabled="busy"
                     @click="
-                      if (!confirm('Remove {{ (item.description or item.product_id) | replace("'", "\\'") }} from pantry?')) return;
                       busy = true;
                       fetch('/api/pantry/{{ item.product_id }}', {method: 'DELETE'})
                         .then(() => window.location.reload());
