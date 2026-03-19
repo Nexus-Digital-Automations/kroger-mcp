@@ -29,6 +29,16 @@ def _parse_date(date_str: str) -> datetime:
     return datetime.strptime(date_str, "%Y-%m-%d")
 
 
+def _safe_float(value: Any, default: float = 1.0) -> float:
+    """Convert a quantity value to float, returning default on failure."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _format_date(dt: datetime) -> str:
     """Format a datetime as YYYY-MM-DD."""
     return dt.strftime("%Y-%m-%d")
@@ -1042,7 +1052,7 @@ def generate_meal_plan_shopping_list(
                 {
                     "name": ing.get("name", "Unknown"),
                     "product_id": ing.get("product_id"),
-                    "scaled_quantity": (ing.get("quantity") or 1) * scale,
+                    "scaled_quantity": _safe_float(ing.get("quantity"), 1) * scale,
                     "unit": ing.get("unit", ""),
                     "from_recipe_name": recipe.get("name")
                 }
@@ -1052,7 +1062,7 @@ def generate_meal_plan_shopping_list(
         for ing in collected_ings:
             ing_name = ing.get('name', 'Unknown')
             product_id = ing.get('product_id')
-            quantity = ing.get('scaled_quantity') or (ing.get('quantity') or 1) * scale
+            quantity = ing.get('scaled_quantity') or _safe_float(ing.get('quantity'), 1) * scale
             unit = ing.get('unit', '')
 
             # Key for combining
@@ -1950,5 +1960,74 @@ def cleanup_expired_plans(retention_days: int = 90) -> Dict[str, Any]:
                 f"(older than {retention_days} days past end_date)."
             ),
         }
+    finally:
+        conn.close()
+
+
+def get_plan_summary_stats(plan_id: str) -> Dict[str, Any]:
+    """
+    Lightweight stats for the bottom stats bar.
+
+    Returns:
+        {success, plan_id, meal_count, unique_recipes, cooked_count}
+    """
+    ensure_initialized()
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as total, COUNT(DISTINCT recipe_id) as unique_r, "
+            "SUM(CASE WHEN cooked_at IS NOT NULL THEN 1 ELSE 0 END) as cooked "
+            "FROM meal_entries WHERE plan_id = ?",
+            (plan_id,),
+        ).fetchone()
+        if not row:
+            return {
+                "success": True,
+                "plan_id": plan_id,
+                "meal_count": 0,
+                "unique_recipes": 0,
+                "cooked_count": 0,
+            }
+        return {
+            "success": True,
+            "plan_id": plan_id,
+            "meal_count": int(row[0] or 0),
+            "unique_recipes": int(row[1] or 0),
+            "cooked_count": int(row[2] or 0),
+        }
+    finally:
+        conn.close()
+
+
+def list_plans_for_api(include_templates: bool = False, limit: int = 50) -> Dict[str, Any]:
+    """
+    Clean plan listing for web API endpoints.
+
+    Args:
+        include_templates: If True return all plans; if False exclude templates.
+        limit: Max rows to return.
+
+    Returns:
+        {success, plans: [{id, name, start_date, end_date, plan_type, is_template}]}
+    """
+    ensure_initialized()
+    conn = get_db_connection()
+    try:
+        if include_templates:
+            rows = conn.execute(
+                "SELECT id, name, start_date, end_date, plan_type, is_template "
+                "FROM meal_plans ORDER BY start_date DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, name, start_date, end_date, plan_type, is_template "
+                "FROM meal_plans WHERE is_template = 0 ORDER BY start_date DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        plans = [dict(r) for r in rows]
+        for p in plans:
+            p["is_template"] = bool(p.get("is_template"))
+        return {"success": True, "plans": plans}
     finally:
         conn.close()

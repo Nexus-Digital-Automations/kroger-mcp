@@ -79,6 +79,23 @@ async def add_pantry_item(body: AddItemRequest):
         )
 
 
+@router.delete('/api/pantry')
+async def clear_all_pantry_items():
+    """Remove all items from pantry tracking."""
+    try:
+        from kroger_mcp.analytics.database import get_db_cursor, ensure_initialized
+        ensure_initialized()
+        with get_db_cursor() as cursor:
+            cursor.execute("DELETE FROM pantry_items")
+            deleted = cursor.rowcount
+        return JSONResponse(content={"success": True, "deleted": deleted})
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={'error': f'Failed to clear pantry: {str(e)}'},
+        )
+
+
 @router.delete('/api/pantry/{product_id}')
 async def delete_pantry_item(product_id: str):
     """Remove an item from pantry tracking."""
