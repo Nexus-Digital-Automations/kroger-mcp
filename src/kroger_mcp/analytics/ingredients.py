@@ -25,8 +25,9 @@ Sources include: WHO/IARC, EFSA, FDA, peer-reviewed studies on gut microbiome,
 and systematic reviews on ultra-processed food consumption.
 """
 
+import asyncio
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional, Dict, Any
 
@@ -662,17 +663,351 @@ class IngredientMatch:
 
 
 @dataclass
+class PositiveAttribute:
+    """A food quality attribute that positively scores a product."""
+    key: str
+    name: str
+    aliases: List[str]
+    bonus: int
+    benefit: str
+    category: str
+
+
+@dataclass
+class AttributeMatch:
+    """A matched positive food quality attribute."""
+    attribute_key: str
+    attribute_name: str
+    bonus: int
+    benefit: str
+    matched_text: str
+
+
+# Positive food quality attributes that improve safety score
+GOOD_ATTRIBUTES: List[PositiveAttribute] = [
+    PositiveAttribute(
+        key="organic",
+        name="Organic",
+        aliases=["usda organic", "certified organic", "100% organic"],
+        bonus=0,
+        benefit="No synthetic pesticides, herbicides, or GMOs",
+        category="certification",
+    ),
+    PositiveAttribute(
+        key="non_gmo",
+        name="Non-GMO",
+        aliases=["non gmo", "non-gmo verified", "no gmo", "gmo free", "gmo-free"],
+        bonus=0,
+        benefit="No genetically modified organisms",
+        category="certification",
+    ),
+    PositiveAttribute(
+        key="grass_fed",
+        name="Grass-Fed / Pasture-Raised / Wild-Caught",
+        aliases=[
+            "grass fed", "grassfed", "grass-fed",
+            "pasture raised", "pasture-raised",
+            "wild caught", "wild-caught",
+        ],
+        bonus=15,
+        benefit="Better nutrient profile, higher omega-3s",
+        category="animal_welfare",
+    ),
+    PositiveAttribute(
+        key="free_range",
+        name="Free-Range",
+        aliases=["free range", "free-range", "cage free", "cage-free"],
+        bonus=10,
+        benefit="Better living conditions, improved nutrition",
+        category="animal_welfare",
+    ),
+    PositiveAttribute(
+        key="hormone_free",
+        name="Hormone-Free / Antibiotic-Free",
+        aliases=[
+            "no hormones", "hormone free", "hormone-free",
+            "no antibiotics", "antibiotic free", "antibiotic-free",
+            "raised without antibiotics",
+        ],
+        bonus=10,
+        benefit="No synthetic growth hormones or antibiotics",
+        category="production",
+    ),
+    PositiveAttribute(
+        key="all_natural",
+        name="All Natural",
+        aliases=["all natural", "all-natural", "100% natural"],
+        bonus=8,
+        benefit="No artificial ingredients or synthetic preservatives",
+        category="quality",
+    ),
+    PositiveAttribute(
+        key="no_artificial",
+        name="No Artificial Ingredients",
+        aliases=[
+            "no artificial", "no artificial ingredients",
+            "no artificial colors", "no artificial flavors",
+            "no artificial preservatives",
+        ],
+        bonus=8,
+        benefit="Free of artificial colors, flavors, and preservatives",
+        category="quality",
+    ),
+    PositiveAttribute(
+        key="whole_grain",
+        name="Whole Grain",
+        aliases=[
+            "whole grain", "whole grains", "whole wheat",
+            "100% whole wheat", "100% whole grain",
+        ],
+        bonus=15,
+        benefit="Higher fiber, better blood sugar response",
+        category="quality",
+    ),
+    PositiveAttribute(
+        key="whole_food",
+        name="Whole Food",
+        aliases=[
+            "100% juice", "single ingredient", "nothing artificial",
+            "no added ingredients", "just fruit", "just vegetables",
+            "simple ingredients", "minimally processed",
+        ],
+        bonus=12,
+        benefit="Whole, minimally processed food with simple ingredients",
+        category="quality",
+    ),
+    # --- Whole food ingredient recognition ---
+    # These match bare ingredient names (e.g. "olive oil", "chicken breast")
+    # so that per-ingredient scoring in recipes produces meaningful grades
+    # instead of everything defaulting to base-60 / C.
+    PositiveAttribute(
+        key="healthy_fat_ingredient",
+        name="Healthy Fat",
+        aliases=[
+            "olive oil", "extra virgin olive oil", "avocado oil",
+            "avocado", "almond", "almonds", "walnut", "walnuts",
+            "cashew", "cashews", "flaxseed", "chia", "hemp seed",
+            "coconut oil", "sesame oil", "peanut butter",
+        ],
+        bonus=20,
+        benefit="Heart-healthy fat source",
+        category="whole_food",
+    ),
+    PositiveAttribute(
+        key="produce_ingredient",
+        name="Fresh Produce",
+        aliases=[
+            "spinach", "kale", "broccoli", "carrot", "carrots",
+            "tomato", "tomatoes", "onion", "onions", "garlic",
+            "pepper", "peppers", "bell pepper", "lettuce", "cucumber",
+            "zucchini", "asparagus", "celery", "cauliflower",
+            "sweet potato", "sweet potatoes", "potato", "potatoes",
+            "mushroom", "mushrooms", "green beans", "peas",
+            "corn", "cabbage", "eggplant", "beets", "radish",
+            "brussels sprouts", "artichoke",
+        ],
+        bonus=20,
+        benefit="Nutrient-dense whole vegetable",
+        category="whole_food",
+    ),
+    PositiveAttribute(
+        key="fruit_ingredient",
+        name="Fresh Fruit",
+        aliases=[
+            "apple", "apples", "banana", "bananas", "berry", "berries",
+            "strawberry", "strawberries", "blueberry", "blueberries",
+            "raspberry", "raspberries", "blackberry", "blackberries",
+            "lemon", "lemons", "lime", "limes", "orange", "oranges",
+            "peach", "peaches", "pear", "pears", "mango", "mangoes",
+            "pineapple", "grape", "grapes", "watermelon", "cantaloupe",
+            "cherry", "cherries", "plum", "plums", "fig", "figs",
+            "pomegranate", "kiwi", "grapefruit", "cranberry", "cranberries",
+        ],
+        bonus=20,
+        benefit="Nutrient-dense whole fruit",
+        category="whole_food",
+    ),
+    PositiveAttribute(
+        key="lean_protein_ingredient",
+        name="Lean Protein",
+        aliases=[
+            "chicken", "chicken breast", "chicken thigh",
+            "turkey", "ground turkey", "salmon", "tuna",
+            "shrimp", "cod", "tilapia", "halibut", "trout",
+            "egg", "eggs", "lentil", "lentils",
+            "chickpea", "chickpeas", "black bean", "black beans",
+            "kidney bean", "kidney beans", "tofu", "tempeh",
+            "pork tenderloin", "pork loin",
+        ],
+        bonus=20,
+        benefit="Quality protein source",
+        category="whole_food",
+    ),
+    PositiveAttribute(
+        key="whole_grain_ingredient",
+        name="Whole Grain",
+        aliases=[
+            "brown rice", "quinoa", "oats", "oatmeal",
+            "whole wheat", "farro", "barley", "bulgur",
+            "millet", "buckwheat", "wild rice",
+        ],
+        bonus=20,
+        benefit="Whole grain with fiber and nutrients",
+        category="whole_food",
+    ),
+    PositiveAttribute(
+        key="herb_spice_ingredient",
+        name="Herb or Spice",
+        aliases=[
+            "basil", "oregano", "thyme", "rosemary", "cilantro",
+            "parsley", "mint", "dill", "cumin", "turmeric",
+            "ginger", "cinnamon", "paprika", "chili powder",
+            "cayenne", "coriander", "nutmeg", "cloves",
+            "bay leaf", "bay leaves", "sage", "tarragon",
+            "chives", "fennel", "cardamom", "saffron",
+        ],
+        bonus=20,
+        benefit="Natural seasoning with health benefits",
+        category="whole_food",
+    ),
+    PositiveAttribute(
+        key="dairy_ingredient",
+        name="Natural Dairy",
+        aliases=[
+            "milk", "butter", "cream", "heavy cream",
+            "yogurt", "greek yogurt", "sour cream",
+            "parmesan", "mozzarella", "cheddar", "cheese",
+            "cream cheese", "ricotta", "feta", "gouda",
+        ],
+        bonus=15,
+        benefit="Natural dairy product",
+        category="whole_food",
+    ),
+    PositiveAttribute(
+        key="pantry_staple_ingredient",
+        name="Pantry Staple",
+        aliases=[
+            "flour", "sugar", "salt", "honey", "maple syrup",
+            "vinegar", "soy sauce", "rice", "pasta",
+            "bread", "tortilla", "stock", "broth",
+            "tomato paste", "tomato sauce", "coconut milk",
+        ],
+        bonus=10,
+        benefit="Basic cooking staple",
+        category="whole_food",
+    ),
+]
+
+# Pre-compile positive attribute patterns
+_POSITIVE_PATTERNS: List[Dict] = []
+
+def _compile_positive_patterns() -> List[Dict]:
+    compiled = []
+    for attr in GOOD_ATTRIBUTES:
+        all_terms = [attr.name.lower()] + [a.lower() for a in attr.aliases]
+        for term in all_terms:
+            compiled.append({
+                "pattern": re.compile(r'\b' + re.escape(term) + r'\b', re.IGNORECASE),
+                "key": attr.key,
+                "name": attr.name,
+                "bonus": attr.bonus,
+                "benefit": attr.benefit,
+                "term": term,
+            })
+    return compiled
+
+_POSITIVE_PATTERNS = _compile_positive_patterns()
+
+
+def check_positive_attributes(text: str) -> List[AttributeMatch]:
+    """Check a product description for positive food quality attributes."""
+    text_lower = text.lower()
+    matched: List[AttributeMatch] = []
+    seen_keys: set = set()
+
+    for entry in _POSITIVE_PATTERNS:
+        if entry["key"] in seen_keys:
+            continue
+        if entry["pattern"].search(text_lower):
+            matched.append(AttributeMatch(
+                attribute_key=entry["key"],
+                attribute_name=entry["name"],
+                bonus=entry["bonus"],
+                benefit=entry["benefit"],
+                matched_text=entry["term"],
+            ))
+            seen_keys.add(entry["key"])
+
+    return matched
+
+
+def score_product(
+    positive_matches: List[AttributeMatch],
+    negative_matches: List[IngredientMatch],
+) -> tuple:
+    """Compute safety score (0-100) and grade (A-F) for a product."""
+    score = 60  # base score
+
+    # Positive bonuses, capped at +35
+    bonus = min(35, sum(a.bonus for a in positive_matches))
+    score += bonus
+
+    # Negative deductions
+    for m in negative_matches:
+        if m.severity == Severity.CRITICAL:
+            score -= 30
+        elif m.severity == Severity.WARNING:
+            score -= 20
+        else:  # WATCH
+            score -= 8
+
+    score = max(0, min(100, score))
+
+    if score >= 90:
+        grade = "A"
+    elif score >= 75:
+        grade = "B"
+    elif score >= 60:
+        grade = "C"
+    elif score >= 45:
+        grade = "D"
+    else:
+        grade = "F"
+
+    return score, grade
+
+
+def score_to_status(score: int) -> str:
+    """Convert a numeric safety score to a status label."""
+    if score >= 90:
+        return "excellent"
+    elif score >= 75:
+        return "good"
+    elif score >= 60:
+        return "acceptable"
+    elif score >= 45:
+        return "poor"
+    else:
+        return "avoid"
+
+
+@dataclass
 class SafetyResult:
     """Result of checking a product for bad ingredients."""
     has_concerns: bool
     highest_severity: Optional[Severity]
     matches: List[IngredientMatch]
+    positive_attributes: List[AttributeMatch] = field(default_factory=list)
+    score: int = 60
+    grade: str = "C"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "has_concerns": self.has_concerns,
             "highest_severity": self.highest_severity.value if self.highest_severity else None,
+            "score": self.score,
+            "grade": self.grade,
             "flagged_ingredients": [
                 {
                     "ingredient": m.ingredient_name,
@@ -682,7 +1017,16 @@ class SafetyResult:
                     "matched_text": m.matched_text,
                 }
                 for m in self.matches
-            ]
+            ],
+            "positive_attributes": [
+                {
+                    "attribute": a.attribute_name,
+                    "bonus": a.bonus,
+                    "benefit": a.benefit,
+                    "matched_text": a.matched_text,
+                }
+                for a in self.positive_attributes
+            ],
         }
 
 
@@ -709,7 +1053,10 @@ def check_product_safety(
         SafetyResult with all matched ingredients
     """
     if not description:
-        return SafetyResult(has_concerns=False, highest_severity=None, matches=[])
+        return SafetyResult(
+            has_concerns=False, highest_severity=None, matches=[],
+            positive_attributes=[], score=60, grade="C",
+        )
 
     text = description.lower()
     matches: List[IngredientMatch] = []
@@ -769,10 +1116,16 @@ def check_product_safety(
                 highest_severity = sev
                 break
 
+    positive_attributes = check_positive_attributes(description)
+    score, grade = score_product(positive_attributes, matches)
+
     return SafetyResult(
         has_concerns=len(matches) > 0,
         highest_severity=highest_severity,
         matches=matches,
+        positive_attributes=positive_attributes,
+        score=score,
+        grade=grade,
     )
 
 
@@ -949,7 +1302,7 @@ def get_compiled_patterns(force_refresh: bool = False) -> Dict[str, Any]:
 
     # Check cache validity
     if not force_refresh and _pattern_cache is not None:
-        from datetime import datetime, timedelta
+        from datetime import datetime
         if _pattern_cache_timestamp:
             cache_age = (datetime.now() - _pattern_cache_timestamp).total_seconds()
             if cache_age < _CACHE_TTL:
@@ -983,3 +1336,18 @@ def get_compiled_patterns(force_refresh: bool = False) -> Dict[str, Any]:
     _pattern_cache_timestamp = datetime.now()
 
     return _pattern_cache
+
+
+# ==================== ASYNC WRAPPERS ====================
+# These allow async tool handlers to call blocking DB functions without
+# blocking the event loop. Use these from async tool handlers instead of
+# the sync versions.
+
+async def get_active_ingredients_async(include_custom: bool = True) -> List[Dict[str, Any]]:
+    """Async wrapper for get_active_ingredients() — runs in thread pool."""
+    return await asyncio.to_thread(get_active_ingredients, include_custom)
+
+
+async def get_compiled_patterns_async(force_refresh: bool = False) -> Dict[str, Any]:
+    """Async wrapper for get_compiled_patterns() — runs in thread pool."""
+    return await asyncio.to_thread(get_compiled_patterns, force_refresh)

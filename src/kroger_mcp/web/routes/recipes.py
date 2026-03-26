@@ -1,5 +1,6 @@
 """Recipe routes — list and detail views."""
 
+import json
 import re
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from kroger_mcp.analytics.recipe_scoring import calculate_health_score, estimate_recipe_cost
 from kroger_mcp.tools.recipe_tools import _find_recipe, _load_recipes
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -19,6 +21,18 @@ def _parse_instructions(text: str) -> list[dict]:
     """Parse raw instruction string into grouped sections + steps."""
     if not text:
         return []
+    # Handle JSON-array-encoded instructions: ["step1", "step2", ...]
+    stripped = text.strip()
+    if stripped.startswith('['):
+        try:
+            steps = json.loads(stripped)
+            if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
+                cleaned = [_clean_instruction_step(s) or s.strip() for s in steps if s.strip()]
+                return [{"header": None, "steps": cleaned}] if cleaned else []
+        except (json.JSONDecodeError, ValueError):
+            pass
+    # Normalize literal \n escape sequences to real newlines
+    text = text.replace('\\n', '\n')
     groups = []
     current_header = None
     current_steps = []
@@ -41,7 +55,7 @@ def _parse_instructions(text: str) -> list[dict]:
 
 
 def _is_instruction_header(line: str) -> bool:
-    if re.match(r'^Step\s+\d+\s*[–—:\-]', line):
+    if re.match(r'^Step\s+\d+\s*[\u2013\u2014:\-]', line):
         return True
     if re.match(r'^\*\*[^*]+\*\*:?\s*$', line):
         return True
@@ -51,22 +65,30 @@ def _is_instruction_header(line: str) -> bool:
 
 
 def _clean_instruction_header(line: str) -> str:
-    line = re.sub(r'\*\*', '', line)
-    return line.rstrip(':').strip()
-
-
-def _clean_instruction_step(line: str) -> str:
-    line = re.sub(r'^\d+\.\s+', '', line)
-    line = re.sub(r'\*\*', '', line)
+    # Remove Step X: prefix
+    line = re.sub(r'^Step\s+\d+\s*[\u2013\u2014:\-]\s*', '', line)
+    # Remove bold markers
+    line = re.sub(r'\*\*([^*]+)\*\*', r'\1', line)
+    # Remove trailing colon
+    line = re.sub(r':\s*$', '', line)
     return line.strip()
 
 
-def _collect_all_tags(recipes):
+def _clean_instruction_step(line: str) -> str:
+    # Remove bullet/asterisk
+    line = re.sub(r'^[\*\-\u2022]\s*', '', line)
+    # Remove numbered prefix (1., 2., etc.)
+    line = re.sub(r'^\d+[\.\)]\s*', '', line)
+    return line.strip()
+
+
+def _collect_all_tags(recipes: list[dict]) -> list[str]:
+    """Return sorted unique tags from all recipes."""
     tags = set()
     for r in recipes:
-        for tag in r.get("tags", []):
-            if tag:
-                tags.add(tag)
+        for t in r.get("tags", []):
+            if isinstance(t, str) and t.strip():
+                tags.add(t.strip())
     return sorted(tags)
 
 
@@ -84,12 +106,41 @@ async def recipes_list(request: Request):
 
     all_tags = _collect_all_tags(recipes)
 
+    # Compute cost per serving and health score for each recipe
+    for r in recipes:
+        try:
+            cost_data = estimate_recipe_cost(r)
+            r["cost_per_serving"] = cost_data.get("cost_per_serving")
+        except Exception:
+            r["cost_per_serving"] = None
+        try:
+            health = calculate_health_score(r, names_only=True)
+            r["health_score"] = health["score"]
+            r["health_grade"] = health["grade"]
+        except Exception:
+            r["health_score"] = None
+            r["health_grade"] = None
+
+    # Build JSON array for Alpine x-for rendering
+    recipes_json = json.dumps([{
+        "id": r.get("id", ""),
+        "name": r.get("name", ""),
+        "servings": r.get("servings"),
+        "ing_count": len(r.get("ingredients", [])),
+        "tags": r.get("tags", []),
+        "times_ordered": r.get("times_ordered") or 0,
+        "cost": r.get("cost_per_serving"),
+        "health_score": r.get("health_score"),
+        "health_grade": r.get("health_grade"),
+    } for r in recipes])
+
     return templates.TemplateResponse("recipes.html", {
         "request": request,
         "active_page": "recipes",
         "recipes": recipes,
         "all_tags": all_tags,
         "recipe_count": len(recipes),
+        "recipes_json": recipes_json,
     })
 
 
@@ -113,10 +164,56 @@ async def recipe_detail(request: Request, recipe_id: str):
 
     instruction_groups = _parse_instructions(recipe.get("instructions") or "")
 
+    # Overall recipe health score
+    health_data = None
+    try:
+        health_data = calculate_health_score(recipe)
+    except Exception:
+        pass
+
+    # Per-ingredient safety — use product descriptions from DB when available
+    try:
+        from kroger_mcp.analytics.ingredients import check_product_safety
+        from kroger_mcp.analytics.database import get_db_connection
+
+        # Batch-load product descriptions for linked ingredients
+        product_descs: dict[str, str] = {}
+        linked_ids = [ing["product_id"] for ing in ingredients if ing.get("product_id")]
+        if linked_ids:
+            try:
+                conn = get_db_connection()
+                try:
+                    placeholders = ",".join("?" * len(linked_ids))
+                    rows = conn.execute(
+                        f"SELECT product_id, description, brand FROM products WHERE product_id IN ({placeholders})",
+                        linked_ids,
+                    ).fetchall()
+                    for row in rows:
+                        desc = row["description"] or ""
+                        if row["brand"]:
+                            desc = row["brand"] + " " + desc
+                        product_descs[row["product_id"]] = desc
+                finally:
+                    conn.close()
+            except Exception:
+                pass
+
+        for ing in ingredients:
+            pid = ing.get("product_id")
+            scan_text = product_descs.get(pid, "") if pid else ""
+            if not scan_text:
+                scan_text = ing.get("name", "")
+            result = check_product_safety(scan_text)
+            ing["safety_score"] = result.score
+            ing["safety_grade"] = result.grade
+    except Exception:
+        pass
+
     return templates.TemplateResponse("recipe_detail.html", {
         "request": request,
         "active_page": "recipes",
         "recipe": recipe,
         "ingredients": ingredients,
         "instruction_groups": instruction_groups,
+        "health_data": health_data,
     })
