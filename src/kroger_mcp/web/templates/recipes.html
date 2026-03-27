@@ -129,9 +129,47 @@
             <span x-show="recipe.cost != null"
               style="background: oklch(96% 0.015 145); color: oklch(42% 0.13 145); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;"
               x-text="recipe.cost != null ? '$' + recipe.cost.toFixed(2) + '/srv' : ''"></span>
-            <span x-show="recipe.health_grade"
-              :style="`background:${gradeColor(recipe.health_grade).bg}; color:${gradeColor(recipe.health_grade).text}; padding:0.1rem 0.5rem; border-radius:99px; font-weight:700; letter-spacing:0.02em;`"
-              x-text="recipe.health_grade"></span>
+            <div x-show="recipe.health_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
+              <button @click.stop.prevent="pop = !pop"
+                :style="`background:${gradeColor(recipe.health_grade).bg}; color:${gradeColor(recipe.health_grade).text}; padding:0.1rem 0.5rem; border-radius:99px; font-weight:700; letter-spacing:0.02em; font-size:0.75rem; cursor:pointer;`"
+                x-text="recipe.health_grade"></button>
+              <div x-show="pop" x-transition x-cloak
+                class="absolute top-full mt-1 left-0 z-50 w-64 bg-white rounded-xl shadow-lg border border-gray-200 p-3 text-left"
+                style="border-color: var(--border);"
+                @click.stop>
+                <div class="flex items-center justify-between mb-2 pb-2" style="border-bottom:1px solid var(--border);">
+                  <span class="text-xs font-bold" :style="`color:${gradeColor(recipe.health_grade).text};`">
+                    Health: <span x-text="recipe.health_grade"></span></span>
+                  <span style="font-size:0.625rem; color:var(--text-3);" x-text="(recipe.health_score ?? '?') + '/100'"></span>
+                </div>
+                <template x-if="recipe.health_flags && recipe.health_flags.length > 0">
+                  <div class="mb-2">
+                    <template x-for="flag in recipe.health_flags" :key="(flag.ingredient||'') + (flag.flag||'')">
+                      <div style="padding:0.25rem 0; border-bottom:1px solid oklch(95% 0.01 80);">
+                        <div class="flex items-center gap-1.5">
+                          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
+                          <span style="font-size:0.6875rem; font-weight:500; color:var(--text-1);" x-text="flag.ingredient"></span>
+                          <span style="font-size:0.5625rem; color:var(--text-3);" x-text="'(' + flag.severity + ')'"></span>
+                        </div>
+                        <p style="font-size:0.625rem; color:var(--text-3); margin-left:0.75rem; line-height:1.3;" x-text="flag.reason"></p>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="recipe.health_categories && recipe.health_categories.length > 0">
+                  <div class="flex flex-wrap gap-1 mb-1">
+                    <template x-for="cat in recipe.health_categories" :key="cat">
+                      <span style="font-size:0.625rem; background:var(--green-light); color:var(--green); padding:0.1rem 0.4rem; border-radius:99px;"
+                        x-text="cat.replace('_', ' ')"></span>
+                    </template>
+                    <span x-show="recipe.health_bonus > 0" style="font-size:0.625rem; color:var(--green);" x-text="'(+' + recipe.health_bonus + ' bonus)'"></span>
+                  </div>
+                </template>
+                <p x-show="(!recipe.health_flags || recipe.health_flags.length === 0) && (!recipe.health_categories || recipe.health_categories.length === 0)"
+                  style="font-size:0.6875rem; color:var(--text-3); font-style:italic;">No flagged ingredients detected.</p>
+              </div>
+            </div>
           </div>
 
           <!-- Tags -->

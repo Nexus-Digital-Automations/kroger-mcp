@@ -59,8 +59,8 @@ server.on('exit', (code, signal) => {
   "command": "node",
   "args": ["/Users/jeremyparker/Desktop/Claude Coding Projects/kroger-mcp/mcp-wrapper.js"],
   "env": {
-    "KROGER_CLIENT_ID": "kmcp2-bbcbpy04",
-    "KROGER_CLIENT_SECRET": "HQt8HdO5I7L2CMAH5mjlSFE1WF5Px7U2S4uoBHM1",
+    "KROGER_CLIENT_ID": "<YOUR_CLIENT_ID>",
+    "KROGER_CLIENT_SECRET": "<YOUR_CLIENT_SECRET>",
     "KROGER_REDIRECT_URI": "http://localhost:8000/callback"
   }
 }

@@ -14,159 +14,10 @@
 </a>
 
 <!-- Header -->
-<div x-data="{
-  cartModal: false,
-  modality: 'PICKUP',
-  preview: null,
-  loading: false,
-  confirming: false,
-  done: false,
-  error: '',
-  editOpen: false,
-  editName: '{{ recipe.name | e }}',
-  editDescription: '{{ recipe.description | e }}',
-  editServings: {{ recipe.servings or '' | tojson }},
-  editTags: '{{ (recipe.tags | join(", ")) if recipe.tags else "" }}',
-  editLoading: false,
-  editError: '',
-  async saveEdit() {
-    if (!this.editName.trim()) { this.editError = 'Name is required'; return; }
-    this.editLoading = true; this.editError = '';
-    const tags = this.editTags.split(',').map(t => t.trim()).filter(t => t.length > 0);
-    try {
-      const r = await fetch('/api/recipes/{{ recipe.id }}', {
-        method: 'PATCH',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          name: this.editName.trim(),
-          description: this.editDescription.trim() || null,
-          tags: tags,
-          servings: this.editServings ? parseInt(this.editServings) : null
-        })
-      });
-      const d = await r.json();
-      if (r.ok && d.success) { window.location.reload(); }
-      else { this.editError = d.error || 'Failed to save changes'; }
-    } catch(e) { this.editError = 'Network error'; }
-    this.editLoading = false;
-  },
-  async openCart() {
-    this.loading = true; this.cartModal = true; this.error = '';
-    this.preview = null; this.done = false;
-    try {
-      const r = await fetch('/api/recipes/{{ recipe.id }}/add-to-cart', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({confirm: false, modality: this.modality})
-      });
-      const d = await r.json();
-      if (r.ok) { this.preview = d; }
-      else { this.error = d.error || 'Failed to load preview'; }
-    } catch(e) { this.error = 'Network error'; }
-    this.loading = false;
-  },
-  async confirmCart() {
-    this.confirming = true; this.error = '';
-    try {
-      const r = await fetch('/api/recipes/{{ recipe.id }}/add-to-cart', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({confirm: true, modality: this.modality})
-      });
-      const d = await r.json();
-      if (r.ok && d.success) { this.done = true; }
-      else { this.error = d.error || 'Failed to add to cart'; }
-    } catch(e) { this.error = 'Network error'; }
-    this.confirming = false;
-  }
-}" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-
-  <!-- Cart Modal -->
-  <div x-show="cartModal" x-cloak
-    class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-    @click.self="cartModal = false">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-gray-900">Add to Cart</h3>
-        <button @click="cartModal = false" class="text-gray-400 hover:text-gray-600">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
-
-      <div x-show="loading" class="flex justify-center py-8">
-        <div class="animate-spin w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
-      </div>
-
-      <div x-show="!loading && preview && !done">
-        <!-- Modality selector -->
-        <div class="flex gap-2 mb-4">
-          <button @click="modality='PICKUP'; openCart()"
-            :class="modality==='PICKUP' ? 'bg-emerald-600 text-white' : 'border border-gray-200 text-gray-600'"
-            class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors">Pickup</button>
-          <button @click="modality='DELIVERY'; openCart()"
-            :class="modality==='DELIVERY' ? 'bg-emerald-600 text-white' : 'border border-gray-200 text-gray-600'"
-            class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors">Delivery</button>
-        </div>
-
-        <!-- Items to add -->
-        <div class="mb-4">
-          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Items to add (<span x-text="(preview?.items_to_add || []).length"></span>)
-          </p>
-          <div class="space-y-1 max-h-48 overflow-y-auto">
-            <template x-for="item in (preview?.items_to_add || [])" :key="item.product_id">
-              <div class="flex items-center justify-between text-sm py-1 border-b border-gray-50">
-                <span class="text-gray-700" x-text="item.name"></span>
-                <span class="text-gray-400 text-xs"
-                  x-text="(item.quantity || 1) + (item.unit ? ' ' + item.unit : '')"></span>
-              </div>
-            </template>
-          </div>
-        </div>
-
-        <!-- Manual items (overrides) -->
-        <div x-show="preview?.manual_items && preview.manual_items.length > 0" class="mb-4">
-          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Manual Purchase</p>
-          <div class="space-y-1">
-            <template x-for="item in (preview?.manual_items || [])" :key="item.name">
-              <div class="text-xs text-gray-500 py-1">
-                <span class="font-medium" x-text="item.name"></span>
-                <span x-show="item.reason" class="text-gray-400"> — <span x-text="item.reason"></span></span>
-              </div>
-            </template>
-          </div>
-        </div>
-
-        <p x-show="error" class="text-xs text-red-600 mb-3" x-text="error"></p>
-
-        <div class="flex justify-end gap-3">
-          <button @click="cartModal = false"
-            class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
-          <button @click="confirmCart()" :disabled="confirming"
-            class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-            <span x-show="!confirming">Confirm — Add to Cart</span>
-            <span x-show="confirming">Adding...</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Success state -->
-      <div x-show="done" class="text-center py-6">
-        <div class="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
-          <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-          </svg>
-        </div>
-        <p class="text-sm font-medium text-gray-800 mb-1">Added to cart!</p>
-        <p class="text-xs text-gray-500">Review your cart in the Kroger app.</p>
-        <button @click="cartModal = false" class="mt-4 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">Close</button>
-      </div>
-
-      <p x-show="error && !preview" class="text-sm text-red-600 py-4 text-center" x-text="error"></p>
-    </div>
-  </div>
+<script id="recipe-init-data" type="application/json">
+{{ {"id": recipe.id, "name": recipe.name, "description": recipe.description or "", "servings": recipe.servings, "tags": recipe.tags or []} | tojson }}
+</script>
+<div x-data="recipeHeader" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
 
   <!-- Edit Recipe Modal -->
   <div x-show="editOpen" x-cloak
@@ -230,10 +81,13 @@
         class="flex-shrink-0 px-4 py-2 text-sm font-medium text-emerald-600 border border-emerald-300 rounded-lg hover:bg-emerald-50 transition-colors">
         + Meal Plan
       </button>
-      <button @click="openCart()"
-        class="flex-shrink-0 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
-        Add to Cart
+      <button @click="addToList()" :disabled="listAdding"
+        class="flex-shrink-0 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+        <span x-show="!listAdding">Add to List</span>
+        <span x-show="listAdding">Adding...</span>
       </button>
+      <span x-show="listDone" x-transition class="text-xs text-emerald-600 font-medium">Added!</span>
+      <span x-show="listError" x-transition class="text-xs text-red-600" x-text="listError"></span>
     </div>
   </div>
 
@@ -258,6 +112,49 @@
       {{ recipe.source }}
     </span>
     {% endif %}
+    {% if health_data %}
+    <div class="relative inline-block" x-data="{ pop: false,
+      hd: {{ health_data | tojson }},
+      gc(g) { const m={A:{bg:'oklch(91% 0.1 145)',t:'oklch(30% 0.14 145)'},B:{bg:'oklch(91% 0.08 175)',t:'oklch(30% 0.12 175)'},C:{bg:'oklch(92% 0.1 80)',t:'oklch(35% 0.12 75)'},D:{bg:'oklch(92% 0.1 50)',t:'oklch(33% 0.14 40)'},F:{bg:'oklch(92% 0.08 25)',t:'oklch(33% 0.14 25)'}}; return m[g]||m.C; }
+    }" @click.away="pop = false">
+      <button @click="pop = !pop" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium cursor-pointer"
+        :style="`background:${gc(hd.grade).bg}; color:${gc(hd.grade).t};`"
+        x-text="'Health: ' + hd.grade + ' (' + hd.score + '/100)'"></button>
+      <div x-show="pop" x-transition x-cloak
+        class="absolute top-full mt-1 left-0 z-50 w-72 bg-white rounded-xl shadow-lg border border-gray-200 p-3 text-left">
+        <div class="flex items-center justify-between mb-2 pb-2 border-b border-gray-100">
+          <span class="text-xs font-bold" :style="`color:${gc(hd.grade).t};`" x-text="'Health: ' + hd.grade"></span>
+          <span class="text-[10px] text-gray-400" x-text="hd.score + '/100 (' + hd.confidence + ')'"></span>
+        </div>
+        <template x-if="hd.flags && hd.flags.length > 0">
+          <div class="mb-2">
+            <template x-for="flag in hd.flags" :key="(flag.ingredient||'') + (flag.flag||'')">
+              <div class="py-1 border-b border-gray-50 last:border-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
+                  <span class="text-[11px] font-medium text-gray-800" x-text="flag.ingredient"></span>
+                  <span class="text-[9px] text-gray-400" x-text="'(' + flag.severity + ')'"></span>
+                </div>
+                <p class="text-[10px] text-gray-500 ml-3 leading-tight" x-text="flag.reason"></p>
+              </div>
+            </template>
+          </div>
+        </template>
+        <template x-if="hd.categories_detected && hd.categories_detected.length > 0">
+          <div class="flex flex-wrap gap-1 mb-1">
+            <template x-for="cat in hd.categories_detected" :key="cat">
+              <span class="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full"
+                x-text="cat.replace('_', ' ')"></span>
+            </template>
+            <span x-show="hd.bonus_applied > 0" class="text-[10px] text-emerald-600" x-text="'(+' + hd.bonus_applied + ' bonus)'"></span>
+          </div>
+        </template>
+        <p x-show="(!hd.flags || hd.flags.length === 0) && (!hd.categories_detected || hd.categories_detected.length === 0)"
+          class="text-[11px] text-gray-400 italic">No flagged ingredients detected.</p>
+      </div>
+    </div>
+    {% endif %}
   </div>
 
   <!-- Tags -->
@@ -279,6 +176,16 @@
     Alpine.data('ingredientPanel', () => ({
       ingView: 'usage',
       ings: {{ ingredients | tojson }},
+      gradeColor(g) {
+        const m = {
+          A: {bg:'oklch(91% 0.1 145)',  text:'oklch(30% 0.14 145)'},
+          B: {bg:'oklch(91% 0.08 175)', text:'oklch(30% 0.12 175)'},
+          C: {bg:'oklch(92% 0.1 80)',   text:'oklch(35% 0.12 75)'},
+          D: {bg:'oklch(92% 0.1 50)',   text:'oklch(33% 0.14 40)'},
+          F: {bg:'oklch(92% 0.08 25)',  text:'oklch(33% 0.14 25)'},
+        };
+        return m[g] || m.C;
+      },
       catLabels: { produce: 'Produce', meat: 'Meat', seafood: 'Seafood', dairy: 'Dairy', frozen: 'Frozen', pantry: 'Pantry', beverages: 'Beverages', bakery: 'Bakery', other: 'Other' },
       catOrder: ['produce', 'meat', 'seafood', 'dairy', 'frozen', 'pantry', 'beverages', 'bakery', 'other'],
       catNorm: { vegetables: 'produce', aromatics: 'produce', greens: 'produce', herbs: 'produce', protein: 'meat', poultry: 'meat', baking: 'pantry', 'canned goods': 'pantry', condiments: 'pantry', grains: 'pantry', oil: 'pantry', oils: 'pantry', sauce: 'pantry', sauces: 'pantry', spices: 'pantry', acid: 'pantry', seasoning: 'pantry' },
@@ -320,10 +227,11 @@
     </div>
     <div x-show="ings.length > 0">
       <!-- Column header -->
-      <div class="grid pb-2 mb-1" style="grid-template-columns: 7rem 1fr auto; border-bottom: 1px solid var(--border); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3);">
+      <div class="grid pb-2 mb-1" style="grid-template-columns: 7rem 1fr auto auto; gap: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3);">
         <span>Qty</span>
         <span>Ingredient</span>
         <span>Source</span>
+        <span>Health</span>
       </div>
       <template x-for="(group, gi) in groups" :key="gi">
         <div>
@@ -335,7 +243,7 @@
             <span x-text="group.header"></span>
           </div>
           <template x-for="(ing, ii) in group.items" :key="ing.name + ii">
-            <div class="grid items-baseline" style="grid-template-columns: 7rem 1fr auto; padding: 0.45rem 0; border-bottom: 1px solid oklch(93% 0.01 80);">
+            <div class="grid items-baseline" style="grid-template-columns: 7rem 1fr auto auto; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px solid oklch(93% 0.01 80);">
               <span style="font-size: 0.8rem; color: var(--text-3); white-space: nowrap;"
                 x-text="(ing.quantity ? ing.quantity : '') + (ing.unit ? ' ' + ing.unit : '')"></span>
               <span style="font-size: 0.875rem; color: var(--text-1);" x-text="ing.name"></span>
@@ -344,6 +252,46 @@
                 <span x-show="!ing.override && ing.product_id" style="font-size: 0.6875rem; background: oklch(91% 0.1 145); color: oklch(30% 0.14 145); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Kroger</span>
                 <span x-show="!ing.override && !ing.product_id" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
               </span>
+              <div x-show="ing.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
+                <button @click.stop="pop = !pop"
+                  :style="`background:${gradeColor(ing.safety_grade).bg}; color:${gradeColor(ing.safety_grade).text}; padding:0.1rem 0.45rem; border-radius:99px; font-size:0.6875rem; font-weight:700; letter-spacing:0.02em; cursor:pointer;`"
+                  x-text="ing.safety_grade"></button>
+                <div x-show="pop" x-transition x-cloak
+                  class="absolute bottom-full mb-1 right-0 z-50 w-56 bg-white rounded-xl shadow-lg border border-gray-200 p-2.5 text-left"
+                  @click.stop>
+                  <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-gray-100">
+                    <span style="font-size:0.6875rem; font-weight:700;" :style="`color:${gradeColor(ing.safety_grade).text};`" x-text="ing.safety_grade"></span>
+                    <span style="font-size:0.5625rem; color:var(--text-3);" x-text="(ing.safety_score ?? '?') + '/100'"></span>
+                  </div>
+                  <template x-if="ing.safety_flags && ing.safety_flags.length > 0">
+                    <div class="mb-1">
+                      <template x-for="flag in ing.safety_flags" :key="flag.ingredient + flag.severity">
+                        <div style="padding:0.2rem 0; border-bottom:1px solid oklch(95% 0.01 80);">
+                          <div class="flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                              :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
+                            <span style="font-size:0.625rem; font-weight:500; color:var(--text-1);" x-text="flag.ingredient"></span>
+                          </div>
+                          <p style="font-size:0.5625rem; color:var(--text-3); margin-left:0.625rem; line-height:1.3;" x-text="flag.reason"></p>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <template x-if="ing.safety_positives && ing.safety_positives.length > 0">
+                    <div>
+                      <template x-for="attr in ing.safety_positives" :key="attr.attribute">
+                        <div class="flex items-center gap-1 py-0.5">
+                          <span style="color:var(--green); font-size:0.625rem; font-weight:700;">+</span>
+                          <span style="font-size:0.625rem; color:var(--green);" x-text="attr.attribute"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <p x-show="(!ing.safety_flags || ing.safety_flags.length === 0) && (!ing.safety_positives || ing.safety_positives.length === 0)"
+                    style="font-size:0.625rem; color:var(--text-3); font-style:italic;">No concerns.</p>
+                </div>
+              </div>
+              <span x-show="!ing.safety_grade" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
             </div>
           </template>
         </div>
@@ -386,63 +334,7 @@
 </div>
 
 <!-- ── Meal Plan Slide-Out Panel ── -->
-<div x-data="{
-  open: false,
-  recipeId: '{{ recipe.id }}',
-  recipeName: '{{ recipe.name | replace("'", "\\'") }}',
-  plans: [],
-  planId: '',
-  weekOffset: 0,
-  weekData: null,
-  loading: false,
-  success: '',
-  slots: ['breakfast', 'lunch', 'dinner', 'snack'],
-
-  async init() {
-    try {
-      const r = await fetch('/api/meal-plan/list');
-      const d = await r.json();
-      this.plans = d.plans || [];
-      if (this.plans.length) this.planId = this.plans[0].id;
-    } catch(e) {}
-    document.addEventListener('open-meal-panel', (e) => {
-      this.recipeId = e.detail.recipeId;
-      this.recipeName = e.detail.recipeName;
-      this.openPanel();
-    });
-  },
-
-  async openPanel() {
-    this.weekOffset = 0;
-    this.success = '';
-    this.weekData = null;
-    if (this.plans.length && this.planId) await this.loadWeek();
-    this.open = true;
-  },
-
-  async loadWeek() {
-    if (!this.planId) return;
-    this.loading = true;
-    try {
-      const r = await fetch('/api/meal-plan/' + this.planId + '/week?week_offset=' + this.weekOffset);
-      this.weekData = await r.json();
-    } catch(e) { this.weekData = null; }
-    this.loading = false;
-  },
-
-  async assignToSlot(date, slot) {
-    const r = await fetch('/api/meal-plan/' + this.planId + '/meals', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({recipe_id: this.recipeId, meal_date: date, meal_slot: slot})
-    });
-    const d = await r.json();
-    if (r.ok) {
-      this.success = slot.charAt(0).toUpperCase() + slot.slice(1) + ' on ' + date + ' — added!';
-      await this.loadWeek();
-    }
-  }
-}">
+<div x-data="recipeDetailMealPanel">
 
   <!-- Overlay -->
   <div x-show="open" x-cloak @click.self="open = false"
@@ -557,5 +449,125 @@
 
   </div>
 </div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+  const _rd = JSON.parse(document.getElementById('recipe-init-data').textContent);
+
+  Alpine.data('recipeHeader', () => ({
+    listAdding: false,
+    listDone: false,
+    listError: '',
+    editOpen: false,
+    editName: _rd.name,
+    editDescription: _rd.description,
+    editServings: _rd.servings,
+    editTags: (_rd.tags || []).join(', '),
+    editLoading: false,
+    editError: '',
+    async saveEdit() {
+      if (!this.editName.trim()) { this.editError = 'Name is required'; return; }
+      this.editLoading = true; this.editError = '';
+      const tags = this.editTags.split(',').map(t => t.trim()).filter(t => t.length > 0);
+      try {
+        const r = await fetch('/api/recipes/' + _rd.id, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            name: this.editName.trim(),
+            description: this.editDescription.trim() || null,
+            tags: tags,
+            servings: this.editServings ? parseInt(this.editServings) : null
+          })
+        });
+        const d = await r.json();
+        if (r.ok && d.success) { window.location.reload(); }
+        else { this.editError = d.error || 'Failed to save changes'; }
+      } catch(e) { this.editError = 'Network error'; }
+      this.editLoading = false;
+    },
+    async addToList() {
+      this.listAdding = true; this.listDone = false; this.listError = '';
+      try {
+        const r = await fetch('/api/recipes/' + _rd.id + '/add-to-cart', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({confirm: true, modality: 'PICKUP'})
+        });
+        const d = await r.json();
+        if (r.ok && d.success) {
+          this.listDone = true;
+          setTimeout(() => this.listDone = false, 3000);
+        } else {
+          this.listError = d.error || 'Failed to add to list';
+          setTimeout(() => this.listError = '', 4000);
+        }
+      } catch(e) {
+        this.listError = 'Network error';
+        setTimeout(() => this.listError = '', 4000);
+      }
+      this.listAdding = false;
+    }
+  }));
+
+  Alpine.data('recipeDetailMealPanel', () => ({
+    open: false,
+    recipeId: _rd.id,
+    recipeName: _rd.name,
+    plans: [],
+    planId: '',
+    weekOffset: 0,
+    weekData: null,
+    loading: false,
+    success: '',
+    slots: ['breakfast', 'lunch', 'dinner', 'snack'],
+
+    async init() {
+      try {
+        const r = await fetch('/api/meal-plan/list');
+        const d = await r.json();
+        this.plans = d.plans || [];
+        if (this.plans.length) this.planId = this.plans[0].id;
+      } catch(e) {}
+      document.addEventListener('open-meal-panel', (e) => {
+        this.recipeId = e.detail.recipeId;
+        this.recipeName = e.detail.recipeName;
+        this.openPanel();
+      });
+    },
+
+    async openPanel() {
+      this.weekOffset = 0;
+      this.success = '';
+      this.weekData = null;
+      if (this.plans.length && this.planId) await this.loadWeek();
+      this.open = true;
+    },
+
+    async loadWeek() {
+      if (!this.planId) return;
+      this.loading = true;
+      try {
+        const r = await fetch('/api/meal-plan/' + this.planId + '/week?week_offset=' + this.weekOffset);
+        this.weekData = await r.json();
+      } catch(e) { this.weekData = null; }
+      this.loading = false;
+    },
+
+    async assignToSlot(date, slot) {
+      const r = await fetch('/api/meal-plan/' + this.planId + '/meals', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({recipe_id: this.recipeId, meal_date: date, meal_slot: slot})
+      });
+      const d = await r.json();
+      if (r.ok) {
+        this.success = slot.charAt(0).toUpperCase() + slot.slice(1) + ' on ' + date + ' \u2014 added!';
+        await this.loadWeek();
+      }
+    }
+  }));
+});
+</script>
 
 {% endblock %}

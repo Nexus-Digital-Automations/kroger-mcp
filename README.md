@@ -48,8 +48,8 @@ Edit Claude Desktop's configuration file:
         "kroger-mcp"
       ],
       "env": {
-        "KROGER_CLIENT_ID": "your_client_id",
-        "KROGER_CLIENT_SECRET": "your_client_secret", 
+        "KROGER_CLIENT_ID": "<YOUR_CLIENT_ID>",
+        "KROGER_CLIENT_SECRET": "<YOUR_CLIENT_SECRET>",  // pragma: allowlist secret
         "KROGER_REDIRECT_URI": "http://localhost:8000/callback",
         "KROGER_USER_ZIP_CODE": "10001"
       }
@@ -84,8 +84,8 @@ Then, edit Claude Desktop's configuration file:
         "kroger-mcp"
       ],
       "env": {
-        "KROGER_CLIENT_ID": "your_client_id",
-        "KROGER_CLIENT_SECRET": "your_client_secret", 
+        "KROGER_CLIENT_ID": "<YOUR_CLIENT_ID>",
+        "KROGER_CLIENT_SECRET": "<YOUR_CLIENT_SECRET>", 
         "KROGER_REDIRECT_URI": "http://localhost:8000/callback",
         "KROGER_USER_ZIP_CODE": "10001"
       }
@@ -466,6 +466,103 @@ Recipes are stored in `kroger_recipes.json` with:
 - Order history tracking
 
 **Selective Ordering**: When reordering recipes, use `skip_items` to exclude ingredients you already have. Uses fuzzy matching (e.g., `skip_items=["eggs"]` matches "Large Eggs", "Organic Eggs", etc.)
+
+---
+
+## 🖥️ Web Dashboard
+
+A read-only personal dashboard for browsing recipes, meal plans, favorites, and pantry inventory — no Claude required.
+
+**Pages:** Dashboard · Recipes (with search + tag filtering) · Meal Plan (weekly calendar) · Favorites (reorder status) · Pantry (inventory levels)
+
+### Prerequisites
+
+The dashboard requires `fastapi` and `jinja2`. Install them once:
+
+```bash
+pip install fastapi jinja2
+```
+
+Or reinstall the package (which now includes them as dependencies):
+
+```bash
+pip install -e .
+```
+
+### Starting the Dashboard
+
+**Step 1 — Make sure you're in the project directory with the package installed:**
+
+```bash
+cd /path/to/kroger-mcp
+pip install -e .          # registers the kroger-web command
+```
+
+**Step 2 — Start the server:**
+
+```bash
+kroger-web
+```
+
+Expected output:
+```
+INFO:     Started server process [12345]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+```
+
+**Step 3 — Open your browser to:**
+
+```
+http://localhost:8080
+```
+
+### Alternative: Run Without Installing
+
+If `kroger-web` isn't on your PATH (e.g., you haven't run `pip install -e .`), run directly with Python:
+
+```bash
+cd /path/to/kroger-mcp
+python -c "from src.kroger_mcp.web.app import run; run()"
+```
+
+Or with uvicorn directly:
+
+```bash
+cd /path/to/kroger-mcp
+PYTHONPATH=src uvicorn kroger_mcp.web.app:app --port 8080 --reload
+```
+
+### Why `kroger-web` Isn't Found
+
+This is the most common issue. The command is registered when the package is installed. If you see `zsh: command not found: kroger-web`:
+
+```bash
+# Check if the package is installed
+pip show kroger-mcp
+
+# If installed, re-register scripts
+pip install -e .
+
+# Verify the script now exists
+which kroger-web
+# → /opt/homebrew/bin/kroger-web  (or similar)
+```
+
+If using a virtual environment, make sure it's activated before running.
+
+### Stopping the Server
+
+Press `CTRL+C` in the terminal where `kroger-web` is running.
+
+### Notes
+
+- The dashboard is **read-only** — all writes (adding to cart, saving recipes, etc.) still happen through Claude.
+- No login or credentials needed — it reads your local SQLite database and JSON files directly.
+- Recipes page supports live client-side search and tag filtering (no page reload).
+
+---
 
 ## 🏫 Basic Workflow
 

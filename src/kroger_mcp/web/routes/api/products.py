@@ -1,4 +1,5 @@
 """Products API endpoints — search and cart add."""
+import re
 from typing import Optional
 
 from fastapi import APIRouter
@@ -78,6 +79,10 @@ async def search_products(
 ):
     """Search Kroger products and return normalised JSON."""
     search_term = q.strip() or category.strip()
+    # Kroger API rejects long terms and special chars — strip apostrophes etc. and truncate
+    search_term = re.sub(r"[^\w\s-]", "", search_term).strip()
+    if len(search_term) > 50:
+        search_term = search_term[:50].rsplit(" ", 1)[0].strip()
     if not search_term:
         return JSONResponse(
             status_code=400,
@@ -123,6 +128,20 @@ async def search_products(
                         location_id=location_id,
                         source='web_search',
                     )
+        except Exception:
+            pass
+
+        # Enrich with safety scores (best-effort)
+        try:
+            from kroger_mcp.analytics.safety import check_products_safety_batch
+            statuses = check_products_safety_batch(products)
+            for product, status in zip(products, statuses):
+                d = status.to_dict()
+                product["safety_score"] = d.get("safety_score")
+                product["safety_grade"] = d.get("safety_grade")
+                product["safety_status"] = d.get("safety_status")
+                product["flagged_ingredients"] = d.get("flagged_ingredients", [])
+                product["positive_attributes"] = d.get("positive_attributes", [])
         except Exception:
             pass
 

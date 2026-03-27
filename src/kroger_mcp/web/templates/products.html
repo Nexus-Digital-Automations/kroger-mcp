@@ -1,56 +1,229 @@
 {% extends "base.html" %}
 {% block title %}Products — Smart Shopper{% endblock %}
-{% block heading %}Product Search{% endblock %}
+{% block heading %}Products{% endblock %}
 {% block content %}
 
-<div x-data="{
-  query: '',
-  category: '',
-  products: [],
-  loading: false,
-  error: '',
-  cartMsg: {},
-  async search() {
-    if (!this.query.trim() && !this.category) return;
-    this.loading = true; this.error = ''; this.products = [];
-    try {
+<script>
+function productsPageData() {
+  return {
+    // mode
+    mode: 'search',
+    dealsInitialized: false,
+
+    // search state
+    query: '',
+    category: '',
+    products: [],
+    loading: false,
+    error: '',
+
+    // deals state
+    deals: [],
+    dealsLoading: false,
+    dealsError: '',
+    minSavings: 5,
+    sortStack: [],
+    showWatchlist: false,
+    watchlist: {{ watchlist | tojson }},
+    newWatch: { product_id: '', description: '', target_price: '' },
+
+    // shared
+    cartMsg: {},
+    favLists: [],
+    favoriteIds: new Set({{ favorite_ids | tojson }}),
+    favMsg: {},
+
+    // grade color helper
+    gradeColor(g) {
+      const m = {
+        A: {bg:'oklch(91% 0.1 145)',  text:'oklch(30% 0.14 145)'},
+        B: {bg:'oklch(91% 0.08 175)', text:'oklch(30% 0.12 175)'},
+        C: {bg:'oklch(92% 0.1 80)',   text:'oklch(35% 0.12 75)'},
+        D: {bg:'oklch(92% 0.1 50)',   text:'oklch(33% 0.14 40)'},
+        F: {bg:'oklch(92% 0.08 25)',  text:'oklch(33% 0.14 25)'},
+      };
+      return m[g] || m.C;
+    },
+
+    // sort helpers
+    compareBy(key, a, b) {
+      switch (key) {
+        case 'percent': return (b.savings_percent||0) - (a.savings_percent||0);
+        case 'dollar':
+          return ((b.regular_price||0)-(b.sale_price||b.regular_price||0))
+               - ((a.regular_price||0)-(a.sale_price||a.regular_price||0));
+        case 'health': return (b.safety_score||0) - (a.safety_score||0);
+        case 'favorites':
+          return (this.favoriteIds.has(a.product_id)?0:1) - (this.favoriteIds.has(b.product_id)?0:1);
+        default: return 0;
+      }
+    },
+    toggleSort(key) {
+      const idx = this.sortStack.indexOf(key);
+      if (idx >= 0) this.sortStack.splice(idx, 1);
+      else this.sortStack.push(key);
+    },
+
+    // computed
+    get sortedDeals() {
+      const arr = [...this.deals];
+      const stack = this.sortStack.length > 0 ? this.sortStack : ['percent'];
+      arr.sort((a, b) => {
+        for (const key of stack) {
+          const r = this.compareBy(key, a, b);
+          if (r !== 0) return r;
+        }
+        return 0;
+      });
+      return arr;
+    },
+    get favoritesOnSale() {
+      return this.deals.filter(d => this.favoriteIds.has(d.product_id)).length;
+    },
+
+    // methods
+    async switchMode(m) {
+      this.mode = m;
+      this.category = '';
+      if (m === 'deals' && !this.dealsInitialized) {
+        this.dealsInitialized = true;
+        await this.autoLoad();
+      }
+    },
+
+    async onCategoryClick(cat) {
+      this.category = (this.category === cat ? '' : cat);
+      if (this.mode === 'search') {
+        await this.search();
+      } else if (this.category) {
+        await this.findDeals();
+      } else {
+        await this.autoLoad();
+      }
+    },
+
+    async search() {
+      if (!this.query.trim() && !this.category) return;
+      this.loading = true; this.error = ''; this.products = [];
+      try {
+        const params = new URLSearchParams();
+        if (this.query) params.set('q', this.query);
+        if (this.category) params.set('category', this.category);
+        const r = await fetch('/api/products/search?' + params);
+        const data = await r.json();
+        if (r.ok) this.products = data;
+        else this.error = data.error || 'Search failed';
+      } catch(e) { this.error = 'Search failed'; }
+      this.loading = false;
+    },
+
+    async findDeals() {
+      this.dealsLoading = true; this.dealsError = ''; this.deals = [];
       const params = new URLSearchParams();
       if (this.query) params.set('q', this.query);
       if (this.category) params.set('category', this.category);
-      const r = await fetch('/api/products/search?' + params);
-      const data = await r.json();
-      if (r.ok) this.products = data;
-      else this.error = data.error || 'Search failed';
-    } catch(e) { this.error = 'Search failed: ' + e.message; }
-    this.loading = false;
-  },
-  async addToCart(product) {
-    this.cartMsg[product.product_id] = 'Adding...';
-    try {
-      const r = await fetch('/api/products/' + product.product_id + '/add-to-cart', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          quantity: 1,
-          modality: 'PICKUP',
-          description: product.description,
-          price: product.regular_price || 0
-        })
-      });
-      const data = await r.json();
-      this.cartMsg[product.product_id] = r.ok ? '\u2713 Added' : (data.error || 'Failed');
-    } catch(e) { this.cartMsg[product.product_id] = 'Error'; }
-    const pid = product.product_id;
-    setTimeout(() => {
-      const msgs = {...this.cartMsg};
-      delete msgs[pid];
-      this.cartMsg = msgs;
-    }, 3000);
-  }
-}">
+      params.set('min_savings', this.minSavings);
+      try {
+        const r = await fetch('/api/deals/find?' + params);
+        const data = await r.json();
+        if (r.ok) this.deals = data;
+        else this.dealsError = data.error || 'Search failed';
+      } catch(e) { this.dealsError = 'Search failed'; }
+      this.dealsLoading = false;
+    },
 
-  <!-- Search bar -->
-  <div class="mb-6 flex gap-3">
+    async autoLoad() {
+      this.dealsLoading = true; this.dealsError = ''; this.deals = [];
+      try {
+        const params = new URLSearchParams();
+        params.set('min_savings', this.minSavings);
+        const r = await fetch('/api/deals/auto?' + params);
+        const data = await r.json();
+        if (r.ok) this.deals = data;
+        else this.dealsError = data.error || 'Failed to load deals';
+      } catch(e) { this.dealsError = 'Failed to load deals'; }
+      this.dealsLoading = false;
+    },
+
+    async addToCart(p) {
+      this.cartMsg[p.product_id] = 'Adding...';
+      try {
+        const r = await fetch('/api/products/' + p.product_id + '/add-to-cart', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            quantity: 1,
+            modality: 'PICKUP',
+            description: p.description,
+            price: p.sale_price || p.regular_price || 0
+          })
+        });
+        const data = await r.json();
+        this.cartMsg[p.product_id] = r.ok ? '\u2713 Added' : (data.error || 'Failed');
+      } catch(e) { this.cartMsg[p.product_id] = 'Error'; }
+      const pid = p.product_id;
+      setTimeout(() => { const msgs = {...this.cartMsg}; delete msgs[pid]; this.cartMsg = msgs; }, 3000);
+    },
+
+    async addToFavorites(p, listId) {
+      try {
+        const r = await fetch('/api/favorites/lists/' + listId + '/items', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ product_id: p.product_id, description: p.description, brand: p.brand || '', quantity: 1 })
+        });
+        if (r.ok) {
+          this.favMsg[p.product_id] = '\u2605 Saved';
+          this.favoriteIds = new Set([...this.favoriteIds, p.product_id]);
+          const pid = p.product_id;
+          setTimeout(() => { const m = {...this.favMsg}; delete m[pid]; this.favMsg = m; }, 2000);
+        }
+      } catch(e) {}
+    },
+
+    async addWatch() {
+      if (!this.newWatch.product_id) return;
+      try {
+        await fetch('/api/deals/watchlist', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            product_id: this.newWatch.product_id,
+            description: this.newWatch.description,
+            target_price: this.newWatch.target_price ? parseFloat(this.newWatch.target_price) : null
+          })
+        });
+        this.newWatch = { product_id: '', description: '', target_price: '' };
+        await this.reloadWatchlist();
+      } catch(e) {}
+    },
+
+    async removeWatch(pid) {
+      await fetch('/api/deals/watchlist/' + pid, { method: 'DELETE' });
+      await this.reloadWatchlist();
+    },
+
+    async reloadWatchlist() {
+      const r = await fetch('/api/deals/watchlist');
+      if (r.ok) this.watchlist = await r.json();
+    },
+
+    async loadFavLists() {
+      try {
+        const r = await fetch('/api/favorites/lists');
+        if (r.ok) this.favLists = await r.json();
+      } catch(e) {}
+    }
+  };
+}
+</script>
+
+<div x-data="productsPageData()" x-init="loadFavLists()">
+
+  <!-- Top bar: search input + action button + mode toggle -->
+  <div class="flex items-center gap-3 mb-4">
+
+    <!-- Search input -->
     <div class="relative flex-1 max-w-xl">
       <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
@@ -58,26 +231,50 @@
       <input
         type="text"
         x-model="query"
-        placeholder="Search products..."
-        @keydown.enter="search()"
-        class="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        :placeholder="mode === 'search' ? 'Search products...' : 'Filter deals...'"
+        @keydown.enter="mode === 'search' ? search() : findDeals()"
+        class="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
       />
     </div>
+
+    <!-- Action button -->
     <button
-      @click="search()"
-      :disabled="loading"
-      class="px-6 py-3 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+      @click="mode === 'search' ? search() : findDeals()"
+      :disabled="mode === 'search' ? loading : dealsLoading"
+      class="px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors whitespace-nowrap"
     >
-      <span x-show="!loading">Search</span>
-      <span x-show="loading">Searching...</span>
+      <span x-show="mode === 'search' && !loading">Search</span>
+      <span x-show="mode === 'search' && loading">Searching...</span>
+      <span x-show="mode === 'deals' && !dealsLoading">Search Deals</span>
+      <span x-show="mode === 'deals' && dealsLoading">Scanning...</span>
     </button>
+
+    <!-- Mode toggle pills -->
+    <div class="flex bg-gray-100 rounded-xl p-1 gap-1 flex-shrink-0">
+      <button
+        @click="switchMode('search')"
+        :class="mode === 'search' ? 'bg-white shadow text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-700'"
+        class="px-4 py-1.5 text-sm rounded-lg transition-all"
+      >Search</button>
+      <button
+        @click="switchMode('deals')"
+        :class="mode === 'deals' ? 'bg-white shadow text-emerald-700 font-medium' : 'text-gray-500 hover:text-gray-700'"
+        class="px-4 py-1.5 text-sm rounded-lg transition-all flex items-center gap-1.5"
+      >
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 012-2z"/>
+        </svg>
+        Deals
+      </button>
+    </div>
+
   </div>
 
   <!-- Category chips -->
-  <div class="flex flex-wrap gap-2 mb-6">
+  <div class="flex flex-wrap gap-2 mb-4">
     <template x-for="cat in ['dairy', 'meat', 'produce', 'bakery', 'frozen', 'beverages', 'snacks', 'pantry']">
       <button
-        @click="category = (category === cat ? '' : cat); search()"
+        @click="onCategoryClick(cat)"
         :class="category === cat
           ? 'bg-emerald-600 text-white border-emerald-600'
           : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-400'"
@@ -87,24 +284,90 @@
     </template>
   </div>
 
+  <!-- Deals-mode controls -->
+  <div x-show="mode === 'deals'" class="flex flex-wrap items-center gap-4 mb-4 pb-4 border-b border-gray-100">
+
+    <!-- Min savings -->
+    <div class="flex items-center gap-2">
+      <label class="text-xs text-gray-500 whitespace-nowrap">Min savings:</label>
+      <input
+        type="number"
+        x-model.number="minSavings"
+        min="0" max="100"
+        class="w-16 text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      />
+      <span class="text-xs text-gray-400">%</span>
+    </div>
+
+    <!-- Refresh button -->
+    <button @click="autoLoad()" :disabled="dealsLoading"
+      class="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:border-emerald-400 hover:text-emerald-700 disabled:opacity-50 transition-colors">
+      &#8635; Refresh All
+    </button>
+
+    <!-- Sort pills (ranked — click to add/remove priority) -->
+    <div x-show="deals.length > 0" class="flex items-center gap-1.5 ml-auto flex-wrap">
+      <span class="text-xs text-gray-400">Sort:</span>
+      <template x-for="opt in [
+        {v:'percent', l:'% Saved'},
+        {v:'dollar',  l:'$ Saved'},
+        {v:'health',  l:'Healthiest'},
+      ]" :key="opt.v">
+        <button @click="toggleSort(opt.v)"
+          :class="sortStack.includes(opt.v) ? 'bg-emerald-600 text-white font-semibold' : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-400'"
+          class="px-3 py-1 text-xs font-medium rounded-full transition-colors">
+          <span x-show="sortStack.includes(opt.v)" x-text="(sortStack.indexOf(opt.v)+1) + '. '"></span><span x-text="opt.l"></span>
+        </button>
+      </template>
+      <button @click="toggleSort('favorites')"
+        :class="sortStack.includes('favorites') ? 'bg-amber-500 text-white font-semibold' : 'bg-white text-gray-600 border border-gray-200 hover:border-amber-300'"
+        class="px-3 py-1 text-xs font-medium rounded-full transition-colors flex items-center gap-1">
+        <span x-show="sortStack.includes('favorites')" x-text="(sortStack.indexOf('favorites')+1) + '. '"></span>&#9733; Favorites
+        <span x-show="favoritesOnSale > 0"
+          :class="sortStack.includes('favorites') ? 'bg-white text-amber-700' : 'bg-amber-100 text-amber-700'"
+          class="text-xs px-1.5 rounded-full font-bold" x-text="favoritesOnSale"></span>
+      </button>
+      <button x-show="sortStack.length > 0" @click="sortStack = []"
+        class="text-xs text-gray-400 underline hover:text-gray-600 transition-colors px-1">Clear</button>
+    </div>
+
+  </div>
+
+  <!-- Favorites-on-sale alert (deals mode) -->
+  <div x-show="mode === 'deals' && favoritesOnSale > 0 && deals.length > 0"
+    class="flex items-center gap-3 mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+    <span class="text-xl">&#9733;</span>
+    <div>
+      <p class="text-sm font-semibold text-amber-800">
+        <span x-text="favoritesOnSale"></span> of your favorites are on sale!
+      </p>
+      <p class="text-xs text-amber-600">Sort by "Favorites" to see them first.</p>
+    </div>
+    <button @click="sort='favorites'"
+      class="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900 underline whitespace-nowrap">
+      View first &#8594;
+    </button>
+  </div>
+
   <!-- Error state -->
   <div
-    x-show="error"
+    x-show="(mode === 'search' && error) || (mode === 'deals' && dealsError)"
     class="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700"
-    x-text="error"
+    x-text="mode === 'search' ? error : dealsError"
   ></div>
 
   <!-- Loading state -->
-  <div x-show="loading" class="flex items-center justify-center py-16">
+  <div x-show="(mode === 'search' && loading) || (mode === 'deals' && dealsLoading)"
+    class="flex flex-col items-center gap-3 py-16">
     <div class="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+    <p x-show="mode === 'deals'" class="text-sm text-gray-400">Scanning store for deals across all departments...</p>
   </div>
 
-  <!-- Results grid -->
-  <div x-show="products.length > 0 && !loading" class="grid grid-cols-3 gap-4">
+  <!-- ── Search results grid ── -->
+  <div x-show="mode === 'search' && products.length > 0 && !loading" class="grid grid-cols-3 gap-4">
     <template x-for="product in products" :key="product.product_id">
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col hover:shadow-md transition-shadow">
 
-        <!-- Product info -->
         <div class="flex-1">
           <div class="flex items-start justify-between mb-1">
             <h3 class="text-sm font-semibold text-gray-900 leading-tight" x-text="product.description"></h3>
@@ -114,13 +377,54 @@
               x-text="'-' + product.savings_percent + '%'"
             ></span>
           </div>
-          <p class="text-xs text-gray-500 mb-2" x-text="product.brand"></p>
+          <div class="flex items-center gap-2 mb-2">
+            <p class="text-xs text-gray-500" x-text="product.brand"></p>
+            <div x-show="product.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
+              <button @click.stop="pop = !pop"
+                :style="`background:${gradeColor(product.safety_grade).bg}; color:${gradeColor(product.safety_grade).text}; padding:0.1rem 0.45rem; border-radius:99px; font-size:0.6875rem; font-weight:700; letter-spacing:0.02em; cursor:pointer;`"
+                x-text="product.safety_grade"></button>
+              <div x-show="pop" x-transition x-cloak
+                class="absolute top-full mt-1 right-0 z-50 w-64 bg-white rounded-xl shadow-lg border border-gray-200 p-3 text-left"
+                @click.stop>
+                <div class="flex items-center justify-between mb-2 pb-2 border-b border-gray-100">
+                  <span class="text-xs font-bold" :style="`color:${gradeColor(product.safety_grade).text};`">
+                    Health: <span x-text="product.safety_grade"></span></span>
+                  <span class="text-[10px] text-gray-400" x-text="(product.safety_score ?? '?') + '/100'"></span>
+                </div>
+                <template x-if="product.flagged_ingredients && product.flagged_ingredients.length > 0">
+                  <div class="mb-2">
+                    <template x-for="flag in product.flagged_ingredients" :key="flag.ingredient + flag.severity">
+                      <div class="py-1 border-b border-gray-50 last:border-0">
+                        <div class="flex items-center gap-1.5">
+                          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
+                          <span class="text-[11px] font-medium text-gray-800" x-text="flag.ingredient"></span>
+                          <span class="text-[9px] text-gray-400" x-text="'(' + flag.severity + ')'"></span>
+                        </div>
+                        <p class="text-[10px] text-gray-500 ml-3 leading-tight" x-text="flag.reason"></p>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="product.positive_attributes && product.positive_attributes.length > 0">
+                  <div>
+                    <template x-for="attr in product.positive_attributes" :key="attr.attribute">
+                      <div class="flex items-center gap-1 py-0.5">
+                        <span class="text-emerald-500 text-[11px] font-bold">+</span>
+                        <span class="text-[11px] text-emerald-700" x-text="attr.attribute"></span>
+                        <span class="text-[9px] text-gray-400" x-text="'(+' + attr.bonus + ')'"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <p x-show="(!product.flagged_ingredients || product.flagged_ingredients.length === 0) && (!product.positive_attributes || product.positive_attributes.length === 0)"
+                  class="text-[11px] text-gray-400 italic">No flagged ingredients detected.</p>
+              </div>
+            </div>
+          </div>
           <div class="flex items-center gap-2 mb-3">
-            <span
-              x-show="product.on_sale"
-              class="text-base font-bold text-red-600"
-              x-text="'$' + (product.sale_price || 0).toFixed(2)"
-            ></span>
+            <span x-show="product.on_sale" class="text-base font-bold text-red-600"
+              x-text="'$' + (product.sale_price || 0).toFixed(2)"></span>
             <span
               :class="product.on_sale ? 'text-xs text-gray-400 line-through' : 'text-base font-bold text-gray-900'"
               x-text="product.regular_price ? '$' + product.regular_price.toFixed(2) : 'Price N/A'"
@@ -128,29 +432,235 @@
           </div>
         </div>
 
-        <!-- Add to cart -->
-        <button
-          @click="addToCart(product)"
-          :class="cartMsg[product.product_id] === '\u2713 Added'
-            ? 'bg-emerald-600'
-            : 'bg-gray-900 hover:bg-gray-800'"
-          class="w-full py-2 text-xs font-medium text-white rounded-lg transition-colors"
-          x-text="cartMsg[product.product_id] || 'Add to Cart'"
-        ></button>
+        <div class="flex gap-2 mt-auto">
+          <div class="relative flex-1" x-data="{ favOpen: false }" @click.away="favOpen = false">
+            <button @click="favOpen = !favOpen"
+              :class="favoriteIds.has(product.product_id)
+                ? 'text-amber-500 border-amber-300 bg-amber-50 hover:bg-amber-100'
+                : 'text-gray-500 border-gray-200 hover:border-amber-300 hover:bg-amber-50'"
+              class="w-full py-2 text-xs border rounded-lg transition-colors flex items-center justify-center gap-1">
+              <span x-text="favoriteIds.has(product.product_id) ? '\u2605' : '\u2606'"></span>
+              <span x-text="favMsg[product.product_id] || (favoriteIds.has(product.product_id) ? 'Saved' : 'Save')"></span>
+            </button>
+            <div x-show="favOpen" x-transition
+              class="absolute bottom-full mb-1 left-0 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
+              <p class="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 border-b border-gray-100">Save to list</p>
+              <template x-for="lst in favLists" :key="lst.id">
+                <button @click="addToFavorites(product, lst.id); favOpen = false"
+                  class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                  x-text="lst.name"></button>
+              </template>
+              <p x-show="favLists.length === 0" class="px-3 py-2 text-xs text-gray-400 italic">
+                No lists yet — <a href="/favorites" class="text-emerald-600 underline">create one</a>
+              </p>
+            </div>
+          </div>
+          <button @click="addToCart(product)"
+            :class="cartMsg[product.product_id] === '\u2713 Added' ? 'bg-emerald-600' : 'bg-gray-900 hover:bg-gray-800'"
+            class="flex-1 py-2 text-xs font-medium text-white rounded-lg transition-colors"
+            x-text="cartMsg[product.product_id] || '+ Cart'">
+          </button>
+        </div>
 
       </div>
     </template>
   </div>
 
-  <!-- Empty state -->
+  <!-- ── Deals results grid ── -->
+  <div x-show="mode === 'deals' && sortedDeals.length > 0 && !dealsLoading" class="grid grid-cols-3 gap-4">
+    <template x-for="deal in sortedDeals" :key="deal.product_id">
+      <div class="bg-white rounded-xl shadow-sm border p-4 flex flex-col transition-shadow hover:shadow-md"
+        :class="favoriteIds.has(deal.product_id) ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100'">
+
+        <div class="flex-1">
+          <div class="flex items-start justify-between mb-1">
+            <h3 class="text-sm font-semibold text-gray-900 leading-tight flex-1" x-text="deal.description"></h3>
+            <div class="flex items-center gap-1 ml-2 flex-shrink-0">
+              <span x-show="favoriteIds.has(deal.product_id)" class="text-amber-400 text-sm">&#9733;</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium"
+                x-text="'-' + deal.savings_percent + '%'"></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 mb-2">
+            <p class="text-xs text-gray-500" x-text="deal.brand"></p>
+            <div x-show="deal.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
+              <button @click.stop="pop = !pop"
+                :style="`background:${gradeColor(deal.safety_grade).bg}; color:${gradeColor(deal.safety_grade).text}; padding:0.1rem 0.45rem; border-radius:99px; font-size:0.6875rem; font-weight:700; letter-spacing:0.02em; cursor:pointer;`"
+                x-text="deal.safety_grade"></button>
+              <div x-show="pop" x-transition x-cloak
+                class="absolute top-full mt-1 right-0 z-50 w-64 bg-white rounded-xl shadow-lg border border-gray-200 p-3 text-left"
+                @click.stop>
+                <div class="flex items-center justify-between mb-2 pb-2 border-b border-gray-100">
+                  <span class="text-xs font-bold" :style="`color:${gradeColor(deal.safety_grade).text};`">
+                    Health: <span x-text="deal.safety_grade"></span></span>
+                  <span class="text-[10px] text-gray-400" x-text="(deal.safety_score ?? '?') + '/100'"></span>
+                </div>
+                <template x-if="deal.flagged_ingredients && deal.flagged_ingredients.length > 0">
+                  <div class="mb-2">
+                    <template x-for="flag in deal.flagged_ingredients" :key="flag.ingredient + flag.severity">
+                      <div class="py-1 border-b border-gray-50 last:border-0">
+                        <div class="flex items-center gap-1.5">
+                          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
+                          <span class="text-[11px] font-medium text-gray-800" x-text="flag.ingredient"></span>
+                          <span class="text-[9px] text-gray-400" x-text="'(' + flag.severity + ')'"></span>
+                        </div>
+                        <p class="text-[10px] text-gray-500 ml-3 leading-tight" x-text="flag.reason"></p>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="deal.positive_attributes && deal.positive_attributes.length > 0">
+                  <div>
+                    <template x-for="attr in deal.positive_attributes" :key="attr.attribute">
+                      <div class="flex items-center gap-1 py-0.5">
+                        <span class="text-emerald-500 text-[11px] font-bold">+</span>
+                        <span class="text-[11px] text-emerald-700" x-text="attr.attribute"></span>
+                        <span class="text-[9px] text-gray-400" x-text="'(+' + attr.bonus + ')'"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <p x-show="(!deal.flagged_ingredients || deal.flagged_ingredients.length === 0) && (!deal.positive_attributes || deal.positive_attributes.length === 0)"
+                  class="text-[11px] text-gray-400 italic">No flagged ingredients detected.</p>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-base font-bold text-red-600" x-text="'$' + (deal.sale_price || 0).toFixed(2)"></span>
+            <span class="text-xs text-gray-400 line-through" x-text="'$' + (deal.regular_price || 0).toFixed(2)"></span>
+          </div>
+          <p class="text-xs text-emerald-700 font-medium"
+            x-text="'Save $' + ((deal.regular_price || 0) - (deal.sale_price || deal.regular_price || 0)).toFixed(2)"></p>
+        </div>
+
+        <div class="flex gap-2 mt-3">
+          <div class="relative flex-1" x-data="{ favOpen: false }" @click.away="favOpen = false">
+            <button @click="favOpen = !favOpen"
+              :class="favoriteIds.has(deal.product_id)
+                ? 'text-amber-500 border-amber-300 bg-amber-50 hover:bg-amber-100'
+                : 'text-gray-500 border-gray-200 hover:border-amber-300 hover:bg-amber-50'"
+              class="w-full py-1.5 text-xs border rounded-lg transition-colors flex items-center justify-center gap-1">
+              <span x-text="favoriteIds.has(deal.product_id) ? '\u2605' : '\u2606'"></span>
+              <span x-text="favMsg[deal.product_id] || (favoriteIds.has(deal.product_id) ? 'Saved' : 'Save')"></span>
+            </button>
+            <div x-show="favOpen" x-transition
+              class="absolute bottom-full mb-1 left-0 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
+              <p class="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 border-b border-gray-100">Save to list</p>
+              <template x-for="lst in favLists" :key="lst.id">
+                <button @click="addToFavorites(deal, lst.id); favOpen = false"
+                  class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                  x-text="lst.name"></button>
+              </template>
+              <p x-show="favLists.length === 0" class="px-3 py-2 text-xs text-gray-400 italic">
+                No lists yet — <a href="/favorites" class="text-emerald-600 underline">create one</a>
+              </p>
+            </div>
+          </div>
+          <button @click="addToCart(deal)"
+            :class="cartMsg[deal.product_id] === '\u2713 Added' ? 'bg-emerald-600' : 'bg-gray-900 hover:bg-gray-800'"
+            class="flex-1 py-1.5 text-xs font-medium text-white rounded-lg transition-colors"
+            x-text="cartMsg[deal.product_id] || '+ Cart'">
+          </button>
+        </div>
+
+      </div>
+    </template>
+  </div>
+
+  <!-- Empty state: Search -->
   <div
-    x-show="!loading && products.length === 0 && !error"
+    x-show="mode === 'search' && !loading && products.length === 0 && !error"
     class="text-center py-16 text-gray-400"
   >
     <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
     </svg>
     <p class="text-sm">Search for products or click a category above</p>
+  </div>
+
+  <!-- Empty state: Deals -->
+  <div
+    x-show="mode === 'deals' && !dealsLoading && deals.length === 0 && dealsInitialized && !dealsError"
+    class="text-center py-16 text-gray-400"
+  >
+    <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 012-2z"/>
+    </svg>
+    <p class="text-sm">No deals found. Try lowering the minimum savings % or refreshing.</p>
+  </div>
+
+  <!-- ── Watchlist (deals mode only) ── -->
+  <div x-show="mode === 'deals'" class="mt-8">
+
+    <button @click="showWatchlist = !showWatchlist"
+      class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors mb-3">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+      </svg>
+      Watchlist
+      <span class="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full" x-text="watchlist.length"></span>
+      <span x-text="showWatchlist ? '\u25b2' : '\u25bc'" class="text-gray-400 text-xs"></span>
+    </button>
+
+    <div x-show="showWatchlist" x-transition>
+
+      <!-- Add form -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
+        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Track New Item</h3>
+        <div class="flex gap-2 flex-wrap">
+          <input x-model="newWatch.product_id" placeholder="Product ID (UPC)"
+            class="flex-1 min-w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          <input x-model="newWatch.description" placeholder="Description"
+            class="flex-1 min-w-40 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          <input x-model="newWatch.target_price" type="number" step="0.01" placeholder="Target $"
+            class="w-28 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          <button @click="addWatch()" :disabled="!newWatch.product_id"
+            class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+            Track
+          </button>
+        </div>
+      </div>
+
+      <!-- Watchlist table -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div x-show="watchlist.length === 0" class="text-center py-10 text-gray-400">
+          <p class="text-sm">No items being watched. Add an item above.</p>
+        </div>
+        <table x-show="watchlist.length > 0" class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-100">
+            <tr>
+              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Item</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Target Price</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Added</th>
+              <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            <template x-for="item in watchlist" :key="item.product_id">
+              <tr class="hover:bg-gray-50">
+                <td class="px-5 py-3">
+                  <div class="flex items-center gap-1.5">
+                    <span x-show="favoriteIds.has(item.product_id)" class="text-amber-400 text-xs">&#9733;</span>
+                    <span class="font-medium text-gray-800" x-text="item.description || item.product_id"></span>
+                  </div>
+                  <span class="block text-xs text-gray-400" x-text="'#' + item.product_id"></span>
+                </td>
+                <td class="px-4 py-3 text-gray-500"
+                  x-text="item.target_price ? '$' + parseFloat(item.target_price).toFixed(2) : '\u2014'"></td>
+                <td class="px-4 py-3 text-gray-400 text-xs"
+                  x-text="item.added_at ? item.added_at.slice(0, 10) : '\u2014'"></td>
+                <td class="px-5 py-3 text-right">
+                  <button @click="removeWatch(item.product_id)"
+                    class="text-xs text-red-500 hover:text-red-700 transition-colors">Remove</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
   </div>
 
 </div>

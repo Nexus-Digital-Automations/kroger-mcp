@@ -117,9 +117,15 @@ async def recipes_list(request: Request):
             health = calculate_health_score(r, names_only=True)
             r["health_score"] = health["score"]
             r["health_grade"] = health["grade"]
+            r["health_flags"] = health.get("flags", [])
+            r["health_categories"] = health.get("categories_detected", [])
+            r["health_bonus"] = health.get("bonus_applied", 0)
         except Exception:
             r["health_score"] = None
             r["health_grade"] = None
+            r["health_flags"] = []
+            r["health_categories"] = []
+            r["health_bonus"] = 0
 
     # Build JSON array for Alpine x-for rendering
     recipes_json = json.dumps([{
@@ -132,6 +138,9 @@ async def recipes_list(request: Request):
         "cost": r.get("cost_per_serving"),
         "health_score": r.get("health_score"),
         "health_grade": r.get("health_grade"),
+        "health_flags": r.get("health_flags", []),
+        "health_categories": r.get("health_categories", []),
+        "health_bonus": r.get("health_bonus", 0),
     } for r in recipes])
 
     return templates.TemplateResponse("recipes.html", {
@@ -206,6 +215,14 @@ async def recipe_detail(request: Request, recipe_id: str):
             result = check_product_safety(scan_text)
             ing["safety_score"] = result.score
             ing["safety_grade"] = result.grade
+            ing["safety_flags"] = [
+                {"ingredient": m.ingredient_name, "severity": m.severity.value, "reason": m.reason, "category": m.category}
+                for m in result.matches
+            ]
+            ing["safety_positives"] = [
+                {"attribute": a.attribute_name, "bonus": a.bonus, "benefit": a.benefit}
+                for a in result.positive_attributes
+            ]
     except Exception:
         pass
 
