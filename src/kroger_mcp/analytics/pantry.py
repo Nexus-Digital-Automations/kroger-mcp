@@ -524,6 +524,10 @@ def add_to_pantry(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(product_id) DO UPDATE SET
                 description = COALESCE(excluded.description, description),
+                level_percent = excluded.level_percent,
+                last_restocked_at = excluded.last_restocked_at,
+                last_updated_at = excluded.last_updated_at,
+                daily_depletion_rate = excluded.daily_depletion_rate,
                 low_threshold = excluded.low_threshold,
                 auto_deplete = excluded.auto_deplete
         """, (product_id, description, level, now, now,

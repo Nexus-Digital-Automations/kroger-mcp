@@ -1,7 +1,7 @@
 """Pantry API endpoints — write operations for the pantry dashboard."""
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -80,8 +80,13 @@ async def add_pantry_item(body: AddItemRequest):
 
 
 @router.delete('/api/pantry')
-async def clear_all_pantry_items():
-    """Remove all items from pantry tracking."""
+async def clear_all_pantry_items(request: Request):
+    """Remove all items from pantry tracking. Requires ?confirmed=true."""
+    if request.query_params.get("confirmed", "").lower() != "true":
+        return JSONResponse(
+            status_code=400,
+            content={"error": "This will permanently delete all pantry items. Pass ?confirmed=true to proceed."},
+        )
     try:
         from kroger_mcp.analytics.database import get_db_cursor, ensure_initialized
         ensure_initialized()

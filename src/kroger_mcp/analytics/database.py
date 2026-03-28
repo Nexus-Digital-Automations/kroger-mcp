@@ -2,8 +2,8 @@
 SQLite database connection and schema management for purchase analytics.
 """
 
+import asyncio
 import sqlite3
-import os
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -31,6 +31,8 @@ def get_db_connection() -> sqlite3.Connection:
     """
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=500")
+    conn.execute("PRAGMA journal_mode=WAL")
     # Enable foreign keys
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -435,6 +437,35 @@ def initialize_database() -> None:
         conn.close()
 
 
+def _migrate_giant_favorites() -> None:
+    """One-time: copy all items from 'Giant Favorites' into default list, then delete it."""
+    with get_db_cursor() as cursor:
+        cursor.execute("SELECT id FROM favorite_lists WHERE name = 'Giant Favorites'")
+        row = cursor.fetchone()
+        if not row:
+            return  # already done or never existed
+
+        giant_id = row["id"]
+
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO favorite_list_items
+                (list_id, product_id, description, brand, default_quantity,
+                 preferred_modality, notes, times_ordered,
+                 min_stock_percent, min_stock_quantity, current_stock_quantity)
+            SELECT
+                'default', product_id, description, brand, default_quantity,
+                preferred_modality, notes, times_ordered,
+                min_stock_percent, min_stock_quantity, current_stock_quantity
+            FROM favorite_list_items
+            WHERE list_id = ?
+            """,
+            (giant_id,)
+        )
+
+        cursor.execute("DELETE FROM favorite_lists WHERE id = ?", (giant_id,))
+
+
 def ensure_initialized() -> None:
     """
     Ensure database is initialized and migration is run if needed.
@@ -456,6 +487,9 @@ def ensure_initialized() -> None:
     if needs_migration():
         migrate_json_to_sqlite()
 
+    # One-time data migration: merge Giant Favorites into default list
+    _migrate_giant_favorites()
+
     _initialized = True
 
 
@@ -463,6 +497,15 @@ def reset_initialization() -> None:
     """Reset the initialization flag (for testing purposes)."""
     global _initialized
     _initialized = False
+
+
+async def run_in_thread(func, *args, **kwargs):
+    """Run a blocking synchronous function in a thread pool to avoid blocking the event loop.
+
+    Use this to wrap any sync DB or I/O function called from an async handler:
+        result = await run_in_thread(some_sync_db_func, arg1, arg2)
+    """
+    return await asyncio.to_thread(func, *args, **kwargs)
 
 
 def get_table_counts() -> dict:
@@ -499,6 +542,8 @@ def run_schema_migrations() -> None:
     """
     conn = get_db_connection()
     try:
+        conn.execute("BEGIN")
+
         # Get existing columns in product_statistics
         cursor = conn.execute("PRAGMA table_info(product_statistics)")
         existing_columns = {row[1] for row in cursor.fetchall()}
@@ -547,6 +592,25 @@ def run_schema_migrations() -> None:
                     f"ALTER TABLE pantry_items ADD COLUMN {col_name} {col_def}"
                 )
 
+        # Migrate favorite_list_items table - add minimum stock tracking
+        cursor = conn.execute("PRAGMA table_info(favorite_list_items)")
+        fli_columns = {row[1] for row in cursor.fetchall()}
+
+        fli_new_columns = [
+            ("min_stock_percent", "INTEGER DEFAULT NULL"),
+            ("min_stock_quantity", "INTEGER DEFAULT NULL"),
+            ("current_stock_quantity", "INTEGER DEFAULT NULL"),
+        ]
+
+        for col_name, col_def in fli_new_columns:
+            if col_name not in fli_columns:
+                conn.execute(
+                    f"ALTER TABLE favorite_list_items ADD COLUMN {col_name} {col_def}"
+                )
+
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
