@@ -113,10 +113,8 @@
     </span>
     {% endif %}
     {% if health_data %}
-    <div class="relative inline-block" x-data="{ pop: false,
-      hd: {{ health_data | tojson }},
-      gc(g) { const m={A:{bg:'oklch(91% 0.1 145)',t:'oklch(30% 0.14 145)'},B:{bg:'oklch(91% 0.08 175)',t:'oklch(30% 0.12 175)'},C:{bg:'oklch(92% 0.1 80)',t:'oklch(35% 0.12 75)'},D:{bg:'oklch(92% 0.1 50)',t:'oklch(33% 0.14 40)'},F:{bg:'oklch(92% 0.08 25)',t:'oklch(33% 0.14 25)'}}; return m[g]||m.C; }
-    }" @click.away="pop = false">
+    <script id="health-init-data" type="application/json">{{ health_data | tojson }}</script>
+    <div class="relative inline-block" x-data="healthBadge" @click.away="pop = false">
       <button @click="pop = !pop" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium cursor-pointer"
         :style="`background:${gc(hd.grade).bg}; color:${gc(hd.grade).t};`"
         x-text="'Health: ' + hd.grade + ' (' + hd.score + '/100)'"></button>
@@ -453,6 +451,24 @@
 <script>
 document.addEventListener('alpine:init', () => {
   const _rd = JSON.parse(document.getElementById('recipe-init-data').textContent);
+
+  const _hdEl = document.getElementById('health-init-data');
+  const _hd = _hdEl ? JSON.parse(_hdEl.textContent) : null;
+
+  Alpine.data('healthBadge', () => ({
+    pop: false,
+    hd: _hd || {},
+    gc(g) {
+      const m = {
+        A: {bg:'oklch(91% 0.1 145)', t:'oklch(30% 0.14 145)'},
+        B: {bg:'oklch(91% 0.08 175)', t:'oklch(30% 0.12 175)'},
+        C: {bg:'oklch(92% 0.1 80)', t:'oklch(35% 0.12 75)'},
+        D: {bg:'oklch(92% 0.1 50)', t:'oklch(33% 0.14 40)'},
+        F: {bg:'oklch(92% 0.08 25)', t:'oklch(33% 0.14 25)'},
+      };
+      return m[g] || m.C;
+    },
+  }));
 
   Alpine.data('recipeHeader', () => ({
     listAdding: false,

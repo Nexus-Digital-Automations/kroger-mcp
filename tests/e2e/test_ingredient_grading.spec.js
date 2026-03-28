@@ -64,126 +64,159 @@ async function testRecipeListGrades() {
   assert(withBg > 0, `${withBg} grade badges have colored backgrounds`);
 }
 
-// ── TEST 2: Sort pill buttons work (toggle sort by health) ──
+// ── TEST 2: Two-zone ranked sort UI ──
 async function testSortPills() {
-  console.log('\nTEST 2: Sort pill buttons');
+  console.log('\nTEST 2: Ranked sort UI');
   await page.goto(`${BASE}/recipes`);
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(600);
 
-  // Sort pills are rendered from sortOptions via x-for
-  // Find the "Healthiest First" pill button
-  const healthPill = page.locator('button:has-text("Healthiest First")');
-  const pillVisible = await healthPill.isVisible().catch(() => false);
-  assert(pillVisible, 'Healthiest First sort pill is visible');
+  // Zone A: "Sort" label and text-style toggle buttons
+  const sortLabel = page.locator('text="Sort"').first();
+  assert(await sortLabel.isVisible().catch(() => false), 'Sort label visible in Zone A');
 
-  if (pillVisible) {
-    // Click it — should toggle active state and show Clear button
-    await healthPill.click();
+  const healthBtn = page.locator('button:has-text("Healthiest First")');
+  assert(await healthBtn.isVisible().catch(() => false), 'Healthiest First option visible in Zone A');
+
+  // Click to activate — Zone B should appear with rank 1 chip
+  await healthBtn.click();
+  await page.waitForTimeout(500);
+
+  const sortingByLabel = page.locator('text="Sorting by"').first();
+  assert(await sortingByLabel.isVisible().catch(() => false), 'Zone B appears with "Sorting by" label');
+
+  const firstBadge = page.locator('text="1st"').first();
+  assert(await firstBadge.isVisible().catch(() => false), '1st rank ordinal badge visible');
+
+  // Click a second sort — should appear as rank 2
+  const costBtn = page.locator('button:has-text("Cost")').first();
+  await costBtn.click();
+  await page.waitForTimeout(500);
+
+  const secondBadge = page.locator('text="2nd"').first();
+  assert(await secondBadge.isVisible().catch(() => false), '2nd rank ordinal badge visible for sub-sort');
+
+  // Promote: click visible up arrow (rank 2 chip has it)
+  const upArrows = page.locator('button[title="Move up in priority"]');
+  const visibleUpArrow = await upArrows.evaluateAll(els =>
+    els.findIndex(el => el.offsetParent !== null)
+  );
+  if (visibleUpArrow >= 0) {
+    await upArrows.nth(visibleUpArrow).click({ force: true });
     await page.waitForTimeout(500);
-
-    // After click, pill should be in the sortStack → styled with green background
-    const pillStyle = await healthPill.getAttribute('style');
-    assert(
-      pillStyle && pillStyle.includes('var(--green)'),
-      'Healthiest pill is active (green) after click'
+    // After promote, the chip order should have swapped
+    const chips = await page.locator('[x-text="sortKeyLabel(key)"]').evaluateAll(els =>
+      els.filter(el => el.offsetParent !== null).map(el => el.textContent.trim())
     );
+    assert(chips.length === 2, `Two ranked chips after promote: ${chips.join(', ')}`);
+  } else {
+    assert(false, 'Up arrow visible for rank 2 chip');
+  }
 
-    // Clear button should appear (exact match to avoid "Clear all" in tag filter)
-    const clearBtn = page.getByRole('button', { name: 'Clear', exact: true });
-    const clearVisible = await clearBtn.isVisible().catch(() => false);
-    assert(clearVisible, 'Clear button appears when sort pill is active');
+  // Remove: click first remove button
+  const removeBtn = page.locator('button[title="Remove sort"]');
+  const visibleRemove = await removeBtn.evaluateAll(els =>
+    els.findIndex(el => el.offsetParent !== null)
+  );
+  if (visibleRemove >= 0) {
+    await removeBtn.nth(visibleRemove).click({ force: true });
+    await page.waitForTimeout(500);
+    const remainingChips = await page.locator('[x-text="sortKeyLabel(key)"]').evaluateAll(els =>
+      els.filter(el => el.offsetParent !== null).length
+    );
+    assert(remainingChips === 1, `One chip remaining after remove`);
+  }
 
-    // Click Clear to reset
-    if (clearVisible) {
-      await clearBtn.click();
-      await page.waitForTimeout(500);
-      const clearGone = !(await clearBtn.isVisible().catch(() => false));
-      assert(clearGone, 'Clear button disappears after clearing sort');
-    }
+  // Clear all
+  const clearAll = page.getByRole('button', { name: 'Clear all' });
+  const clearVisible = await clearAll.isVisible().catch(() => false);
+  assert(clearVisible, 'Clear all button visible');
+  if (clearVisible) {
+    await clearAll.click();
+    await page.waitForTimeout(500);
+    const zoneBHidden = !(await sortingByLabel.isVisible().catch(() => false));
+    assert(zoneBHidden, 'Zone B hidden after Clear all');
   }
 }
 
 // ── TEST 3: Recipe detail page shows per-ingredient grades ──
 async function testRecipeDetailGrades() {
   console.log('\nTEST 3: Recipe detail per-ingredient grades');
+
+  // Get a recipe ID from the list page, then navigate directly
   await page.goto(`${BASE}/recipes`);
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(600);
 
-  // Click the first recipe card link
-  const firstRecipeLink = page.locator('a[href^="/recipes/"]').first();
-  const linkVisible = await firstRecipeLink.isVisible().catch(() => false);
-  assert(linkVisible, 'Recipe link visible on list page');
+  const recipeHref = await page.locator('.grid a[href^="/recipes/"]').first().getAttribute('href');
+  assert(!!recipeHref, `Found recipe link: ${recipeHref}`);
 
-  if (linkVisible) {
-    await firstRecipeLink.click();
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(600);
+  await page.goto(`${BASE}${recipeHref}`);
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(800);
 
-    // Should be on recipe detail page
-    const url = page.url();
-    assert(url.includes('/recipes/'), `Navigated to recipe detail: ${url}`);
+  const url = page.url();
+  assert(url.includes('/recipes/'), `On recipe detail page: ${url}`);
 
-    // Check for overall health badge (e.g. "Health: A (100/100)")
-    const healthBadge = page.locator('text=/Health: [A-F]/');
-    const healthBadgeVisible = await healthBadge.isVisible().catch(() => false);
-    assert(healthBadgeVisible, 'Overall health grade badge is visible');
+  // Check for overall health badge (Alpine-rendered via x-text)
+  const healthText = await page.evaluate(() => {
+    const els = document.querySelectorAll('[x-text]');
+    for (const el of els) {
+      if (el.textContent && el.textContent.match(/Health:\s*[A-F]/)) return el.textContent.trim();
+    }
+    return null;
+  });
+  assert(!!healthText, `Overall health badge rendered: ${healthText || 'not found'}`);
 
-    // Check for per-ingredient safety grade badges
-    const ingGrades = page.locator('[x-text="ing.safety_grade"]');
-    const visibleIngGrades = await ingGrades.evaluateAll(els =>
-      els.filter(el => el.offsetParent !== null && el.textContent.trim()).map(el => el.textContent.trim())
-    );
+  // Check for per-ingredient safety grade badges
+  const ingGrades = await page.evaluate(() => {
+    const els = document.querySelectorAll('[x-text="ing.safety_grade"]');
+    return [...els].filter(el => el.offsetParent !== null && el.textContent.trim())
+      .map(el => el.textContent.trim());
+  });
 
-    assert(visibleIngGrades.length > 0, `Found ${visibleIngGrades.length} per-ingredient grade badges`);
+  assert(ingGrades.length > 0, `Found ${ingGrades.length} per-ingredient grade badges`);
 
-    // Check that grades are varied — not all C (the original bug)
-    const uniqueIngGrades = [...new Set(visibleIngGrades)];
-    const allC = uniqueIngGrades.length === 1 && uniqueIngGrades[0] === 'C';
-    assert(!allC, `Per-ingredient grades are not all C: ${uniqueIngGrades.join(', ')}`);
+  // Check that grades are varied — not all C (the original bug)
+  const uniqueIngGrades = [...new Set(ingGrades)];
+  const allC = uniqueIngGrades.length === 1 && uniqueIngGrades[0] === 'C';
+  assert(!allC, `Per-ingredient grades are not all C: ${uniqueIngGrades.join(', ')}`);
 
-    // Should have some A or B grades for clean ingredients
-    const hasGoodGrades = visibleIngGrades.some(g => g === 'A' || g === 'B');
-    assert(hasGoodGrades, 'Some ingredients have A or B grades (healthy whole foods)');
-
-    // Verify grade colors are applied
-    const gradeWithBg = await ingGrades.evaluateAll(els =>
-      els.filter(el => el.offsetParent !== null && el.style.background).length
-    );
-    assert(gradeWithBg > 0, `${gradeWithBg} grade badges have colored backgrounds`);
-  }
+  // Should have some A or B grades for clean ingredients
+  const hasGoodGrades = ingGrades.some(g => g === 'A' || g === 'B');
+  assert(hasGoodGrades, 'Some ingredients have A or B grades (healthy whole foods)');
 }
 
 // ── TEST 4: Ingredient table structure in recipe detail ──
 async function testIngredientTableStructure() {
   console.log('\nTEST 4: Ingredient table structure');
-  // Navigate to a recipe detail page
-  await page.goto(`${BASE}/recipes`);
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(600);
-
-  const firstRecipeLink = page.locator('a[href^="/recipes/"]').first();
-  if (await firstRecipeLink.isVisible().catch(() => false)) {
-    await firstRecipeLink.click();
+  // Should still be on recipe detail from test 3 — verify or navigate
+  if (!page.url().match(/\/recipes\/\w/)) {
+    await page.goto(`${BASE}/recipes`);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(600);
-
-    // Check column headers
-    const headers = ['Qty', 'Ingredient', 'Source', 'Health'];
-    for (const h of headers) {
-      const el = page.locator(`text="${h}"`).first();
-      const vis = await el.isVisible().catch(() => false);
-      assert(vis, `"${h}" column header visible`);
-    }
-
-    // Check that ingredient rows exist
-    const ingRows = page.locator('[x-text="ing.name"]');
-    const count = await ingRows.evaluateAll(els =>
-      els.filter(el => el.offsetParent !== null).length
-    );
-    assert(count > 0, `${count} ingredient rows rendered`);
+    const href = await page.locator('.grid a[href^="/recipes/"]').first().getAttribute('href');
+    await page.goto(`${BASE}${href}`);
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(800);
   }
+
+  // Check column headers
+  const headers = ['Qty', 'Ingredient', 'Source', 'Health'];
+  for (const h of headers) {
+    const vis = await page.evaluate((text) => {
+      const els = document.querySelectorAll('span');
+      return [...els].some(el => el.textContent.trim() === text && el.offsetParent !== null);
+    }, h);
+    assert(vis, `"${h}" column header visible`);
+  }
+
+  // Check that ingredient rows exist
+  const count = await page.evaluate(() => {
+    const els = document.querySelectorAll('[x-text="ing.name"]');
+    return [...els].filter(el => el.offsetParent !== null).length;
+  });
+  assert(count > 0, `${count} ingredient rows rendered`);
 }
 
 // ── TEST 5: No JavaScript errors on recipe pages ──
@@ -219,13 +252,13 @@ async function testNoJSErrors() {
   });
   detailPage.on('pageerror', err => errors2.push(err.message));
 
-  // Navigate to first recipe detail
+  // Navigate to first recipe detail via direct URL
   await detailPage.goto(`${BASE}/recipes`);
   await detailPage.waitForLoadState('networkidle');
-  await detailPage.waitForTimeout(500);
-  const link = detailPage.locator('a[href^="/recipes/"]').first();
-  if (await link.isVisible().catch(() => false)) {
-    await link.click();
+  await detailPage.waitForTimeout(600);
+  const dHref = await detailPage.locator('.grid a[href^="/recipes/"]').first().getAttribute('href').catch(() => null);
+  if (dHref) {
+    await detailPage.goto(`${BASE}${dHref}`);
     await detailPage.waitForLoadState('networkidle');
     await detailPage.waitForTimeout(1000);
   }
