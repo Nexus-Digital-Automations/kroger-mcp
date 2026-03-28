@@ -212,20 +212,28 @@
   });
   </script>
   <div class="ss-card p-6" x-data="ingredientPanel()">
-    <div class="text-center mb-5">
-      <h3 style="font-family: 'Lora', serif; font-weight: 600; font-size: 0.875rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); margin-bottom: 0.75rem;">Ingredients</h3>
-      <div x-show="ings.length > 0" style="display: inline-flex; border: 1px solid var(--border); border-radius: 0.625rem; overflow: hidden; font-size: 0.75rem; padding: 3px; gap: 2px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.25rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
+      <h3 style="font-family:'Lora',serif; font-weight:600; font-size:0.9375rem; color:var(--text-1); letter-spacing:-0.01em; margin:0;">Ingredients</h3>
+      <div x-show="ings.length > 0" style="display:inline-flex; border:1px solid var(--border); border-radius:0.5rem; overflow:hidden; font-size:0.6875rem; padding:2px; gap:1px; background:var(--cream);">
         <button @click="ingView='usage'"
-          :style="ingView==='usage' ? 'background: var(--sidebar-bg); color: white;' : 'background: var(--surface); color: var(--text-2);'"
-          style="padding: 0.3rem 0.75rem; border-radius: 0.375rem; transition: background 0.12s, color 0.12s; font-weight: 500;">Usage order</button>
+          :style="ingView==='usage'
+            ? 'background:var(--green); color:white; box-shadow:0 1px 3px oklch(18% 0.025 80 / 0.1);'
+            : 'background:transparent; color:var(--text-3);'"
+          style="padding:0.3rem 0.75rem; border-radius:0.375rem; transition:all 0.15s; font-weight:500; font-family:'DM Sans',sans-serif; cursor:pointer; border:none; letter-spacing:0.01em;"
+          @mouseenter="if(ingView!=='usage') $el.style.color='var(--text-1)';"
+          @mouseleave="if(ingView!=='usage') $el.style.color='var(--text-3)';">As listed</button>
         <button @click="ingView='category'"
-          :style="ingView==='category' ? 'background: var(--sidebar-bg); color: white;' : 'background: var(--surface); color: var(--text-2);'"
-          style="padding: 0.3rem 0.75rem; border-radius: 0.375rem; transition: background 0.12s, color 0.12s; font-weight: 500;">By category</button>
+          :style="ingView==='category'
+            ? 'background:var(--green); color:white; box-shadow:0 1px 3px oklch(18% 0.025 80 / 0.1);'
+            : 'background:transparent; color:var(--text-3);'"
+          style="padding:0.3rem 0.75rem; border-radius:0.375rem; transition:all 0.15s; font-weight:500; font-family:'DM Sans',sans-serif; cursor:pointer; border:none; letter-spacing:0.01em;"
+          @mouseenter="if(ingView!=='category') $el.style.color='var(--text-1)';"
+          @mouseleave="if(ingView!=='category') $el.style.color='var(--text-3)';">By category</button>
       </div>
     </div>
     <div x-show="ings.length > 0">
       <!-- Column header -->
-      <div class="grid pb-2 mb-1" style="grid-template-columns: 7rem 1fr auto auto; gap: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3);">
+      <div class="grid pb-2 mb-1" style="grid-template-columns: 7rem 1fr auto auto; gap: 0.5rem; border-bottom: 1px solid oklch(90% 0.015 80); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
         <span>Qty</span>
         <span>Ingredient</span>
         <span>Source</span>
@@ -235,10 +243,11 @@
         <div>
           <!-- Category header band -->
           <div x-show="group.header !== null"
-            :style="`background: ${(catColors[group.key]||catColors.other).pill}; color: ${(catColors[group.key]||catColors.other).text}; margin: 0.75rem -1.5rem 0.25rem; padding: 0.4rem 1.5rem; display: flex; align-items: center; gap: 0.5rem;`"
-            style="font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;">
-            <span :style="`background: ${(catColors[group.key]||catColors.other).dot};`" style="width:7px;height:7px;border-radius:50%;flex-shrink:0;display:inline-block;"></span>
+            :style="`background: ${(catColors[group.key]||catColors.other).pill}; color: ${(catColors[group.key]||catColors.other).text}; display: flex; align-items: center; gap: 0.5rem;`"
+            style="margin:0.75rem -0.75rem 0.25rem; padding:0.35rem 0.75rem; border-radius:0.375rem; font-size:0.6875rem; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; font-family:'DM Sans',sans-serif;">
+            <span :style="`background: ${(catColors[group.key]||catColors.other).dot};`" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block;"></span>
             <span x-text="group.header"></span>
+            <span style="font-weight:400; opacity:0.6; font-size:0.5625rem; margin-left:0.125rem;" x-text="'(' + group.items.length + ')'"></span>
           </div>
           <template x-for="(ing, ii) in group.items" :key="ing.name + ii">
             <div class="grid items-baseline" style="grid-template-columns: 7rem 1fr auto auto; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px solid oklch(93% 0.01 80);">

@@ -226,6 +226,25 @@ async def recipe_detail(request: Request, recipe_id: str):
     except Exception:
         pass
 
+    # Auto-infer category from safety positive attributes when missing
+    _attr_to_cat = {
+        "Fresh Produce": "produce",
+        "Fresh Fruit": "produce",
+        "Lean Protein": "meat",
+        "Healthy Fat": "pantry",
+        "Whole Grain": "pantry",
+        "Herb or Spice": "produce",
+        "Natural Dairy": "dairy",
+        "Pantry Staple": "pantry",
+    }
+    for ing in ingredients:
+        if not ing.get("category"):
+            for pos in ing.get("safety_positives", []):
+                cat = _attr_to_cat.get(pos.get("attribute"))
+                if cat:
+                    ing["category"] = cat
+                    break
+
     return templates.TemplateResponse("recipe_detail.html", {
         "request": request,
         "active_page": "recipes",
