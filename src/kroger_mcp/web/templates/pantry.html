@@ -10,7 +10,8 @@
      x-show="open"
      x-cloak
      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-     @keydown.escape.window="open = false">
+     @keydown.escape.window="open = false"
+     @open-add-modal.window="open = true; pid = ''; desc = ''; level = 100; err = ''">
   <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6"
        @click.stop>
     <h3 class="text-base font-semibold text-gray-800 mb-4">Add Pantry Item</h3>
@@ -63,13 +64,7 @@
   <div class="flex gap-2">
     <!-- Trigger for the add modal -->
     <button
-      @click="
-        document.querySelector('[x-data]').__x.$data.open = true;
-        document.querySelector('[x-data]').__x.$data.pid = '';
-        document.querySelector('[x-data]').__x.$data.desc = '';
-        document.querySelector('[x-data]').__x.$data.level = 100;
-        document.querySelector('[x-data]').__x.$data.err = '';
-      "
+      @click="$dispatch('open-add-modal')"
       class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors shadow-sm">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
       Add Item
@@ -103,7 +98,7 @@
       @click="
         if (!confirm('Clear entire pantry? This removes all tracked items.')) return;
         clearing = true;
-        fetch('/api/pantry', {method: 'DELETE'})
+        fetch('/api/pantry?confirmed=true', {method: 'DELETE'})
           .then(r => r.json())
           .then(d => { if (d.success) window.location.reload(); else { alert(d.error || 'Failed'); clearing = false; } })
           .catch(() => { alert('Network error'); clearing = false; });
