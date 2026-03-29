@@ -1,11 +1,20 @@
 """
-SQLite database connection and schema management for purchase analytics.
+Database connection and schema management for purchase analytics.
+
+Supports SQLite (default, for dev/MCP) and PostgreSQL (for multi-user production).
+Set DATABASE_URL environment variable to use PostgreSQL.
 """
 
 import asyncio
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+
+
+def get_backend() -> str:
+    """Return 'postgresql' if DATABASE_URL is set, else 'sqlite'."""
+    return "postgresql" if os.environ.get("DATABASE_URL") else "sqlite"
 
 # Database file location (data directory)
 # Create data directory if it doesn't exist
