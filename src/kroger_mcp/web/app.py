@@ -4,6 +4,7 @@ FastAPI web dashboard for Kroger MCP.
 Read-only dashboard for browsing recipes, meal plans, favorites, and pantry.
 All writes still happen through Claude/MCP.
 """
+# ruff: noqa: E402  -- env must be loaded before FastAPI imports
 
 import os
 import signal
@@ -41,7 +42,6 @@ _load_claude_desktop_env()
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .routes import dashboard, favorites, meal_plan, pantry, recipes
@@ -67,12 +67,29 @@ from .routes.api import settings as api_settings
 from .routes.api import favorites as api_favorites
 from .routes.api import recipes as api_recipes
 from .routes.api import meal_plan as api_meal_plan
+from .routes import auth as auth_routes
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 app = FastAPI(title="Smart Shopper", docs_url=None, redoc_url=None)
 
+# Initialize auth tables (SQLite dev mode)
+try:
+    from kroger_mcp.analytics.database import get_backend
+    if get_backend() == "sqlite":
+        from kroger_mcp.analytics.pg_database import initialize_sqlite_auth_tables
+        initialize_sqlite_auth_tables()
+except Exception:
+    pass
+
+# Auth middleware — uncomment to enable login requirement:
+# from kroger_mcp.auth.middleware import AuthMiddleware
+# app.add_middleware(AuthMiddleware)
+
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Auth routes (login, register, logout)
+app.include_router(auth_routes.router)
 
 # Page routes
 app.include_router(dashboard.router)
@@ -122,6 +139,7 @@ PORT = 8080
 
 def run():
     import uvicorn
+    stop()
     print(f"Smart Shopper running at http://localhost:{PORT}")
     uvicorn.run("kroger_mcp.web.app:app", host="0.0.0.0", port=PORT, reload=False)
 
