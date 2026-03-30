@@ -4,17 +4,48 @@ Direct test of auto-pantry integration using internal functions.
 Tests the _add_item_to_local_cart function that contains the auto-pantry logic.
 """
 
+import json
 import sys
 import os
 import sqlite3
-from pathlib import Path
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
-from kroger_mcp.analytics.pantry import get_pantry_status, get_pantry_item
+from kroger_mcp.tools.cart_tools import _add_item_to_local_cart, CART_FILE, ORDER_HISTORY_FILE
+from kroger_mcp.analytics.pantry import get_pantry_status
 from kroger_mcp.analytics.database import ensure_initialized
+
+_TEST_PRODUCT_IDS = ["TEST_PRODUCT_AUTO_001", "TEST_PRODUCT_DUPLICATE"]
+
+
+def _purge_test_data():
+    """Remove test items from kroger_cart.json and kroger_order_history.json."""
+    # Clean cart JSON
+    if os.path.exists(CART_FILE):
+        with open(CART_FILE, 'r') as f:
+            cart = json.load(f)
+        cart['current_cart'] = [
+            item for item in cart.get('current_cart', [])
+            if item.get('product_id') not in _TEST_PRODUCT_IDS
+        ]
+        with open(CART_FILE, 'w') as f:
+            json.dump(cart, f)
+
+    # Clean order history JSON
+    if os.path.exists(ORDER_HISTORY_FILE):
+        with open(ORDER_HISTORY_FILE, 'r') as f:
+            history = json.load(f)
+        test_ids = set(_TEST_PRODUCT_IDS)
+        cleaned = [
+            order for order in history
+            if not any(
+                item.get('product_id') in test_ids
+                for item in order.get('items', [])
+            )
+        ]
+        with open(ORDER_HISTORY_FILE, 'w') as f:
+            json.dump(cleaned, f)
 
 
 def setup_test_environment():
@@ -81,7 +112,7 @@ def test_add_item_to_cart_adds_to_pantry():
                 "pricing": None
             }
         )
-        print(f"✓ Cart add successful")
+        print("✓ Cart add successful")
     except Exception as e:
         print(f"✗ Cart add failed: {e}")
         return False
@@ -99,7 +130,7 @@ def test_add_item_to_cart_adds_to_pantry():
         item = next(item for item in pantry_after
                    if item["product_id"] == product_id)
 
-        print(f"\nPantry Entry Details:")
+        print("\nPantry Entry Details:")
         print(f"  - Product ID: {item['product_id']}")
         print(f"  - Description: {item['description']}")
         print(f"  - Level: {item['level_percent']}%")
@@ -191,7 +222,7 @@ def test_duplicate_protection():
     print(f"✓ Second add successful - pantry entries: {count_after_second}")
 
     if count_after_second == 1:
-        print(f"\n✓ PASS: Only ONE pantry entry (upsert working correctly)")
+        print("\n✓ PASS: Only ONE pantry entry (upsert working correctly)")
         return True
     else:
         print(f"\n✗ FAIL: Found {count_after_second} entries (expected 1)")
@@ -262,6 +293,9 @@ def run_all_tests():
 
     print("-" * 60)
     print(f"Results: {passed}/{total} tests passed")
+
+    _purge_test_data()
+    print("\n✓ Test data cleaned up (cart + order history)")
 
     if passed == total:
         print("\n🎉 ALL TESTS PASSED! Auto-pantry feature working correctly.")
