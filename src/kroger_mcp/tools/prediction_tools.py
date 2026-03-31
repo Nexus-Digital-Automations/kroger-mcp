@@ -9,6 +9,7 @@ Provides MCP tools for:
 - Shopping suggestions
 """
 
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
@@ -38,46 +39,60 @@ def register_tools(mcp):
             "get_attention",
         ] = Field(
             description=(
-                "Action: 'get' - view all pantry items with inventory levels, "
-                "'add' - add item(s) to pantry tracking, "
-                "'update_item' - manually set inventory level for item(s), "
-                "'restock' - mark item(s) as restocked, "
-                "'get_low_inventory' - get items running low, "
-                "'remove' - remove item(s) from pantry tracking, "
-                "'get_attention' - get items needing attention (expired, expiring, low, overdue)"
+                "get_attention — SESSION REQUIRED before shopping. "
+                "Returns expiring/low/overdue items. "
+                "Batch ops (max 50) via product_ids. "
+                "Other: get|add|update_item|restock|get_low_inventory|remove"
             )
         ),
         product_id: Optional[str] = Field(
             default=None,
-            description="Product ID for single-item operations (add, update_item, restock, remove)",
+            description="Product ID for single-item operations",
         ),
         product_ids: Optional[List[str]] = Field(
             default=None,
-            description="List of product IDs for batch operations (max 50) (add, update_item, restock, remove)",
+            description="Product IDs for batch operations (max 50)",
         ),
         description: Optional[str] = Field(
             default=None,
-            description="Product description (for add, applied to all items in batch if provided)",
+            description="Product description",
         ),
         level: Optional[int] = Field(
             default=None,
-            description="Inventory level 0-100% (for add default 100, update_item required, restock default 100)",
+            description="Inventory level 0-100%",
         ),
         low_threshold: Optional[int] = Field(
             default=None,
-            description="Alert when level drops below this % (for add, default 20)",
+            description="Alert threshold % (default 20)",
         ),
         threshold: Optional[int] = Field(
             default=None,
-            description="Threshold % to consider 'low' (for get_low_inventory, default 20)",
+            description="Low inventory threshold % (default 20)",
         ),
         days_ahead: Optional[int] = Field(
             default=None,
-            description="Days ahead to check for expiring items (1-30, default 7, for get_attention)",
+            description="Days ahead to check for expiring items",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Pantry inventory management operations."""
+        """Pantry inventory tracking with auto-depletion modeling.
+
+        SESSION GATE: pantry(action='get_attention') MUST be called before any
+        shopping_list or cart operations each session. It returns items needing
+        attention (expiring, low stock, overdue repurchases).
+
+        Batch operations (max 50): pass product_ids=[...] to add/update/restock/remove.
+        Levels are 0-100%. Low inventory threshold defaults to 20%.
+        """
+        return await asyncio.to_thread(
+            _pantry_impl, action, product_id, product_ids, description,
+            level, low_threshold, threshold, days_ahead, ctx,
+        )
+
+    def _pantry_impl(
+        action, product_id, product_ids, description,
+        level, low_threshold, threshold, days_ahead, ctx,
+    ):
         match action:
             case "get":
                 try:
@@ -377,120 +392,137 @@ def register_tools(mcp):
             "reset_config",
         ] = Field(
             description=(
-                "Action: 'get_predictions' - get items needing repurchase soon, "
-                "'get_item_stats' - get purchase statistics for product(s), "
-                "'categorize' - set category for product(s), "
-                "'get_by_category' - get all items in a category, "
-                "'get_history' - get purchase history for a product, "
-                "'get_suggestions' - generate smart shopping list from patterns, "
-                "'get_smart_recommendations' - comprehensive recommendations with scoring, "
-                "'get_seasonal' - get upcoming seasonal/holiday items, "
-                "'migrate_data' - migrate purchase data from JSON to database, "
-                "'get_category_summary' - get counts per category, "
-                "'configure' - update prediction parameters, "
-                "'get_config' - view current prediction config, "
-                "'reset_config' - reset prediction config to defaults"
+                "get_smart_recommendations — combines pantry, deals, favorites, predictions. "
+                "get_predictions — when items need reordering. "
+                "categorize — set routine|regular|treat (batch: items, max 50). "
+                "Other: get_item_stats|get_by_category|get_history|get_suggestions|get_seasonal|migrate_data|get_category_summary|configure|get_config|reset_config"
             )
         ),
         days_ahead: Optional[int] = Field(
             default=None,
-            description="Days to look ahead for predictions (for get_predictions default 14, get_suggestions default 7, get_smart_recommendations default 14, get_seasonal default 30)",
+            description="Days to look ahead for predictions",
         ),
         category: Optional[str] = Field(
             default=None,
-            description="Category filter: 'routine', 'regular', 'treat' (for get_predictions, get_by_category also accepts 'uncategorized', categorize single mode)",
+            description="Category: routine|regular|treat|uncategorized",
         ),
         min_confidence: Optional[float] = Field(
             default=None,
-            description="Minimum prediction confidence 0-1 (for get_predictions, default 0.5)",
+            description="Minimum prediction confidence 0-1",
         ),
         product_id: Optional[str] = Field(
             default=None,
-            description="Product ID for single-item operations (get_item_stats, categorize, get_history)",
+            description="Product ID for single-item operations",
         ),
         product_ids: Optional[List[str]] = Field(
             default=None,
-            description="List of product IDs for batch get_item_stats (max 20)",
+            description="Product IDs for batch operations (max 20)",
         ),
         items: Optional[List[Dict[str, Any]]] = Field(
             default=None,
-            description="Batch categorize list: [{product_id, category}, ...] max 50 (for categorize batch mode)",
+            description="Batch list: [{product_id, category}] max 50",
         ),
         history_limit: Optional[int] = Field(
             default=None,
-            description="Max history events to return 1-100 (for get_history, default 20)",
+            description="Max history events 1-100",
         ),
         include_routine: Optional[bool] = Field(
             default=None,
-            description="Include routine items (for get_suggestions, default True)",
+            description="Include routine items",
         ),
         include_predicted: Optional[bool] = Field(
             default=None,
-            description="Include predicted items (for get_suggestions, default True)",
+            description="Include predicted items",
         ),
         include_seasonal: Optional[bool] = Field(
             default=None,
-            description="Include seasonal items (for get_suggestions, default True)",
+            description="Include seasonal items",
         ),
         include_low_pantry: Optional[bool] = Field(
             default=None,
-            description="Include items with low inventory (for get_smart_recommendations, default True)",
+            description="Include low-inventory items",
         ),
         include_deals: Optional[bool] = Field(
             default=None,
-            description="Prioritize items on sale (for get_smart_recommendations, default True)",
+            description="Prioritize sale items",
         ),
         include_predictions_flag: Optional[bool] = Field(
             default=None,
-            description="Include consumption-based predictions (for get_smart_recommendations, default True)",
+            description="Include consumption-based predictions",
         ),
         include_favorites_only: Optional[bool] = Field(
             default=None,
-            description="Only recommend items in favorites (for get_smart_recommendations, default False)",
+            description="Only recommend favorites",
         ),
         min_score: Optional[int] = Field(
             default=None,
-            description="Filter items below this score 0-100 (for get_smart_recommendations, default 20)",
+            description="Minimum score filter 0-100",
         ),
         max_results: Optional[int] = Field(
             default=None,
-            description="Max recommendations to return 1-100 (for get_smart_recommendations, default 50)",
+            description="Max recommendations 1-100",
         ),
         holiday: Optional[str] = Field(
             default=None,
-            description="Holiday filter: thanksgiving, christmas, halloween, easter, july_4th (for get_seasonal)",
+            description="Holiday: thanksgiving|christmas|halloween|easter|july_4th",
         ),
         force: Optional[bool] = Field(
             default=None,
-            description="Force re-migration even if already done (for migrate_data, default False)",
+            description="Force re-migration",
         ),
         ewma_alpha: Optional[float] = Field(
             default=None,
-            description="EWMA decay factor 0.1-0.9 (for configure)",
+            description="EWMA decay factor 0.1-0.9",
         ),
         routine_buffer: Optional[float] = Field(
             default=None,
-            description="Safety buffer for routine items std dev multiplier (for configure)",
+            description="Routine items buffer multiplier",
         ),
         regular_buffer: Optional[float] = Field(
             default=None,
-            description="Safety buffer for regular items std dev multiplier (for configure)",
+            description="Regular items buffer multiplier",
         ),
         treat_buffer: Optional[float] = Field(
             default=None,
-            description="Safety buffer for treat items std dev multiplier (for configure)",
+            description="Treat items buffer multiplier",
         ),
         routine_max_days: Optional[int] = Field(
             default=None,
-            description="Max days between purchases for 'routine' category (for configure)",
+            description="Max days between purchases for routine",
         ),
         regular_max_days: Optional[int] = Field(
             default=None,
-            description="Max days between purchases for 'regular' category (for configure)",
+            description="Max days between purchases for regular",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Purchase predictions, analytics, and configuration operations."""
+        """Purchase predictions and analytics.
+
+        Predictions: get_predictions (when to reorder), get_suggestions (what to buy),
+        get_smart_recommendations (combines pantry + deals + favorites + predictions).
+        Stats: get_item_stats, get_history, get_category_summary.
+        Categories: categorize (routine|regular|treat), get_by_category.
+        Seasonal: get_seasonal (holiday-aware suggestions).
+        Config: configure, get_config, reset_config.
+        Data: migrate_data.
+        """
+        return await asyncio.to_thread(
+            _predictions_impl, action, days_ahead, category, min_confidence,
+            product_id, product_ids, items, history_limit, include_routine,
+            include_predicted, include_seasonal, include_low_pantry, include_deals,
+            include_predictions_flag, include_favorites_only, min_score, max_results,
+            holiday, force, ewma_alpha, routine_buffer, regular_buffer, treat_buffer,
+            routine_max_days, regular_max_days, ctx,
+        )
+
+    def _predictions_impl(
+        action, days_ahead, category, min_confidence,
+        product_id, product_ids, items, history_limit, include_routine,
+        include_predicted, include_seasonal, include_low_pantry, include_deals,
+        include_predictions_flag, include_favorites_only, min_score, max_results,
+        holiday, force, ewma_alpha, routine_buffer, regular_buffer, treat_buffer,
+        routine_max_days, regular_max_days, ctx,
+    ):
         match action:
             case "get_predictions":
                 try:

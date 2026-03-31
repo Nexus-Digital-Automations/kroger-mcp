@@ -2,9 +2,8 @@
 Unit tests for session state tracking.
 """
 
-import pytest
 from datetime import datetime, timedelta
-from src.kroger_mcp.session_state import SessionStateManager
+from kroger_mcp.config.session_state import SessionStateManager
 
 
 def test_initial_state():

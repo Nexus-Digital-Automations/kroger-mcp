@@ -3,7 +3,7 @@ Unit tests for session requirement logic (without full imports).
 """
 
 import pytest
-from src.kroger_mcp.session_state import get_session_manager
+from kroger_mcp.config.session_state import get_session_manager
 
 
 @pytest.fixture(autouse=True)

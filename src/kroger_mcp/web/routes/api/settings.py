@@ -14,6 +14,11 @@ class LocationBody(BaseModel):
     location_id: str
 
 
+class SortPreferencesBody(BaseModel):
+    search_sort_stack: list[str] = []
+    deals_sort_stack: list[str] = []
+
+
 @router.get("/api/settings")
 async def get_settings():
     """Return current app settings."""
@@ -101,5 +106,26 @@ async def search_locations(zip: str = Query(..., description="ZIP code to search
             })
 
         return locations
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/settings/product-sort")
+async def get_product_sort():
+    """Return saved product page sort preferences."""
+    try:
+        from kroger_mcp.tools.shared import get_product_sort_preferences
+        return get_product_sort_preferences()
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/product-sort")
+async def set_product_sort(body: SortPreferencesBody):
+    """Save product page sort preferences."""
+    try:
+        from kroger_mcp.tools.shared import set_product_sort_preferences
+        set_product_sort_preferences(body.search_sort_stack, body.deals_sort_stack)
+        return {"success": True}
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})

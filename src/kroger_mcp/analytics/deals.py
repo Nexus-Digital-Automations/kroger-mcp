@@ -3,7 +3,7 @@ Deal discovery and price tracking analytics.
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List, Literal
+from typing import Dict, Any, Optional, List
 import statistics
 
 from .database import get_db_cursor, get_db_connection
@@ -345,8 +345,6 @@ def score_deal_quality(
         }
     """
     pricing = product.get("pricing", {})
-    regular_price = pricing.get("regular_price", 0)
-    sale_price = pricing.get("sale_price")
     savings_percent = pricing.get("savings_percent", 0)
 
     score = 0

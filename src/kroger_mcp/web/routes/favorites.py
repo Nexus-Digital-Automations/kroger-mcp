@@ -63,7 +63,6 @@ async def favorites_detail(request: Request, list_id: str):
     for item in items:
         ps = item.get("pantry_status") or {}
         level = ps.get("level_percent")
-        threshold = 20  # default low threshold
         item["level_percent"] = level
         if level is None:
             item["level_status"] = "unknown"

@@ -2,6 +2,7 @@
 Safety management tools for Kroger MCP server.
 """
 
+import asyncio
 from typing import Any, Dict, List, Literal, Optional
 
 from fastmcp import Context
@@ -35,83 +36,84 @@ def register_tools(mcp):
             "check_products",
             "check_cart",
         ] = Field(
-            description=(
-                "Action: 'get_settings' - get current safety filter settings, "
-                "'configure' - update safety filter settings, "
-                "'get_bad_ingredients' - get list of all flagged ingredients, "
-                "'toggle_ingredient' - enable/disable checking for an ingredient, "
-                "'get_preferences' - get ingredient preferences, "
-                "'reset_preferences' - reset all preferences to defaults, "
-                "'approve_product' - add product to safe list, "
-                "'unapprove_product' - remove product from safe list, "
-                "'get_safe_products' - get all safe-listed products, "
-                "'block_product' - add product to blocked list, "
-                "'unblock_product' - remove product from blocked list, "
-                "'get_blocked_products' - get all blocked products, "
-                "'check_product' - check single product safety, "
-                "'check_products' - check multiple products safety, "
-                "'check_cart' - scan current cart for safety concerns"
-            )
+            description="get_settings|configure|get_bad_ingredients|toggle_ingredient|get_preferences|reset_preferences|approve_product|unapprove_product|get_safe_products|block_product|unblock_product|get_blocked_products|check_product|check_products|check_cart"
         ),
         filtering_enabled: Optional[bool] = Field(
             default=None,
-            description="Enable or disable ingredient filtering (for configure)",
+            description="Enable or disable ingredient filtering",
         ),
         block_mode: Optional[str] = Field(
             default=None,
-            description="Block mode: 'soft', 'hard', or 'warn_only' (for configure)",
+            description="soft|hard|warn_only",
         ),
         include_custom: Optional[bool] = Field(
             default=True,
-            description="Include custom ingredients (for get_bad_ingredients)",
+            description="Include custom ingredients",
         ),
         include_overrides: Optional[bool] = Field(
             default=True,
-            description="Apply user overrides to system ingredients (for get_bad_ingredients)",
+            description="Apply user overrides",
         ),
         filter_severity: Optional[Literal["critical", "warning", "watch"]] = Field(
             default=None,
-            description="Filter by severity (for get_bad_ingredients)",
+            description="Filter by severity",
         ),
         filter_category: Optional[str] = Field(
             default=None,
-            description="Filter by category (for get_bad_ingredients)",
+            description="Filter by category",
         ),
         ingredient_key: Optional[str] = Field(
             default=None,
-            description="Ingredient key e.g. 'msg', 'aspartame' (for toggle_ingredient)",
+            description="Ingredient key e.g. msg",
         ),
         enabled: Optional[bool] = Field(
             default=None,
-            description="True to enable, False to disable (for toggle_ingredient)",
+            description="True=enable, False=disable",
         ),
         product_id: Optional[str] = Field(
             default=None,
-            description="Kroger product ID (for approve_product, unapprove_product, block_product, unblock_product, check_product)",
+            description="Kroger product ID",
         ),
         description: Optional[str] = Field(
             default=None,
-            description="Product description (for approve_product, block_product, check_product)",
+            description="Product description",
         ),
         brand: Optional[str] = Field(
             default=None,
-            description="Product brand (for approve_product, check_product)",
+            description="Product brand",
         ),
         reason: Optional[str] = Field(
             default=None,
-            description="Reason for approval or blocking (for approve_product, block_product)",
+            description="Reason for approval or blocking",
         ),
         products: Optional[List[Dict[str, Any]]] = Field(
             default=None,
-            description="List of {product_id, description} dicts (for check_products)",
+            description="List of {product_id, description}",
+        ),
+        product_ids: Optional[List[str]] = Field(
+            default=None,
+            description="Batch unapprove/unblock: list of product IDs",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
         """Ingredient safety filter and product management operations."""
+        return await asyncio.to_thread(
+            _safety_impl, action, filtering_enabled, block_mode, include_custom,
+            include_overrides, filter_severity, filter_category, ingredient_key,
+            enabled, product_id, description, brand, reason, products, product_ids,
+            ctx,
+        )
+
+    def _safety_impl(
+        action, filtering_enabled, block_mode, include_custom,
+        include_overrides, filter_severity, filter_category, ingredient_key,
+        enabled, product_id, description, brand, reason, products, product_ids,
+        ctx,
+    ):
         match action:
             case "get_settings":
                 if ctx:
-                    await ctx.info("Getting safety filter settings")
+                    ctx.info("Getting safety filter settings")
 
                 settings = _safety.get_safety_settings()
                 return {
@@ -126,7 +128,7 @@ def register_tools(mcp):
 
             case "configure":
                 if ctx:
-                    await ctx.info("Updating safety settings")
+                    ctx.info("Updating safety settings")
 
                 try:
                     settings = _safety.update_safety_settings(
@@ -139,7 +141,7 @@ def register_tools(mcp):
 
             case "get_bad_ingredients":
                 if ctx:
-                    await ctx.info("Getting bad ingredients list")
+                    ctx.info("Getting bad ingredients list")
 
                 from ..analytics.ingredients import get_active_ingredients
 
@@ -194,13 +196,13 @@ def register_tools(mcp):
                     return {"success": False, "error": "enabled is required"}
                 if ctx:
                     action_word = "Enabling" if enabled else "Disabling"
-                    await ctx.info(f"{action_word} ingredient check: {ingredient_key}")
+                    ctx.info(f"{action_word} ingredient check: {ingredient_key}")
 
                 return _safety.toggle_ingredient(ingredient_key, enabled)
 
             case "get_preferences":
                 if ctx:
-                    await ctx.info("Getting ingredient preferences")
+                    ctx.info("Getting ingredient preferences")
 
                 prefs = _safety.get_ingredient_preferences()
                 disabled = [p for p in prefs if not p.get("enabled", True)]
@@ -215,15 +217,30 @@ def register_tools(mcp):
 
             case "reset_preferences":
                 if ctx:
-                    await ctx.info("Resetting ingredient preferences to defaults")
+                    ctx.info("Resetting ingredient preferences to defaults")
 
                 return _safety.reset_ingredient_preferences()
 
             case "approve_product":
+                if products:
+                    if ctx:
+                        ctx.info(f"Batch approving {len(products)} products")
+                    results = [
+                        _safety.add_to_safe_list(
+                            product_id=p["product_id"],
+                            description=p.get("description"),
+                            brand=p.get("brand"),
+                            reason=p.get("reason"),
+                        )
+                        for p in products
+                    ]
+                    approved = sum(1 for r in results if r.get("success"))
+                    return {"success": True, "approved": approved, "total": len(products), "results": results}
+
                 if not product_id:
-                    return {"success": False, "error": "product_id is required"}
+                    return {"success": False, "error": "product_id or products is required"}
                 if ctx:
-                    await ctx.info(f"Approving product {product_id}")
+                    ctx.info(f"Approving product {product_id}")
 
                 return _safety.add_to_safe_list(
                     product_id=product_id,
@@ -233,16 +250,22 @@ def register_tools(mcp):
                 )
 
             case "unapprove_product":
-                if not product_id:
-                    return {"success": False, "error": "product_id is required"}
+                ids = product_ids if product_ids else ([product_id] if product_id else None)
+                if not ids:
+                    return {"success": False, "error": "product_id or product_ids is required"}
                 if ctx:
-                    await ctx.info(f"Removing product {product_id} from safe list")
+                    ctx.info(f"Removing {len(ids)} product(s) from safe list")
 
-                return _safety.remove_from_safe_list(product_id)
+                if len(ids) == 1:
+                    return _safety.remove_from_safe_list(ids[0])
+
+                results = {pid: _safety.remove_from_safe_list(pid) for pid in ids}
+                removed = sum(1 for r in results.values() if r.get("success"))
+                return {"success": True, "removed": removed, "total": len(ids), "results": results}
 
             case "get_safe_products":
                 if ctx:
-                    await ctx.info("Getting safe products list")
+                    ctx.info("Getting safe products list")
 
                 safe_products = _safety.get_safe_products()
                 return {
@@ -252,10 +275,24 @@ def register_tools(mcp):
                 }
 
             case "block_product":
+                if products:
+                    if ctx:
+                        ctx.info(f"Batch blocking {len(products)} products")
+                    results = [
+                        _safety.add_to_blocked_list(
+                            product_id=p["product_id"],
+                            description=p.get("description"),
+                            reason=p.get("reason"),
+                        )
+                        for p in products
+                    ]
+                    blocked = sum(1 for r in results if r.get("success"))
+                    return {"success": True, "blocked": blocked, "total": len(products), "results": results}
+
                 if not product_id:
-                    return {"success": False, "error": "product_id is required"}
+                    return {"success": False, "error": "product_id or products is required"}
                 if ctx:
-                    await ctx.info(f"Blocking product {product_id}")
+                    ctx.info(f"Blocking product {product_id}")
 
                 return _safety.add_to_blocked_list(
                     product_id=product_id,
@@ -264,16 +301,22 @@ def register_tools(mcp):
                 )
 
             case "unblock_product":
-                if not product_id:
-                    return {"success": False, "error": "product_id is required"}
+                ids = product_ids if product_ids else ([product_id] if product_id else None)
+                if not ids:
+                    return {"success": False, "error": "product_id or product_ids is required"}
                 if ctx:
-                    await ctx.info(f"Unblocking product {product_id}")
+                    ctx.info(f"Unblocking {len(ids)} product(s)")
 
-                return _safety.remove_from_blocked_list(product_id)
+                if len(ids) == 1:
+                    return _safety.remove_from_blocked_list(ids[0])
+
+                results = {pid: _safety.remove_from_blocked_list(pid) for pid in ids}
+                unblocked = sum(1 for r in results.values() if r.get("success"))
+                return {"success": True, "unblocked": unblocked, "total": len(ids), "results": results}
 
             case "get_blocked_products":
                 if ctx:
-                    await ctx.info("Getting blocked products list")
+                    ctx.info("Getting blocked products list")
 
                 blocked_products = _safety.get_blocked_products()
                 return {
@@ -288,7 +331,7 @@ def register_tools(mcp):
                 if not description:
                     return {"success": False, "error": "description is required"}
                 if ctx:
-                    await ctx.info(f"Checking safety for product {product_id}")
+                    ctx.info(f"Checking safety for product {product_id}")
 
                 status = _safety.get_product_safety_status(
                     product_id=product_id,
@@ -301,7 +344,7 @@ def register_tools(mcp):
                 if not products:
                     return {"success": False, "error": "products list is required"}
                 if ctx:
-                    await ctx.info(f"Checking safety for {len(products)} products")
+                    ctx.info(f"Checking safety for {len(products)} products")
 
                 if len(products) > 50:
                     return {
@@ -318,7 +361,7 @@ def register_tools(mcp):
 
             case "check_cart":
                 if ctx:
-                    await ctx.info("Scanning cart for safety concerns")
+                    ctx.info("Scanning cart for safety concerns")
 
                 from .cart_tools import _load_cart_data
 

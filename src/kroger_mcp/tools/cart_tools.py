@@ -28,6 +28,13 @@ CART_FILE = str(_BASE_DIR / "kroger_cart.json")
 ORDER_HISTORY_FILE = str(_BASE_DIR / "kroger_order_history.json")
 
 
+def _get_session_id(ctx) -> str:
+    """Extract session ID from MCP context."""
+    if ctx and hasattr(ctx, 'session_id'):
+        return str(ctx.session_id)
+    return 'default'
+
+
 def _load_cart_data() -> Dict[str, Any]:
     """Load cart data from file"""
     try:
@@ -400,12 +407,55 @@ def register_tools(mcp):
                     if ctx:
                         await ctx.info(f"Calling Kroger API to add {len(cart_items)} item(s)")
 
-                    await asyncio.to_thread(client.cart.add_to_cart, cart_items)
+                    added_items = []
+                    failed_items = []
+
+                    try:
+                        await asyncio.to_thread(client.cart.add_to_cart, cart_items)
+                        added_items = list(formatted_items)
+                    except Exception as batch_err:
+                        batch_err_str = str(batch_err)
+                        is_400 = "400" in batch_err_str or "Bad Request" in batch_err_str
+                        is_401 = "401" in batch_err_str or "Unauthorized" in batch_err_str
+
+                        if is_401:
+                            raise  # Let outer handler deal with auth errors
+
+                        if is_400 and len(cart_items) > 1:
+                            # Batch failed — fall back to per-item adds so valid items still go through
+                            if ctx:
+                                await ctx.info(
+                                    "Batch add failed (400). Retrying items one at a time..."
+                                )
+                            for cart_item, fmt_item in zip(cart_items, formatted_items):
+                                try:
+                                    await asyncio.to_thread(
+                                        client.cart.add_to_cart, [cart_item]
+                                    )
+                                    added_items.append(fmt_item)
+                                except Exception as item_err:
+                                    item_err_str = str(item_err)
+                                    item_detail = None
+                                    if hasattr(item_err, "response"):
+                                        try:
+                                            item_detail = item_err.response.text
+                                        except Exception:
+                                            pass
+                                    failed_items.append({
+                                        "product_id": fmt_item["product_id"],
+                                        "error": item_err_str,
+                                        "kroger_response": item_detail,
+                                    })
+                        else:
+                            # Single-item 400 or non-400 batch error — re-raise
+                            raise
 
                     if ctx:
-                        await ctx.info("Successfully added item(s) to Kroger cart")
+                        await ctx.info(
+                            f"Kroger API: {len(added_items)} added, {len(failed_items)} failed"
+                        )
 
-                    for item in formatted_items:
+                    for item in added_items:
                         _add_item_to_local_cart(
                             item["product_id"], item["quantity"], item["modality"]
                         )
@@ -414,14 +464,26 @@ def register_tools(mcp):
                         await ctx.info("Item(s) added to local cart tracking")
 
                     if is_batch:
-                        return {
+                        result = {
                             "success": True,
-                            "message": f"Successfully added {len(formatted_items)} items to cart",
-                            "items_added": len(formatted_items),
-                            "items": formatted_items,
+                            "message": (
+                                f"Added {len(added_items)} of {len(formatted_items)} items to cart"
+                                if failed_items
+                                else f"Successfully added {len(added_items)} items to cart"
+                            ),
+                            "items_added": len(added_items),
+                            "items": added_items,
                             "timestamp": datetime.now().isoformat(),
                             "reminder": "Review your cart in the Kroger app before checkout",
                         }
+                        if failed_items:
+                            result["items_failed"] = len(failed_items)
+                            result["failed_items"] = failed_items
+                            result["warning"] = (
+                                f"{len(failed_items)} item(s) rejected by Kroger API "
+                                "(invalid product ID or not available at this location)"
+                            )
+                        return result
                     else:
                         item = formatted_items[0]
                         return {
@@ -440,6 +502,12 @@ def register_tools(mcp):
                     if ctx:
                         await ctx.error(f"Failed to add item(s) to cart: {str(e)}")
                     error_message = str(e)
+                    kroger_response = None
+                    if hasattr(e, "response"):
+                        try:
+                            kroger_response = e.response.text
+                        except Exception:
+                            pass
                     if "401" in error_message or "Unauthorized" in error_message:
                         return {
                             "success": False,
@@ -449,8 +517,9 @@ def register_tools(mcp):
                     elif "400" in error_message or "Bad Request" in error_message:
                         return {
                             "success": False,
-                            "error": "Invalid request. Please check the product ID(s) and try again.",
+                            "error": "Invalid request. The product ID may be invalid or unavailable at your location.",
                             "details": error_message,
+                            **({"kroger_response": kroger_response} if kroger_response else {}),
                         }
                     else:
                         return {
@@ -556,6 +625,21 @@ def register_tools(mcp):
                     except Exception as e:
                         print(f"Warning: Could not record analytics: {e}")
 
+                    # Restock pantry for all placed items
+                    pantry_restocked = 0
+                    try:
+                        from ..analytics.pantry import restock_item
+                        for item in current_cart:
+                            pid = item.get("product_id")
+                            if pid:
+                                try:
+                                    restock_item(product_id=pid, level=100)
+                                    pantry_restocked += 1
+                                except Exception as pe:
+                                    print(f"Warning: Could not restock pantry for {pid}: {pe}")
+                    except Exception as e:
+                        print(f"Warning: Could not import pantry module: {e}")
+
                     cart_data["current_cart"] = []
                     cart_data["last_updated"] = datetime.now().isoformat()
                     _save_cart_data(cart_data)
@@ -568,6 +652,7 @@ def register_tools(mcp):
                         "items_placed": order_record["item_count"],
                         "total_quantity": order_record["total_quantity"],
                         "placed_at": order_record["placed_at"],
+                        "pantry_restocked": pantry_restocked,
                     }
                 except Exception as e:
                     return {

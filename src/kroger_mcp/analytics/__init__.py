@@ -58,6 +58,7 @@ from .pantry import (
     get_pantry_item,
     apply_daily_depletion,
     calculate_depletion_rate,
+    consume_from_pantry,
 )
 from .config import (
     load_config,
@@ -71,6 +72,12 @@ from .recipe_integration import (
     check_recipe_pantry,
     generate_shopping_list,
     get_recipes_for_pantry,
+)
+from .meal_tracker import (
+    log_meal,
+    get_meal_log,
+    get_today_meals,
+    delete_meal_log,
 )
 from .reporting import (
     generate_spending_report,
@@ -123,6 +130,7 @@ __all__ = [
     'get_pantry_item',
     'apply_daily_depletion',
     'calculate_depletion_rate',
+    'consume_from_pantry',
     # Config
     'load_config',
     'save_config',
@@ -134,6 +142,11 @@ __all__ = [
     'check_recipe_pantry',
     'generate_shopping_list',
     'get_recipes_for_pantry',
+    # Meal Tracker
+    'log_meal',
+    'get_meal_log',
+    'get_today_meals',
+    'delete_meal_log',
     # Reporting
     'generate_spending_report',
     'generate_prediction_accuracy_report',

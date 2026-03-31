@@ -2,6 +2,7 @@
 Meal planner tools for creating and managing meal plans.
 """
 
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
@@ -27,154 +28,180 @@ def register_tools(mcp):
             "assign_meal",
             "remove_meal",
             "swap",
+            "mark_cooked",
             "preview_shopping",
             "add_to_cart",
             "get_week_view",
             "get_summary",
         ] = Field(
             description=(
-                "Action: 'create' - create a new meal plan, "
-                "'list' - list all meal plans, "
-                "'get' - get full details of a meal plan, "
-                "'update' - update meal plan metadata, "
-                "'delete' - delete a meal plan, "
-                "'copy' - copy a plan to a new date range, "
-                "'assign_meal' - assign recipe(s) to meal slot(s), "
-                "'remove_meal' - remove a recipe from a meal slot, "
-                "'swap' - swap two meal assignments, "
-                "'preview_shopping' - preview shopping list for meal plan, "
-                "'add_to_cart' - add meal plan ingredients to cart (2-step: preview then confirm), "
-                "'get_week_view' - get calendar view of meals for a week, "
-                "'get_summary' - get summary statistics for a meal plan"
+                "preview_shopping — see ingredients needed with pantry status. "
+                "add_to_cart — add plan ingredients (confirm=True to execute). "
+                "assign_meal — add recipe to date/slot. "
+                "mark_cooked — mark/unmark a meal as cooked (deducts pantry). "
+                "Other: create|list|get|update|delete|copy|remove_meal|swap|get_week_view|get_summary"
             )
         ),
         plan_id: Optional[str] = Field(
             default=None,
-            description="Plan identifier (for get, update, delete, assign_meal, remove_meal, swap, preview_shopping, add_to_cart, get_summary)",
+            description="Plan identifier",
         ),
         name: Optional[str] = Field(
             default=None,
-            description="Plan name e.g. 'Week of Jan 27' (for create, update, copy)",
+            description="Plan name",
         ),
         start_date: Optional[str] = Field(
             default=None,
-            description="Start date YYYY-MM-DD (for create, update, preview_shopping, add_to_cart)",
+            description="Start date YYYY-MM-DD",
         ),
         end_date: Optional[str] = Field(
             default=None,
-            description="End date YYYY-MM-DD (for create, update, preview_shopping, add_to_cart)",
+            description="End date YYYY-MM-DD",
         ),
         plan_type: Optional[str] = Field(
             default="weekly",
-            description="Plan type: 'weekly', 'monthly', or 'custom' (for create)",
+            description="weekly|monthly|custom",
         ),
         description: Optional[str] = Field(
             default=None,
-            description="Optional description (for create, update)",
+            description="Plan description",
         ),
         is_template: Optional[bool] = Field(
             default=False,
-            description="Save as reusable template (for create)",
+            description="Save as reusable template",
         ),
         include_past: Optional[bool] = Field(
             default=False,
-            description="Include plans with past end dates (for list)",
+            description="Include past plans",
         ),
         include_templates: Optional[bool] = Field(
             default=False,
-            description="Include template plans (for list)",
+            description="Include template plans",
         ),
         limit: Optional[int] = Field(
             default=20,
-            description="Maximum plans to return (for list)",
+            description="Max plans to return",
         ),
         include_recipe_details: Optional[bool] = Field(
             default=True,
-            description="Include full recipe names and servings (for get)",
+            description="Include recipe names and servings",
         ),
         source_plan_id: Optional[str] = Field(
             default=None,
-            description="Plan to copy from (for copy)",
+            description="Plan to copy from",
         ),
         new_name: Optional[str] = Field(
             default=None,
-            description="Name for the copied plan (for copy)",
+            description="Name for copied plan",
         ),
         new_start_date: Optional[str] = Field(
             default=None,
-            description="Start date for the copied plan YYYY-MM-DD (for copy)",
+            description="Start date for copied plan YYYY-MM-DD",
         ),
         recipe_id: Optional[str] = Field(
             default=None,
-            description="Recipe to assign (for assign_meal single mode)",
+            description="Recipe to assign",
         ),
         meal_date: Optional[str] = Field(
             default=None,
-            description="Date YYYY-MM-DD (for assign_meal, remove_meal)",
+            description="Date YYYY-MM-DD",
         ),
         meal_slot: Optional[str] = Field(
             default=None,
-            description="Meal slot: 'breakfast', 'lunch', 'dinner', 'snack' (for assign_meal, remove_meal)",
+            description="breakfast|lunch|dinner|snack",
         ),
         servings_override: Optional[int] = Field(
             default=None,
-            description="Override recipe default servings (for assign_meal single mode)",
+            description="Override recipe servings",
         ),
         notes: Optional[str] = Field(
             default=None,
-            description="Optional notes (for assign_meal single mode)",
+            description="Optional notes",
         ),
         assignments: Optional[List[Dict[str, Any]]] = Field(
             default=None,
-            description="Batch assign_meal: list of {recipe_id, meal_date, meal_slot, servings_override, notes} (max 100)",
+            description="Batch: [{recipe_id, meal_date, meal_slot, servings_override, notes}] max 100",
         ),
         date1: Optional[str] = Field(
             default=None,
-            description="First date YYYY-MM-DD (for swap)",
+            description="First swap date YYYY-MM-DD",
         ),
         slot1: Optional[str] = Field(
             default=None,
-            description="First slot (for swap)",
+            description="First swap slot",
         ),
         date2: Optional[str] = Field(
             default=None,
-            description="Second date YYYY-MM-DD (for swap)",
+            description="Second swap date YYYY-MM-DD",
         ),
         slot2: Optional[str] = Field(
             default=None,
-            description="Second slot (for swap)",
+            description="Second swap slot",
         ),
         days_ahead: Optional[int] = Field(
             default=None,
-            description="Number of days from today to include (for preview_shopping, add_to_cart)",
+            description="Days ahead to include",
         ),
         pantry_threshold: Optional[int] = Field(
             default=30,
-            description="Skip items with pantry level above this % (for preview_shopping, add_to_cart)",
+            description="Skip if pantry above this %",
         ),
         combine_duplicates: Optional[bool] = Field(
             default=True,
-            description="Merge same ingredients across recipes (for preview_shopping)",
+            description="Merge same ingredients across recipes",
         ),
         skip_items: Optional[List[str]] = Field(
             default=None,
-            description="Ingredient names to skip (for preview_shopping, add_to_cart)",
+            description="Ingredient names to skip",
         ),
         modality: Optional[str] = Field(
             default="PICKUP",
-            description="Fulfillment method: PICKUP or DELIVERY (for add_to_cart)",
+            description="PICKUP or DELIVERY",
         ),
         confirm: Optional[bool] = Field(
             default=False,
-            description="Set True to actually add items after preview (for add_to_cart)",
+            description="True to confirm add after preview",
         ),
         week_start_date: Optional[str] = Field(
             default=None,
-            description="Monday of the week YYYY-MM-DD, defaults to current week (for get_week_view)",
+            description="Week Monday YYYY-MM-DD",
+        ),
+        cooked: Optional[bool] = Field(
+            default=True,
+            description="mark_cooked: True to mark as cooked, False to unmark",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Meal plan management and shopping operations."""
+        """Meal plan management with integrated shopping.
+
+        assign_meal — add recipes to dates/slots (breakfast|lunch|dinner|snack).
+        Recipes auto-scale to household servings (set via info tool).
+        preview_shopping — consolidated ingredient list with pantry status.
+        add_to_cart — add plan ingredients to cart (confirm=True to execute).
+
+        CRUD: create|list|get|update|delete|copy.
+        Views: get_week_view|get_summary.
+        Meals: assign_meal|remove_meal|swap.
+        """
+        return await asyncio.to_thread(
+            _meal_plan_impl, action, plan_id, name, start_date, end_date, plan_type,
+            description, is_template, include_past, include_templates, limit,
+            include_recipe_details, source_plan_id, new_name, new_start_date,
+            recipe_id, meal_date, meal_slot, servings_override, notes, assignments,
+            date1, slot1, date2, slot2, days_ahead, pantry_threshold,
+            combine_duplicates, skip_items, modality, confirm, week_start_date,
+            cooked, ctx,
+        )
+
+    def _meal_plan_impl(
+        action, plan_id, name, start_date, end_date, plan_type,
+        description, is_template, include_past, include_templates, limit,
+        include_recipe_details, source_plan_id, new_name, new_start_date,
+        recipe_id, meal_date, meal_slot, servings_override, notes, assignments,
+        date1, slot1, date2, slot2, days_ahead, pantry_threshold,
+        combine_duplicates, skip_items, modality, confirm, week_start_date,
+        cooked, ctx,
+    ):
         match action:
             case "create":
                 if not name:
@@ -192,7 +219,7 @@ def register_tools(mcp):
                 )
 
                 if ctx and result.get("success"):
-                    await ctx.info(f"Created meal plan '{name}'")
+                    ctx.info(f"Created meal plan '{name}'")
 
                 return result
 
@@ -231,7 +258,7 @@ def register_tools(mcp):
                 result = meal_planning.delete_meal_plan(plan_id)
 
                 if ctx and result.get("success"):
-                    await ctx.info("Deleted meal plan")
+                    ctx.info("Deleted meal plan")
 
                 return result
 
@@ -250,7 +277,7 @@ def register_tools(mcp):
                 )
 
                 if ctx and result.get("success"):
-                    await ctx.info(f"Copied plan with {result.get('meals_copied', 0)} meals")
+                    ctx.info(f"Copied plan with {result.get('meals_copied', 0)} meals")
 
                 return result
 
@@ -270,7 +297,7 @@ def register_tools(mcp):
                     )
 
                     if ctx and result.get("success"):
-                        await ctx.info(f"Assigned {result.get('assigned', 0)} meals")
+                        ctx.info(f"Assigned {result.get('assigned', 0)} meals")
 
                     return result
 
@@ -293,7 +320,7 @@ def register_tools(mcp):
                 )
 
                 if ctx and result.get("success"):
-                    await ctx.info(
+                    ctx.info(
                         f"Assigned '{result.get('recipe_name')}' to {meal_slot}"
                     )
 
@@ -328,6 +355,45 @@ def register_tools(mcp):
                     slot1=slot1,
                     date2=date2,
                     slot2=slot2,
+                )
+
+            case "mark_cooked":
+                if not plan_id:
+                    return {"success": False, "error": "plan_id is required"}
+                if not meal_date:
+                    return {"success": False, "error": "meal_date is required"}
+                if not meal_slot:
+                    return {"success": False, "error": "meal_slot is required"}
+
+                mark = cooked if cooked is not None else True
+
+                if not mark:
+                    # Unmark: clear cooked_at via direct DB update
+                    from ..analytics.database import get_db_connection, ensure_initialized
+                    ensure_initialized()
+                    conn = get_db_connection()
+                    try:
+                        conn.execute(
+                            "UPDATE meal_entries SET cooked_at = NULL "
+                            "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ?",
+                            (plan_id, meal_date, meal_slot),
+                        )
+                        conn.commit()
+                    finally:
+                        conn.close()
+                    return {
+                        "success": True,
+                        "plan_id": plan_id,
+                        "meal_date": meal_date,
+                        "meal_slot": meal_slot,
+                        "cooked": False,
+                        "message": f"Unmarked {meal_slot} on {meal_date} as cooked",
+                    }
+
+                return meal_planning.mark_meal_cooked(
+                    plan_id=plan_id,
+                    meal_date=meal_date,
+                    meal_slot=meal_slot,
                 )
 
             case "preview_shopping":
@@ -396,7 +462,7 @@ def register_tools(mcp):
                     }
 
                 if ctx:
-                    await ctx.info(f"Adding {len(items_to_add)} items to cart...")
+                    ctx.info(f"Adding {len(items_to_add)} items to cart...")
 
                 try:
                     client = get_authenticated_client()

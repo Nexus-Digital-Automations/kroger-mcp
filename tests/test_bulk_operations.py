@@ -6,24 +6,36 @@ Tests Tier 1 (Pantry Tools) and Tier 2 (High-Priority Tools) bulk functionality.
 
 import pytest
 from unittest.mock import MagicMock, patch
-from typing import Dict, Any
 
 # Mark all tests in this module as async
 pytestmark = pytest.mark.asyncio
+
+
+def _capture_tools(register_tools_func):
+    """Helper: register tools and return a dict of {name: func}."""
+    mcp = MagicMock()
+    captured = {}
+
+    def capture_tool(func):
+        captured[func.__name__] = func
+        return func
+
+    mcp.tool.return_value = capture_tool
+    register_tools_func(mcp)
+    return captured
 
 
 # ==================== Tier 1: Pantry Tools ====================
 
 
 class TestAddToPantryBulk:
-    """Test bulk operations for add_to_pantry tool."""
+    """Test bulk operations for add action on pantry tool."""
 
-    @patch('kroger_mcp.tools.prediction_tools.add_to_pantry')
+    @patch('kroger_mcp.analytics.pantry.add_to_pantry')
     async def test_single_mode_backward_compatibility(self, mock_add):
         """Verify single-item mode works identically to before."""
         from kroger_mcp.tools.prediction_tools import register_tools
 
-        # Mock backend function
         mock_add.return_value = {
             "success": True,
             "product_id": "001",
@@ -31,55 +43,32 @@ class TestAddToPantryBulk:
             "daily_depletion_rate": 5.2
         }
 
-        # Create mock MCP server
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['pantry']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
+        result = await tool_func(action='add', product_id="001", product_ids=None, level=100)
 
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        # Call in single mode
-        result = await tool_func(product_id="001", level=100)
-
-        # Should return flat response (not nested)
         assert result["success"] is True
         assert result["product_id"] == "001"
         assert "results" not in result
         assert "summary" not in result
 
-    @patch('kroger_mcp.tools.prediction_tools.add_to_pantry')
+    @patch('kroger_mcp.analytics.pantry.add_to_pantry')
     async def test_batch_mode_multiple_items(self, mock_add):
         """Verify batch mode adds multiple items."""
         from kroger_mcp.tools.prediction_tools import register_tools
 
-        # Mock backend function to succeed for all
         mock_add.side_effect = lambda **kwargs: {
             "success": True,
             "product_id": kwargs["product_id"],
             "level": kwargs["level"]
         }
 
-        # Create mock MCP server
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['pantry']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
+        result = await tool_func(action='add', product_ids=["001", "002", "003"], level=100)
 
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        # Call in batch mode
-        result = await tool_func(product_id=["001", "002", "003"], level=100)
-
-        # Should return structured batch response
         assert result["success"] is True
         assert "results" in result
         assert "summary" in result
@@ -92,32 +81,20 @@ class TestAddToPantryBulk:
         """Verify max 50 items enforced."""
         from kroger_mcp.tools.prediction_tools import register_tools
 
-        # Create mock MCP server
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['pantry']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        # Try with 51 items
         ids = [f"00{i}" for i in range(51)]
-        result = await tool_func(product_id=ids, level=100)
+        result = await tool_func(action='add', product_ids=ids, level=100)
 
-        # Should fail with error
         assert result["success"] is False
         assert "Maximum 50" in result["error"]
 
-    @patch('kroger_mcp.tools.prediction_tools.add_to_pantry')
+    @patch('kroger_mcp.analytics.pantry.add_to_pantry')
     async def test_partial_failure_continues(self, mock_add):
         """Verify batch continues on individual item failure."""
         from kroger_mcp.tools.prediction_tools import register_tools
 
-        # Mock backend: succeed for 001, fail for 002, succeed for 003
         def mock_behavior(**kwargs):
             if kwargs["product_id"] == "002":
                 raise Exception("Product not found")
@@ -125,22 +102,11 @@ class TestAddToPantryBulk:
 
         mock_add.side_effect = mock_behavior
 
-        # Create mock MCP server
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['pantry']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
+        result = await tool_func(action='add', product_ids=["001", "002", "003"], level=100)
 
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        # Call with 3 items
-        result = await tool_func(product_id=["001", "002", "003"], level=100)
-
-        # Should process all items
         assert result["success"] is True
         assert len(result["results"]) == 3
         assert result["results"]["001"]["success"] is True
@@ -151,9 +117,9 @@ class TestAddToPantryBulk:
 
 
 class TestUpdatePantryItemBulk:
-    """Test bulk operations for update_pantry_item tool."""
+    """Test bulk operations for update_item action on pantry tool."""
 
-    @patch('kroger_mcp.tools.prediction_tools.update_pantry_level')
+    @patch('kroger_mcp.analytics.pantry.update_pantry_level')
     async def test_single_mode(self, mock_update):
         """Verify single-item mode works."""
         from kroger_mcp.tools.prediction_tools import register_tools
@@ -164,24 +130,16 @@ class TestUpdatePantryItemBulk:
             "level": 50
         }
 
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['pantry']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        result = await tool_func(product_id="001", level=50)
+        result = await tool_func(action='update_item', product_id="001", product_ids=None, level=50)
 
         assert result["success"] is True
         assert result["product_id"] == "001"
         assert "results" not in result
 
-    @patch('kroger_mcp.tools.prediction_tools.update_pantry_level')
+    @patch('kroger_mcp.analytics.pantry.update_pantry_level')
     async def test_batch_mode(self, mock_update):
         """Verify batch mode updates multiple items."""
         from kroger_mcp.tools.prediction_tools import register_tools
@@ -192,18 +150,10 @@ class TestUpdatePantryItemBulk:
             "level": level
         }
 
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['pantry']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        result = await tool_func(product_id=["001", "002"], level=50)
+        result = await tool_func(action='update_item', product_ids=["001", "002"], level=50)
 
         assert result["success"] is True
         assert len(result["results"]) == 2
@@ -211,9 +161,9 @@ class TestUpdatePantryItemBulk:
 
 
 class TestRemoveFromPantryBulk:
-    """Test bulk operations for remove_from_pantry tool."""
+    """Test bulk operations for remove action on pantry tool."""
 
-    @patch('kroger_mcp.tools.prediction_tools.remove_from_pantry')
+    @patch('kroger_mcp.analytics.pantry.remove_from_pantry')
     async def test_batch_mode(self, mock_remove):
         """Verify batch mode removes multiple items."""
         from kroger_mcp.tools.prediction_tools import register_tools
@@ -224,18 +174,10 @@ class TestRemoveFromPantryBulk:
             "message": f"Removed {pid}"
         }
 
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['pantry']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        result = await tool_func(product_id=["001", "002", "003"])
+        result = await tool_func(action='remove', product_ids=["001", "002", "003"])
 
         assert result["success"] is True
         assert len(result["results"]) == 3
@@ -246,9 +188,9 @@ class TestRemoveFromPantryBulk:
 
 
 class TestCategorizeItemBulk:
-    """Test bulk operations for categorize_item tool (Pattern 2: Dual-Mode)."""
+    """Test bulk operations for categorize action on predictions tool."""
 
-    @patch('kroger_mcp.tools.prediction_tools.set_product_category')
+    @patch('kroger_mcp.analytics.categories.set_product_category')
     async def test_single_mode(self, mock_categorize):
         """Verify single mode with product_id and category."""
         from kroger_mcp.tools.prediction_tools import register_tools
@@ -258,25 +200,17 @@ class TestCategorizeItemBulk:
         mock_result.was_override = False
         mock_categorize.return_value = mock_result
 
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['predictions']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        result = await tool_func(product_id="001", category="routine")
+        result = await tool_func(action='categorize', product_id="001", product_ids=None, category="routine", items=None)
 
         assert result["success"] is True
         assert result["product_id"] == "001"
         assert result["category"] == "routine"
         assert "results" not in result
 
-    @patch('kroger_mcp.tools.prediction_tools.set_product_category')
+    @patch('kroger_mcp.analytics.categories.set_product_category')
     async def test_batch_mode_different_categories(self, mock_categorize):
         """Verify batch mode with different categories per item."""
         from kroger_mcp.tools.prediction_tools import register_tools
@@ -286,23 +220,15 @@ class TestCategorizeItemBulk:
         mock_result.was_override = False
         mock_categorize.return_value = mock_result
 
-        mcp = MagicMock()
-        tool_func = None
-
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
+        captured = _capture_tools(register_tools)
+        tool_func = captured['predictions']
 
         items = [
             {"product_id": "001", "category": "routine"},
             {"product_id": "002", "category": "regular"},
             {"product_id": "003", "category": "treat"}
         ]
-        result = await tool_func(items=items)
+        result = await tool_func(action='categorize', items=items)
 
         assert result["success"] is True
         assert len(result["results"]) == 3
@@ -314,25 +240,17 @@ class TestCategorizeItemBulk:
         """Verify invalid category is rejected."""
         from kroger_mcp.tools.prediction_tools import register_tools
 
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['predictions']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        result = await tool_func(product_id="001", category="invalid")
+        result = await tool_func(action='categorize', product_id="001", product_ids=None, category="invalid", items=None)
 
         assert result["success"] is False
         assert "Invalid category" in result["error"]
 
 
 class TestAddToWatchlistBulk:
-    """Test bulk operations for add_to_watchlist tool."""
+    """Test bulk operations for add_to_watchlist action on deals tool."""
 
     @patch('kroger_mcp.tools.deal_tools.get_preferred_location_id')
     @patch('kroger_mcp.tools.deal_tools.get_client_credentials_client')
@@ -341,10 +259,8 @@ class TestAddToWatchlistBulk:
         """Verify batch mode adds multiple items to watchlist."""
         from kroger_mcp.tools.deal_tools import register_tools
 
-        # Mock location
         mock_location.return_value = "loc123"
 
-        # Mock API client
         mock_api = MagicMock()
         mock_api.get_product.return_value = {
             "data": {
@@ -354,22 +270,13 @@ class TestAddToWatchlistBulk:
         }
         mock_client.return_value = mock_api
 
-        # Mock database cursor
         mock_db = MagicMock()
         mock_cursor.return_value.__enter__.return_value = mock_db
 
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['deals']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        result = await tool_func(product_id=["001", "002"], priority=2)
+        result = await tool_func(action='add_to_watchlist', product_ids=["001", "002"], priority=2)
 
         assert result["success"] is True
         assert len(result["results"]) == 2
@@ -379,27 +286,18 @@ class TestAddToWatchlistBulk:
         """Verify max 30 items enforced for watchlist."""
         from kroger_mcp.tools.deal_tools import register_tools
 
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['deals']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        # Try with 31 items
         ids = [f"00{i}" for i in range(31)]
-        result = await tool_func(product_id=ids)
+        result = await tool_func(action='add_to_watchlist', product_ids=ids)
 
         assert result["success"] is False
         assert "Maximum 30" in result["error"]
 
 
 class TestAddCustomIngredientBulk:
-    """Test bulk operations for add_custom_ingredient tool."""
+    """Test bulk operations for add_custom action on ingredients tool."""
 
     @patch('kroger_mcp.tools.ingredient_management_tools.get_db_connection')
     @patch('kroger_mcp.tools.ingredient_management_tools.get_compiled_patterns')
@@ -407,7 +305,6 @@ class TestAddCustomIngredientBulk:
         """Verify batch mode adds multiple ingredients."""
         from kroger_mcp.tools.ingredient_management_tools import register_tools
 
-        # Mock database
         mock_db = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.fetchone.return_value = None  # Ingredient doesn't exist
@@ -415,18 +312,10 @@ class TestAddCustomIngredientBulk:
         mock_db.execute.return_value = mock_cursor
         mock_conn.return_value = mock_db
 
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['ingredients']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        ingredients = [
+        batch_ingredients = [
             {
                 "ingredient_name": "maltitol",
                 "severity": "warning",
@@ -438,7 +327,7 @@ class TestAddCustomIngredientBulk:
                 "reason": "Gut disruption"
             }
         ]
-        result = await tool_func(ingredients=ingredients)
+        result = await tool_func(action='add_custom', batch_ingredients=batch_ingredients)
 
         assert result["success"] is True
         assert len(result["results"]) == 2
@@ -448,23 +337,14 @@ class TestAddCustomIngredientBulk:
         """Verify max 20 items enforced."""
         from kroger_mcp.tools.ingredient_management_tools import register_tools
 
-        mcp = MagicMock()
-        tool_func = None
+        captured = _capture_tools(register_tools)
+        tool_func = captured['ingredients']
 
-        def capture_tool(func):
-            nonlocal tool_func
-            tool_func = func
-            return func
-
-        mcp.tool.return_value = capture_tool
-        register_tools(mcp)
-
-        # Try with 21 items
-        ingredients = [
+        batch_ingredients = [
             {"ingredient_name": f"ing{i}", "severity": "watch"}
             for i in range(21)
         ]
-        result = await tool_func(ingredients=ingredients)
+        result = await tool_func(action='add_custom', batch_ingredients=batch_ingredients)
 
         assert result["success"] is False
         assert "Maximum 20" in result["error"]
@@ -508,8 +388,6 @@ class TestBulkIntegration:
 
     async def test_end_to_end_pantry_batch(self):
         """Test complete workflow: add multiple items to pantry."""
-        # This would require actual database setup
-        # Skip for unit tests, run separately
         pytest.skip("Integration test - requires database")
 
     async def test_end_to_end_categorize_batch(self):

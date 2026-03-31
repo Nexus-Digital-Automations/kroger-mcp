@@ -1,4 +1,5 @@
 """Shopping list API endpoints."""
+import asyncio
 from datetime import datetime
 from typing import Optional
 
@@ -172,7 +173,7 @@ async def remove_shopping_list_item(item_id: str):
         original_count = len(data["items"])
         data["items"] = [
             item for item in data["items"]
-            if item.get("id") != item_id
+            if item.get("id") != item_id and item.get("product_id") != item_id
         ]
         removed = original_count - len(data["items"])
         if removed == 0:
@@ -198,7 +199,7 @@ async def remove_shopping_list_item(item_id: str):
 # ---------------------------------------------------------------------------
 
 class UpdateItemBody(BaseModel):
-    quantity: Optional[int] = None
+    quantity: Optional[float] = None
     notes: Optional[str] = None
 
 
@@ -305,7 +306,7 @@ async def shopping_list_to_cart(body: AddToCartBody):
                 items_to_add.append({
                     "product_id": product_id,
                     "name": name,
-                    "quantity": int(item.get("quantity", 1)),
+                    "quantity": max(1, round(item.get("quantity", 1))),
                     "recipe_name": item.get("recipe_name") or (
                         item.get("sources", [{}])[0].get("recipe_name") if item.get("sources") else None
                     ),
@@ -337,14 +338,38 @@ async def shopping_list_to_cart(body: AddToCartBody):
         from kroger_mcp.tools.shared import get_authenticated_client
         from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
 
-        client = get_authenticated_client()
+        client = await asyncio.to_thread(get_authenticated_client)
         api_items = [
             {"upc": it["product_id"], "quantity": it["quantity"], "modality": body.modality}
             for it in items_to_add
         ]
-        client.cart.add_to_cart(api_items)
 
-        for it in items_to_add:
+        # Add to Kroger cart with per-item fallback on 400
+        failed_items = []
+        added_items = list(items_to_add)
+        try:
+            await asyncio.to_thread(client.cart.add_to_cart, api_items)
+        except Exception as batch_err:
+            batch_err_str = str(batch_err)
+            is_400 = "400" in batch_err_str or "Bad Request" in batch_err_str
+            is_401 = "401" in batch_err_str or "Unauthorized" in batch_err_str
+            if is_401:
+                raise
+            if is_400 and len(api_items) > 1:
+                # Retry each item individually
+                added_items = []
+                for api_item, orig_item in zip(api_items, items_to_add):
+                    try:
+                        await asyncio.to_thread(client.cart.add_to_cart, [api_item])
+                        added_items.append(orig_item)
+                    except Exception:
+                        failed_items.append(orig_item)
+            else:
+                raise
+
+        added_ids = {it["product_id"] for it in added_items}
+
+        for it in added_items:
             try:
                 _add_item_to_local_cart(
                     product_id=it["product_id"],
@@ -354,20 +379,30 @@ async def shopping_list_to_cart(body: AddToCartBody):
             except Exception:
                 pass
 
-        # Clear purchasable items from the list; keep manual items
+        # Clear successfully-added items from the list; keep manual and failed items
         data["items"] = [
             item for item in data["items"]
-            if item.get("manual_purchase") or not item.get("product_id")
+            if item.get("manual_purchase")
+            or not item.get("product_id")
+            or item.get("product_id") not in added_ids
         ]
         _save_shopping_list(data)
 
-        return JSONResponse(content={
+        result = {
             "success": True,
-            "items_added": len(items_to_add),
+            "items_added": len(added_items),
             "items_skipped": len(items_to_skip),
             "manual_purchase": items_manual,
-            "message": f"Added {len(items_to_add)} items to your Kroger cart.",
-        })
+            "message": f"Added {len(added_items)} items to your Kroger cart.",
+        }
+        if failed_items:
+            result["items_failed"] = len(failed_items)
+            result["failed_items"] = [f["name"] for f in failed_items]
+            result["warning"] = (
+                f"{len(failed_items)} item(s) rejected by Kroger API "
+                "(invalid product ID or not available at this location)"
+            )
+        return JSONResponse(content=result)
 
     except Exception as e:
         err = str(e)

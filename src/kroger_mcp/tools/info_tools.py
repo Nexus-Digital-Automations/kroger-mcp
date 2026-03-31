@@ -2,6 +2,7 @@
 Chain, department, and utility information tools for Kroger MCP server.
 """
 
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional
 
@@ -29,37 +30,40 @@ def register_tools(mcp):
             "get_preferences",
         ] = Field(
             description=(
-                "Action: 'list_chains' - list all Kroger chains, "
-                "'get_chain' - get details for a specific chain, "
-                "'check_chain' - check if a chain exists, "
-                "'list_departments' - list all departments, "
-                "'get_department' - get details for a department, "
-                "'check_department' - check if a department exists, "
-                "'get_datetime' - get current system date and time, "
-                "'get_servings' - get the current default servings setting, "
-                "'set_servings' - set the default servings (requires servings param), "
-                "'get_preferences' - get all user preferences including location and servings"
+                "set_servings — set household size (used by recipe scaling). "
+                "get_preferences — current location + servings. "
+                "Other: list_chains|get_chain|check_chain|list_departments|get_department|check_department|get_datetime|get_servings"
             )
         ),
         chain_name: Optional[str] = Field(
             default=None,
-            description="Chain name (for get_chain, check_chain)",
+            description="Chain name",
         ),
         department_id: Optional[str] = Field(
             default=None,
-            description="Department ID (for get_department, check_department)",
+            description="Department ID",
         ),
         servings: Optional[int] = Field(
             default=None,
-            description="Number of servings (1-20, for set_servings)",
+            description="Number of servings 1-20",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Chain, department, and utility information operations."""
+        """Store info and user preferences.
+
+        Store data: list_chains, get_chain, check_chain, list_departments, get_department, check_department.
+        Preferences: set_servings (household size, affects recipe scaling), get_servings, get_preferences.
+        Utility: get_datetime.
+        """
+        return await asyncio.to_thread(
+            _info_impl, action, chain_name, department_id, servings, ctx,
+        )
+
+    def _info_impl(action, chain_name, department_id, servings, ctx):
         match action:
             case "list_chains":
                 if ctx:
-                    await ctx.info("Getting list of Kroger chains")
+                    ctx.info("Getting list of Kroger chains")
 
                 client = get_client_credentials_client()
 
@@ -78,7 +82,7 @@ def register_tools(mcp):
                     ]
 
                     if ctx:
-                        await ctx.info(f"Found {len(formatted_chains)} chains")
+                        ctx.info(f"Found {len(formatted_chains)} chains")
 
                     return {
                         "success": True,
@@ -88,7 +92,7 @@ def register_tools(mcp):
 
                 except Exception as e:
                     if ctx:
-                        await ctx.error(f"Error listing chains: {str(e)}")
+                        ctx.error(f"Error listing chains: {str(e)}")
                     return {"success": False, "error": str(e), "data": []}
 
             case "get_chain":
@@ -96,7 +100,7 @@ def register_tools(mcp):
                     return {"success": False, "error": "chain_name is required"}
 
                 if ctx:
-                    await ctx.info(f"Getting details for chain: {chain_name}")
+                    ctx.info(f"Getting details for chain: {chain_name}")
 
                 client = get_client_credentials_client()
 
@@ -116,7 +120,7 @@ def register_tools(mcp):
 
                 except Exception as e:
                     if ctx:
-                        await ctx.error(f"Error getting chain details: {str(e)}")
+                        ctx.error(f"Error getting chain details: {str(e)}")
                     return {"success": False, "error": str(e)}
 
             case "check_chain":
@@ -124,7 +128,7 @@ def register_tools(mcp):
                     return {"success": False, "error": "chain_name is required"}
 
                 if ctx:
-                    await ctx.info(f"Checking if chain '{chain_name}' exists")
+                    ctx.info(f"Checking if chain '{chain_name}' exists")
 
                 client = get_client_credentials_client()
 
@@ -140,12 +144,12 @@ def register_tools(mcp):
 
                 except Exception as e:
                     if ctx:
-                        await ctx.error(f"Error checking chain existence: {str(e)}")
+                        ctx.error(f"Error checking chain existence: {str(e)}")
                     return {"success": False, "error": str(e)}
 
             case "list_departments":
                 if ctx:
-                    await ctx.info("Getting list of departments")
+                    ctx.info("Getting list of departments")
 
                 client = get_client_credentials_client()
 
@@ -164,7 +168,7 @@ def register_tools(mcp):
                     ]
 
                     if ctx:
-                        await ctx.info(f"Found {len(formatted_departments)} departments")
+                        ctx.info(f"Found {len(formatted_departments)} departments")
 
                     return {
                         "success": True,
@@ -174,7 +178,7 @@ def register_tools(mcp):
 
                 except Exception as e:
                     if ctx:
-                        await ctx.error(f"Error listing departments: {str(e)}")
+                        ctx.error(f"Error listing departments: {str(e)}")
                     return {"success": False, "error": str(e), "data": []}
 
             case "get_department":
@@ -182,7 +186,7 @@ def register_tools(mcp):
                     return {"success": False, "error": "department_id is required"}
 
                 if ctx:
-                    await ctx.info(f"Getting details for department: {department_id}")
+                    ctx.info(f"Getting details for department: {department_id}")
 
                 client = get_client_credentials_client()
 
@@ -205,7 +209,7 @@ def register_tools(mcp):
 
                 except Exception as e:
                     if ctx:
-                        await ctx.error(f"Error getting department details: {str(e)}")
+                        ctx.error(f"Error getting department details: {str(e)}")
                     return {"success": False, "error": str(e)}
 
             case "check_department":
@@ -213,7 +217,7 @@ def register_tools(mcp):
                     return {"success": False, "error": "department_id is required"}
 
                 if ctx:
-                    await ctx.info(f"Checking if department '{department_id}' exists")
+                    ctx.info(f"Checking if department '{department_id}' exists")
 
                 client = get_client_credentials_client()
 
@@ -232,7 +236,7 @@ def register_tools(mcp):
 
                 except Exception as e:
                     if ctx:
-                        await ctx.error(f"Error checking department existence: {str(e)}")
+                        ctx.error(f"Error checking department existence: {str(e)}")
                     return {"success": False, "error": str(e)}
 
             case "get_datetime":

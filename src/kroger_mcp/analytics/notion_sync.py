@@ -11,8 +11,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
-import urllib.parse
+from urllib.error import HTTPError
 
 
 # Sync state file — maps recipe_id → notion_page_id
@@ -421,7 +420,6 @@ def pull_changes(api_key: str, database_id: str) -> List[Dict[str, Any]]:
     }
 
     for page in pages:
-        page_id = page.get("id", "").replace("-", "")
         # Notion returns ID with hyphens, normalize
         page_id_normalized = page.get("id", "")
 

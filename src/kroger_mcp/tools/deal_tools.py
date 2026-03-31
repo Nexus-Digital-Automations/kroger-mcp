@@ -2,6 +2,7 @@
 Deal discovery and price tracking tools for Kroger MCP server.
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional
 
@@ -40,84 +41,103 @@ def register_tools(mcp):
             "get_latest_scan",
         ] = Field(
             description=(
-                "Action: 'find' - search for products on sale, "
-                "'add_to_watchlist' - track a product for price drops, "
-                "'get_price_history' - view price trends for a product, "
-                "'scan_watchlist' - check tracked items for current deals, "
-                "'get_latest_scan' - view results from last automated scan"
+                "find — search deals by term or category. "
+                "add_to_watchlist — batch via product_ids (max 30). "
+                "scan_watchlist — scans watchlist + favorites + low-pantry. "
+                "get_price_history|get_latest_scan"
             )
         ),
         search_term: Optional[str] = Field(
             default=None,
-            description="Search term e.g. 'milk' (for find; searches popular categories if not provided)",
+            description="Search term e.g. milk",
         ),
         category: Optional[str] = Field(
             default=None,
-            description="Category: 'dairy', 'meat', 'produce', 'bakery', 'frozen', 'beverages' (for find)",
+            description="dairy|meat|produce|bakery|frozen|beverages",
         ),
         min_savings_percent: Optional[float] = Field(
             default=10.0,
-            description="Minimum discount percentage (for find)",
+            description="Minimum discount percentage",
         ),
         sort_by: Optional[str] = Field(
             default="savings_percent",
-            description="Sort by: 'savings_percent', 'savings_amount', 'price' (for find)",
+            description="savings_percent|savings_amount|price",
         ),
         limit: Optional[int] = Field(
             default=20,
-            description="Maximum number of deals to return (for find)",
+            description="Max deals to return",
         ),
         location_id: Optional[str] = Field(
             default=None,
-            description="Store location ID (uses preferred if not provided)",
+            description="Store location ID",
         ),
         product_id: Optional[str] = Field(
             default=None,
-            description="Single product ID (for add_to_watchlist or get_price_history)",
+            description="Product ID",
         ),
         product_ids: Optional[List[str]] = Field(
             default=None,
-            description="List of product IDs for batch watchlist add (max 30; for add_to_watchlist)",
+            description="Product IDs for batch watchlist add (max 30)",
         ),
         description: Optional[str] = Field(
             default=None,
-            description="Product description for watchlist (for add_to_watchlist)",
+            description="Product description",
         ),
         target_price: Optional[float] = Field(
             default=None,
-            description="Alert when price reaches this target (for add_to_watchlist)",
+            description="Alert price target",
         ),
         priority: Optional[int] = Field(
             default=1,
-            description="Priority: 1=low, 2=medium, 3=high (for add_to_watchlist)",
+            description="1=low|2=medium|3=high",
         ),
         days: Optional[int] = Field(
             default=30,
-            description="Days of price history to retrieve (for get_price_history)",
+            description="Days of price history",
         ),
         include_favorites: Optional[bool] = Field(
             default=True,
-            description="Include favorite list items in scan (for scan_watchlist)",
+            description="Include favorites in scan",
         ),
         include_pantry: Optional[bool] = Field(
             default=True,
-            description="Include pantry items in scan (for scan_watchlist)",
+            description="Include pantry items in scan",
         ),
         include_recent_purchases: Optional[bool] = Field(
             default=True,
-            description="Include recently purchased items in scan (for scan_watchlist)",
+            description="Include recent purchases in scan",
         ),
         max_items: Optional[int] = Field(
             default=50,
-            description="Maximum items to scan (for scan_watchlist)",
+            description="Max items to scan",
         ),
         mark_as_viewed: Optional[bool] = Field(
             default=False,
-            description="Mark results as viewed (for get_latest_scan)",
+            description="Mark results as viewed",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Deal discovery and price tracking operations."""
+        """Deal discovery and price tracking.
+
+        find — search for current deals by term or category.
+        add_to_watchlist — track items for price drops (batch: product_ids, max 30).
+        scan_watchlist — check all watched + favorite + low-pantry items for deals.
+        get_price_history — view price trends for a product.
+        get_latest_scan — view results from last automated background scan.
+        """
+        return await asyncio.to_thread(
+            _deals_impl, action, search_term, category, min_savings_percent,
+            sort_by, limit, location_id, product_id, product_ids, description,
+            target_price, priority, days, include_favorites, include_pantry,
+            include_recent_purchases, max_items, mark_as_viewed, ctx,
+        )
+
+    def _deals_impl(
+        action, search_term, category, min_savings_percent,
+        sort_by, limit, location_id, product_id, product_ids, description,
+        target_price, priority, days, include_favorites, include_pantry,
+        include_recent_purchases, max_items, mark_as_viewed, ctx,
+    ):
         match action:
             case "find":
                 if not location_id:
@@ -138,7 +158,7 @@ def register_tools(mcp):
                     search_queries = ["milk", "bread", "chicken"]
 
                 if ctx:
-                    await ctx.info(
+                    ctx.info(
                         f"Searching for deals: {', '.join(search_queries)} "
                         f"(min {min_savings_percent}% off)"
                     )
@@ -236,7 +256,7 @@ def register_tools(mcp):
 
                     except Exception as e:
                         if ctx:
-                            await ctx.warn(f"Error searching '{query}': {str(e)}")
+                            ctx.warn(f"Error searching '{query}': {str(e)}")
                         continue
 
                 seen_ids = set()
@@ -483,7 +503,7 @@ def register_tools(mcp):
                     }
 
                 if ctx:
-                    await ctx.info("Building watchlist from your tracked items...")
+                    ctx.info("Building watchlist from your tracked items...")
 
                 watchlist = []
 
@@ -562,7 +582,7 @@ def register_tools(mcp):
                 watchlist = watchlist[: max_items or 50]
 
                 if ctx:
-                    await ctx.info(
+                    ctx.info(
                         f"Scanning {len(watchlist)} items for deals "
                         f"(from {', '.join(set(w['source'] for w in watchlist))})..."
                     )
@@ -624,7 +644,7 @@ def register_tools(mcp):
 
                     except Exception as e:
                         if ctx:
-                            await ctx.warn(f"Error checking {item['product_id']}: {str(e)}")
+                            ctx.warn(f"Error checking {item['product_id']}: {str(e)}")
                         continue
 
                 deal_items.sort(key=lambda x: x["savings_percent"], reverse=True)

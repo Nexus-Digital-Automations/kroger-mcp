@@ -2,6 +2,8 @@
 Location management tools for Kroger MCP server
 """
 
+import asyncio
+import functools
 from typing import Any, Dict, Literal, Optional
 
 from fastmcp import Context
@@ -28,34 +30,27 @@ def register_tools(mcp):
             "check_exists",
             "get_zip",
         ] = Field(
-            description=(
-                "Action: 'search' - find stores near a zip code, "
-                "'get_details' - get info about a specific store, "
-                "'set_preferred' - set your default store, "
-                "'get_preferred' - get your current default store, "
-                "'check_exists' - check if a location ID is valid, "
-                "'get_zip' - get your default zip code"
-            )
+            description="search|get_details|set_preferred|get_preferred|check_exists|get_zip"
         ),
         zip_code: Optional[str] = Field(
             default=None,
-            description="Zip code to search near (for search; uses env default if not provided)",
+            description="Zip code to search near",
         ),
         radius_in_miles: Optional[int] = Field(
             default=10,
-            description="Search radius in miles 1-100 (for search)",
+            description="Search radius in miles 1-100",
         ),
         limit: Optional[int] = Field(
             default=10,
-            description="Number of results 1-200 (for search)",
+            description="Number of results 1-200",
         ),
         chain: Optional[str] = Field(
             default=None,
-            description="Filter by chain name (for search)",
+            description="Filter by chain name",
         ),
         location_id: Optional[str] = Field(
             default=None,
-            description="Store location ID (for get_details, set_preferred, check_exists)",
+            description="Store location ID",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
@@ -70,14 +65,17 @@ def register_tools(mcp):
                 if not zip_code:
                     zip_code = get_default_zip_code()
 
-                client = get_client_credentials_client()
+                client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
-                    locations = client.location.search_locations(
-                        zip_code=zip_code,
-                        radius_in_miles=radius_in_miles or 10,
-                        limit=limit or 10,
-                        chain=chain,
+                    locations = await asyncio.to_thread(
+                        functools.partial(
+                            client.location.search_locations,
+                            zip_code=zip_code,
+                            radius_in_miles=radius_in_miles or 10,
+                            limit=limit or 10,
+                            chain=chain,
+                        )
                     )
 
                     if not locations or "data" not in locations or not locations["data"]:
@@ -153,10 +151,12 @@ def register_tools(mcp):
                 if ctx:
                     await ctx.info(f"Getting details for location {location_id}")
 
-                client = get_client_credentials_client()
+                client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
-                    location_details = client.location.get_location(location_id)
+                    location_details = await asyncio.to_thread(
+                        client.location.get_location, location_id
+                    )
 
                     if not location_details or "data" not in location_details:
                         return {
@@ -213,17 +213,21 @@ def register_tools(mcp):
                 if ctx:
                     await ctx.info(f"Setting preferred location to {location_id}")
 
-                client = get_client_credentials_client()
+                client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
-                    exists = client.location.location_exists(location_id)
+                    exists = await asyncio.to_thread(
+                        client.location.location_exists, location_id
+                    )
                     if not exists:
                         return {
                             "success": False,
                             "error": f"Location {location_id} does not exist",
                         }
 
-                    location_details = client.location.get_location(location_id)
+                    location_details = await asyncio.to_thread(
+                        client.location.get_location, location_id
+                    )
                     loc_data = location_details.get("data", {})
 
                     set_preferred_location_id(location_id)
@@ -259,10 +263,12 @@ def register_tools(mcp):
                         f"Getting preferred location details for {preferred_location_id}"
                     )
 
-                client = get_client_credentials_client()
+                client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
-                    location_details = client.location.get_location(preferred_location_id)
+                    location_details = await asyncio.to_thread(
+                        client.location.get_location, preferred_location_id
+                    )
                     loc_data = location_details.get("data", {})
 
                     return {
@@ -291,10 +297,12 @@ def register_tools(mcp):
                 if ctx:
                     await ctx.info(f"Checking if location {location_id} exists")
 
-                client = get_client_credentials_client()
+                client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
-                    exists = client.location.location_exists(location_id)
+                    exists = await asyncio.to_thread(
+                        client.location.location_exists, location_id
+                    )
                     return {
                         "success": True,
                         "location_id": location_id,

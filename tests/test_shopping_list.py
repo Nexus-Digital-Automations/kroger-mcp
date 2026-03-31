@@ -4,8 +4,7 @@ Unit tests for shopping list functionality.
 
 import pytest
 import os
-import json
-from src.kroger_mcp.tools.shopping_list_tools import (
+from kroger_mcp.tools.shopping_list_tools import (
     _load_shopping_list,
     _save_shopping_list,
     _consolidate_items,

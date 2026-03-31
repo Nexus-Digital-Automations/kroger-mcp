@@ -13,12 +13,12 @@ import sys
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.kroger_mcp.analytics.database import (
+from kroger_mcp.analytics.database import (
     get_db_connection,
     ensure_initialized,
     reset_initialization
 )
-from src.kroger_mcp.analytics.pantry import (
+from kroger_mcp.analytics.pantry import (
     get_shelf_life_days,
     calculate_expiration_date,
     calculate_days_to_expiration,
@@ -471,7 +471,7 @@ class TestManualExpirationOverride:
         future_date = (datetime.now() + timedelta(days=3)).date().isoformat()
 
         conn = get_db_connection()
-        from src.kroger_mcp.analytics.pantry import calculate_days_to_expiration
+        from kroger_mcp.analytics.pantry import calculate_days_to_expiration
         days_to_exp = calculate_days_to_expiration(future_date)
 
         conn.execute("""

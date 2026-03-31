@@ -2,6 +2,7 @@
 Favorite lists MCP tools for the Kroger MCP server.
 """
 
+import asyncio
 from typing import Any, Dict, List, Literal, Optional
 
 from fastmcp import Context
@@ -24,107 +25,148 @@ def register_tools(mcp):
             "order",
             "suggest",
             "update_schedule",
+            "set_stock_level",
+            "update_quantity",
+            "get_low_stock",
         ] = Field(
             description=(
-                "Action: 'create_list' - create a new favorite list, "
-                "'get_lists' - get all favorite lists, "
-                "'rename_list' - rename or update a list, "
-                "'delete_list' - delete a list and its items, "
-                "'add_item' - add product(s) to a list, "
-                "'remove_item' - remove a product from a list, "
-                "'get_items' - get all items in a list, "
-                "'order' - add list items to cart, "
-                "'suggest' - suggest products to add based on purchase history, "
-                "'update_schedule' - update reorder schedule for a list"
+                "order — ADD ENTIRE LIST TO CART in one call (skips well-stocked items). "
+                "Use this whenever user asks to order/add a favorites list. "
+                "set_stock_level — set min_stock_percent and/or min_stock_quantity thresholds per item. "
+                "update_quantity — update current_stock_quantity for an item. "
+                "get_low_stock — list items below their minimum thresholds. "
+                "Other actions: get_lists|get_items|add_item|remove_item|create_list|rename_list|delete_list|suggest|update_schedule"
             )
         ),
         name: Optional[str] = Field(
             default=None,
-            description="List name e.g. 'Weekly Staples' (for create_list)",
+            description="List name",
         ),
         description: Optional[str] = Field(
             default=None,
-            description="Optional list description (for create_list, rename_list)",
+            description="List description",
         ),
         list_type: Optional[str] = Field(
             default="custom",
-            description="List type: 'custom', 'weekly', 'monthly', 'seasonal' (for create_list)",
+            description="custom|weekly|monthly|seasonal",
         ),
         reorder_weeks: Optional[int] = Field(
             default=None,
-            description="Reorder schedule in weeks 1-52, or null to disable (for create_list, update_schedule)",
+            description="Reorder schedule in weeks 1-52",
         ),
         list_id: Optional[str] = Field(
             default="default",
-            description="List ID to operate on (defaults to 'default')",
+            description="List ID (defaults to 'default')",
         ),
         new_name: Optional[str] = Field(
             default=None,
-            description="New name for the list (for rename_list)",
+            description="New list name",
         ),
         new_description: Optional[str] = Field(
             default=None,
-            description="New description for the list (for rename_list)",
+            description="New list description",
         ),
         product_id: Optional[str] = Field(
             default=None,
-            description="Kroger product ID (for add_item single mode, remove_item)",
+            description="Kroger product ID",
+        ),
+        product_ids: Optional[List[str]] = Field(
+            default=None,
+            description="Batch remove: list of Kroger product IDs",
         ),
         brand: Optional[str] = Field(
             default=None,
-            description="Product brand (for add_item single mode)",
+            description="Product brand",
         ),
         default_quantity: Optional[int] = Field(
             default=1,
-            description="Default quantity when ordering (for add_item single mode)",
+            description="Default order quantity",
         ),
         preferred_modality: Optional[str] = Field(
             default="PICKUP",
-            description="Preferred fulfillment: 'PICKUP' or 'DELIVERY' (for add_item)",
+            description="PICKUP or DELIVERY",
         ),
         notes: Optional[str] = Field(
             default=None,
-            description="Optional notes about the item (for add_item single mode)",
+            description="Item notes",
         ),
         items: Optional[List[Dict[str, Any]]] = Field(
             default=None,
-            description="For bulk add_item: list of {product_id, description, brand, default_quantity, preferred_modality, notes}",
+            description="Bulk add: [{product_id, description, brand, default_quantity, preferred_modality, notes, min_stock_percent, min_stock_quantity, current_stock_quantity}]",
+        ),
+        min_stock_percent: Optional[int] = Field(
+            default=None,
+            description="Per-item reorder trigger: include in order if pantry < this % (None = use global threshold)",
+        ),
+        min_stock_quantity: Optional[int] = Field(
+            default=None,
+            description="Target on-hand unit count — reorder if current_stock_quantity < this",
+        ),
+        current_stock_quantity: Optional[int] = Field(
+            default=None,
+            description="Actual on-hand unit count (user-managed)",
         ),
         include_pantry_status: Optional[bool] = Field(
             default=True,
-            description="Include current pantry levels (for get_items)",
+            description="Include pantry levels",
         ),
         sort_by: Optional[str] = Field(
             default="description",
-            description="Sort by: 'description', 'times_ordered', 'added_at' (for get_items)",
+            description="description|times_ordered|added_at",
         ),
         skip_if_stocked: Optional[bool] = Field(
             default=True,
-            description="Skip items with pantry level above threshold (for order)",
+            description="Skip well-stocked items",
         ),
         pantry_threshold: Optional[int] = Field(
             default=30,
-            description="Pantry level % above which to skip items (for order)",
+            description="Skip if pantry level above this %",
         ),
         modality: Optional[str] = Field(
             default=None,
-            description="Override all items' modality: 'PICKUP' or 'DELIVERY' (for order)",
+            description="PICKUP or DELIVERY override",
         ),
         min_purchases: Optional[int] = Field(
             default=3,
-            description="Minimum purchases to be suggested (for suggest)",
+            description="Min purchases to suggest",
         ),
         min_frequency_score: Optional[float] = Field(
             default=0.5,
-            description="Minimum frequency score 0-1 (for suggest)",
+            description="Min frequency score 0-1",
         ),
         limit: Optional[int] = Field(
             default=10,
-            description="Maximum suggestions to return (for suggest)",
+            description="Max suggestions to return",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Favorite list management operations."""
+        """Favorite list management operations.
+
+        IMPORTANT — To add a favorites list to cart:
+          favorites(action='order', list_id='weekly-essentials')
+        This adds ALL items in one call, skipping well-stocked pantry items.
+        Do NOT use get_items + loop cart(action='add') — use order instead.
+
+        Other actions: get_lists, get_items, add_item, remove_item, create_list,
+        rename_list, delete_list, suggest, update_schedule
+        """
+        return await asyncio.to_thread(
+            _favorites_impl, action, name, description, list_type, reorder_weeks,
+            list_id, new_name, new_description, product_id, product_ids, brand,
+            default_quantity, preferred_modality, notes, items, min_stock_percent,
+            min_stock_quantity, current_stock_quantity, include_pantry_status,
+            sort_by, skip_if_stocked, pantry_threshold, modality, min_purchases,
+            min_frequency_score, limit, ctx,
+        )
+
+    def _favorites_impl(
+        action, name, description, list_type, reorder_weeks,
+        list_id, new_name, new_description, product_id, product_ids, brand,
+        default_quantity, preferred_modality, notes, items, min_stock_percent,
+        min_stock_quantity, current_stock_quantity, include_pantry_status,
+        sort_by, skip_if_stocked, pantry_threshold, modality, min_purchases,
+        min_frequency_score, limit, ctx,
+    ):
         match action:
             case "create_list":
                 if not name:
@@ -189,16 +231,29 @@ def register_tools(mcp):
                     default_quantity=default_quantity or 1,
                     preferred_modality=preferred_modality or "PICKUP",
                     notes=notes,
+                    min_stock_percent=min_stock_percent,
+                    min_stock_quantity=min_stock_quantity,
+                    current_stock_quantity=current_stock_quantity,
                 )
 
             case "remove_item":
-                if not product_id:
-                    return {"success": False, "error": "product_id is required"}
                 from ..analytics.favorites import remove_from_list
 
-                return remove_from_list(
-                    list_id=list_id or "default", product_id=product_id
-                )
+                ids = product_ids if product_ids else ([product_id] if product_id else None)
+                if not ids:
+                    return {"success": False, "error": "product_id or product_ids is required"}
+
+                if len(ids) == 1:
+                    return remove_from_list(list_id=list_id or "default", product_id=ids[0])
+
+                results = {pid: remove_from_list(list_id=list_id or "default", product_id=pid) for pid in ids}
+                removed = sum(1 for r in results.values() if r.get("success"))
+                return {
+                    "success": True,
+                    "removed": removed,
+                    "total": len(ids),
+                    "results": results,
+                }
 
             case "get_items":
                 from ..analytics.favorites import get_list_items
@@ -235,20 +290,44 @@ def register_tools(mcp):
                 for item in result["items"]:
                     pantry = item.get("pantry_status", {})
                     level = pantry.get("level_percent")
+                    min_pct = item.get("min_stock_percent")
+                    min_qty = item.get("min_stock_quantity")
+                    cur_qty = item.get("current_stock_quantity")
 
-                    should_skip = False
-                    skip_reason = None
+                    needs_restock = False
+                    restock_reasons = []
 
-                    if do_skip and level is not None and level >= threshold:
-                        should_skip = True
-                        skip_reason = f"Pantry at {level}% (threshold: {threshold}%)"
+                    if min_pct is not None:
+                        if level is None or level < min_pct:
+                            needs_restock = True
+                            restock_reasons.append(
+                                f"Pantry {level if level is not None else 0}% < minimum {min_pct}%"
+                            )
+
+                    if min_qty is not None:
+                        if cur_qty is None or cur_qty < min_qty:
+                            needs_restock = True
+                            restock_reasons.append(
+                                f"Have {cur_qty if cur_qty is not None else 0} units, minimum is {min_qty}"
+                            )
+
+                    if min_pct is None and min_qty is None:
+                        # No per-item minimums — fall back to global pantry threshold
+                        if do_skip and level is not None and level >= threshold:
+                            pass  # will be skipped below
+                        else:
+                            needs_restock = True
+                        if do_skip and level is not None and level >= threshold:
+                            restock_reasons = [f"Pantry at {level}% (threshold: {threshold}%)"]
+
+                    should_skip = not needs_restock
 
                     if should_skip:
                         items_skipped.append(
                             {
                                 "product_id": item["product_id"],
                                 "description": item["description"],
-                                "reason": skip_reason,
+                                "reason": restock_reasons[0] if restock_reasons else "Well stocked",
                                 "pantry_level": level,
                             }
                         )
@@ -375,6 +454,39 @@ def register_tools(mcp):
                     list_id=list_id,
                     reorder_weeks=reorder_weeks,
                 )
+
+            case "set_stock_level":
+                if not list_id or not product_id:
+                    return {"success": False, "error": "list_id and product_id are required"}
+                from ..analytics.favorites import update_list_item
+
+                return update_list_item(
+                    list_id=list_id,
+                    product_id=product_id,
+                    min_stock_percent=min_stock_percent,
+                    min_stock_quantity=min_stock_quantity,
+                    current_stock_quantity=current_stock_quantity,
+                )
+
+            case "update_quantity":
+                if not list_id or not product_id:
+                    return {"success": False, "error": "list_id and product_id are required"}
+                if current_stock_quantity is None:
+                    return {"success": False, "error": "current_stock_quantity is required"}
+                from ..analytics.favorites import update_list_item
+
+                return update_list_item(
+                    list_id=list_id,
+                    product_id=product_id,
+                    current_stock_quantity=current_stock_quantity,
+                )
+
+            case "get_low_stock":
+                if not list_id:
+                    return {"success": False, "error": "list_id is required"}
+                from ..analytics.favorites import get_low_stock_items
+
+                return get_low_stock_items(list_id=list_id)
 
             case _:
                 return {"success": False, "error": f"Unknown action: {action}"}

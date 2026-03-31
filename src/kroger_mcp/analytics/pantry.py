@@ -759,3 +759,82 @@ def get_pantry_item(product_id: str) -> Optional[Dict[str, Any]]:
         if item['product_id'] == product_id:
             return item
     return None
+
+
+def consume_from_pantry(
+    product_id: str,
+    quantity: float = 0,
+    unit: str = 'each',
+    percent: Optional[float] = None,
+    source_type: str = '',
+    source_id: str = '',
+    source_description: str = ''
+) -> Dict[str, Any]:
+    """
+    Deduct from pantry inventory based on consumption.
+    
+    Args:
+        product_id: Product identifier
+        quantity: Quantity consumed (if percent not provided)
+        unit: Unit of measurement
+        percent: Percentage points to deduct (alternative to quantity)
+        source_type: Type of consumption source (e.g., 'meal', 'recipe')
+        source_id: ID of the source
+        source_description: Human-readable description of source
+        
+    Returns:
+        Dictionary with success status and details
+    """
+    ensure_initialized()
+    
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT level_percent, last_restocked_at, daily_depletion_rate FROM pantry_items WHERE product_id = ?",
+            (product_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return {'success': False, 'error': f"Item '{product_id}' not in pantry"}
+        
+        previous_level = row['level_percent']
+        last_restocked = row['last_restocked_at']
+        
+        if percent is not None:
+            deduction = percent
+        else:
+            cursor = conn.execute(
+                "SELECT avg_days_between_purchases FROM product_statistics WHERE product_id = ?",
+                (product_id,)
+            )
+            stats_row = cursor.fetchone()
+            avg_days = (stats_row['avg_days_between_purchases'] if stats_row else None) or 7
+            avg_days = max(avg_days, 7)
+            deduction = min(quantity * (100 / avg_days), 50)
+        
+        new_level = max(0, previous_level - deduction)
+        new_level = min(100, new_level)
+        
+        now_str = datetime.now().isoformat()
+        conn.execute(
+            "UPDATE pantry_items SET level_percent = ?, last_updated_at = ? WHERE product_id = ?",
+            (new_level, now_str, product_id)
+        )
+        
+        if new_level <= 5 and previous_level > 5 and last_restocked:
+            _record_depletion_event(product_id, last_restocked, now_str)
+        
+        conn.commit()
+        
+        return {
+            'success': True,
+            'product_id': product_id,
+            'previous_level': previous_level,
+            'new_level': new_level,
+            'amount_deducted': deduction,
+            'remaining_display': f"{new_level:.1f}%",
+            'updated_at': now_str
+        }
+        
+    finally:
+        conn.close()

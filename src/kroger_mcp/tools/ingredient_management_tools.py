@@ -2,6 +2,7 @@
 Ingredient management tools for dynamic ingredient filter customization.
 """
 
+import asyncio
 import json
 from typing import Any, Dict, List, Literal, Optional
 
@@ -30,97 +31,114 @@ def register_tools(mcp):
             "preview_impact",
         ] = Field(
             description=(
-                "Action: 'add_custom' - add custom ingredient(s) to filter, "
-                "'edit_custom' - edit an existing custom ingredient, "
-                "'remove_custom' - remove a custom ingredient, "
-                "'list_custom' - list all custom ingredients, "
-                "'override_system' - override settings for a default ingredient, "
-                "'reset_to_default' - reset a system ingredient to defaults, "
-                "'get_info' - get detailed info about an ingredient, "
-                "'import_list' - import ingredients from JSON, "
-                "'export_list' - export custom ingredients to JSON, "
-                "'preview_impact' - preview how many products would be flagged"
+                "add_custom — add ingredients (batch: batch_ingredients, max 20). "
+                "override_system — change built-in ingredient severity. "
+                "preview_impact — see effect before committing. "
+                "Other: edit_custom|remove_custom|list_custom|reset_to_default|get_info|import_list|export_list"
             )
         ),
         ingredient_name: Optional[str] = Field(
             default=None,
-            description="Ingredient name (for add_custom single, edit_custom, remove_custom, override_system, reset_to_default, get_info, preview_impact)",
+            description="Ingredient name",
         ),
         severity: Optional[Literal["critical", "warning", "watch"]] = Field(
             default=None,
-            description="Severity: 'critical', 'warning', 'watch' (for add_custom single, preview_impact)",
+            description="critical|warning|watch",
         ),
         category: Optional[str] = Field(
             default=None,
-            description="Category e.g. 'preservative', 'sweetener' (for add_custom)",
+            description="Category e.g. preservative",
         ),
         reason: Optional[str] = Field(
             default=None,
-            description="Why this ingredient should be avoided (for add_custom, override_system)",
+            description="Why to avoid this ingredient",
         ),
         aliases: Optional[List[str]] = Field(
             default=None,
-            description="Alternative names/spellings (for add_custom single)",
+            description="Alternative names/spellings",
         ),
         notes: Optional[str] = Field(
             default=None,
-            description="Personal notes (for add_custom, override_system)",
+            description="Personal notes",
         ),
         batch_ingredients: Optional[List[Dict[str, Any]]] = Field(
             default=None,
-            description="Batch add_custom: list of {ingredient_name, severity, category, reason, aliases, notes} (max 20)",
+            description="Batch: [{ingredient_name, severity, category, reason, aliases, notes}] max 20",
         ),
         new_severity: Optional[Literal["critical", "warning", "watch"]] = Field(
             default=None,
-            description="New severity (for edit_custom, override_system)",
+            description="New severity",
         ),
         new_reason: Optional[str] = Field(
             default=None,
-            description="New reason (for edit_custom, override_system)",
+            description="New reason",
         ),
         add_aliases: Optional[List[str]] = Field(
             default=None,
-            description="Additional aliases to add (for edit_custom, override_system)",
+            description="Additional aliases to add",
         ),
         new_notes: Optional[str] = Field(
             default=None,
-            description="New notes (for edit_custom)",
+            description="New notes",
         ),
         permanent: Optional[bool] = Field(
             default=False,
-            description="Permanently delete vs soft-delete (for remove_custom)",
+            description="Permanently delete vs soft-delete",
         ),
         include_inactive: Optional[bool] = Field(
             default=False,
-            description="Include deactivated ingredients (for list_custom)",
+            description="Include deactivated ingredients",
         ),
         filter_severity: Optional[Literal["critical", "warning", "watch"]] = Field(
             default=None,
-            description="Filter by severity (for list_custom)",
+            description="Filter by severity",
         ),
         filter_category: Optional[str] = Field(
             default=None,
-            description="Filter by category (for list_custom)",
+            description="Filter by category",
         ),
         hide: Optional[bool] = Field(
             default=False,
-            description="Hide ingredient from active filter (for override_system)",
+            description="Hide from active filter",
         ),
         import_data: Optional[str] = Field(
             default=None,
-            description="JSON string of ingredients to import (for import_list)",
+            description="JSON string of ingredients to import",
         ),
         merge_strategy: Optional[Literal["replace", "merge", "skip_existing"]] = Field(
             default="merge",
-            description="Conflict handling: 'replace', 'merge', 'skip_existing' (for import_list)",
+            description="replace|merge|skip_existing",
         ),
         include_system_overrides: Optional[bool] = Field(
             default=True,
-            description="Include system ingredient overrides in export (for export_list)",
+            description="Include system overrides in export",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Ingredient filter management operations."""
+        """Customize the ingredient safety filter.
+
+        Two layers: system ingredients (62 built-in) and custom ingredients (yours).
+        override_system — change severity/disable a system ingredient.
+        add_custom — add your own (batch: batch_ingredients, max 20).
+        preview_impact — see how many purchased products would be affected.
+        Changes take effect immediately (no restart needed).
+
+        Other: edit_custom, remove_custom, list_custom, reset_to_default, get_info,
+        import_list, export_list
+        """
+        return await asyncio.to_thread(
+            _ingredients_impl, action, ingredient_name, severity, category, reason,
+            aliases, notes, batch_ingredients, new_severity, new_reason, add_aliases,
+            new_notes, permanent, include_inactive, filter_severity, filter_category,
+            hide, import_data, merge_strategy, include_system_overrides, ctx,
+        )
+
+    def _ingredients_impl(
+        action, ingredient_name, severity, category, reason,
+        aliases, notes, batch_ingredients, new_severity, new_reason, add_aliases,
+        new_notes, permanent, include_inactive, filter_severity, filter_category,
+        hide, import_data, merge_strategy, include_system_overrides, ctx,
+    ):
         match action:
             case "add_custom":
                 if batch_ingredients is not None:
@@ -163,7 +181,7 @@ def register_tools(mcp):
                     is_batch = False
 
                 if ctx and is_batch:
-                    await ctx.info(f"Adding {len(ing_list)} custom ingredients")
+                    ctx.info(f"Adding {len(ing_list)} custom ingredients")
 
                 conn = get_db_connection()
                 results = {}
@@ -248,7 +266,7 @@ def register_tools(mcp):
                 if not ingredient_name:
                     return {"success": False, "error": "ingredient_name is required"}
                 if ctx:
-                    await ctx.info(f"Editing custom ingredient: {ingredient_name}")
+                    ctx.info(f"Editing custom ingredient: {ingredient_name}")
 
                 conn = get_db_connection()
                 try:
@@ -322,7 +340,7 @@ def register_tools(mcp):
                 if not ingredient_name:
                     return {"success": False, "error": "ingredient_name is required"}
                 if ctx:
-                    await ctx.info(f"Removing custom ingredient: {ingredient_name}")
+                    ctx.info(f"Removing custom ingredient: {ingredient_name}")
 
                 conn = get_db_connection()
                 try:
@@ -369,7 +387,7 @@ def register_tools(mcp):
 
             case "list_custom":
                 if ctx:
-                    await ctx.info("Listing custom ingredients")
+                    ctx.info("Listing custom ingredients")
 
                 conn = get_db_connection()
                 try:
@@ -439,7 +457,7 @@ def register_tools(mcp):
                 if not ingredient_name:
                     return {"success": False, "error": "ingredient_name is required"}
                 if ctx:
-                    await ctx.info(f"Overriding system ingredient: {ingredient_name}")
+                    ctx.info(f"Overriding system ingredient: {ingredient_name}")
 
                 from ..analytics.ingredients import BAD_INGREDIENTS
 
@@ -543,7 +561,7 @@ def register_tools(mcp):
                 if not ingredient_name:
                     return {"success": False, "error": "ingredient_name is required"}
                 if ctx:
-                    await ctx.info(f"Resetting ingredient to default: {ingredient_name}")
+                    ctx.info(f"Resetting ingredient to default: {ingredient_name}")
 
                 conn = get_db_connection()
                 try:
@@ -579,7 +597,7 @@ def register_tools(mcp):
                 if not ingredient_name:
                     return {"success": False, "error": "ingredient_name is required"}
                 if ctx:
-                    await ctx.info(f"Getting info for ingredient: {ingredient_name}")
+                    ctx.info(f"Getting info for ingredient: {ingredient_name}")
 
                 from ..analytics.ingredients import BAD_INGREDIENTS
 
@@ -673,7 +691,7 @@ def register_tools(mcp):
                 if not import_data:
                     return {"success": False, "error": "import_data (JSON string) is required"}
                 if ctx:
-                    await ctx.info("Importing ingredient list")
+                    ctx.info("Importing ingredient list")
 
                 try:
                     data = json.loads(import_data)
@@ -803,7 +821,7 @@ def register_tools(mcp):
 
             case "export_list":
                 if ctx:
-                    await ctx.info("Exporting ingredient list")
+                    ctx.info("Exporting ingredient list")
 
                 conn = get_db_connection()
                 try:
@@ -872,7 +890,7 @@ def register_tools(mcp):
                 if not severity:
                     return {"success": False, "error": "severity is required"}
                 if ctx:
-                    await ctx.info(f"Previewing impact of ingredient: {ingredient_name}")
+                    ctx.info(f"Previewing impact of ingredient: {ingredient_name}")
 
                 conn = get_db_connection()
                 try:

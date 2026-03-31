@@ -4,17 +4,110 @@
 {% block content %}
 
 <script>
+const categoryGroups = [
+  { label: 'Fresh',      items: ['produce','fruit','vegetables','meat','chicken','beef','pork','lamb','seafood','fish','shrimp','crab','deli','bakery','eggs'] },
+  { label: 'Dairy',      items: ['dairy','milk','cheese','yogurt','butter','cream','cream cheese','sour cream','cottage cheese','half and half'] },
+  { label: 'Frozen',     items: ['frozen','ice cream','frozen meals','frozen pizza','frozen vegetables','frozen fruit','frozen breakfast','frozen snacks'] },
+  { label: 'Pantry',     items: ['pasta','rice','soup','canned goods','cereal','oatmeal','bread','beans','lentils','quinoa','flour','sugar','crackers','tortillas','noodles'] },
+  { label: 'Flavoring',  items: ['condiments','sauces','salsa','ketchup','mustard','mayo','salad dressing','hot sauce','soy sauce','olive oil','vinegar','spices','herbs','peanut butter','honey','jam'] },
+  { label: 'Beverages',  items: ['water','sparkling water','juice','soda','coffee','tea','energy drinks','sports drinks','kombucha','lemonade','hot cocoa','coconut water'] },
+  { label: 'Snacks',     items: ['chips','pretzels','popcorn','crackers','cookies','candy','chocolate','nuts','trail mix','granola bars','fruit snacks','beef jerky','rice cakes','protein bars'] },
+  { label: 'Breakfast',  items: ['cereal','granola','pancake mix','syrup','waffles','muffins','bagels','English muffins','orange juice','coffee creamer'] },
+  { label: 'Health',     items: ['organic','natural','gluten free','vegan','keto','protein powder','vitamins','supplements','almond milk','oat milk','tofu','tempeh','chia seeds','flax seeds'] },
+  { label: 'Baking',     items: ['baking','flour','sugar','yeast','chocolate chips','cocoa','vanilla extract','baking powder','baking soda','cake mix','frosting','pie crust'] },
+  { label: 'Household',  items: ['cleaning','laundry detergent','dish soap','paper towels','toilet paper','trash bags','sponges','air freshener','disinfectant wipes','foil','plastic wrap','zip bags'] },
+  { label: 'Personal',   items: ['shampoo','conditioner','body wash','soap','toothpaste','deodorant','lotion','sunscreen','razors','feminine hygiene','vitamins'] },
+  { label: 'Baby & Pet', items: ['baby food','baby formula','diapers','baby wipes','dog food','cat food','dog treats','cat treats','pet supplies','litter'] },
+  { label: 'Alcohol',    items: ['wine','red wine','white wine','rose','beer','craft beer','spirits','whiskey','vodka','rum','tequila','hard seltzer','cider'] },
+  { label: 'Deli',       items: ['deli meat','lunch meat','ham','turkey','salami','pepperoni','hummus','guacamole','salads','rotisserie','prepared meals','sushi'] },
+];
+
 function dealsData() {
   return {
     tab: 'find',
     query: '',
     category: '',
-    minSavings: 10,
+    minSavings: 5,
+    sort: 'percent',
     deals: [],
     loading: false,
+    categoryGroups,
     watchlist: {{ watchlist | tojson }},
+    favoriteIds: new Set({{ favorite_ids | tojson }}),
     newProduct: {product_id: '', description: '', target_price: ''},
     msg: '',
+    favLists: [],
+    favMsg: {},
+
+    async loadFavLists() {
+      try {
+        const r = await fetch('/api/favorites/lists');
+        if (r.ok) this.favLists = await r.json();
+      } catch(e) {}
+    },
+
+    async addToFavorites(product, listId) {
+      try {
+        const r = await fetch('/api/favorites/lists/' + listId + '/items', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            product_id: product.product_id,
+            description: product.description,
+            brand: product.brand || '',
+            quantity: 1
+          })
+        });
+        if (r.ok) {
+          this.favMsg[product.product_id] = '★ Saved';
+          this.favoriteIds = new Set([...this.favoriteIds, product.product_id]);
+          const pid = product.product_id;
+          setTimeout(() => { const m = {...this.favMsg}; delete m[pid]; this.favMsg = m; }, 2000);
+        }
+      } catch(e) {}
+    },
+
+    get sortedDeals() {
+      const arr = [...this.deals];
+      if (this.sort === 'dollar') {
+        arr.sort((a, b) => {
+          const sa = (a.regular_price || 0) - (a.sale_price || a.regular_price || 0);
+          const sb = (b.regular_price || 0) - (b.sale_price || b.regular_price || 0);
+          return sb - sa;
+        });
+      } else if (this.sort === 'favorites') {
+        arr.sort((a, b) => {
+          const af = this.favoriteIds.has(a.product_id) ? 0 : 1;
+          const bf = this.favoriteIds.has(b.product_id) ? 0 : 1;
+          if (af !== bf) return af - bf;
+          return (b.savings_percent || 0) - (a.savings_percent || 0);
+        });
+      } else {
+        arr.sort((a, b) => (b.savings_percent || 0) - (a.savings_percent || 0));
+      }
+      return arr;
+    },
+
+    get favoritesOnSale() {
+      return this.deals.filter(d => this.favoriteIds.has(d.product_id)).length;
+    },
+
+    get dollarSaved() {
+      return d => ((d.regular_price || 0) - (d.sale_price || d.regular_price || 0)).toFixed(2);
+    },
+
+    async autoLoad() {
+      this.loading = true; this.deals = [];
+      try {
+        const params = new URLSearchParams();
+        params.set('min_savings', this.minSavings);
+        const r = await fetch('/api/deals/auto?' + params);
+        const data = await r.json();
+        if (r.ok) this.deals = data;
+        else this.msg = data.error || 'Failed to load deals';
+      } catch(e) { this.msg = 'Failed to load deals'; }
+      this.loading = false;
+    },
 
     async findDeals() {
       this.loading = true; this.deals = [];
@@ -31,35 +124,41 @@ function dealsData() {
       this.loading = false;
     },
 
-    async addToWatchlist(product) {
+    async addToCart(product) {
       try {
-        await fetch('/api/deals/watchlist', {
+        const r = await fetch('/api/cart', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             product_id: product.product_id,
+            quantity: 1,
+            modality: 'PICKUP',
             description: product.description,
-            target_price: null
+            brand: product.brand,
+            price: product.sale_price || product.regular_price
           })
         });
-        this.msg = 'Added to watchlist!';
-        await this.reloadWatchlist();
+        if (r.ok) {
+          this.msg = 'Added to cart!';
+        } else {
+          const d = await r.json();
+          this.msg = d.error || 'Failed to add to cart';
+        }
         setTimeout(() => this.msg = '', 3000);
-      } catch(e) { this.msg = 'Error adding to watchlist'; }
+      } catch(e) { this.msg = 'Error adding to cart'; }
     },
 
     async addCustomWatch() {
       if (!this.newProduct.product_id) return;
       try {
-        const payload = {
-          product_id: this.newProduct.product_id,
-          description: this.newProduct.description,
-          target_price: this.newProduct.target_price ? parseFloat(this.newProduct.target_price) : null
-        };
         await fetch('/api/deals/watchlist', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            product_id: this.newProduct.product_id,
+            description: this.newProduct.description,
+            target_price: this.newProduct.target_price ? parseFloat(this.newProduct.target_price) : null
+          })
         });
         this.newProduct = {product_id: '', description: '', target_price: ''};
         await this.reloadWatchlist();
@@ -79,7 +178,7 @@ function dealsData() {
 }
 </script>
 
-<div x-data="dealsData()">
+<div x-data="dealsData()" x-init="autoLoad(); loadFavLists()">
 
   <!-- Tabs -->
   <div class="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit">
@@ -94,8 +193,7 @@ function dealsData() {
       class="px-5 py-2 text-sm font-medium rounded-lg transition-all"
     >
       Watchlist
-      <span class="ml-1 text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full"
-            x-text="watchlist.length"></span>
+      <span class="ml-1 text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full" x-text="watchlist.length"></span>
     </button>
   </div>
 
@@ -105,6 +203,7 @@ function dealsData() {
   <!-- ===== FIND DEALS TAB ===== -->
   <div x-show="tab === 'find'">
 
+    <!-- Search controls -->
     <div class="flex flex-wrap gap-3 mb-4">
       <input
         type="text"
@@ -118,68 +217,198 @@ function dealsData() {
         <input
           type="number"
           x-model.number="minSavings"
-          min="0"
-          max="100"
+          min="0" max="100"
           class="w-16 text-sm border border-gray-200 rounded-lg px-2 py-2 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
         <span class="text-xs text-gray-500">%</span>
       </div>
       <button
+        @click="autoLoad()"
+        :disabled="loading"
+        class="px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-700 disabled:opacity-50 transition-colors"
+      >
+        <span x-show="!loading">&#8635; Refresh All</span>
+        <span x-show="loading">Scanning...</span>
+      </button>
+      <button
         @click="findDeals()"
         :disabled="loading"
         class="px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors"
       >
-        <span x-show="!loading">Find Deals</span>
+        <span x-show="!loading">Search</span>
         <span x-show="loading">Searching...</span>
       </button>
     </div>
 
-    <!-- Category chips -->
-    <div class="flex flex-wrap gap-2 mb-6">
-      <template x-for="cat in ['dairy', 'meat', 'produce', 'bakery', 'frozen', 'beverages']">
-        <button
-          @click="category = (category === cat ? '' : cat); findDeals()"
-          :class="category === cat
-            ? 'bg-emerald-600 text-white border-emerald-600'
-            : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-400'"
-          class="px-3 py-1 text-xs font-medium rounded-full border capitalize transition-colors"
-          x-text="cat"
-        ></button>
-      </template>
-    </div>
+    <!-- Category dropdown -->
+    <div class="mb-5 relative" x-data="{ open: false, hoveredGroup: null }" @click.away="open = false; hoveredGroup = null">
+      <button @click="open = !open"
+        class="w-full flex items-center justify-between px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:border-emerald-400 transition-colors">
+        <span x-text="category ? category : 'All Categories'"></span>
+        <span class="text-gray-400 ml-2" x-text="open ? '▲' : '▼'"></span>
+      </button>
 
-    <div x-show="loading" class="flex justify-center py-12">
-      <div class="animate-spin w-7 h-7 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
-    </div>
+      <div x-show="open" x-transition
+        class="absolute z-20 w-52 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg">
 
-    <div x-show="!loading && deals.length > 0" class="grid grid-cols-3 gap-4">
-      <template x-for="deal in deals" :key="deal.product_id">
-        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div class="flex items-start justify-between mb-1">
-            <h3 class="text-sm font-semibold text-gray-900 leading-tight" x-text="deal.description"></h3>
-            <span
-              class="ml-2 flex-shrink-0 text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium"
-              x-text="'-' + deal.savings_percent + '%'"
-            ></span>
+        <!-- Clear option -->
+        <button x-show="category" @click="category = ''; open = false; hoveredGroup = null; autoLoad()"
+          class="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-red-50 border-b border-gray-100">
+          &#10005; Clear — show all deals
+        </button>
+
+        <!-- Group rows -->
+        <template x-for="group in categoryGroups" :key="group.label">
+          <div class="relative" @mouseenter="hoveredGroup = group.label" @mouseleave="hoveredGroup = null">
+
+            <!-- Group label row -->
+            <div :class="hoveredGroup === group.label ? 'bg-emerald-50 text-emerald-700' : 'text-gray-700 hover:bg-gray-50'"
+              class="flex items-center justify-between px-4 py-2 text-sm font-medium cursor-default transition-colors">
+              <span x-text="group.label"></span>
+              <span class="text-gray-400 text-xs">›</span>
+            </div>
+
+            <!-- Submenu flyout -->
+            <div x-show="hoveredGroup === group.label"
+              class="absolute left-full top-0 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-y-auto max-h-64">
+              <template x-for="cat in group.items" :key="cat">
+                <button
+                  @click="category = cat; open = false; hoveredGroup = null; findDeals()"
+                  :class="category === cat ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'"
+                  class="w-full text-left px-4 py-1.5 text-xs capitalize transition-colors"
+                  x-text="cat">
+                </button>
+              </template>
+            </div>
+
           </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Sort + stats bar -->
+    <div x-show="deals.length > 0" class="flex flex-wrap items-center gap-3 mb-4">
+      <span class="text-xs text-gray-500" x-text="deals.length + ' deals found'"></span>
+      <div class="flex items-center gap-1.5 ml-auto">
+        <span class="text-xs text-gray-400">Sort:</span>
+        <button @click="sort='percent'"
+          :class="sort==='percent' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-400'"
+          class="px-3 py-1 text-xs font-medium rounded-full transition-colors">
+          % Saved
+        </button>
+        <button @click="sort='dollar'"
+          :class="sort==='dollar' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-400'"
+          class="px-3 py-1 text-xs font-medium rounded-full transition-colors">
+          $ Saved
+        </button>
+        <button @click="sort='favorites'"
+          :class="sort==='favorites' ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:border-amber-300'"
+          class="px-3 py-1 text-xs font-medium rounded-full transition-colors flex items-center gap-1">
+          <span>&#9733;</span> Favorites First
+          <span x-show="favoritesOnSale > 0"
+            :class="sort==='favorites' ? 'bg-white text-amber-700' : 'bg-amber-100 text-amber-700'"
+            class="text-xs px-1.5 rounded-full font-bold" x-text="favoritesOnSale"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Favorites-on-sale alert -->
+    <div x-show="favoritesOnSale > 0 && deals.length > 0"
+      class="flex items-center gap-3 mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+      <span class="text-xl">&#9733;</span>
+      <div>
+        <p class="text-sm font-semibold text-amber-800">
+          <span x-text="favoritesOnSale"></span> of your favorites are on sale right now!
+        </p>
+        <p class="text-xs text-amber-600">Sort by "Favorites First" to see them at the top.</p>
+      </div>
+      <button @click="sort='favorites'"
+        class="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900 underline whitespace-nowrap">
+        View first &#8594;
+      </button>
+    </div>
+
+    <!-- Loading spinner -->
+    <div x-show="loading" class="flex flex-col items-center gap-3 py-16 text-gray-400">
+      <div class="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+      <p class="text-sm">Scanning store for deals across all departments...</p>
+    </div>
+
+    <!-- Results grid -->
+    <div x-show="!loading && deals.length > 0" class="grid grid-cols-3 gap-4">
+      <template x-for="deal in sortedDeals" :key="deal.product_id">
+        <div class="bg-white rounded-xl shadow-sm border p-4 transition-shadow hover:shadow-md"
+          :class="favoriteIds.has(deal.product_id) ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100'">
+
+          <!-- Header row -->
+          <div class="flex items-start justify-between mb-1">
+            <h3 class="text-sm font-semibold text-gray-900 leading-tight flex-1" x-text="deal.description"></h3>
+            <div class="flex items-center gap-1 ml-2 flex-shrink-0">
+              <span x-show="favoriteIds.has(deal.product_id)"
+                class="text-amber-400 text-sm" title="In your favorites">&#9733;</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium"
+                x-text="'-' + deal.savings_percent + '%'"></span>
+            </div>
+          </div>
+
+          <!-- Brand -->
           <p class="text-xs text-gray-500 mb-2" x-text="deal.brand"></p>
-          <div class="flex items-center gap-2 mb-3">
+
+          <!-- Pricing -->
+          <div class="flex items-center gap-2 mb-1">
             <span class="text-base font-bold text-red-600" x-text="'$' + (deal.sale_price || 0).toFixed(2)"></span>
             <span class="text-xs text-gray-400 line-through" x-text="'$' + (deal.regular_price || 0).toFixed(2)"></span>
           </div>
-          <button
-            @click="addToWatchlist(deal)"
-            class="w-full py-1.5 text-xs border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 transition-colors"
-          >+ Watchlist</button>
+          <p class="text-xs text-emerald-700 font-medium"
+            x-text="'Save $' + ((deal.regular_price || 0) - (deal.sale_price || deal.regular_price || 0)).toFixed(2)"></p>
+
+          <!-- Actions -->
+          <div class="flex gap-2 mt-auto pt-3">
+
+            <!-- Favorites dropdown -->
+            <div class="relative flex-1" x-data="{ favOpen: false }" @click.away="favOpen = false">
+              <button @click="favOpen = !favOpen"
+                :class="favoriteIds.has(deal.product_id)
+                  ? 'text-amber-500 border-amber-300 bg-amber-50 hover:bg-amber-100'
+                  : 'text-gray-500 border-gray-200 hover:border-amber-300 hover:bg-amber-50'"
+                class="w-full py-1.5 text-xs border rounded-lg transition-colors flex items-center justify-center gap-1">
+                <span x-text="favoriteIds.has(deal.product_id) ? '★' : '☆'"></span>
+                <span x-text="favMsg[deal.product_id] || (favoriteIds.has(deal.product_id) ? 'Saved' : 'Save')"></span>
+              </button>
+              <div x-show="favOpen" x-transition
+                class="absolute bottom-full mb-1 left-0 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
+                <p class="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 border-b border-gray-100">
+                  Save to list
+                </p>
+                <template x-for="lst in favLists" :key="lst.id">
+                  <button @click="addToFavorites(deal, lst.id); favOpen = false"
+                    class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                    x-text="lst.name"></button>
+                </template>
+                <p x-show="favLists.length === 0" class="px-3 py-2 text-xs text-gray-400 italic">
+                  No lists yet —
+                  <a href="/favorites" class="text-emerald-600 underline">create one</a>
+                </p>
+              </div>
+            </div>
+
+            <!-- Cart button -->
+            <button @click="addToCart(deal)"
+              class="flex-1 py-1.5 text-xs border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 transition-colors">
+              + Cart
+            </button>
+
+          </div>
         </div>
       </template>
     </div>
 
-    <div x-show="!loading && deals.length === 0" class="text-center py-12 text-gray-400">
+    <!-- Empty state -->
+    <div x-show="!loading && deals.length === 0" class="text-center py-16 text-gray-400">
       <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 012-2z"/>
       </svg>
-      <p class="text-sm">Search for deals or click a category above</p>
+      <p class="text-sm">No deals found. Try lowering the minimum savings % or refreshing.</p>
     </div>
 
   </div>
@@ -187,44 +416,29 @@ function dealsData() {
   <!-- ===== WATCHLIST TAB ===== -->
   <div x-show="tab === 'watchlist'">
 
-    <!-- Add to watchlist form -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
       <h3 class="text-sm font-semibold text-gray-700 mb-3">Track New Item</h3>
       <div class="flex gap-3 flex-wrap">
-        <input
-          x-model="newProduct.product_id"
-          placeholder="Product ID (UPC)"
-          class="flex-1 min-w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-        />
-        <input
-          x-model="newProduct.description"
-          placeholder="Description"
-          class="flex-1 min-w-40 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-        />
-        <input
-          x-model="newProduct.target_price"
-          type="number"
-          step="0.01"
-          placeholder="Target $"
-          class="w-28 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-        />
-        <button
-          @click="addCustomWatch()"
-          :disabled="!newProduct.product_id"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-        >Track</button>
+        <input x-model="newProduct.product_id" placeholder="Product ID (UPC)"
+          class="flex-1 min-w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        <input x-model="newProduct.description" placeholder="Description"
+          class="flex-1 min-w-40 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        <input x-model="newProduct.target_price" type="number" step="0.01" placeholder="Target $"
+          class="w-28 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        <button @click="addCustomWatch()" :disabled="!newProduct.product_id"
+          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+          Track
+        </button>
       </div>
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-
       <div x-show="watchlist.length === 0" class="text-center py-12 text-gray-400">
         <svg class="w-10 h-10 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
         </svg>
         <p class="text-sm">No items being watched. Add items from Find Deals or use the form above.</p>
       </div>
-
       <table x-show="watchlist.length > 0" class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-100">
           <tr>
@@ -238,7 +452,10 @@ function dealsData() {
           <template x-for="item in watchlist" :key="item.product_id">
             <tr class="hover:bg-gray-50">
               <td class="px-6 py-3">
-                <span class="font-medium text-gray-800" x-text="item.description || item.product_id"></span>
+                <div class="flex items-center gap-1.5">
+                  <span x-show="favoriteIds.has(item.product_id)" class="text-amber-400 text-xs">&#9733;</span>
+                  <span class="font-medium text-gray-800" x-text="item.description || item.product_id"></span>
+                </div>
                 <span class="block text-xs text-gray-400" x-text="'#' + item.product_id"></span>
               </td>
               <td class="px-4 py-3 text-gray-500"
@@ -246,16 +463,13 @@ function dealsData() {
               <td class="px-4 py-3 text-gray-400 text-xs"
                   x-text="item.added_at ? item.added_at.slice(0, 10) : '\u2014'"></td>
               <td class="px-6 py-3 text-right">
-                <button
-                  @click="removeWatch(item.product_id)"
-                  class="text-xs text-red-500 hover:text-red-700 transition-colors"
-                >Remove</button>
+                <button @click="removeWatch(item.product_id)"
+                  class="text-xs text-red-500 hover:text-red-700 transition-colors">Remove</button>
               </td>
             </tr>
           </template>
         </tbody>
       </table>
-
     </div>
   </div>
 

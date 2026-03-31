@@ -20,6 +20,12 @@ build/
 
 # Environment variables
 .env
+.env.*
+*.key
+*.pem
+*.p12
+*credentials*
+*secrets*
 
 # IDE files
 .idea/

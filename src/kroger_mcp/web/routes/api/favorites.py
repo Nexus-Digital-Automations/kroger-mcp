@@ -17,6 +17,7 @@ class CreateListBody(BaseModel):
 class RenameListBody(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    reorder_weeks: Optional[int] = None
 
 
 class AddItemBody(BaseModel):
@@ -25,6 +26,20 @@ class AddItemBody(BaseModel):
     brand: Optional[str] = None
     quantity: int = 1
     notes: Optional[str] = None
+
+
+@router.get("/api/favorites/lists")
+async def get_favorites_lists():
+    """Return all user-created favorites lists for UI dropdowns."""
+    try:
+        from kroger_mcp.analytics.favorites import get_lists
+        lists = get_lists()
+        return JSONResponse(content=[
+            {"id": lst["id"], "name": lst["name"], "item_count": lst["item_count"]}
+            for lst in lists if not lst.get("is_default")
+        ])
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.post("/api/favorites/lists")
@@ -63,17 +78,31 @@ async def delete_list(list_id: str):
 
 @router.put("/api/favorites/lists/{list_id}")
 async def rename_list(list_id: str, body: RenameListBody):
-    """Rename a list or update its description."""
+    """Rename a list, update its description, or update reorder schedule."""
     try:
-        from kroger_mcp.analytics.favorites import rename_list as _rename_list
-        result = _rename_list(
-            list_id=list_id,
-            new_name=body.name,
-            new_description=body.description,
-        )
-        if not result.get("success"):
-            return JSONResponse(status_code=400, content=result)
-        return result
+        errors = []
+
+        if body.name is not None or body.description is not None:
+            from kroger_mcp.analytics.favorites import rename_list as _rename_list
+            result = _rename_list(
+                list_id=list_id,
+                new_name=body.name,
+                new_description=body.description,
+            )
+            if not result.get("success"):
+                errors.append(result.get("error", "Rename failed"))
+
+        if body.reorder_weeks is not None:
+            from kroger_mcp.analytics.favorites import update_list_schedule
+            # 0 means "disable schedule", positive int means set schedule
+            weeks = None if body.reorder_weeks == 0 else body.reorder_weeks
+            rw_result = update_list_schedule(list_id=list_id, reorder_weeks=weeks)
+            if not rw_result.get("success"):
+                errors.append(rw_result.get("error", "Schedule update failed"))
+
+        if errors:
+            return JSONResponse(status_code=400, content={"error": "; ".join(errors)})
+        return {"success": True}
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
@@ -122,3 +151,74 @@ async def remove_item(list_id: str, product_id: str):
         return result
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/favorites/lists/{list_id}/add-to-shopping-list")
+async def add_list_to_shopping_list(list_id: str):
+    """Add all items from a favorites list into the shopping list, skipping well-stocked items."""
+    from datetime import datetime
+    from kroger_mcp.analytics.favorites import get_list_items as _get_list_items
+    from kroger_mcp.tools.shopping_list_tools import (
+        _load_shopping_list,
+        _save_shopping_list,
+        _generate_list_item_id,
+        _consolidate_items,
+    )
+
+    # Load list items
+    try:
+        result = _get_list_items(list_id=list_id, include_pantry_status=True)
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+    if not result.get("success"):
+        return JSONResponse(status_code=404, content=result)
+
+    list_name = result.get("list", {}).get("name", list_id)
+    items = result.get("items", [])
+
+    # Load pantry levels for skip logic
+    pantry_levels: dict = {}
+    try:
+        from kroger_mcp.analytics.pantry import get_pantry_status
+        pantry_items = get_pantry_status(apply_depletion=True)
+        pantry_levels = {p["product_id"]: p.get("level_percent", 0) for p in pantry_items}
+    except Exception:
+        pass  # No pantry data — skip nothing
+
+    # Build new shopping list entries
+    data = _load_shopping_list()
+    items_added = 0
+    items_skipped = 0
+    now = datetime.now().isoformat()
+
+    for item in items:
+        product_id = item.get("product_id")
+        if not product_id:
+            continue
+        level = pantry_levels.get(product_id, 0)
+        if level >= 30:
+            items_skipped += 1
+            continue
+        data["items"].append({
+            "id": _generate_list_item_id(),
+            "product_id": product_id,
+            "name": item.get("description", ""),
+            "quantity": item.get("default_quantity") or 1,
+            "unit": "",
+            "sources": [{"favorites_list_id": list_id, "favorites_list_name": list_name}],
+            "added_at": now,
+            "recipe_name": None,
+        })
+        items_added += 1
+
+    data["items"] = _consolidate_items(data["items"])
+    _save_shopping_list(data)
+
+    return {
+        "success": True,
+        "list_name": list_name,
+        "items_added": items_added,
+        "items_skipped": items_skipped,
+        "total_items": len(data["items"]),
+    }

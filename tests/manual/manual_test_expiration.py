@@ -16,8 +16,7 @@ from datetime import datetime, timedelta
 from src.kroger_mcp.analytics.database import ensure_initialized, get_db_connection
 from src.kroger_mcp.analytics.pantry import (
     restock_item,
-    get_pantry_status,
-    add_to_pantry
+    get_pantry_status
 )
 from src.kroger_mcp.analytics.recommendations import get_comprehensive_recommendations
 
@@ -95,13 +94,13 @@ def test_frozen_items():
 
     result = restock_item('TEST_CHICKEN', description='Frozen Chicken Breast', level=100)
 
-    print(f"❄️  Frozen Chicken Breast")
+    print("❄️  Frozen Chicken Breast")
     print(f"   Expiration: {result['expiration_date']}")
     print(f"   Days until expiration: {result['days_to_expiration']}")
     print(f"   Auto-calculated: {result['auto_calculated']}")
 
     assert result['days_to_expiration'] == 180, "Frozen chicken should be 180 days"
-    print(f"   ✓ Correct: 6 month (180 day) shelf life\n")
+    print("   ✓ Correct: 6 month (180 day) shelf life\n")
 
 
 def test_treat_no_expiration():
@@ -110,13 +109,13 @@ def test_treat_no_expiration():
 
     result = restock_item('TEST_CANDY', description='Halloween Candy Mix', level=100)
 
-    print(f"🍬 Halloween Candy Mix")
+    print("🍬 Halloween Candy Mix")
     print(f"   Expiration: {result['expiration_date']}")
     print(f"   Days until expiration: {result['days_to_expiration']}")
     print(f"   Auto-calculated: {result['auto_calculated']}")
 
     assert result['expiration_date'] is None, "Treats should not expire"
-    print(f"   ✓ Correct: No expiration tracking\n")
+    print("   ✓ Correct: No expiration tracking\n")
 
 
 def test_pantry_status_with_expiration():
@@ -148,7 +147,7 @@ def test_pantry_status_with_expiration():
         if days is not None:
             print(f"   Expires: {item['expiration_date']} ({days} days)")
         else:
-            print(f"   Expires: Never (no expiration tracking)")
+            print("   Expires: Never (no expiration tracking)")
 
         print(f"   Status: {exp_status}")
         print()
@@ -267,7 +266,7 @@ def test_recommendations_with_expiration():
 
     # Show summary
     summary = result.get('summary', {})
-    print(f"Summary:")
+    print("Summary:")
     print(f"  Total recommendations: {summary.get('total_recommendations', 0)}")
     print(f"  Urgent needs: {summary.get('urgent_needs_count', 0)}")
     print(f"  Items low in pantry: {summary.get('items_low_pantry', 0)}")

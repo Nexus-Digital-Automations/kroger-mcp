@@ -65,14 +65,11 @@ def _build_calendar(plan, entries, recipe_map, week_offset: int = 0):
         return [], None, None
 
     start_dt = datetime.strptime(plan["start_date"], "%Y-%m-%d").date()
-    end_dt = datetime.strptime(plan["end_date"], "%Y-%m-%d").date()
 
     # Find Monday of the first week, then apply offset
     first_monday = start_dt - timedelta(days=start_dt.weekday())
     view_monday = first_monday + timedelta(weeks=week_offset)
 
-    # Clamp: don't go before plan start week
-    view_monday = max(view_monday, first_monday)
     view_sunday = view_monday + timedelta(days=6)
 
     week_dates = [view_monday + timedelta(days=i) for i in range(7)]
@@ -107,7 +104,7 @@ def _build_calendar(plan, entries, recipe_map, week_offset: int = 0):
 
 
 @router.get("/meal-plan", response_class=HTMLResponse)
-async def meal_plan_page(request: Request, plan_id: Optional[str] = None, week: int = 0):
+async def meal_plan_page(request: Request, plan_id: Optional[str] = None, week: Optional[int] = None):
     plans = _get_all_plans(include_templates=False)
     all_plans_with_templates = _get_all_plans(include_templates=True)
     templates_list = [p for p in all_plans_with_templates if p.get("is_template")]
@@ -131,6 +128,11 @@ async def meal_plan_page(request: Request, plan_id: Optional[str] = None, week: 
     cooked_count = 0
     summary = {"meal_count": 0, "unique_recipes": 0, "cooked_count": 0}
 
+    # week=None means first load — auto-advance to first week with entries.
+    # week=<explicit int> means user navigated — honor it as-is.
+    explicit_week = week is not None
+    week_offset = week if week is not None else 0
+
     if active_plan:
         entries = _get_plan_entries(active_plan["id"])
         total_meals = len(entries)
@@ -142,18 +144,17 @@ async def meal_plan_page(request: Request, plan_id: Optional[str] = None, week: 
             "cooked_count": cooked_count,
         }
 
-        # Auto-advance to the first week that contains entries when using default offset
-        if entries and week == 0:
-            from datetime import date as date_type
+        # Auto-advance only on first load (no explicit week param)
+        if entries and not explicit_week:
             start_dt = datetime.strptime(active_plan["start_date"], "%Y-%m-%d").date()
             first_monday = start_dt - timedelta(days=start_dt.weekday())
             entry_dates = [datetime.strptime(e["meal_date"], "%Y-%m-%d").date() for e in entries]
             earliest = min(entry_dates)
             default_week_end = first_monday + timedelta(days=6)
             if earliest > default_week_end:
-                week = (earliest - first_monday).days // 7
+                week_offset = (earliest - first_monday).days // 7
 
-        calendar, week_dates, _ = _build_calendar(active_plan, entries, recipe_map, week)
+        calendar, week_dates, _ = _build_calendar(active_plan, entries, recipe_map, week_offset)
 
     today = datetime.now().date()
     recipes = recipe_data.get("recipes", [])
@@ -167,7 +168,7 @@ async def meal_plan_page(request: Request, plan_id: Optional[str] = None, week: 
         "calendar": calendar,
         "week_dates": week_dates,
         "today": today,
-        "week_offset": week,
+        "week_offset": week_offset,
         "total_meals": total_meals,
         "unique_recipe_count": len(unique_recipes),
         "cooked_count": cooked_count,

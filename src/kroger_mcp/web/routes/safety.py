@@ -33,6 +33,7 @@ async def safety_page(request: Request):
     except Exception:
         pass
 
+    custom_ingredients = []
     try:
         from kroger_mcp.analytics.database import get_db_connection
         conn = get_db_connection()
@@ -44,6 +45,17 @@ async def safety_page(request: Request):
     except Exception:
         pass
 
+    try:
+        from kroger_mcp.analytics.database import get_db_connection
+        conn2 = get_db_connection()
+        cursor = conn2.execute(
+            "SELECT * FROM custom_ingredients WHERE is_active = 1 ORDER BY ingredient_name"
+        )
+        custom_ingredients = [dict(row) for row in cursor.fetchall()]
+        conn2.close()
+    except Exception:
+        pass
+
     return templates.TemplateResponse("safety.html", {
         "request": request,
         "active_page": "safety",
@@ -51,4 +63,5 @@ async def safety_page(request: Request):
         "safe_count": safe_count,
         "blocked_count": blocked_count,
         "ingredient_count": ingredient_count,
+        "custom_ingredients": custom_ingredients,
     })

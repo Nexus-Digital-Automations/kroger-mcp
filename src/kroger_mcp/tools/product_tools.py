@@ -3,6 +3,7 @@ Product search and management tools for Kroger MCP server.
 """
 
 import asyncio
+import functools
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
@@ -13,12 +14,14 @@ from pydantic import Field
 from .shared import (
     format_currency,
     get_client_credentials_client,
+    get_default_zip_code,
     get_preferred_location_id,
+    set_preferred_location_id,
 )
 from ..analytics.database import get_db_connection, get_db_cursor
 from ..analytics.deals import record_price_observation
 from ..analytics.favorites import get_all_favorite_product_ids
-from ..analytics.ingredients import check_product_safety
+from ..analytics.ingredients import check_product_safety, score_to_status
 from ..analytics.safety import (
     BlockMode,
     get_all_blocked_product_ids,
@@ -105,78 +108,84 @@ def register_tools(mcp):
             "scan_for_whole_foods",
         ] = Field(
             description=(
-                "Action: 'search' - search for products by term, "
-                "'get_details' - get detailed info for product(s), "
-                "'get_images' - get product image from a perspective, "
-                "'search_by_id' - search products by product ID, "
-                "'add_to_whole_foods' - add product to whole foods catalog, "
-                "'get_whole_foods_catalog' - view whole foods catalog, "
-                "'scan_for_whole_foods' - find qualifying whole foods by category"
+                "search — batch via search_terms=[...] (max 10). "
+                "search_by_id — batch via product_ids (max 20). "
+                "Other: get_details|get_images|add_to_whole_foods|get_whole_foods_catalog|scan_for_whole_foods"
             )
         ),
         search_term: Optional[str] = Field(
             default=None,
-            description="Single search term e.g. 'milk' (for search single mode)",
+            description="Search term e.g. milk",
         ),
         search_terms: Optional[List[str]] = Field(
             default=None,
-            description="List of search terms e.g. ['milk', 'bread'] (for search batch mode, max 10)",
+            description="Batch search terms (max 10)",
         ),
         product_id: Optional[str] = Field(
             default=None,
-            description="Product ID (for get_details single mode, get_images, search_by_id, add_to_whole_foods)",
+            description="Product ID",
         ),
         product_ids: Optional[List[str]] = Field(
             default=None,
-            description="List of product IDs (for get_details batch mode, max 20)",
+            description="Product IDs for batch (max 20)",
         ),
         location_id: Optional[str] = Field(
             default=None,
-            description="Store location ID (uses preferred if not provided)",
+            description="Store location ID",
         ),
         limit: Optional[int] = Field(
             default=10,
-            description="Results per term 1-50 (for search), max products to return (for get_whole_foods_catalog, scan_for_whole_foods)",
+            description="Max results to return",
         ),
         fulfillment: Optional[str] = Field(
             default=None,
-            description="Filter by fulfillment: 'csp', 'delivery', or 'pickup' (for search)",
+            description="csp|delivery|pickup",
         ),
         brand: Optional[str] = Field(
             default=None,
-            description="Filter by brand name (for search)",
+            description="Filter by brand name",
         ),
         prioritize_favorites: Optional[bool] = Field(
             default=True,
-            description="Boost favorite items to top of results (for search, search_by_id)",
+            description="Boost favorites to top",
         ),
         perspective: Optional[str] = Field(
             default="front",
-            description="Image perspective: 'front', 'back', 'left', 'right' (for get_images)",
+            description="front|back|left|right",
         ),
         description: Optional[str] = Field(
             default=None,
-            description="Product description (for add_to_whole_foods, optional)",
+            description="Product description",
         ),
         verify_safety: Optional[bool] = Field(
             default=True,
-            description="Verify product passes safety checks before adding (for add_to_whole_foods)",
+            description="Verify safety before adding",
         ),
         include_unavailable: Optional[bool] = Field(
             default=False,
-            description="Include products marked as unavailable (for get_whole_foods_catalog)",
+            description="Include unavailable products",
         ),
         category: Optional[str] = Field(
             default=None,
-            description="Category to search: 'produce', 'dairy', 'meat', 'bakery', 'frozen' (for scan_for_whole_foods)",
+            description="produce|dairy|meat|bakery|frozen",
         ),
         auto_add: Optional[bool] = Field(
             default=False,
-            description="Automatically add qualifying products to catalog (for scan_for_whole_foods)",
+            description="Auto-add qualifying products",
         ),
         ctx: Context = None,
     ) -> Any:
-        """Product search, details, images, and whole foods catalog operations."""
+        """Product search with batch support and safety integration.
+
+        search — single or batch (search_terms=[...], max 10). Auto-checks safety.
+        search_by_id — look up products by ID (batch: product_ids, max 20).
+        get_details — full product info including pricing and availability.
+        Whole foods: add_to_whole_foods, get_whole_foods_catalog, scan_for_whole_foods.
+        Images: get_images (perspective: front|back|left|right).
+
+        Safety filtering is ON by default (verify_safety=True). Favorites boosted
+        in results when prioritize_favorites=True (default).
+        """
 
         # ---- Shared helpers ----
 
@@ -184,11 +193,26 @@ def register_tools(mcp):
             if not loc_id:
                 loc_id = get_preferred_location_id()
             if not loc_id:
+                # Auto-detect: search near default zip and cache the first result
+                zip_code = get_default_zip_code()
+                try:
+                    client = get_client_credentials_client()
+                    results = client.locations.search(
+                        zip_code=zip_code, radius_in_miles=10, limit=1
+                    )
+                    if results:
+                        loc_id = results[0]["locationId"]
+                        set_preferred_location_id(loc_id)
+                except Exception:
+                    pass
+            if not loc_id:
                 return None, {
                     "success": False,
                     "error": (
-                        "No location_id provided and no preferred location set. "
-                        "Use location(action='set_preferred') first."
+                        "No location_id provided, no preferred location set, and "
+                        f"auto-detect failed (searched zip: {zip_code}). "
+                        "Call location(action='set_preferred', zip_code='YOUR_ZIP') "
+                        "to set a store manually."
                     ),
                 }
             return loc_id, None
@@ -211,7 +235,7 @@ def register_tools(mcp):
 
         match action:
             case "search":
-                loc_id, err = _get_location(location_id)
+                loc_id, err = await asyncio.to_thread(_get_location, location_id)
                 if err:
                     return err
 
@@ -237,7 +261,7 @@ def register_tools(mcp):
                     else:
                         await ctx.info(f"Searching for '{terms[0]}' at location {loc_id}")
 
-                client = get_client_credentials_client()
+                client = await asyncio.to_thread(get_client_credentials_client)
                 _prio_favs = prioritize_favorites if prioritize_favorites is not None else True
 
                 favorite_ids = set()
@@ -306,11 +330,17 @@ def register_tools(mcp):
                             fp["is_safe_listed"] = True
                             fp["is_blocked"] = False
                             fp["safety_status"] = "safe"
+                            fp["safety_score"] = None
+                            fp["safety_grade"] = None
+                            fp["positive_attributes"] = []
                             fp["flagged_ingredients"] = []
                         elif pid in blocked_ids:
                             fp["is_safe_listed"] = False
                             fp["is_blocked"] = True
                             fp["safety_status"] = "blocked"
+                            fp["safety_score"] = None
+                            fp["safety_grade"] = None
+                            fp["positive_attributes"] = []
                             fp["flagged_ingredients"] = []
                         else:
                             fp["is_safe_listed"] = False
@@ -320,67 +350,74 @@ def register_tools(mcp):
                                 brand=fp.get("brand"),
                                 disabled_ingredients=disabled,
                             )
-                            if not safety_result.has_concerns:
-                                fp["safety_status"] = "unknown"
-                                fp["flagged_ingredients"] = []
-                            else:
-                                fp["safety_status"] = safety_result.highest_severity.value
-                                fp["flagged_ingredients"] = [
-                                    {
-                                        "ingredient": m.ingredient_name,
-                                        "severity": m.severity.value,
-                                        "reason": m.reason,
-                                        "matched_text": m.matched_text,
-                                    }
-                                    for m in safety_result.matches
-                                ]
+                            fp["safety_status"] = score_to_status(safety_result.score)
+                            fp["safety_score"] = safety_result.score
+                            fp["safety_grade"] = safety_result.grade
+                            fp["positive_attributes"] = [
+                                {"attribute": a.attribute_name, "bonus": a.bonus, "benefit": a.benefit}
+                                for a in safety_result.positive_attributes
+                            ]
+                            fp["flagged_ingredients"] = [
+                                {
+                                    "ingredient": m.ingredient_name,
+                                    "severity": m.severity.value,
+                                    "reason": m.reason,
+                                    "matched_text": m.matched_text,
+                                }
+                                for m in safety_result.matches
+                            ]
                     else:
                         fp["is_safe_listed"] = False
                         fp["is_blocked"] = False
-                        fp["safety_status"] = "unknown"
+                        fp["safety_status"] = "acceptable"
+                        fp["safety_score"] = 60
+                        fp["safety_grade"] = "C"
+                        fp["positive_attributes"] = []
                         fp["flagged_ingredients"] = []
                     return fp
 
                 def mark_and_sort(plist):
                     fav_count = 0
                     safety_counts = {
-                        "safe": 0, "blocked": 0, "critical": 0,
-                        "warning": 0, "watch": 0, "unknown": 0,
+                        "safe": 0, "blocked": 0, "excellent": 0,
+                        "good": 0, "acceptable": 0, "poor": 0, "avoid": 0,
                     }
                     for p in plist:
                         is_fav = p.get("product_id") in favorite_ids
                         p["is_favorite"] = is_fav
                         if is_fav:
                             fav_count += 1
-                        status = p.get("safety_status", "unknown")
+                        status = p.get("safety_status", "acceptable")
                         if status in safety_counts:
                             safety_counts[status] += 1
 
                     if filtering and bmode == BlockMode.HARD:
                         plist = [
                             p for p in plist
-                            if p.get("safety_status") not in ("blocked", "critical")
+                            if p.get("safety_status") not in ("blocked", "avoid")
                         ]
 
                     def sort_key(p):
-                        status = p.get("safety_status", "unknown")
+                        status = p.get("safety_status", "acceptable")
                         is_fav = p.get("is_favorite", False)
                         is_safe = p.get("is_safe_listed", False)
                         if is_safe:
                             return 0
-                        elif is_fav and status not in ("blocked", "critical"):
+                        elif is_fav:
                             return 1
-                        elif status == "unknown":
+                        elif status == "excellent":
                             return 2
-                        elif status == "watch":
+                        elif status == "good":
                             return 3
-                        elif status == "warning":
+                        elif status == "acceptable":
                             return 4
-                        elif status == "critical":
+                        elif status == "poor":
                             return 5
-                        elif status == "blocked":
+                        elif status == "avoid":
                             return 6
-                        return 7
+                        elif status == "blocked":
+                            return 7
+                        return 8
 
                     if _prio_favs or filtering:
                         plist = sorted(plist, key=sort_key)
@@ -388,12 +425,15 @@ def register_tools(mcp):
 
                 async def search_single(term: str):
                     try:
-                        prods = client.product.search_products(
-                            term=term,
-                            location_id=loc_id,
-                            limit=_limit,
-                            fulfillment=fulfillment,
-                            brand=brand,
+                        prods = await asyncio.to_thread(
+                            functools.partial(
+                                client.product.search_products,
+                                term=term,
+                                location_id=loc_id,
+                                limit=_limit,
+                                fulfillment=fulfillment,
+                                brand=brand,
+                            )
                         )
                         if not prods or "data" not in prods or not prods["data"]:
                             return (term, {"count": 0, "favorites_count": 0, "safety_counts": {}, "data": []})
@@ -428,7 +468,7 @@ def register_tools(mcp):
                         errors = {}
                         total_results = 0
                         total_favorites = 0
-                        total_safety = {"safe": 0, "blocked": 0, "critical": 0, "warning": 0, "watch": 0, "unknown": 0}
+                        total_safety = {"safe": 0, "blocked": 0, "excellent": 0, "good": 0, "acceptable": 0, "poor": 0, "avoid": 0}
 
                         for term, result in results_list:
                             if "error" in result:
@@ -442,7 +482,7 @@ def register_tools(mcp):
                                         total_safety[k] += v
 
                         if ctx:
-                            flagged = total_safety.get("critical", 0) + total_safety.get("warning", 0)
+                            flagged = total_safety.get("avoid", 0) + total_safety.get("poor", 0)
                             await ctx.info(f"Found {total_results} products ({total_favorites} favorites, {flagged} flagged)")
 
                         return {
@@ -462,7 +502,7 @@ def register_tools(mcp):
                             return {"success": False, "error": result["error"], "data": []}
 
                         safety_counts = result.get("safety_counts", {})
-                        flagged = safety_counts.get("critical", 0) + safety_counts.get("warning", 0)
+                        flagged = safety_counts.get("avoid", 0) + safety_counts.get("poor", 0)
 
                         if ctx:
                             await ctx.info(f"Found {result['count']} products ({result['favorites_count']} favorites, {flagged} flagged)")
@@ -489,7 +529,7 @@ def register_tools(mcp):
                     return {"success": False, "error": str(e), "data": []}
 
             case "get_details":
-                loc_id, err = _get_location(location_id)
+                loc_id, err = await asyncio.to_thread(_get_location, location_id)
                 if err:
                     return err
 
@@ -512,7 +552,7 @@ def register_tools(mcp):
                     else:
                         await ctx.info(f"Getting details for product {ids[0]}")
 
-                client = get_client_credentials_client()
+                client = await asyncio.to_thread(get_client_credentials_client)
 
                 def format_details(product: Dict) -> Dict:
                     result = {
@@ -575,8 +615,12 @@ def register_tools(mcp):
 
                 async def fetch_single(pid: str):
                     try:
-                        product_details = client.product.get_product(
-                            product_id=pid, location_id=loc_id
+                        product_details = await asyncio.to_thread(
+                            functools.partial(
+                                client.product.get_product,
+                                product_id=pid,
+                                location_id=loc_id,
+                            )
                         )
                         if not product_details or "data" not in product_details:
                             return (pid, {"error": f"Product {pid} not found"})
@@ -632,7 +676,7 @@ def register_tools(mcp):
                 if not product_id:
                     return {"success": False, "error": "product_id is required"}
 
-                loc_id, err = _get_location(location_id)
+                loc_id, err = await asyncio.to_thread(_get_location, location_id)
                 if err:
                     return err
 
@@ -641,11 +685,15 @@ def register_tools(mcp):
                 if ctx:
                     await ctx.info(f"Fetching images for product {product_id} at location {loc_id}")
 
-                client = get_client_credentials_client()
+                client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
-                    product_details = client.product.get_product(
-                        product_id=product_id, location_id=loc_id
+                    product_details = await asyncio.to_thread(
+                        functools.partial(
+                            client.product.get_product,
+                            product_id=product_id,
+                            location_id=loc_id,
+                        )
                     )
                     if not product_details or "data" not in product_details:
                         return {"success": False, "message": f"Product {product_id} not found"}
@@ -684,7 +732,7 @@ def register_tools(mcp):
                             try:
                                 if ctx:
                                     await ctx.info(f"Downloading {_perspective} image from {img_url}")
-                                response = requests.get(img_url)
+                                response = await asyncio.to_thread(requests.get, img_url, timeout=10)
                                 response.raise_for_status()
                                 perspective_image = Image(data=response.content, format="jpeg")
                                 break
@@ -710,7 +758,7 @@ def register_tools(mcp):
                 if not product_id:
                     return {"success": False, "error": "product_id is required"}
 
-                loc_id, err = _get_location(location_id)
+                loc_id, err = await asyncio.to_thread(_get_location, location_id)
                 if err:
                     return err
 
@@ -719,12 +767,16 @@ def register_tools(mcp):
                 if ctx:
                     await ctx.info(f"Searching for products with ID '{product_id}' at location {loc_id}")
 
-                client = get_client_credentials_client()
+                client = await asyncio.to_thread(get_client_credentials_client)
                 filtering, safe_ids, blocked_ids, disabled, bmode = _get_safety_data()
 
                 try:
-                    prods = client.product.search_products(
-                        product_id=product_id, location_id=loc_id
+                    prods = await asyncio.to_thread(
+                        functools.partial(
+                            client.product.search_products,
+                            product_id=product_id,
+                            location_id=loc_id,
+                        )
                     )
                     if not prods or "data" not in prods or not prods["data"]:
                         return {"success": False, "message": f"No products found with ID '{product_id}'", "data": []}
@@ -754,11 +806,17 @@ def register_tools(mcp):
                                 fp["is_safe_listed"] = True
                                 fp["is_blocked"] = False
                                 fp["safety_status"] = "safe"
+                                fp["safety_score"] = None
+                                fp["safety_grade"] = None
+                                fp["positive_attributes"] = []
                                 fp["flagged_ingredients"] = []
                             elif pid in blocked_ids:
                                 fp["is_safe_listed"] = False
                                 fp["is_blocked"] = True
                                 fp["safety_status"] = "blocked"
+                                fp["safety_score"] = None
+                                fp["safety_grade"] = None
+                                fp["positive_attributes"] = []
                                 fp["flagged_ingredients"] = []
                             else:
                                 fp["is_safe_listed"] = False
@@ -766,24 +824,29 @@ def register_tools(mcp):
                                 safety_result = check_product_safety(
                                     description=desc, brand=prd_brand, disabled_ingredients=disabled
                                 )
-                                if not safety_result.has_concerns:
-                                    fp["safety_status"] = "unknown"
-                                    fp["flagged_ingredients"] = []
-                                else:
-                                    fp["safety_status"] = safety_result.highest_severity.value
-                                    fp["flagged_ingredients"] = [
-                                        {
-                                            "ingredient": m.ingredient_name,
-                                            "severity": m.severity.value,
-                                            "reason": m.reason,
-                                            "matched_text": m.matched_text,
-                                        }
-                                        for m in safety_result.matches
-                                    ]
+                                fp["safety_status"] = score_to_status(safety_result.score)
+                                fp["safety_score"] = safety_result.score
+                                fp["safety_grade"] = safety_result.grade
+                                fp["positive_attributes"] = [
+                                    {"attribute": a.attribute_name, "bonus": a.bonus, "benefit": a.benefit}
+                                    for a in safety_result.positive_attributes
+                                ]
+                                fp["flagged_ingredients"] = [
+                                    {
+                                        "ingredient": m.ingredient_name,
+                                        "severity": m.severity.value,
+                                        "reason": m.reason,
+                                        "matched_text": m.matched_text,
+                                    }
+                                    for m in safety_result.matches
+                                ]
                         else:
                             fp["is_safe_listed"] = False
                             fp["is_blocked"] = False
-                            fp["safety_status"] = "unknown"
+                            fp["safety_status"] = "acceptable"
+                            fp["safety_score"] = 60
+                            fp["safety_grade"] = "C"
+                            fp["positive_attributes"] = []
                             fp["flagged_ingredients"] = []
                         formatted_products.append(fp)
 
@@ -795,45 +858,47 @@ def register_tools(mcp):
                             pass
 
                     favorites_count = 0
-                    safety_counts = {"safe": 0, "blocked": 0, "critical": 0, "warning": 0, "watch": 0, "unknown": 0}
+                    safety_counts = {"safe": 0, "blocked": 0, "excellent": 0, "good": 0, "acceptable": 0, "poor": 0, "avoid": 0}
                     for product in formatted_products:
                         is_fav = product.get("product_id") in favorite_ids
                         product["is_favorite"] = is_fav
                         if is_fav:
                             favorites_count += 1
-                        status = product.get("safety_status", "unknown")
+                        status = product.get("safety_status", "acceptable")
                         if status in safety_counts:
                             safety_counts[status] += 1
 
                     if filtering and bmode == BlockMode.HARD:
                         formatted_products = [
                             p for p in formatted_products
-                            if p.get("safety_status") not in ("blocked", "critical")
+                            if p.get("safety_status") not in ("blocked", "avoid")
                         ]
 
                     if _prio_favs or filtering:
                         def sort_key(p):
-                            status = p.get("safety_status", "unknown")
+                            status = p.get("safety_status", "acceptable")
                             is_fav = p.get("is_favorite", False)
                             is_safe = p.get("is_safe_listed", False)
                             if is_safe:
                                 return 0
-                            elif is_fav and status not in ("blocked", "critical"):
+                            elif is_fav:
                                 return 1
-                            elif status == "unknown":
+                            elif status == "excellent":
                                 return 2
-                            elif status == "watch":
+                            elif status == "good":
                                 return 3
-                            elif status == "warning":
+                            elif status == "acceptable":
                                 return 4
-                            elif status == "critical":
+                            elif status == "poor":
                                 return 5
-                            elif status == "blocked":
+                            elif status == "avoid":
                                 return 6
-                            return 7
+                            elif status == "blocked":
+                                return 7
+                            return 8
                         formatted_products = sorted(formatted_products, key=sort_key)
 
-                    flagged = safety_counts.get("critical", 0) + safety_counts.get("warning", 0)
+                    flagged = safety_counts.get("avoid", 0) + safety_counts.get("poor", 0)
                     if ctx:
                         await ctx.info(f"Found {len(formatted_products)} products ({favorites_count} favorites, {flagged} flagged)")
 
@@ -864,9 +929,13 @@ def register_tools(mcp):
                     loc_id = get_preferred_location_id()
                     if loc_id:
                         try:
-                            client = get_client_credentials_client()
-                            product_data = client.get_product(
-                                product_id=product_id, location_id=loc_id
+                            client = await asyncio.to_thread(get_client_credentials_client)
+                            product_data = await asyncio.to_thread(
+                                functools.partial(
+                                    client.get_product,
+                                    product_id=product_id,
+                                    location_id=loc_id,
+                                )
                             )
                             if product_data and product_data.get("data"):
                                 prod_desc = product_data["data"].get("description")
@@ -965,7 +1034,7 @@ def register_tools(mcp):
                 if not category:
                     return {"success": False, "error": "category is required"}
 
-                loc_id, err = _get_location(location_id)
+                loc_id, err = await asyncio.to_thread(_get_location, location_id)
                 if err:
                     return err
 
@@ -985,9 +1054,14 @@ def register_tools(mcp):
                     await ctx.info(f"Scanning for whole foods in category: {category}")
 
                 try:
-                    client = get_client_credentials_client()
-                    search_result = client.search_products(
-                        term=search_term_wf, location_id=loc_id, limit=_limit
+                    client = await asyncio.to_thread(get_client_credentials_client)
+                    search_result = await asyncio.to_thread(
+                        functools.partial(
+                            client.search_products,
+                            term=search_term_wf,
+                            location_id=loc_id,
+                            limit=_limit,
+                        )
                     )
                     if not search_result or not search_result.get("data"):
                         return {"success": False, "error": "Search failed or returned no results"}

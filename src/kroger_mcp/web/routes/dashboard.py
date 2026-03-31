@@ -29,7 +29,6 @@ def _get_pantry_alerts():
             ORDER BY level_percent ASC
         """)
         items = []
-        now = datetime.now()
         for row in cursor.fetchall():
             item = dict(row)
             level = item["level_percent"]

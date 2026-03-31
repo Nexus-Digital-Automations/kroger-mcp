@@ -2,8 +2,10 @@
 Shared utilities and client management for Kroger MCP server
 """
 
+import asyncio
 import os
 import json
+from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -19,7 +21,8 @@ _authenticated_client: Optional[KrogerAPI] = None
 _client_credentials_client: Optional[KrogerAPI] = None
 
 # JSON files for configuration storage
-PREFERENCES_FILE = "kroger_preferences.json"
+_BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
+PREFERENCES_FILE = str(_BASE_DIR / "kroger_preferences.json")
 
 
 def get_client_credentials_client() -> KrogerAPI:
@@ -150,9 +153,9 @@ def _save_preferences(preferences: dict) -> None:
 
 
 def get_preferred_location_id() -> Optional[str]:
-    """Get the current preferred location ID from preferences file"""
+    """Get preferred location ID: preferences file first, then KROGER_LOCATION_ID env var"""
     preferences = _load_preferences()
-    return preferences.get("preferred_location_id")
+    return preferences.get("preferred_location_id") or os.environ.get("KROGER_LOCATION_ID")
 
 
 def set_preferred_location_id(location_id: str) -> None:
@@ -188,6 +191,21 @@ def get_default_servings() -> int:
     return preferences.get("default_servings_per_meal", 4)
 
 
+# ==================== ASYNC WRAPPERS ====================
+# The Kroger API client uses synchronous HTTP (requests library). Calling it
+# directly from an async tool handler blocks the event loop for the duration of
+# the network round-trip. Use these wrappers from async handlers instead.
+
+async def async_get_client_credentials_client() -> KrogerAPI:
+    """Async wrapper for get_client_credentials_client() — runs in thread pool."""
+    return await asyncio.to_thread(get_client_credentials_client)
+
+
+async def async_get_authenticated_client() -> KrogerAPI:
+    """Async wrapper for get_authenticated_client() — runs in thread pool."""
+    return await asyncio.to_thread(get_authenticated_client)
+
+
 def set_default_servings(servings: int) -> None:
     """
     Set the user's default servings per meal preference.
@@ -209,4 +227,28 @@ def set_default_servings(servings: int) -> None:
 
     preferences = _load_preferences()
     preferences["default_servings_per_meal"] = servings
+    _save_preferences(preferences)
+
+
+def get_product_sort_preferences() -> dict:
+    """Get saved product page sort preferences."""
+    preferences = _load_preferences()
+    return preferences.get("product_sort", {
+        "search_sort_stack": ["favorites"],
+        "deals_sort_stack": [],
+    })
+
+
+def set_product_sort_preferences(
+    search_sort_stack: list, deals_sort_stack: list
+) -> None:
+    """Save product page sort preferences."""
+    valid_keys = {"favorites", "health", "price", "percent", "dollar"}
+    search_sort_stack = [k for k in search_sort_stack if k in valid_keys]
+    deals_sort_stack = [k for k in deals_sort_stack if k in valid_keys]
+    preferences = _load_preferences()
+    preferences["product_sort"] = {
+        "search_sort_stack": search_sort_stack,
+        "deals_sort_stack": deals_sort_stack,
+    }
     _save_preferences(preferences)

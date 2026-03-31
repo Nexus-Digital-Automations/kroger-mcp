@@ -220,6 +220,15 @@ def get_lists() -> List[Dict[str, Any]]:
             "is_default": row["id"] == "default"
         })
 
+    # Patch default list's item_count to reflect all unique products across all lists
+    with get_db_cursor() as cursor:
+        cursor.execute("SELECT COUNT(DISTINCT product_id) FROM favorite_list_items")
+        total_unique = cursor.fetchone()[0]
+
+    for lst in results:
+        if lst["id"] == "default":
+            lst["item_count"] = total_unique
+
     return results
 
 
@@ -265,12 +274,18 @@ def get_list(list_id: str) -> Optional[Dict[str, Any]]:
         row["reorder_weeks"]
     )
 
+    item_count = row["item_count"]
+    if row["id"] == "default":
+        with get_db_cursor() as cursor:
+            cursor.execute("SELECT COUNT(DISTINCT product_id) FROM favorite_list_items")
+            item_count = cursor.fetchone()[0]
+
     return {
         "id": row["id"],
         "name": row["name"],
         "description": row["description"],
         "list_type": row["list_type"],
-        "item_count": row["item_count"],
+        "item_count": item_count,
         "reorder_weeks": row["reorder_weeks"],
         "last_ordered_at": row["last_ordered_at"],
         "reorder_status": reorder_status,
@@ -404,7 +419,10 @@ def add_to_list(
     brand: Optional[str] = None,
     default_quantity: int = 1,
     preferred_modality: str = "PICKUP",
-    notes: Optional[str] = None
+    notes: Optional[str] = None,
+    min_stock_percent: Optional[int] = None,
+    min_stock_quantity: Optional[int] = None,
+    current_stock_quantity: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Add a product to a favorite list.
@@ -417,6 +435,9 @@ def add_to_list(
         default_quantity: Default quantity when ordering
         preferred_modality: PICKUP or DELIVERY
         notes: Optional notes
+        min_stock_percent: Reorder if pantry < this % (None = use global threshold)
+        min_stock_quantity: Target on-hand unit count (None = not tracked)
+        current_stock_quantity: Actual on-hand count (None = not tracked)
 
     Returns:
         Success status
@@ -437,11 +458,13 @@ def add_to_list(
                 """
                 INSERT INTO favorite_list_items
                 (list_id, product_id, description, brand, default_quantity,
-                 preferred_modality, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                 preferred_modality, notes, min_stock_percent, min_stock_quantity,
+                 current_stock_quantity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (list_id, product_id, description, brand, default_quantity,
-                 preferred_modality, notes)
+                 preferred_modality, notes, min_stock_percent, min_stock_quantity,
+                 current_stock_quantity)
             )
 
             # Update list's updated_at
@@ -515,8 +538,9 @@ def bulk_add_to_list(
                     """
                     INSERT INTO favorite_list_items
                     (list_id, product_id, description, brand, default_quantity,
-                     preferred_modality, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                     preferred_modality, notes, min_stock_percent, min_stock_quantity,
+                     current_stock_quantity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         list_id,
@@ -525,7 +549,10 @@ def bulk_add_to_list(
                         item.get("brand"),
                         item.get("default_quantity", 1),
                         item.get("preferred_modality", "PICKUP"),
-                        item.get("notes")
+                        item.get("notes"),
+                        item.get("min_stock_percent"),
+                        item.get("min_stock_quantity"),
+                        item.get("current_stock_quantity"),
                     )
                 )
                 added.append({
@@ -633,8 +660,63 @@ def get_list_items(
         "added_at": "fli.added_at DESC"
     }.get(sort_by, "fli.description")
 
+    # Aggregate sort uses aliases (GROUP BY query)
+    agg_sort_column = {
+        "description": "description",
+        "times_ordered": "times_ordered DESC",
+        "added_at": "added_at DESC"
+    }.get(sort_by, "description")
+
+    IS_DEFAULT = list_id == "default"
+
     with get_db_cursor() as cursor:
-        if include_pantry_status:
+        if IS_DEFAULT:
+            # Aggregate all items across all lists — live union view, deduped by product_id
+            if include_pantry_status:
+                cursor.execute(
+                    f"""
+                    SELECT
+                        fli.product_id,
+                        MIN(fli.description) as description,
+                        MIN(fli.brand) as brand,
+                        MAX(fli.default_quantity) as default_quantity,
+                        MIN(fli.preferred_modality) as preferred_modality,
+                        MIN(fli.notes) as notes,
+                        MIN(fli.added_at) as added_at,
+                        SUM(fli.times_ordered) as times_ordered,
+                        MIN(fli.min_stock_percent) as min_stock_percent,
+                        MIN(fli.min_stock_quantity) as min_stock_quantity,
+                        MIN(fli.current_stock_quantity) as current_stock_quantity,
+                        pi.level_percent,
+                        pi.daily_depletion_rate,
+                        pi.low_threshold
+                    FROM favorite_list_items fli
+                    LEFT JOIN pantry_items pi ON fli.product_id = pi.product_id
+                    GROUP BY fli.product_id
+                    ORDER BY {agg_sort_column}
+                    """
+                )
+            else:
+                cursor.execute(
+                    f"""
+                    SELECT
+                        fli.product_id,
+                        MIN(fli.description) as description,
+                        MIN(fli.brand) as brand,
+                        MAX(fli.default_quantity) as default_quantity,
+                        MIN(fli.preferred_modality) as preferred_modality,
+                        MIN(fli.notes) as notes,
+                        MIN(fli.added_at) as added_at,
+                        SUM(fli.times_ordered) as times_ordered,
+                        MIN(fli.min_stock_percent) as min_stock_percent,
+                        MIN(fli.min_stock_quantity) as min_stock_quantity,
+                        MIN(fli.current_stock_quantity) as current_stock_quantity
+                    FROM favorite_list_items fli
+                    GROUP BY fli.product_id
+                    ORDER BY {agg_sort_column}
+                    """
+                )
+        elif include_pantry_status:
             cursor.execute(
                 f"""
                 SELECT
@@ -646,6 +728,9 @@ def get_list_items(
                     fli.notes,
                     fli.added_at,
                     fli.times_ordered,
+                    fli.min_stock_percent,
+                    fli.min_stock_quantity,
+                    fli.current_stock_quantity,
                     pi.level_percent,
                     pi.daily_depletion_rate,
                     pi.low_threshold
@@ -667,7 +752,10 @@ def get_list_items(
                     fli.preferred_modality,
                     fli.notes,
                     fli.added_at,
-                    fli.times_ordered
+                    fli.times_ordered,
+                    fli.min_stock_percent,
+                    fli.min_stock_quantity,
+                    fli.current_stock_quantity
                 FROM favorite_list_items fli
                 WHERE fli.list_id = ?
                 ORDER BY {sort_column}
@@ -679,6 +767,10 @@ def get_list_items(
 
     items = []
     for row in rows:
+        min_pct = row["min_stock_percent"]
+        min_qty = row["min_stock_quantity"]
+        cur_qty = row["current_stock_quantity"]
+
         item = {
             "product_id": row["product_id"],
             "description": row["description"],
@@ -687,7 +779,10 @@ def get_list_items(
             "preferred_modality": row["preferred_modality"],
             "notes": row["notes"],
             "added_at": row["added_at"],
-            "times_ordered": row["times_ordered"]
+            "times_ordered": row["times_ordered"],
+            "min_stock_percent": min_pct,
+            "min_stock_quantity": min_qty,
+            "current_stock_quantity": cur_qty,
         }
 
         if include_pantry_status:
@@ -713,6 +808,17 @@ def get_list_items(
                     "level_percent": None,
                     "needs_reorder": None
                 }
+
+            # Compute per-item minimum stock status
+            below_min_percent = (
+                min_pct is not None and (level is None or level < min_pct)
+            )
+            below_min_quantity = (
+                min_qty is not None and (cur_qty is None or cur_qty < min_qty)
+            )
+            item["below_min_percent"] = below_min_percent
+            item["below_min_quantity"] = below_min_quantity
+            item["needs_restock"] = below_min_percent or below_min_quantity
 
         items.append(item)
 
@@ -742,7 +848,11 @@ def update_list_item(
     """
     ensure_initialized()
 
-    allowed_fields = {"default_quantity", "preferred_modality", "notes"}
+    allowed_fields = {
+        "default_quantity", "preferred_modality", "notes",
+        "min_stock_percent", "min_stock_quantity", "current_stock_quantity",
+    }
+    # Use `is not None` so 0 is a valid stock count but unprovided fields are skipped
     updates = {k: v for k, v in kwargs.items() if k in allowed_fields and v is not None}
 
     if not updates:
@@ -1029,6 +1139,93 @@ def update_list_schedule(
         "list_id": list_id,
         "reorder_weeks": reorder_weeks,
         "reorder_status": reorder_status
+    }
+
+
+def get_low_stock_items(list_id: str) -> Dict[str, Any]:
+    """
+    Return items from a favorites list that are below their user-defined minimum stock.
+
+    Only includes items that have at least one minimum configured
+    (min_stock_percent or min_stock_quantity).
+
+    Args:
+        list_id: The list ID
+
+    Returns:
+        Dict with low_stock_items list and summary counts
+    """
+    ensure_initialized()
+
+    lst = get_list(list_id)
+    if not lst:
+        return {"success": False, "error": f"List '{list_id}' not found"}
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                fli.product_id,
+                fli.description,
+                fli.brand,
+                fli.default_quantity,
+                fli.min_stock_percent,
+                fli.min_stock_quantity,
+                fli.current_stock_quantity,
+                pi.level_percent
+            FROM favorite_list_items fli
+            LEFT JOIN pantry_items pi ON fli.product_id = pi.product_id
+            WHERE fli.list_id = ?
+              AND (fli.min_stock_percent IS NOT NULL OR fli.min_stock_quantity IS NOT NULL)
+            ORDER BY fli.description
+            """,
+            (list_id,)
+        )
+        rows = cursor.fetchall()
+
+    low_stock = []
+    for row in rows:
+        min_pct = row["min_stock_percent"]
+        min_qty = row["min_stock_quantity"]
+        cur_qty = row["current_stock_quantity"]
+        level = row["level_percent"]
+
+        below_min_percent = min_pct is not None and (level is None or level < min_pct)
+        below_min_quantity = min_qty is not None and (cur_qty is None or cur_qty < min_qty)
+
+        if not (below_min_percent or below_min_quantity):
+            continue
+
+        reasons = []
+        if below_min_percent:
+            reasons.append(
+                f"Pantry {level if level is not None else 0}% < minimum {min_pct}%"
+            )
+        if below_min_quantity:
+            reasons.append(
+                f"Have {cur_qty if cur_qty is not None else 0} units, minimum is {min_qty}"
+            )
+
+        low_stock.append({
+            "product_id": row["product_id"],
+            "description": row["description"],
+            "brand": row["brand"],
+            "default_quantity": row["default_quantity"],
+            "min_stock_percent": min_pct,
+            "pantry_level": level,
+            "min_stock_quantity": min_qty,
+            "current_stock_quantity": cur_qty,
+            "below_min_percent": below_min_percent,
+            "below_min_quantity": below_min_quantity,
+            "restock_reasons": reasons,
+        })
+
+    return {
+        "success": True,
+        "list_id": list_id,
+        "list_name": lst["name"],
+        "low_stock_items": low_stock,
+        "count": len(low_stock),
     }
 
 

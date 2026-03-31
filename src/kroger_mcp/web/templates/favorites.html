@@ -16,6 +16,27 @@
   editName: '',
   editDescription: '',
   editReorderWeeks: '',
+  addListLoading: '',
+  addListMsg: '',
+  addListMsgListId: '',
+  async addToList(listId, listName) {
+    this.addListLoading = listId;
+    this.addListMsg = '';
+    this.addListMsgListId = '';
+    try {
+      const r = await fetch('/api/favorites/lists/' + listId + '/add-to-shopping-list', {method: 'POST'});
+      const d = await r.json();
+      this.addListMsgListId = listId;
+      if (r.ok && d.success) {
+        const skipped = d.items_skipped > 0 ? `, ${d.items_skipped} skipped (pantry OK)` : '';
+        this.addListMsg = `Added ${d.items_added} item${d.items_added !== 1 ? 's' : ''}${skipped}`;
+      } else {
+        this.addListMsg = d.error || 'Failed';
+      }
+      setTimeout(() => { if (this.addListMsgListId === listId) { this.addListMsg = ''; this.addListMsgListId = ''; } }, 4000);
+    } catch(e) { this.addListMsg = 'Network error'; this.addListMsgListId = listId; }
+    this.addListLoading = '';
+  },
   openEdit(id, name, desc, weeks) {
     this.editId = id;
     this.editName = name;
@@ -211,6 +232,18 @@
       <p class="text-xs text-gray-400 mt-2">Every {{ lst.reorder_weeks }} week{{ 's' if lst.reorder_weeks != 1 else '' }}</p>
       {% endif %}
     </a>
+    <!-- Add to List footer strip -->
+    <div class="border-t border-gray-50 px-5 py-2 flex items-center justify-between gap-2">
+      <button @click.stop="addToList('{{ lst.id }}', '{{ lst.name | e }}')"
+        :disabled="addListLoading === '{{ lst.id }}'"
+        class="text-xs font-medium px-3 py-1 border border-gray-200 text-gray-600 rounded-md hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 transition-colors">
+        <span x-show="addListLoading !== '{{ lst.id }}'">+ Add to List</span>
+        <span x-show="addListLoading === '{{ lst.id }}'">Adding...</span>
+      </button>
+      <span x-show="addListMsgListId === '{{ lst.id }}'"
+        class="text-xs text-emerald-700 truncate"
+        x-text="addListMsg"></span>
+    </div>
   </div>
   {% endfor %}
 </div>

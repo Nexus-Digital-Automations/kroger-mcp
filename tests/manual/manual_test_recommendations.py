@@ -20,7 +20,7 @@ def test_basic_recommendations():
     )
 
     print(f"\nSuccess: {result['success']}")
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(json.dumps(result['summary'], indent=2))
 
     print(f"\nUrgent Needs ({len(result['urgent_needs'])}):")
@@ -46,7 +46,7 @@ def test_urgent_only():
     )
 
     print(f"\nTotal recommendations: {result['summary']['total_recommendations']}")
-    print(f"All items should have score >= 80")
+    print("All items should have score >= 80")
 
     for item in result['urgent_needs'][:5]:
         print(f"  - {item['description']} (score: {item['score']})")
@@ -176,7 +176,7 @@ def test_comprehensive_output():
             assert field in item, f"Missing item field: {field}"
 
         print("✓ All item fields present")
-        print(f"\nSample item structure:")
+        print("\nSample item structure:")
         print(json.dumps(item, indent=2, default=str))
 
 

@@ -5,6 +5,7 @@ Provides the 'notion' action-based tool for syncing recipes
 to a Notion database with two-way sync support.
 """
 
+import asyncio
 import os
 from typing import Any, Dict, List, Literal, Optional
 
@@ -20,6 +21,7 @@ from ..analytics.notion_sync import (
     sync_all,
     update_recipe_tags,
 )
+from .recipe_tools import RECIPES_FILE
 
 
 def _get_api_key() -> Optional[str]:
@@ -36,10 +38,9 @@ def _load_all_recipes() -> List[Dict[str, Any]]:
     """Load all recipes from local JSON storage."""
     import json
 
-    recipes_file = "kroger_recipes.json"
     try:
-        if os.path.exists(recipes_file):
-            with open(recipes_file, "r") as f:
+        if os.path.exists(RECIPES_FILE):
+            with open(RECIPES_FILE, "r") as f:
                 data = json.load(f)
                 return data.get("recipes", [])
     except Exception:
@@ -61,32 +62,23 @@ def register_tools(mcp):
             "get_status",
             "view_recipe",
         ] = Field(
-            description=(
-                "Action to perform: "
-                "'setup' - Create Notion database and perform initial sync of all recipes; "
-                "'sync_all' - Re-push all local recipes to Notion (full resync); "
-                "'pull_changes' - Import edits made in Notion back to local recipes; "
-                "'update_tags' - Update tags on one recipe in Notion (requires recipe_id, tags); "
-                "'bulk_tag' - Add a tag to many recipes at once (requires recipe_ids and tag); "
-                "'get_status' - Show sync health: total recipes, synced count, last sync time; "
-                "'view_recipe' - Get the Notion URL for a recipe (requires recipe_id)"
-            )
+            description="setup|sync_all|pull_changes|update_tags|bulk_tag|get_status|view_recipe"
         ),
         recipe_id: Optional[str] = Field(
             default=None,
-            description="Recipe ID. Required for: update_tags, view_recipe",
+            description="Recipe ID",
         ),
         recipe_ids: Optional[List[str]] = Field(
             default=None,
-            description="List of recipe IDs. Used by: bulk_tag",
+            description="List of recipe IDs",
         ),
         tags: Optional[List[str]] = Field(
             default=None,
-            description="Tag list to set on the recipe. Required for: update_tags",
+            description="Tag list to set on recipe",
         ),
         tag: Optional[str] = Field(
             default=None,
-            description="Single tag to add. Required for: bulk_tag",
+            description="Single tag to add",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
@@ -107,6 +99,11 @@ def register_tools(mcp):
         - get_status: Show sync health stats
         - view_recipe: Get the Notion page URL for a specific recipe
         """
+        return await asyncio.to_thread(
+            _notion_impl, action, recipe_id, recipe_ids, tags, tag, ctx,
+        )
+
+    def _notion_impl(action, recipe_id, recipe_ids, tags, tag, ctx):
         api_key = _get_api_key()
         if not api_key:
             return {
@@ -130,7 +127,7 @@ def register_tools(mcp):
                     }
 
                 if ctx:
-                    await ctx.info("Creating Notion database for recipes...")
+                    ctx.info("Creating Notion database for recipes...")
 
                 try:
                     database_id = setup_database(workspace_id, api_key)
@@ -145,7 +142,7 @@ def register_tools(mcp):
                     }
 
                 if ctx:
-                    await ctx.info("Syncing all existing recipes to Notion...")
+                    ctx.info("Syncing all existing recipes to Notion...")
 
                 recipes = _load_all_recipes()
                 stats = sync_all(recipes, api_key, database_id)
@@ -176,7 +173,7 @@ def register_tools(mcp):
                     }
 
                 if ctx:
-                    await ctx.info("Syncing all recipes to Notion...")
+                    ctx.info("Syncing all recipes to Notion...")
 
                 recipes = _load_all_recipes()
                 if not recipes:
@@ -207,7 +204,7 @@ def register_tools(mcp):
                     }
 
                 if ctx:
-                    await ctx.info("Fetching changes from Notion...")
+                    ctx.info("Fetching changes from Notion...")
 
                 try:
                     updates = pull_changes(api_key, database_id)
@@ -228,7 +225,7 @@ def register_tools(mcp):
                 # Apply changes to local recipes
                 import json
 
-                recipes_file = "kroger_recipes.json"
+                recipes_file = RECIPES_FILE
                 applied = []
                 try:
                     with open(recipes_file, "r") as f:
@@ -299,7 +296,7 @@ def register_tools(mcp):
                 # Also update local recipe
                 import json
 
-                recipes_file = "kroger_recipes.json"
+                recipes_file = RECIPES_FILE
                 try:
                     with open(recipes_file, "r") as f:
                         data = json.load(f)
@@ -346,7 +343,7 @@ def register_tools(mcp):
                     }
 
                 if ctx:
-                    await ctx.info(f"Adding tag '{tag}' to {len(target_ids)} recipe(s)...")
+                    ctx.info(f"Adding tag '{tag}' to {len(target_ids)} recipe(s)...")
 
                 try:
                     result = bulk_tag(target_ids, tag, api_key, database_id)
@@ -359,7 +356,7 @@ def register_tools(mcp):
                 # Also update local recipes
                 import json
 
-                recipes_file = "kroger_recipes.json"
+                recipes_file = RECIPES_FILE
                 try:
                     with open(recipes_file, "r") as f:
                         data = json.load(f)

@@ -21,6 +21,23 @@
   editReorderWeeks: '{{ lst.reorder_weeks or '' }}',
   loading: false,
   error: '',
+  addListLoading: false,
+  addListMsg: '',
+  async addToList() {
+    this.addListLoading = true; this.addListMsg = '';
+    try {
+      const r = await fetch('/api/favorites/lists/{{ lst.id }}/add-to-shopping-list', {method: 'POST'});
+      const d = await r.json();
+      if (r.ok && d.success) {
+        const skipped = d.items_skipped > 0 ? `, ${d.items_skipped} skipped` : '';
+        this.addListMsg = `Added ${d.items_added} item${d.items_added !== 1 ? 's' : ''}${skipped}`;
+      } else {
+        this.addListMsg = d.error || 'Failed';
+      }
+      setTimeout(() => { this.addListMsg = ''; }, 4000);
+    } catch(e) { this.addListMsg = 'Network error'; }
+    this.addListLoading = false;
+  },
   async submitEdit() {
     if (!this.editName.trim()) { this.error = 'Name is required'; return; }
     this.loading = true; this.error = '';
@@ -93,6 +110,12 @@
         class="px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
         Edit
       </button>
+      <button @click="addToList()" :disabled="addListLoading"
+        class="px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 transition-colors">
+        <span x-show="!addListLoading">+ Add to List</span>
+        <span x-show="addListLoading">Adding...</span>
+      </button>
+      <span x-show="addListMsg" class="text-xs text-emerald-700" x-text="addListMsg"></span>
       {% set color_map = {"red": "bg-red-100 text-red-700", "amber": "bg-amber-100 text-amber-700", "emerald": "bg-emerald-100 text-emerald-700", "gray": "bg-gray-100 text-gray-500"} %}
       <span class="text-sm px-3 py-1 rounded-full font-medium
         {{ color_map.get(badge_color, 'bg-gray-100 text-gray-500') }}">

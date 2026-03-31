@@ -13,6 +13,7 @@ Environment Variables Required:
 """
 
 import asyncio
+import sys
 from fastmcp import FastMCP
 
 # Import all tool modules
@@ -38,6 +39,9 @@ from .config import prompts
 # Import session state manager
 from .config.session_state import get_session_manager
 
+# Import database initializer — run at startup to avoid first-call migration hang
+from .analytics.database import ensure_initialized
+
 
 async def _cleanup_stale_sessions():
     """Background task to cleanup stale sessions."""
@@ -49,6 +53,13 @@ async def _cleanup_stale_sessions():
 
 def create_server() -> FastMCP:
     """Create and configure the FastMCP server instance"""
+    # Run DB migration at startup, not on the first live tool call.
+    # ensure_initialized() is idempotent — safe to call multiple times.
+    # Without this, the first pantry/safety/meal-planner tool call after a
+    # fresh server start would block the event loop for the full migration
+    # duration, causing the MCP client to time out and requiring a reboot.
+    ensure_initialized()
+
     # TODO: Implement session cleanup using FastMCP lifecycle hooks
     # The _cleanup_stale_sessions() function is defined above but not currently
     # scheduled because asyncio.create_task() requires a running event loop.
@@ -122,13 +133,13 @@ def create_server() -> FastMCP:
 
         User Servings Preference (Household Size):
         Users can set their default servings per meal (household size) via
-        utility(action='set_servings', servings=N). This preference is automatically used when:
+        info(action='set_servings', servings=N). This preference is automatically used when:
         - Creating new recipes (if servings not explicitly specified)
         - Adding recipes to shopping list (if override not specified)
         - Assigning recipes to meal plans (if servings_override not specified)
         - Displaying recipe information
 
-        The current default can be retrieved with utility(action='get_servings').
+        The current default can be retrieved with info(action='get_servings').
 
         IMPORTANT: Always display servings information when discussing recipes,
         ingredients, and shopping lists. This helps users understand quantities
@@ -143,7 +154,7 @@ def create_server() -> FastMCP:
         - Skip items already in pantry
 
         Shopping list workflow:
-        1. utility(action='set_servings', servings=2) - Set household size (one-time setup)
+        1. info(action='set_servings', servings=2) - Set household size (one-time setup)
         2. pantry(action='get_attention') - REQUIRED before adding to list/cart
         3. shopping_list(action='add_recipe', recipe_id=...) - Auto-scales to household default
         4. shopping_list(action='get') - Review consolidated list
@@ -163,8 +174,8 @@ def create_server() -> FastMCP:
         conversation ends.
 
         Common workflows:
-        1. Set a preferred location with locations(action='set_preferred')
-        2. Set household size with utility(action='set_servings')
+        1. Set a preferred location with location(action='set_preferred')
+        2. Set household size with info(action='set_servings')
         3. Search for products with products(action='search') (prices automatically tracked)
         4. Find deals with deals(action='find') (by category or search term)
         5. Check product safety with safety_check(action='check_product') before adding
@@ -215,25 +226,34 @@ def create_server() -> FastMCP:
         """
     )
 
+    def _register(module, name):
+        try:
+            module.register_tools(mcp)
+        except Exception as e:
+            print(f"[kroger-mcp] WARNING: Failed to register {name}: {e}", file=sys.stderr)
+
     # Register all tools from the modules
-    location_tools.register_tools(mcp)
-    product_tools.register_tools(mcp)
-    cart_tools.register_tools(mcp)
-    info_tools.register_tools(mcp)
-    auth_tools.register_tools(mcp)
-    prediction_tools.register_tools(mcp)
-    recipe_tools.register_tools(mcp)
-    reporting_tools.register_tools(mcp)
-    favorites_tools.register_tools(mcp)
-    meal_planner_tools.register_tools(mcp)
-    safety_tools.register_tools(mcp)
-    deal_tools.register_tools(mcp)
-    ingredient_management_tools.register_tools(mcp)
-    shopping_list_tools.register_tools(mcp)
-    notion_tools.register_tools(mcp)
+    _register(location_tools, "location_tools")
+    _register(product_tools, "product_tools")
+    _register(cart_tools, "cart_tools")
+    _register(info_tools, "info_tools")
+    _register(auth_tools, "auth_tools")
+    _register(prediction_tools, "prediction_tools")
+    _register(recipe_tools, "recipe_tools")
+    _register(reporting_tools, "reporting_tools")
+    _register(favorites_tools, "favorites_tools")
+    _register(meal_planner_tools, "meal_planner_tools")
+    _register(safety_tools, "safety_tools")
+    _register(deal_tools, "deal_tools")
+    _register(ingredient_management_tools, "ingredient_management_tools")
+    _register(shopping_list_tools, "shopping_list_tools")
+    _register(notion_tools, "notion_tools")
 
     # Register prompts
-    prompts.register_prompts(mcp)
+    try:
+        prompts.register_prompts(mcp)
+    except Exception as e:
+        print(f"[kroger-mcp] WARNING: Failed to register prompts: {e}", file=sys.stderr)
 
     return mcp
 

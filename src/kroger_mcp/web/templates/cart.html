@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Cart — Smart Shopper{% endblock %}
-{% block heading %}Cart{% endblock %}
+{% block title %}List — Smart Shopper{% endblock %}
+{% block heading %}List{% endblock %}
 
 {% block content %}
 
@@ -86,7 +86,7 @@ function cartData() {
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 mb-6 flex items-center justify-between">
   <div class="flex items-center gap-6">
     <div>
-      <p class="text-xs text-gray-500">Items in cart</p>
+      <p class="text-xs text-gray-500">Items in list</p>
       <p class="text-2xl font-bold text-gray-900" x-text="cart.length"></p>
     </div>
     <div>
@@ -97,11 +97,11 @@ function cartData() {
   <div class="flex items-center gap-3">
     <button @click="clearCart()" x-show="cart.length > 0"
       class="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors">
-      Clear Cart
+      Clear List
     </button>
     <button @click="markPlaced()" x-show="cart.length > 0"
       class="px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
-      Mark Order Placed
+      Add to Kroger Cart
     </button>
     <a href="/products" x-show="cart.length === 0"
       class="px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
@@ -147,7 +147,7 @@ function cartData() {
 <!-- Cart items -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
   <div class="px-6 py-4 border-b border-gray-100">
-    <h2 class="text-sm font-semibold text-gray-700">Current Cart</h2>
+    <h2 class="text-sm font-semibold text-gray-700">Current List</h2>
   </div>
 
   <!-- Empty state: truly empty cart -->
@@ -155,7 +155,7 @@ function cartData() {
     <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-1.4 5M17 13l1.4 5M9 18a1 1 0 100 2 1 1 0 000-2zm8 0a1 1 0 100 2 1 1 0 000-2z"/>
     </svg>
-    <p class="text-sm">Your cart is empty.</p>
+    <p class="text-sm">Your list is empty.</p>
     <a href="/products" class="text-sm text-emerald-600 hover:text-emerald-700 mt-1 inline-block">Browse products →</a>
   </div>
 

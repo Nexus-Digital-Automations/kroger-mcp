@@ -1,5 +1,4 @@
 """API routes for analytics and reports."""
-import json
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
@@ -208,7 +207,6 @@ async def export_all_data():
             payload["shopping_list"] = {}
 
         serialized = _serializable(payload)
-        content = json.dumps(serialized, indent=2)
         return JSONResponse(
             content=serialized,
             headers={

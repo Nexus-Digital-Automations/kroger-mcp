@@ -7,6 +7,7 @@ This module provides functions for:
 - Managing user preferences for ingredient filtering
 """
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -16,18 +17,18 @@ from .database import get_db_cursor, ensure_initialized
 from .ingredients import (
     check_product_safety,
     SafetyResult,
-    Severity,
 )
 
 
 class SafetyStatus(str, Enum):
     """Overall safety status for a product."""
-    SAFE = "safe"          # On safe list (explicitly approved)
-    UNKNOWN = "unknown"    # No matches found, not on any list
-    WATCH = "watch"        # Contains watch-level ingredients
-    WARNING = "warning"    # Contains warning-level ingredients
-    CRITICAL = "critical"  # Contains critical-level ingredients
-    BLOCKED = "blocked"    # On blocked list (explicitly blocked)
+    SAFE = "safe"              # On safe list (explicitly approved)
+    EXCELLENT = "excellent"    # Score 90-100: premium quality markers
+    GOOD = "good"              # Score 75-89: clean product with bonuses
+    ACCEPTABLE = "acceptable"  # Score 60-74: no concerns detected
+    POOR = "poor"              # Score 45-59: watch-level concerns
+    AVOID = "avoid"            # Score 0-44: critical/warning ingredients
+    BLOCKED = "blocked"        # On blocked list (explicitly blocked)
 
 
 class BlockMode(str, Enum):
@@ -57,9 +58,16 @@ class ProductSafetyStatus:
         }
         if self.is_blocked and self.blocked_reason:
             result["blocked_reason"] = self.blocked_reason
-        if self.safety_result and self.safety_result.has_concerns:
-            result["flagged_ingredients"] = self.safety_result.to_dict()["flagged_ingredients"]
+        if self.safety_result:
+            sr = self.safety_result.to_dict()
+            result["safety_score"] = sr["score"]
+            result["safety_grade"] = sr["grade"]
+            result["positive_attributes"] = sr["positive_attributes"]
+            result["flagged_ingredients"] = sr["flagged_ingredients"]
         else:
+            result["safety_score"] = None
+            result["safety_grade"] = None
+            result["positive_attributes"] = []
             result["flagged_ingredients"] = []
         return result
 
@@ -453,15 +461,18 @@ def get_product_safety_status(
         disabled_ingredients=disabled,
     )
 
-    # Determine status based on highest severity
-    if not safety_result.has_concerns:
-        status = SafetyStatus.UNKNOWN
-    elif safety_result.highest_severity == Severity.CRITICAL:
-        status = SafetyStatus.CRITICAL
-    elif safety_result.highest_severity == Severity.WARNING:
-        status = SafetyStatus.WARNING
+    # Determine status based on safety score
+    score = safety_result.score
+    if score >= 90:
+        status = SafetyStatus.EXCELLENT
+    elif score >= 75:
+        status = SafetyStatus.GOOD
+    elif score >= 60:
+        status = SafetyStatus.ACCEPTABLE
+    elif score >= 45:
+        status = SafetyStatus.POOR
     else:
-        status = SafetyStatus.WATCH
+        status = SafetyStatus.AVOID
 
     return ProductSafetyStatus(
         product_id=product_id,
@@ -539,15 +550,18 @@ def check_products_safety_batch(
             disabled_ingredients=disabled,
         )
 
-        # Determine status
-        if not safety_result.has_concerns:
-            status = SafetyStatus.UNKNOWN
-        elif safety_result.highest_severity == Severity.CRITICAL:
-            status = SafetyStatus.CRITICAL
-        elif safety_result.highest_severity == Severity.WARNING:
-            status = SafetyStatus.WARNING
+        # Determine status based on safety score
+        score = safety_result.score
+        if score >= 90:
+            status = SafetyStatus.EXCELLENT
+        elif score >= 75:
+            status = SafetyStatus.GOOD
+        elif score >= 60:
+            status = SafetyStatus.ACCEPTABLE
+        elif score >= 45:
+            status = SafetyStatus.POOR
         else:
-            status = SafetyStatus.WATCH
+            status = SafetyStatus.AVOID
 
         results.append(ProductSafetyStatus(
             product_id=product_id,
@@ -572,3 +586,25 @@ def get_block_mode() -> BlockMode:
     settings = get_safety_settings()
     mode_str = settings.get("block_mode", "soft")
     return BlockMode(mode_str)
+
+
+# ==================== ASYNC WRAPPERS ====================
+# Use these from async tool handlers to avoid blocking the event loop.
+
+async def check_products_safety_batch_async(
+    products: List[Dict[str, Any]],
+) -> List[ProductSafetyStatus]:
+    """Async wrapper for check_products_safety_batch() — runs in thread pool."""
+    return await asyncio.to_thread(check_products_safety_batch, products)
+
+
+async def get_product_safety_status_async(
+    product_id: str,
+    description: str,
+    brand: Optional[str] = None,
+    categories: Optional[List[str]] = None,
+) -> ProductSafetyStatus:
+    """Async wrapper for get_product_safety_status() — runs in thread pool."""
+    return await asyncio.to_thread(
+        get_product_safety_status, product_id, description, brand, categories
+    )

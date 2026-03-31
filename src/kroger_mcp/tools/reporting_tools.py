@@ -2,6 +2,7 @@
 Reporting and export tools for the Kroger MCP server.
 """
 
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
@@ -21,65 +22,72 @@ def register_tools(mcp):
             "generate_shopping_list",
             "get_cookable_recipes",
         ] = Field(
-            description=(
-                "Action: 'get_analytics' - generate analytics report, "
-                "'export_data' - export all data for backup, "
-                "'check_recipe_pantry' - check pantry inventory for a recipe, "
-                "'generate_shopping_list' - create shopping list for multiple recipes, "
-                "'get_cookable_recipes' - find recipes you can make with current pantry"
-            )
+            description="get_analytics|export_data|check_recipe_pantry|generate_shopping_list|get_cookable_recipes"
         ),
         report_type: Optional[str] = Field(
             default=None,
-            description="Report type: 'spending', 'predictions', 'patterns', 'pantry' (for get_analytics)",
+            description="spending|predictions|patterns|pantry",
         ),
         days_back: Optional[int] = Field(
             default=30,
-            description="Days to analyze (for get_analytics spending/patterns)",
+            description="Days to analyze",
         ),
         include_orders: Optional[bool] = Field(
             default=True,
-            description="Include order history (for export_data)",
+            description="Include order history",
         ),
         include_products: Optional[bool] = Field(
             default=True,
-            description="Include product catalog (for export_data)",
+            description="Include product catalog",
         ),
         include_pantry_data: Optional[bool] = Field(
             default=True,
-            description="Include pantry inventory (for export_data)",
+            description="Include pantry inventory",
         ),
         include_recipes: Optional[bool] = Field(
             default=True,
-            description="Include saved recipes (for export_data)",
+            description="Include saved recipes",
         ),
         recipe_id: Optional[str] = Field(
             default=None,
-            description="Recipe ID (for check_recipe_pantry)",
+            description="Recipe ID",
         ),
         scale: Optional[float] = Field(
             default=1.0,
-            description="Recipe scale multiplier (for check_recipe_pantry and generate_shopping_list)",
+            description="Recipe scale multiplier",
         ),
         recipe_ids: Optional[List[str]] = Field(
             default=None,
-            description="List of recipe IDs (for generate_shopping_list)",
+            description="List of recipe IDs",
         ),
         skip_in_pantry: Optional[bool] = Field(
             default=True,
-            description="Skip items already in pantry (for generate_shopping_list)",
+            description="Skip items already in pantry",
         ),
         pantry_threshold: Optional[int] = Field(
             default=30,
-            description="Pantry level % to consider 'have enough' (for generate_shopping_list)",
+            description="Pantry level % threshold",
         ),
         combine_duplicates: Optional[bool] = Field(
             default=True,
-            description="Combine same ingredients across recipes (for generate_shopping_list)",
+            description="Combine same ingredients across recipes",
         ),
         ctx: Context = None,
     ) -> Dict[str, Any]:
         """Reporting and analytics operations."""
+        return await asyncio.to_thread(
+            _reports_impl, action, report_type, days_back, include_orders,
+            include_products, include_pantry_data, include_recipes, recipe_id,
+            scale, recipe_ids, skip_in_pantry, pantry_threshold, combine_duplicates,
+            ctx,
+        )
+
+    def _reports_impl(
+        action, report_type, days_back, include_orders,
+        include_products, include_pantry_data, include_recipes, recipe_id,
+        scale, recipe_ids, skip_in_pantry, pantry_threshold, combine_duplicates,
+        ctx,
+    ):
         match action:
             case "get_analytics":
                 try:

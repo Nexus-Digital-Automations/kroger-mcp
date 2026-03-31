@@ -16,13 +16,14 @@ function productsPageData() {
     products: [],
     loading: false,
     error: '',
+    searchSortStack: {{ sort_prefs.search_sort_stack | tojson }},
 
     // deals state
     deals: [],
     dealsLoading: false,
     dealsError: '',
     minSavings: 5,
-    sortStack: [],
+    sortStack: {{ sort_prefs.deals_sort_stack | tojson }},
     showWatchlist: false,
     watchlist: {{ watchlist | tojson }},
     newWatch: { product_id: '', description: '', target_price: '' },
@@ -53,6 +54,8 @@ function productsPageData() {
           return ((b.regular_price||0)-(b.sale_price||b.regular_price||0))
                - ((a.regular_price||0)-(a.sale_price||a.regular_price||0));
         case 'health': return (b.safety_score||0) - (a.safety_score||0);
+        case 'price':
+          return ((a.sale_price||a.regular_price||0) - (b.sale_price||b.regular_price||0));
         case 'favorites':
           return (this.favoriteIds.has(a.product_id)?0:1) - (this.favoriteIds.has(b.product_id)?0:1);
         default: return 0;
@@ -62,6 +65,26 @@ function productsPageData() {
       const idx = this.sortStack.indexOf(key);
       if (idx >= 0) this.sortStack.splice(idx, 1);
       else this.sortStack.push(key);
+      this.saveSortPrefs();
+    },
+    toggleSearchSort(key) {
+      const idx = this.searchSortStack.indexOf(key);
+      if (idx >= 0) this.searchSortStack.splice(idx, 1);
+      else this.searchSortStack.push(key);
+      this.saveSortPrefs();
+    },
+    saveSortPrefs() {
+      clearTimeout(this._sortSaveTimer);
+      this._sortSaveTimer = setTimeout(() => {
+        fetch('/api/settings/product-sort', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            search_sort_stack: this.searchSortStack,
+            deals_sort_stack: this.sortStack,
+          })
+        });
+      }, 500);
     },
 
     // computed
@@ -76,6 +99,22 @@ function productsPageData() {
         return 0;
       });
       return arr;
+    },
+    get sortedProducts() {
+      const arr = [...this.products];
+      const stack = this.searchSortStack;
+      if (stack.length === 0) return arr;
+      arr.sort((a, b) => {
+        for (const key of stack) {
+          const r = this.compareBy(key, a, b);
+          if (r !== 0) return r;
+        }
+        return 0;
+      });
+      return arr;
+    },
+    get favoritesInResults() {
+      return this.products.filter(p => this.favoriteIds.has(p.product_id)).length;
     },
     get favoritesOnSale() {
       return this.deals.filter(d => this.favoriteIds.has(d.product_id)).length;
@@ -284,6 +323,32 @@ function productsPageData() {
     </template>
   </div>
 
+  <!-- Search-mode sort controls -->
+  <div x-show="mode === 'search' && products.length > 0 && !loading"
+    class="flex items-center gap-1.5 mb-4 pb-4 border-b border-gray-100">
+    <span class="text-xs text-gray-400">Sort:</span>
+    <button @click="toggleSearchSort('favorites')"
+      :class="searchSortStack.includes('favorites') ? 'bg-amber-500 text-white font-semibold' : 'bg-white text-gray-600 border border-gray-200 hover:border-amber-300'"
+      class="px-3 py-1 text-xs font-medium rounded-full transition-colors flex items-center gap-1">
+      <span x-show="searchSortStack.includes('favorites')" x-text="(searchSortStack.indexOf('favorites')+1) + '. '"></span>&#9733; Favorites
+      <span x-show="favoritesInResults > 0"
+        :class="searchSortStack.includes('favorites') ? 'bg-white text-amber-700' : 'bg-amber-100 text-amber-700'"
+        class="text-xs px-1.5 rounded-full font-bold" x-text="favoritesInResults"></span>
+    </button>
+    <template x-for="opt in [
+      {v:'health', l:'Healthiest'},
+      {v:'price',  l:'Price ↑'},
+    ]" :key="opt.v">
+      <button @click="toggleSearchSort(opt.v)"
+        :class="searchSortStack.includes(opt.v) ? 'bg-emerald-600 text-white font-semibold' : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-400'"
+        class="px-3 py-1 text-xs font-medium rounded-full transition-colors">
+        <span x-show="searchSortStack.includes(opt.v)" x-text="(searchSortStack.indexOf(opt.v)+1) + '. '"></span><span x-text="opt.l"></span>
+      </button>
+    </template>
+    <button x-show="searchSortStack.length > 0" @click="searchSortStack = []; saveSortPrefs()"
+      class="text-xs text-gray-400 underline hover:text-gray-600 transition-colors px-1">Clear</button>
+  </div>
+
   <!-- Deals-mode controls -->
   <div x-show="mode === 'deals'" class="flex flex-wrap items-center gap-4 mb-4 pb-4 border-b border-gray-100">
 
@@ -327,7 +392,7 @@ function productsPageData() {
           :class="sortStack.includes('favorites') ? 'bg-white text-amber-700' : 'bg-amber-100 text-amber-700'"
           class="text-xs px-1.5 rounded-full font-bold" x-text="favoritesOnSale"></span>
       </button>
-      <button x-show="sortStack.length > 0" @click="sortStack = []"
+      <button x-show="sortStack.length > 0" @click="sortStack = []; saveSortPrefs()"
         class="text-xs text-gray-400 underline hover:text-gray-600 transition-colors px-1">Clear</button>
     </div>
 
@@ -365,7 +430,7 @@ function productsPageData() {
 
   <!-- ── Search results grid ── -->
   <div x-show="mode === 'search' && products.length > 0 && !loading" class="grid grid-cols-3 gap-4">
-    <template x-for="product in products" :key="product.product_id">
+    <template x-for="product in sortedProducts" :key="product.product_id">
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col hover:shadow-md transition-shadow">
 
         <div class="flex-1">

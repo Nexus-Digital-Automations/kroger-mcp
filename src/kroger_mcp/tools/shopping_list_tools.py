@@ -8,10 +8,12 @@ Provides intermediate storage between recipes and cart:
 - Session requirement: Must call get_pantry_attention() first
 """
 
+import asyncio
 import json
 import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from fastmcp import Context
@@ -19,7 +21,8 @@ from pydantic import Field
 
 
 # Shopping list storage file
-SHOPPING_LIST_FILE = "kroger_shopping_list.json"
+_BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
+SHOPPING_LIST_FILE = str(_BASE_DIR / "kroger_shopping_list.json")
 
 
 def _load_shopping_list() -> Dict[str, Any]:
@@ -141,27 +144,40 @@ def register_tools(mcp):
     async def shopping_list(
         action: Literal["add_recipe", "get", "remove", "update_item", "add_to_cart"] = Field(
             description=(
-                "Action: 'add_recipe' - add recipe ingredients to shopping list (requires get_attention first), "
-                "'get' - view current shopping list, "
-                "'remove' - remove items (use item_id, item_ids, or clear_all=True), "
-                "'update_item' - update quantity or notes for an item, "
-                "'add_to_cart' - transfer shopping list to Kroger cart (requires get_attention first)"
+                "add_recipe — adds recipe ingredients (auto-scaled, consolidated). "
+                "Requires pantry(action='get_attention') first. "
+                "add_to_cart — confirm=False previews, confirm=True executes. "
+                "Other: get|remove|update_item"
             )
         ),
-        recipe_id: Optional[str] = Field(default=None, description="Recipe ID (for add_recipe)"),
-        servings: Optional[int] = Field(default=None, ge=1, le=20, description="Override servings (for add_recipe)"),
-        skip_items: Optional[List[str]] = Field(default=None, description="Ingredient names to skip (for add_recipe)"),
-        item_id: Optional[str] = Field(default=None, description="Item ID (for remove single, update_item)"),
-        item_ids: Optional[List[str]] = Field(default=None, description="Item IDs (for remove batch)"),
-        clear_all: Optional[bool] = Field(default=None, description="Clear entire list (for remove)"),
-        quantity: Optional[int] = Field(default=None, ge=1, description="New quantity (for update_item)"),
-        notes: Optional[str] = Field(default=None, description="Notes for item (for update_item)"),
-        modality: Optional[str] = Field(default=None, description="PICKUP or DELIVERY (for add_to_cart)"),
-        confirm: Optional[bool] = Field(default=None, description="False=preview, True=execute (for add_to_cart)"),
+        recipe_id: Optional[str] = Field(default=None, description="Recipe ID"),
+        servings: Optional[int] = Field(default=None, ge=1, le=20, description="Override servings"),
+        skip_items: Optional[List[str]] = Field(default=None, description="Ingredient names to skip"),
+        item_id: Optional[str] = Field(default=None, description="Item ID"),
+        item_ids: Optional[List[str]] = Field(default=None, description="Item IDs for batch remove"),
+        clear_all: Optional[bool] = Field(default=None, description="Clear entire list"),
+        quantity: Optional[int] = Field(default=None, ge=1, description="New quantity"),
+        notes: Optional[str] = Field(default=None, description="Item notes"),
+        modality: Optional[str] = Field(default=None, description="PICKUP or DELIVERY"),
+        confirm: Optional[bool] = Field(default=None, description="False=preview, True=execute"),
         ctx: Context = None,
     ) -> Dict[str, Any]:
-        """Shopping list management — intermediate storage between recipes and cart."""
+        """Shopping list — intermediate buffer between recipes and cart.
 
+        SESSION REQUIREMENT: Call pantry(action='get_attention') before using.
+        add_recipe — auto-scales to household servings, consolidates duplicates.
+        add_to_cart — confirm=False to preview, confirm=True to execute.
+        Supports skip_items to exclude specific ingredients.
+        """
+        return await asyncio.to_thread(
+            _shopping_list_impl, action, recipe_id, servings, skip_items,
+            item_id, item_ids, clear_all, quantity, notes, modality, confirm, ctx,
+        )
+
+    def _shopping_list_impl(
+        action, recipe_id, servings, skip_items,
+        item_id, item_ids, clear_all, quantity, notes, modality, confirm, ctx,
+    ):
         match action:
             case "add_recipe":
                 # Check session requirement
@@ -212,14 +228,43 @@ def register_tools(mcp):
                     skip_reasons = {"pantry_threshold": [], "user_specified": []}
 
                     # Process ingredients
+                    manual_purchase_items = []
                     for ing in recipe.get("ingredients", []):
                         name = ing.get("name", "Unknown")
                         quantity_val = ing.get("quantity", 1)
                         unit = ing.get("unit", "")
                         product_id = ing.get("product_id")
+                        is_override = ing.get("override", False)
 
                         # Calculate scaled quantity
                         scaled_quantity = round(quantity_val * scale_factor, 2) if quantity_val else 1
+
+                        # Handle override (manual purchase) items
+                        if is_override:
+                            override_reason = ing.get("override_reason", "Not from Kroger")
+                            list_item = {
+                                "id": _generate_list_item_id(),
+                                "product_id": None,
+                                "ingredient_name": name,
+                                "quantity": scaled_quantity,
+                                "unit": unit,
+                                "sources": [
+                                    {
+                                        "recipe_id": recipe_id,
+                                        "recipe_name": recipe.get("name"),
+                                        "servings_used": servings,
+                                        "original_quantity": quantity_val,
+                                        "scaled_quantity": scaled_quantity,
+                                    }
+                                ],
+                                "added_at": datetime.now().isoformat(),
+                                "notes": f"Manual: {override_reason}",
+                                "manual_purchase": True,
+                            }
+                            data["items"].append(list_item)
+                            manual_purchase_items.append({"name": name, "override_reason": override_reason})
+                            items_added += 1
+                            continue
 
                         # Check if should skip
                         user_skip = _ingredient_matches(name, skip_items or [])
@@ -253,7 +298,7 @@ def register_tools(mcp):
                                 }
                             ],
                             "added_at": datetime.now().isoformat(),
-                            "notes": None
+                            "notes": None,
                         }
 
                         data["items"].append(list_item)
@@ -264,7 +309,7 @@ def register_tools(mcp):
                     _save_shopping_list(data)
 
                     if ctx:
-                        await ctx.info(f"Added {items_added} ingredients from '{recipe.get('name')}' to shopping list")
+                        ctx.info(f"Added {items_added} ingredients from '{recipe.get('name')}' to shopping list")
 
                     return {
                         "success": True,
@@ -278,8 +323,16 @@ def register_tools(mcp):
                         "items_added": items_added,
                         "items_skipped": items_skipped,
                         "skip_reasons": skip_reasons,
+                        "manual_purchase_required": manual_purchase_items,
                         "shopping_list_total_items": len(data["items"]),
-                        "message": f"Added {items_added} ingredients from '{recipe.get('name')}' (scaled to {servings} servings)"
+                        "message": (
+                            f"Added {items_added} ingredients from '{recipe.get('name')}' "
+                            f"(scaled to {servings} servings)"
+                            + (
+                                f". {len(manual_purchase_items)} item(s) require manual purchase."
+                                if manual_purchase_items else ""
+                            )
+                        ),
                     }
 
                 except Exception as e:
@@ -444,11 +497,20 @@ def register_tools(mcp):
                     # Build preview
                     items_to_add = []
                     items_to_skip = []
+                    items_manual = []
                     _modality = modality or "PICKUP"
                     _confirm = confirm or False
 
                     for item in items:
                         product_id = item.get("product_id")
+                        if item.get("manual_purchase"):
+                            items_manual.append({
+                                "ingredient_name": item.get("ingredient_name"),
+                                "quantity": item.get("quantity"),
+                                "unit": item.get("unit", ""),
+                                "notes": item.get("notes", "Manual purchase required"),
+                            })
+                            continue
                         if not product_id:
                             items_to_skip.append({
                                 "ingredient_name": item.get("ingredient_name"),
@@ -472,7 +534,7 @@ def register_tools(mcp):
                             items_to_add.append({
                                 "product_id": product_id,
                                 "ingredient_name": item.get("ingredient_name"),
-                                "quantity": int(item.get("quantity", 1)),
+                                "quantity": max(1, round(item.get("quantity", 1))),
                                 "from_recipes": from_recipes,
                                 "action": "ADD",
                                 "reason": "Not in pantry" if pantry_level is None else f"Pantry low: {pantry_level}%"
@@ -486,23 +548,32 @@ def register_tools(mcp):
                             "preview": {
                                 "items_to_add": len(items_to_add),
                                 "items_to_skip": len(items_to_skip),
+                                "items_manual_purchase": len(items_manual),
                                 "modality": _modality,
-                                "items": items_to_add + items_to_skip
+                                "items": items_to_add + items_to_skip,
+                                "manual_purchase_required": items_manual,
                             },
-                            "next_step": "Review the items above. Call this tool again with confirm=True to add to cart."
+                            "next_step": (
+                                "Review the items above. Call this tool again with confirm=True to add to cart."
+                                + (
+                                    f" Note: {len(items_manual)} item(s) require manual purchase."
+                                    if items_manual else ""
+                                )
+                            ),
                         }
 
                     # Confirm mode - actually add to cart
                     if not items_to_add:
                         return {
                             "success": True,
-                            "message": "No items to add - all are well-stocked or missing product_ids",
+                            "message": "No items to add - all are well-stocked, missing product_ids, or manual",
                             "items_added_to_cart": 0,
-                            "items_skipped": len(items_to_skip)
+                            "items_skipped": len(items_to_skip),
+                            "manual_purchase_required": items_manual,
                         }
 
                     if ctx:
-                        await ctx.info(f"Adding {len(items_to_add)} items from shopping list to cart...")
+                        ctx.info(f"Adding {len(items_to_add)} items from shopping list to cart...")
 
                     try:
                         client = get_authenticated_client()
@@ -535,10 +606,17 @@ def register_tools(mcp):
                             "success": True,
                             "items_added_to_cart": len(items_to_add),
                             "items_skipped": len(items_to_skip),
+                            "manual_purchase_required": items_manual,
                             "shopping_list_cleared": True,
                             "modality": _modality,
                             "message": f"Added {len(items_to_add)} items to cart. Shopping list has been cleared.",
-                            "reminder": "Review your cart in the Kroger app before checkout."
+                            "reminder": (
+                                "Review your cart in the Kroger app before checkout."
+                                + (
+                                    f" Don't forget to source {len(items_manual)} item(s) manually."
+                                    if items_manual else ""
+                                )
+                            ),
                         }
 
                     except Exception as cart_error:

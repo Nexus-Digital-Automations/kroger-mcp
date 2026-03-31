@@ -1,4 +1,7 @@
 """API routes for recipe write operations."""
+from datetime import datetime
+from typing import List, Optional
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -27,6 +30,43 @@ async def delete_recipe(recipe_id: str):
                 status_code=404,
                 content={"error": f"Recipe '{recipe_id}' not found"},
             )
+        _save_recipes(data)
+        return {"success": True, "recipe_id": recipe_id}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+class UpdateRecipeBody(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+    servings: Optional[int] = None
+
+
+@router.patch("/api/recipes/{recipe_id}")
+async def update_recipe(recipe_id: str, body: UpdateRecipeBody):
+    """Update recipe metadata (name, description, tags, servings)."""
+    try:
+        from kroger_mcp.tools.recipe_tools import _load_recipes, _save_recipes
+        data = _load_recipes()
+        recipe = next(
+            (r for r in data.get("recipes", []) if r.get("id") == recipe_id),
+            None,
+        )
+        if not recipe:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Recipe '{recipe_id}' not found"},
+            )
+        if body.name is not None:
+            recipe["name"] = body.name
+        if body.description is not None:
+            recipe["description"] = body.description
+        if body.tags is not None:
+            recipe["tags"] = body.tags
+        if body.servings is not None:
+            recipe["servings"] = body.servings
+        recipe["updated_at"] = datetime.now().isoformat()
         _save_recipes(data)
         return {"success": True, "recipe_id": recipe_id}
     except Exception as exc:
