@@ -68,6 +68,7 @@ from .routes.api import favorites as api_favorites
 from .routes.api import recipes as api_recipes
 from .routes.api import meal_plan as api_meal_plan
 from .routes.api import meal_tracker as api_meal_tracker
+from .routes.api import chat as api_chat
 from .routes import auth as auth_routes
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -123,6 +124,7 @@ app.include_router(api_favorites.router)
 app.include_router(api_recipes.router)
 app.include_router(api_meal_plan.router)
 app.include_router(api_meal_tracker.router)
+app.include_router(api_chat.router)
 
 
 @app.get("/", include_in_schema=False)
