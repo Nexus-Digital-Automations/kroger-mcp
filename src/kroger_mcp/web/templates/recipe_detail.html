@@ -347,7 +347,7 @@
           <template x-for="(ing, ii) in group.items" :key="ing.name + ii">
             <div class="grid items-baseline" style="grid-template-columns: 7rem 1fr auto auto; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px solid oklch(93% 0.01 80);">
               <span style="font-size: 0.8rem; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums;"
-                x-text="fmtQty(ing.quantity * (servings / baseServings)) + (ing.unit ? ' ' + ing.unit : '')"></span>
+                x-text="(ing.quantity ? (fmtQty(+ing.quantity * (servings / baseServings)) || String(ing.quantity)) : '') + (ing.unit ? ' ' + ing.unit : '')"></span>
               <span style="font-size: 0.875rem; color: var(--text-1);" x-text="ing.name"></span>
               <span>
                 <span x-show="ing.override" style="font-size: 0.6875rem; background: oklch(92% 0.015 80); color: var(--text-2); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Manual</span>
