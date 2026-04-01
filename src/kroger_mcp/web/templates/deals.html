@@ -28,7 +28,15 @@ function dealsData() {
     query: '',
     category: '',
     minSavings: 5,
-    sort: 'percent',
+    sortStack: [],
+    sortDropdownOpen: false,
+    sortOptions: [
+      {v:'percent',   l:'% Saved'},
+      {v:'dollar',    l:'$ Saved'},
+      {v:'favorites', l:'Favorites First'},
+    ],
+    _dragKey: null,
+    _dragOverKey: null,
     deals: [],
     loading: false,
     categoryGroups,
@@ -67,24 +75,48 @@ function dealsData() {
       } catch(e) {}
     },
 
+    compareBy(key, a, b) {
+      switch(key) {
+        case 'dollar': {
+          const sa = (a.regular_price||0)-(a.sale_price||a.regular_price||0);
+          const sb = (b.regular_price||0)-(b.sale_price||b.regular_price||0);
+          return sb - sa;
+        }
+        case 'favorites':
+          return (this.favoriteIds.has(a.product_id)?0:1) - (this.favoriteIds.has(b.product_id)?0:1);
+        default:
+          return (b.savings_percent||0) - (a.savings_percent||0);
+      }
+    },
+    toggleSort(key) {
+      const idx = this.sortStack.indexOf(key);
+      if (idx >= 0) this.sortStack.splice(idx, 1);
+      else this.sortStack.push(key);
+    },
+    removeSort(key) { this.sortStack = this.sortStack.filter(k => k !== key); },
+    sortKeyLabel(key) { const o = this.sortOptions.find(x => x.v === key); return o ? o.l : key; },
+    sortDragStart(key) { this._dragKey = key; },
+    sortDragOver(key)  { if (key !== this._dragKey) this._dragOverKey = key; },
+    sortDrop() {
+      const from = this._dragKey, to = this._dragOverKey;
+      if (!from || !to || from === to) return;
+      const fi = this.sortStack.indexOf(from), ti = this.sortStack.indexOf(to);
+      if (fi < 0 || ti < 0) return;
+      const s = [...this.sortStack]; s.splice(fi, 1); s.splice(ti, 0, from);
+      this.sortStack = s;
+    },
+    sortDragEnd() { this._dragKey = null; this._dragOverKey = null; },
+
     get sortedDeals() {
       const arr = [...this.deals];
-      if (this.sort === 'dollar') {
-        arr.sort((a, b) => {
-          const sa = (a.regular_price || 0) - (a.sale_price || a.regular_price || 0);
-          const sb = (b.regular_price || 0) - (b.sale_price || b.regular_price || 0);
-          return sb - sa;
-        });
-      } else if (this.sort === 'favorites') {
-        arr.sort((a, b) => {
-          const af = this.favoriteIds.has(a.product_id) ? 0 : 1;
-          const bf = this.favoriteIds.has(b.product_id) ? 0 : 1;
-          if (af !== bf) return af - bf;
-          return (b.savings_percent || 0) - (a.savings_percent || 0);
-        });
-      } else {
-        arr.sort((a, b) => (b.savings_percent || 0) - (a.savings_percent || 0));
-      }
+      const stack = this.sortStack.length > 0 ? this.sortStack : ['percent'];
+      arr.sort((a, b) => {
+        for (const key of stack) {
+          const r = this.compareBy(key, a, b);
+          if (r !== 0) return r;
+        }
+        return 0;
+      });
       return arr;
     },
 
@@ -287,27 +319,80 @@ function dealsData() {
     </div>
 
     <!-- Sort + stats bar -->
-    <div x-show="deals.length > 0" class="flex flex-wrap items-center gap-3 mb-4">
+    <div x-show="deals.length > 0" class="flex flex-wrap items-center gap-2 mb-4">
       <span class="text-xs text-gray-500" x-text="deals.length + ' deals found'"></span>
-      <div class="flex items-center gap-1.5 ml-auto">
-        <span class="text-xs text-gray-400">Sort:</span>
-        <button @click="sort='percent'"
-          :class="sort==='percent' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-400'"
-          class="px-3 py-1 text-xs font-medium rounded-full transition-colors">
-          % Saved
+      <!-- Sort dropdown -->
+      <div class="relative ml-auto" @click.away="sortDropdownOpen = false">
+        <button @click="sortDropdownOpen = !sortDropdownOpen"
+          :class="sortStack.length > 0 ? 'border-emerald-400 text-emerald-700 bg-emerald-50' : 'border-gray-200 text-gray-600 bg-white hover:border-emerald-400'"
+          class="flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-xl transition-colors">
+          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6h18M7 12h10M11 18h2"/>
+          </svg>
+          Sort
+          <span x-show="sortStack.length > 0"
+            class="bg-emerald-600 text-white rounded-full font-bold px-1.5 leading-[1.4]"
+            style="font-size:0.6rem;"
+            x-text="sortStack.length"></span>
+          <svg class="w-3 h-3 transition-transform" :class="sortDropdownOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
         </button>
-        <button @click="sort='dollar'"
-          :class="sort==='dollar' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-400'"
-          class="px-3 py-1 text-xs font-medium rounded-full transition-colors">
-          $ Saved
-        </button>
-        <button @click="sort='favorites'"
-          :class="sort==='favorites' ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:border-amber-300'"
-          class="px-3 py-1 text-xs font-medium rounded-full transition-colors flex items-center gap-1">
-          <span>&#9733;</span> Favorites First
-          <span x-show="favoritesOnSale > 0"
-            :class="sort==='favorites' ? 'bg-white text-amber-700' : 'bg-amber-100 text-amber-700'"
-            class="text-xs px-1.5 rounded-full font-bold" x-text="favoritesOnSale"></span>
+        <div x-show="sortDropdownOpen" x-transition
+          class="absolute right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden min-w-[160px]">
+          <div class="p-1.5">
+            <template x-for="opt in sortOptions" :key="opt.v">
+              <button @click="toggleSort(opt.v)"
+                :class="sortStack.includes(opt.v) ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'"
+                class="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-xs rounded-lg transition-colors border-none cursor-pointer"
+                style="text-align:left; background:transparent;">
+                <span x-text="opt.l"></span>
+                <svg x-show="sortStack.includes(opt.v)" class="w-3 h-3 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                </svg>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+      <!-- Active sort chips (draggable) -->
+      <div x-show="sortStack.length > 0" class="flex items-center gap-1.5 flex-wrap w-full">
+        <template x-for="(key, idx) in sortStack" :key="key">
+          <div
+            draggable="true"
+            @dragstart="sortDragStart(key)"
+            @dragover.prevent="sortDragOver(key)"
+            @drop.prevent="sortDrop()"
+            @dragend="sortDragEnd()"
+            :class="{
+              'opacity-40': _dragKey === key,
+              'ring-2 ring-emerald-400 ring-offset-1': _dragOverKey === key,
+              'bg-emerald-600 text-white font-semibold': idx === 0 && key !== 'favorites',
+              'bg-emerald-50 text-emerald-700 font-medium': idx > 0 && key !== 'favorites',
+              'bg-amber-500 text-white font-semibold': idx === 0 && key === 'favorites',
+              'bg-amber-50 text-amber-700 font-medium': idx > 0 && key === 'favorites',
+            }"
+            class="inline-flex items-center gap-1.5 rounded-full cursor-grab select-none transition-opacity px-2.5 py-1 text-xs">
+            <span class="rounded-full font-bold px-1 leading-[1.5] flex-shrink-0"
+              style="font-size:0.5rem;"
+              :class="idx === 0 ? (key==='favorites'?'bg-amber-800 text-white':'bg-emerald-800 text-white') : (key==='favorites'?'bg-amber-200 text-amber-700':'bg-emerald-200 text-emerald-700')"
+              x-text="(idx+1) + '.'"></span>
+            <span x-text="sortKeyLabel(key)" class="whitespace-nowrap"></span>
+            <svg class="w-2.5 h-2.5 opacity-40 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <circle cx="7" cy="4" r="1.2"/><circle cx="13" cy="4" r="1.2"/><circle cx="7" cy="10" r="1.2"/><circle cx="13" cy="10" r="1.2"/><circle cx="7" cy="16" r="1.2"/><circle cx="13" cy="16" r="1.2"/>
+            </svg>
+            <button @click.stop="removeSort(key)"
+              class="opacity-50 hover:opacity-100 transition-opacity flex items-center p-0 bg-transparent border-none cursor-pointer text-inherit"
+              title="Remove">
+              <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </template>
+        <button @click="sortStack = []"
+          class="text-xs text-gray-400 underline hover:text-gray-600 transition-colors px-1">
+          Clear
         </button>
       </div>
     </div>
@@ -322,7 +407,7 @@ function dealsData() {
         </p>
         <p class="text-xs text-amber-600">Sort by "Favorites First" to see them at the top.</p>
       </div>
-      <button @click="sort='favorites'"
+      <button @click="sortStack = ['favorites', ...sortStack.filter(k=>k!=='favorites')]"
         class="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900 underline whitespace-nowrap">
         View first &#8594;
       </button>

@@ -71,26 +71,48 @@
       </div>
       {% endif %}
 
-      <!-- Zone A: Sort criteria (text-style toggles) -->
-      <div style="display:flex; align-items:center; gap:0.25rem; flex-wrap:wrap;">
-        <svg style="width:0.875rem; height:0.875rem; flex-shrink:0; color:var(--text-3); margin-right:0.125rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6h18M7 12h10M11 18h2"/>
-        </svg>
-        <span style="font-family:'Lora',serif; font-size:0.6875rem; font-weight:600; color:var(--text-3); letter-spacing:0.05em; text-transform:uppercase; margin-right:0.25rem;">Sort</span>
-        <template x-for="opt in sortOptions" :key="opt.v">
-          <button @click="toggleSort(opt.v)"
-            :style="sortStack.includes(opt.v)
-              ? 'color:var(--green); font-weight:600; border-bottom:1.5px solid var(--green);'
-              : 'color:var(--text-3); border-bottom:1.5px solid transparent;'"
-            style="padding:0.25rem 0.5rem; font-size:0.75rem; font-family:'DM Sans',sans-serif; background:none; border:none; border-radius:0; cursor:pointer; transition:color 0.12s, border-color 0.12s;"
-            @mouseenter="if(!sortStack.includes(opt.v)){$el.style.color='var(--text-1)';$el.style.borderBottomColor='var(--border)';}"
-            @mouseleave="if(!sortStack.includes(opt.v)){$el.style.color='var(--text-3)';$el.style.borderBottomColor='transparent';}">
-            <span x-text="opt.l"></span>
-          </button>
-        </template>
+      <!-- Sort dropdown -->
+      <div class="relative" @click.away="sortDropdownOpen = false">
+        <button @click="sortDropdownOpen = !sortDropdownOpen"
+          :style="sortStack.length > 0 ? 'border-color:var(--green); color:var(--green); background:var(--green-light);' : 'border-color:var(--border); color:var(--text-2); background:var(--surface);'"
+          class="ss-input flex items-center gap-2 px-3 transition-colors" style="padding-top:0.45rem; padding-bottom:0.45rem;">
+          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6h18M7 12h10M11 18h2"/>
+          </svg>
+          <span>Sort</span>
+          <span x-show="sortStack.length > 0"
+            style="background:var(--green); color:white; border-radius:99px; font-size:0.6rem; font-weight:700; padding:0.1rem 0.35rem; line-height:1.4;"
+            x-text="sortStack.length"></span>
+          <svg class="w-3.5 h-3.5 flex-shrink-0 transition-transform" :class="sortDropdownOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+        <div x-show="sortDropdownOpen" x-cloak
+          x-transition:enter="transition ease-out duration-150"
+          x-transition:enter-start="opacity-0 -translate-y-1"
+          x-transition:enter-end="opacity-100 translate-y-0"
+          x-transition:leave="transition ease-in duration-100"
+          x-transition:leave-start="opacity-100 translate-y-0"
+          x-transition:leave-end="opacity-0 -translate-y-1"
+          style="position:absolute; top:calc(100% + 6px); left:0; background:var(--surface); border-radius:0.75rem; border:1px solid var(--border); box-shadow:0 8px 32px oklch(18% 0.025 80 / 0.12), 0 2px 8px oklch(18% 0.025 80 / 0.06); min-width:195px; z-index:30; overflow:hidden;">
+          <div style="padding:0.375rem 0.5rem;">
+            <template x-for="opt in sortOptions" :key="opt.v">
+              <button @click="toggleSort(opt.v)"
+                :style="sortStack.includes(opt.v) ? 'background:var(--green-light); color:var(--green); font-weight:600;' : 'color:var(--text-1);'"
+                style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.4rem 0.625rem; font-size:0.8125rem; border-radius:0.375rem; cursor:pointer; border:none; text-align:left; font-family:inherit; transition:background 0.1s;"
+                onmouseenter="if(!this.style.background){this.style.background='oklch(96% 0.01 80)';}"
+                onmouseleave="if(this.style.background==='oklch(96% 0.01 80)'){this.style.background='';}">
+                <span x-text="opt.l"></span>
+                <svg x-show="sortStack.includes(opt.v)" style="width:0.75rem; height:0.75rem; flex-shrink:0; color:var(--green);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                </svg>
+              </button>
+            </template>
+          </div>
+        </div>
       </div>
 
-      <!-- Zone B: Active sort stack (ranked chips) -->
+      <!-- Active sort chips (draggable, ranked) -->
       <div x-show="sortStack.length > 0" x-cloak
         x-transition:enter="transition ease-out duration-150"
         x-transition:enter-start="opacity-0"
@@ -98,78 +120,66 @@
         x-transition:leave="transition ease-in duration-100"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem; padding:0.5rem 0.75rem; background:oklch(97.5% 0.008 148); border-radius:0.5rem; border:1px solid oklch(92% 0.03 148); flex-basis:100%; min-width:0;">
-
-        <span style="font-size:0.6875rem; color:var(--text-3); font-style:italic; font-family:'Lora',serif; margin-right:0.125rem;">Sorting by</span>
-
+        style="display:flex; align-items:center; gap:0.375rem; flex-wrap:wrap; flex-basis:100%; min-width:0;">
         <template x-for="(key, idx) in sortStack" :key="key">
-          <div style="display:inline-flex; align-items:center; gap:0.25rem; border-radius:99px; transition:all 0.15s; width:fit-content; flex:0 0 auto;"
+          <div
+            draggable="true"
+            @dragstart="sortDragStart(key)"
+            @dragover.prevent="sortDragOver(key)"
+            @drop.prevent="sortDrop()"
+            @dragend="sortDragEnd()"
             :style="{
-              background: idx===0 ? 'var(--green)' : idx===1 ? 'var(--green-light)' : 'oklch(95% 0.015 148)',
-              color: idx===0 ? 'white' : idx===1 ? 'var(--green)' : 'var(--text-2)',
-              padding: idx===0 ? '0.3rem 0.625rem' : idx===1 ? '0.25rem 0.5rem' : '0.2rem 0.45rem',
-              fontFamily: idx===0 ? 'Lora,serif' : '',
-              fontSize: idx===0 ? '0.8125rem' : idx===1 ? '0.75rem' : '0.6875rem',
-              fontWeight: idx===0 ? '600' : idx===1 ? '500' : '400',
-              boxShadow: idx===0 ? '0 1px 4px oklch(18% 0.025 80 / 0.12)' : 'none',
+              opacity: _dragKey === key ? '0.4' : '1',
+              outline: _dragOverKey === key ? '2px solid var(--green)' : 'none',
+              outlineOffset: '2px',
+              background: idx === 0 ? 'var(--green)' : 'var(--green-light)',
+              color: idx === 0 ? 'white' : 'var(--green)',
+              borderRadius: '99px',
+              padding: idx === 0 ? '0.3rem 0.6rem' : '0.25rem 0.5rem',
+              fontSize: idx === 0 ? '0.8125rem' : '0.75rem',
+              fontWeight: idx === 0 ? '600' : '500',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              cursor: 'grab',
+              userSelect: 'none',
+              transition: 'opacity 0.15s',
+              boxShadow: idx === 0 ? '0 1px 4px oklch(18% 0.025 80 / 0.12)' : 'none',
             }">
-
-            <!-- Rank ordinal badge -->
-            <span style="border-radius:99px; letter-spacing:0.02em;"
-              :style="{
-                background: idx===0 ? 'oklch(40% 0.14 148)' : idx===1 ? 'var(--green)' : 'oklch(88% 0.03 148)',
-                color: idx===0 ? 'white' : idx===1 ? 'white' : 'var(--text-3)',
-                fontSize: idx===0 ? '0.5625rem' : '0.5rem',
-                padding: idx===0 ? '0.05rem 0.3rem' : '0.05rem 0.25rem',
-                fontWeight: idx===0 ? '700' : idx===1 ? '600' : '500',
-              }"
-              x-text="ordinal(idx + 1)"></span>
-
+            <!-- Rank badge -->
+            <span :style="{
+              background: idx === 0 ? 'oklch(38% 0.14 148)' : 'var(--green)',
+              color: 'white',
+              borderRadius: '99px',
+              fontSize: '0.5625rem',
+              fontWeight: '700',
+              padding: '0.05rem 0.3rem',
+              lineHeight: '1.5',
+              flexShrink: '0',
+            }" x-text="(idx + 1) + '.'"></span>
             <!-- Label -->
-            <span x-text="sortKeyLabel(key)"></span>
-
-            <!-- Promote arrow (hidden for rank 1) -->
-            <button x-show="idx > 0" @click.stop="promoteSort(key)"
-              style="opacity:0.45; cursor:pointer; padding:0 0.125rem; background:none; border:none; color:inherit; display:flex; align-items:center; transition:opacity 0.1s;"
-              @mouseenter="$el.style.opacity='1';"
-              @mouseleave="$el.style.opacity='0.45';"
-              title="Move up in priority">
-              <svg style="width:0.625rem; height:0.625rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 15l7-7 7 7"/>
-              </svg>
-            </button>
-
-            <!-- Demote arrow (hidden for last) -->
-            <button x-show="idx < sortStack.length - 1" @click.stop="demoteSort(key)"
-              style="opacity:0.45; cursor:pointer; padding:0 0.125rem; background:none; border:none; color:inherit; display:flex; align-items:center; transition:opacity 0.1s;"
-              @mouseenter="$el.style.opacity='1';"
-              @mouseleave="$el.style.opacity='0.45';"
-              title="Move down in priority">
-              <svg style="width:0.625rem; height:0.625rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7"/>
-              </svg>
-            </button>
-
-            <!-- Remove button -->
+            <span x-text="sortKeyLabel(key)" style="white-space:nowrap;"></span>
+            <!-- Grip handle -->
+            <svg style="width:0.625rem; height:0.625rem; opacity:0.45; flex-shrink:0;" fill="currentColor" viewBox="0 0 20 20">
+              <circle cx="7" cy="4" r="1.2"/><circle cx="13" cy="4" r="1.2"/><circle cx="7" cy="10" r="1.2"/><circle cx="13" cy="10" r="1.2"/><circle cx="7" cy="16" r="1.2"/><circle cx="13" cy="16" r="1.2"/>
+            </svg>
+            <!-- Remove -->
             <button @click.stop="removeSort(key)"
-              :style="{ opacity: idx===0 ? '0.55' : '0.35', color: idx===0 ? 'white' : 'inherit' }"
-              style="cursor:pointer; padding:0 0.125rem; background:none; border:none; display:flex; align-items:center; transition:opacity 0.1s;"
-              @mouseenter="$el.style.opacity='1';"
-              @mouseleave="$el.style.opacity=idx===0?'0.55':'0.35';"
-              title="Remove sort">
-              <svg :style="{ width: idx===0 ? '0.6875rem' : '0.5625rem', height: idx===0 ? '0.6875rem' : '0.5625rem' }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              style="background:none; border:none; cursor:pointer; display:flex; align-items:center; padding:0; opacity:0.5; transition:opacity 0.1s; color:inherit;"
+              @mouseenter="$el.style.opacity='1'"
+              @mouseleave="$el.style.opacity='0.5'"
+              title="Remove">
+              <svg style="width:0.625rem; height:0.625rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
               </svg>
             </button>
           </div>
         </template>
-
-        <!-- Clear all -->
         <button @click="sortStack = []"
           style="font-size:0.6875rem; color:var(--text-3); cursor:pointer; padding:0.2rem 0.375rem; border-radius:0.25rem; background:none; border:none; transition:color 0.12s, background 0.12s;"
           @mouseenter="$el.style.color='var(--text-1)'; $el.style.background='oklch(93% 0.015 80)';"
           @mouseleave="$el.style.color='var(--text-3)'; $el.style.background='';">
-          Clear all
+          Clear
         </button>
       </div>
 
@@ -413,6 +423,9 @@ document.addEventListener('alpine:init', () => {
     activeTags: [],
     sortStack: [],
     tagOpen: false,
+    sortDropdownOpen: false,
+    _dragKey: null,
+    _dragOverKey: null,
     recipes: {{ recipes_json | safe }},
 
     sortOptions: [
@@ -474,20 +487,17 @@ document.addEventListener('alpine:init', () => {
       if (idx >= 0) this.sortStack.splice(idx, 1);
       else this.sortStack.push(key);
     },
-    promoteSort(key) {
-      const idx = this.sortStack.indexOf(key);
-      if (idx > 0) {
-        [this.sortStack[idx - 1], this.sortStack[idx]] = [this.sortStack[idx], this.sortStack[idx - 1]];
-        this.sortStack = [...this.sortStack];
-      }
+    sortDragStart(key) { this._dragKey = key; },
+    sortDragOver(key)  { if (key !== this._dragKey) this._dragOverKey = key; },
+    sortDrop() {
+      const from = this._dragKey, to = this._dragOverKey;
+      if (!from || !to || from === to) return;
+      const fi = this.sortStack.indexOf(from), ti = this.sortStack.indexOf(to);
+      if (fi < 0 || ti < 0) return;
+      const s = [...this.sortStack]; s.splice(fi, 1); s.splice(ti, 0, from);
+      this.sortStack = s;
     },
-    demoteSort(key) {
-      const idx = this.sortStack.indexOf(key);
-      if (idx >= 0 && idx < this.sortStack.length - 1) {
-        [this.sortStack[idx], this.sortStack[idx + 1]] = [this.sortStack[idx + 1], this.sortStack[idx]];
-        this.sortStack = [...this.sortStack];
-      }
-    },
+    sortDragEnd() { this._dragKey = null; this._dragOverKey = null; },
     removeSort(key) {
       this.sortStack = this.sortStack.filter(k => k !== key);
     },
