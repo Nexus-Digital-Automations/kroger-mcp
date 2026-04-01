@@ -206,17 +206,42 @@ function cartData() {
     <h2 class="text-sm font-semibold text-gray-700 mb-3">Add Recipe to List</h2>
     <div class="flex items-center gap-3">
       <div class="relative flex-1" @click.away="recipeDropOpen = false">
-        <button @click="recipeDropOpen = !recipeDropOpen"
+
+        <!-- Trigger button -->
+        <button
+          @click="recipeDropOpen = !recipeDropOpen; if(recipeDropOpen) $nextTick(() => $refs.recipeSearchInput?.focus())"
           type="button"
-          class="ss-input w-full flex items-center justify-between gap-2"
-          style="padding-top: 0.45rem; padding-bottom: 0.45rem;">
-          <span x-show="!selectedRecipeName" style="color: var(--text-3); font-size: 0.875rem;">Select a recipe…</span>
-          <span x-show="selectedRecipeName" x-text="selectedRecipeName" style="color: var(--text-1); font-size: 0.875rem; text-align:left;"></span>
-          <svg class="w-3.5 h-3.5 flex-shrink-0 transition-transform" :class="recipeDropOpen ? 'rotate-180' : ''"
+          style="width:100%; display:flex; align-items:center; gap:0.625rem; padding:0.5rem 0.875rem;
+                 background:var(--surface); border-radius:0.625rem; cursor:pointer; text-align:left;
+                 transition:border-color 0.15s, box-shadow 0.15s;"
+          :style="recipeDropOpen
+            ? 'border:1.5px solid var(--green); box-shadow:0 0 0 3px oklch(88% 0.06 148 / 0.35);'
+            : 'border:1.5px solid var(--border);'">
+          <!-- Book icon -->
+          <span style="display:flex; align-items:center; justify-content:center; width:1.625rem; height:1.625rem; background:var(--cream); border-radius:0.375rem; flex-shrink:0; transition:background 0.15s;"
+            :style="recipeDropOpen ? 'background:var(--green-light);' : ''">
+            <svg style="width:0.875rem;height:0.875rem; transition:color 0.15s;"
+              :style="recipeDropOpen ? 'color:var(--green);' : 'color:var(--text-3);'"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+            </svg>
+          </span>
+          <!-- Label area -->
+          <span style="flex:1; min-width:0; overflow:hidden;">
+            <span x-show="!selectedRecipeName"
+              style="font-size:0.875rem; color:var(--text-3); font-weight:400; white-space:nowrap;">Choose a recipe…</span>
+            <span x-show="selectedRecipeName" x-text="selectedRecipeName"
+              style="font-family:'Lora',serif; font-size:0.9375rem; font-weight:600; color:var(--text-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block;"></span>
+          </span>
+          <!-- Chevron -->
+          <svg style="width:0.875rem; height:0.875rem; flex-shrink:0; color:var(--text-3); transition:transform 0.2s;"
+            :style="recipeDropOpen ? 'transform:rotate(180deg);' : ''"
             fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
         </button>
+
+        <!-- Dropdown panel -->
         <div x-show="recipeDropOpen" x-cloak
           x-transition:enter="transition ease-out duration-150"
           x-transition:enter-start="opacity-0 -translate-y-1"
@@ -224,38 +249,58 @@ function cartData() {
           x-transition:leave="transition ease-in duration-100"
           x-transition:leave-start="opacity-100 translate-y-0"
           x-transition:leave-end="opacity-0 -translate-y-1"
-          style="position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--surface);
-                 border-radius:0.75rem; border:1px solid var(--border);
-                 box-shadow:0 8px 32px oklch(18% 0.025 80 / 0.12), 0 2px 8px oklch(18% 0.025 80 / 0.06);
+          style="position:absolute; top:calc(100% + 8px); left:0; right:0;
+                 background:var(--surface); border-radius:0.75rem; border:1.5px solid var(--border);
+                 box-shadow:0 12px 40px oklch(18% 0.025 80 / 0.14), 0 2px 8px oklch(18% 0.025 80 / 0.06);
                  z-index:30; overflow:hidden;">
-          <!-- search input -->
-          <div style="padding: 0.375rem 0.5rem;">
-            <input x-model="recipeSearch" placeholder="Search recipes…" type="text"
-              style="width:100%; padding:0.35rem 0.625rem; font-size:0.8125rem;
-                     border:1px solid var(--border); border-radius:0.375rem; outline:none;
-                     background:var(--surface); color:var(--text-1);" />
+
+          <!-- Integrated search row -->
+          <div style="display:flex; align-items:center; gap:0.5rem; padding:0.625rem 0.875rem; border-bottom:1px solid var(--border);">
+            <svg style="width:0.8125rem;height:0.8125rem; flex-shrink:0; color:var(--text-3);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input x-model="recipeSearch" x-ref="recipeSearchInput"
+              placeholder="Search recipes…" type="text"
+              @keydown.escape="recipeDropOpen = false"
+              style="flex:1; font-size:0.8125rem; border:none; outline:none; background:transparent; color:var(--text-1); font-family:'DM Sans',sans-serif;" />
           </div>
-          <!-- recipe list -->
-          <div style="border-top:1px solid var(--border); max-height:220px; overflow-y:auto; padding:0.25rem 0.5rem 0.375rem;">
+
+          <!-- Recipe list -->
+          <div style="max-height:240px; overflow-y:auto; padding:0.375rem 0;">
             <template x-for="r in filteredRecipes" :key="r.id">
               <button @click="selectRecipe(r.id, r.name)" type="button"
-                :style="selectedRecipe === r.id ? 'background:var(--green-light); color:var(--green);' : 'color:var(--text-1);'"
-                style="width:100%; text-align:left; padding:0.375rem 0.625rem; font-size:0.8125rem;
-                       border-radius:0.375rem; transition:background 0.1s;
-                       display:flex; justify-content:space-between; align-items:center; gap:0.5rem;"
-                @mouseenter="if(selectedRecipe !== r.id) $el.style.background='oklch(96% 0.01 80)';"
-                @mouseleave="if(selectedRecipe !== r.id) $el.style.background='';">
-                <span x-text="r.name"></span>
-                <span x-show="r.servings" x-text="r.servings + ' srv'"
-                  style="font-size:0.7rem; color:var(--text-3); flex-shrink:0;"></span>
+                style="width:100%; display:flex; align-items:center; gap:0.5rem; padding:0.5rem 0.875rem; border:none; background:transparent; cursor:pointer; transition:background 0.1s; text-align:left;"
+                :style="selectedRecipe === r.id ? 'background:var(--green-light);' : ''"
+                @mouseenter="if(selectedRecipe !== r.id) $el.style.background='oklch(96% 0.012 80)';"
+                @mouseleave="if(selectedRecipe !== r.id) $el.style.background='transparent';">
+                <!-- Checkmark / spacer -->
+                <span style="width:1rem; height:1rem; flex-shrink:0; display:flex; align-items:center; justify-content:center;">
+                  <svg x-show="selectedRecipe === r.id"
+                    style="width:0.875rem;height:0.875rem; color:var(--green);"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                  </svg>
+                </span>
+                <span style="flex:1; font-family:'Lora',serif; font-size:0.875rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                  :style="selectedRecipe === r.id ? 'color:var(--green);' : 'color:var(--text-1);'"
+                  x-text="r.name"></span>
+                <span x-show="r.servings"
+                  style="font-size:0.6875rem; color:var(--text-3); flex-shrink:0; font-family:'DM Sans',sans-serif;"
+                  x-text="r.servings + '\u00a0srv'"></span>
               </button>
             </template>
+
+            <!-- Empty state -->
             <div x-show="filteredRecipes.length === 0"
-              style="padding:0.75rem; font-size:0.8125rem; color:var(--text-3); text-align:center;">
-              No matches
+              style="padding:1.5rem 0.875rem; display:flex; flex-direction:column; align-items:center; gap:0.5rem; text-align:center;">
+              <svg style="width:1.375rem;height:1.375rem; color:var(--text-3); opacity:0.45;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+              </svg>
+              <span style="font-size:0.8125rem; color:var(--text-3); font-style:italic;">No recipes found</span>
             </div>
           </div>
         </div>
+
       </div>
 
       <div class="flex items-center gap-2">

@@ -17,6 +17,13 @@
 <script id="recipe-init-data" type="application/json">
 {{ {"id": recipe.id, "name": recipe.name, "description": recipe.description or "", "servings": recipe.servings, "tags": recipe.tags or []} | tojson }}
 </script>
+<script id="ingredients-data" type="application/json">{{ ingredients | tojson }}</script>
+<style>
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+</style>
 <div x-data="recipeHeader" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
 
   <!-- Edit Recipe Modal -->
@@ -81,13 +88,16 @@
         class="flex-shrink-0 px-4 py-2 text-sm font-medium text-emerald-600 border border-emerald-300 rounded-lg hover:bg-emerald-50 transition-colors">
         + Meal Plan
       </button>
-      <button @click="addToList()" :disabled="listAdding"
-        class="flex-shrink-0 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-        <span x-show="!listAdding">Add to List</span>
-        <span x-show="listAdding">Adding...</span>
-      </button>
-      <span x-show="listDone" x-transition class="text-xs text-emerald-600 font-medium">Added!</span>
-      <span x-show="listError" x-transition class="text-xs text-red-600" x-text="listError"></span>
+      <a href="#add-to-list-panel"
+        onclick="document.getElementById('add-to-list-panel')?.scrollIntoView({behavior:'smooth',block:'start'}); return false;"
+        style="display:inline-flex; align-items:center; gap:0.375rem; padding:0.5rem 1.125rem; background:var(--green); color:white; font-size:0.875rem; font-weight:500; border-radius:0.5rem; text-decoration:none; flex-shrink:0; transition:background 0.15s; font-family:'DM Sans',sans-serif;"
+        onmouseenter="this.style.background='oklch(42% 0.14 148)'"
+        onmouseleave="this.style.background='var(--green)'">
+        <svg style="width:0.875rem;height:0.875rem;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+        </svg>
+        Add to List
+      </a>
     </div>
   </div>
 
@@ -340,6 +350,102 @@
   {% endif %}
 </div>
 
+<!-- ── Add to Shopping List Panel ── -->
+<div x-data="addToListPanel()" id="add-to-list-panel" class="mt-6">
+  <div class="ss-card" style="padding:1.75rem 2rem;">
+
+    <!-- Panel header -->
+    <div style="display:flex; align-items:center; gap:0.625rem; margin-bottom:1.5rem;">
+      <span style="display:flex; align-items:center; justify-content:center; width:1.875rem; height:1.875rem; background:var(--green-light); border-radius:0.5rem; flex-shrink:0;">
+        <svg style="width:1rem;height:1rem;color:var(--green);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+        </svg>
+      </span>
+      <h3 style="font-family:'Lora',serif; font-weight:600; font-size:1rem; color:var(--text-1); letter-spacing:-0.01em; margin:0;">Add to Shopping List</h3>
+    </div>
+
+    <!-- Servings stepper -->
+    <div style="display:flex; align-items:center; gap:1.25rem; margin-bottom:1.75rem; padding-bottom:1.5rem; border-bottom:1px solid var(--border);">
+      <span style="font-size:0.8125rem; font-weight:500; color:var(--text-2);">Servings</span>
+      <div style="display:inline-flex; align-items:center; border:1.5px solid var(--border); border-radius:99px; background:var(--surface); overflow:hidden;">
+        <button @click="dec()"
+          :disabled="servings <= 1"
+          style="width:2.25rem; height:2.25rem; display:flex; align-items:center; justify-content:center; color:var(--text-2); font-size:1.125rem; border:none; background:transparent; line-height:1;"
+          :style="servings <= 1 ? 'opacity:0.3; cursor:not-allowed;' : 'cursor:pointer;'"
+          @mouseenter="if(servings>1){$el.style.background='oklch(93% 0.018 80)'; $el.style.color='var(--text-1)';}"
+          @mouseleave="$el.style.background='transparent'; $el.style.color='var(--text-2)';">−</button>
+        <span style="min-width:3rem; text-align:center; font-family:'Lora',serif; font-size:1.25rem; font-weight:600; color:var(--text-1); padding:0 0.25rem; user-select:none; border-left:1px solid var(--border); border-right:1px solid var(--border);"
+          x-text="servings"></span>
+        <button @click="inc()"
+          :disabled="servings >= 50"
+          style="width:2.25rem; height:2.25rem; display:flex; align-items:center; justify-content:center; color:var(--text-2); font-size:1.125rem; border:none; background:transparent; line-height:1;"
+          :style="servings >= 50 ? 'opacity:0.3; cursor:not-allowed;' : 'cursor:pointer;'"
+          @mouseenter="if(servings<50){$el.style.background='oklch(93% 0.018 80)'; $el.style.color='var(--text-1)';}"
+          @mouseleave="$el.style.background='transparent'; $el.style.color='var(--text-2)';">+</button>
+      </div>
+      <span style="font-size:0.75rem; color:var(--text-3); font-style:italic;" x-text="scaleLabel"></span>
+    </div>
+
+    <!-- Ingredient preview list -->
+    <div x-show="ings.length > 0">
+      <div style="display:grid; grid-template-columns:6.5rem 1fr auto; gap:0.5rem; padding-bottom:0.5rem; margin-bottom:0.25rem; border-bottom:1px solid oklch(90% 0.015 80); font-size:0.625rem; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-3); font-family:'DM Sans',sans-serif;">
+        <span>Qty</span>
+        <span>Ingredient</span>
+        <span>Source</span>
+      </div>
+      <template x-for="(ing, i) in scaledIngs" :key="ing.name + i">
+        <div style="display:grid; grid-template-columns:6.5rem 1fr auto; gap:0.5rem; padding:0.45rem 0; border-bottom:1px solid oklch(94% 0.01 80);"
+          :style="`animation: fadeSlideIn 0.3s ease-out both; animation-delay: ${i * 18}ms;`">
+          <span style="font-size:0.8rem; color:var(--text-3); white-space:nowrap; font-variant-numeric:tabular-nums;"
+            x-text="(ing.sq !== null ? fmtQty(ing.sq) : '') + (ing.unit ? ' ' + ing.unit : '')"></span>
+          <span style="font-size:0.875rem; color:var(--text-1);" x-text="ing.name"></span>
+          <span>
+            <span x-show="ing.override" style="font-size:0.6875rem; background:oklch(92% 0.015 80); color:var(--text-2); padding:0.1rem 0.5rem; border-radius:99px; font-weight:500;">Manual</span>
+            <span x-show="!ing.override && ing.product_id" style="font-size:0.6875rem; background:oklch(91% 0.1 145); color:oklch(30% 0.14 145); padding:0.1rem 0.5rem; border-radius:99px; font-weight:500;">Kroger</span>
+            <span x-show="!ing.override && !ing.product_id" style="font-size:0.6875rem; color:var(--text-3);">—</span>
+          </span>
+        </div>
+      </template>
+    </div>
+    <p x-show="ings.length === 0" style="font-size:0.875rem; color:var(--text-3);">No ingredients to preview.</p>
+
+    <!-- Footer: status + CTA -->
+    <div style="display:flex; align-items:center; justify-content:flex-end; gap:1rem; margin-top:1.5rem; padding-top:1.25rem; border-top:1px solid var(--border);">
+      <span x-show="done" x-transition style="font-size:0.8125rem; color:var(--green); font-weight:500; display:flex; align-items:center; gap:0.375rem;">
+        <svg style="width:1rem;height:1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+        </svg>
+        Added to shopping list
+      </span>
+      <span x-show="err" x-transition style="font-size:0.8125rem; color:oklch(48% 0.19 25);" x-text="err"></span>
+      <button @click="addToShoppingList()" :disabled="adding"
+        style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.625rem 1.5rem; background:var(--green); color:white; font-size:0.875rem; font-weight:500; border-radius:0.625rem; border:none; cursor:pointer; transition:background 0.15s; font-family:'DM Sans',sans-serif;"
+        :style="adding ? 'opacity:0.65; cursor:not-allowed;' : ''"
+        @mouseenter="if(!adding){$el.style.background='oklch(42% 0.14 148)';}"
+        @mouseleave="$el.style.background='var(--green)';">
+        <template x-if="!adding">
+          <span style="display:flex; align-items:center; gap:0.5rem;">
+            <svg style="width:0.9375rem;height:0.9375rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 4v16m8-8H4"/>
+            </svg>
+            Add to Shopping List
+          </span>
+        </template>
+        <template x-if="adding">
+          <span style="display:flex; align-items:center; gap:0.5rem;">
+            <svg class="animate-spin" style="width:0.875rem;height:0.875rem;" fill="none" viewBox="0 0 24 24">
+              <circle style="opacity:0.25;" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path style="opacity:0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+            </svg>
+            Adding…
+          </span>
+        </template>
+      </button>
+    </div>
+
+  </div>
+</div>
+
 <!-- ── Meal Plan Slide-Out Panel ── -->
 <div x-data="recipeDetailMealPanel">
 
@@ -480,9 +586,6 @@ document.addEventListener('alpine:init', () => {
   }));
 
   Alpine.data('recipeHeader', () => ({
-    listAdding: false,
-    listDone: false,
-    listError: '',
     editOpen: false,
     editName: _rd.name,
     editDescription: _rd.description,
@@ -510,28 +613,6 @@ document.addEventListener('alpine:init', () => {
         else { this.editError = d.error || 'Failed to save changes'; }
       } catch(e) { this.editError = 'Network error'; }
       this.editLoading = false;
-    },
-    async addToList() {
-      this.listAdding = true; this.listDone = false; this.listError = '';
-      try {
-        const r = await fetch('/api/recipes/' + _rd.id + '/add-to-cart', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({confirm: true, modality: 'PICKUP'})
-        });
-        const d = await r.json();
-        if (r.ok && d.success) {
-          this.listDone = true;
-          setTimeout(() => this.listDone = false, 3000);
-        } else {
-          this.listError = d.error || 'Failed to add to list';
-          setTimeout(() => this.listError = '', 4000);
-        }
-      } catch(e) {
-        this.listError = 'Network error';
-        setTimeout(() => this.listError = '', 4000);
-      }
-      this.listAdding = false;
     }
   }));
 
@@ -590,6 +671,76 @@ document.addEventListener('alpine:init', () => {
         this.success = slot.charAt(0).toUpperCase() + slot.slice(1) + ' on ' + date + ' \u2014 added!';
         await this.loadWeek();
       }
+    }
+  }));
+
+  Alpine.data('addToListPanel', () => ({
+    baseServings: _rd.servings || 4,
+    servings: _rd.servings || 4,
+    ings: [],
+    adding: false,
+    done: false,
+    err: '',
+
+    init() {
+      const el = document.getElementById('ingredients-data');
+      if (el) { try { this.ings = JSON.parse(el.textContent); } catch(e) {} }
+    },
+
+    inc() { if (this.servings < 50) this.servings++; },
+    dec() { if (this.servings > 1) this.servings--; },
+
+    fmtQty(raw) {
+      if (raw === null || raw === undefined) return '';
+      const n = parseFloat(raw);
+      if (isNaN(n) || n === 0) return '';
+      if (n === Math.floor(n)) return String(Math.floor(n));
+      const whole = Math.floor(n);
+      const frac = n - whole;
+      const fracs = [[0.125,'⅛'],[0.25,'¼'],[0.333,'⅓'],[0.5,'½'],[0.667,'⅔'],[0.75,'¾'],[0.875,'⅞']];
+      for (const [v, sym] of fracs) {
+        if (Math.abs(frac - v) < 0.04) return (whole ? whole + '\u2009' : '') + sym;
+      }
+      const r = Math.round(n * 10) / 10;
+      return (r === Math.floor(r)) ? String(Math.floor(r)) : r.toFixed(1);
+    },
+
+    get scaledIngs() {
+      const f = this.servings / this.baseServings;
+      return this.ings.map(i => ({
+        ...i,
+        sq: (i.quantity !== null && i.quantity !== undefined) ? i.quantity * f : null
+      }));
+    },
+
+    get scaleLabel() {
+      if (this.servings === this.baseServings) return 'original serving size';
+      const f = this.servings / this.baseServings;
+      const nice = (f === Math.floor(f)) ? Math.floor(f) : parseFloat(f.toFixed(2));
+      return '\u00d7\u2009' + nice + ' of original';
+    },
+
+    async addToShoppingList() {
+      this.adding = true; this.done = false; this.err = '';
+      try {
+        const r = await fetch('/api/shopping-list/add-recipe', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({recipe_id: _rd.id, servings_override: this.servings})
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.done = true;
+          setTimeout(() => this.done = false, 4000);
+        } else {
+          this.err = d.error || 'Failed to add to list';
+          setTimeout(() => this.err = '', 5000);
+        }
+      } catch(e) {
+        this.err = 'Network error';
+        setTimeout(() => this.err = '', 5000);
+      }
+      this.adding = false;
     }
   }));
 });
