@@ -277,3 +277,45 @@ this would be used for snacks, meals, so we can update the pantry in real time b
 **Request:** please build out a chatbot for the smart shopper app so it can do web searches and build recipes and auto compact conversations. It should use the deepseek-chat model and should have tools to access r...
 - [ ] Pending
 -----
+
+-----
+### [FEATURE] 2026-03-31 12:25
+**Session:** `51edfd24...`
+**Request:** please add a chatbot feature to this. I want it to have access to all the same features that the user does. it should exist in a popup panel. I want all actions besides of read actions be approved by ...
+- [ ] Pending
+-----
+
+-----
+### [FEATURE] 2026-04-01 15:29
+**Session:** `0616970c...`
+**Request:** please move the add recipe to list dialog box to the recipes page. in fact, have it on each recipe page, so we could see the ingredients and whatnot change as we change the servings count for each rec...
+- [ ] Pending
+-----
+
+-----
+### [FEATURE] 2026-04-01 15:29
+**Session:** `de861adb...`
+**Request:** please improve the sorting features so they're dropdowns. they should be draggable and rankable, so the highest one up is 1st, and then the second highest is 2nd, etc
+- [ ] Pending
+-----
+
+-----
+### [FEATURE] 2026-04-01 15:30
+**Session:** `de861adb...`
+**Request:** please improve the sorting features so they're dropdowns. they should be draggable and rankable, so the highest one up is 1st, and then the second highest is 2nd, etc. do this for all sorting features...
+- [ ] Pending
+-----
+
+-----
+### [FEATURE] 2026-04-01 16:08
+**Session:** `0616970c...`
+**Request:** no. please remove the recipe dialog box in the list page, then improve it so the adjustments are merged with the preexisting ingredients section on each recipe page. make it look nice. use impeccable
+- [ ] Pending
+-----
+
+-----
+### [FEATURE] 2026-04-01 16:48
+**Session:** `0616970c...`
+**Request:** please remove the bottom add to shopping list button. and it still doesn't show the ingredient quantities. verify it with playwwright before stopping
+- [ ] Pending
+-----
