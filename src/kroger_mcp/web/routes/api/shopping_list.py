@@ -86,7 +86,11 @@ async def add_recipe_to_list(body: AddRecipeBody):
             product_id = ing.get("product_id")
             is_override = ing.get("override", False)
 
-            scaled_qty = round(qty * scale_factor, 2) if qty else 1
+            try:
+                qty_num = float(qty) if qty not in (None, '', 0) else 1.0
+            except (ValueError, TypeError):
+                qty_num = 1.0
+            scaled_qty = round(qty_num * scale_factor, 2)
 
             if is_override:
                 override_reason = ing.get("override_reason", "Not from Kroger")

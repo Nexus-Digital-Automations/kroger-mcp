@@ -274,14 +274,45 @@
           </div>
         </a>
 
-        <!-- Add to Meal Plan -->
-        <div class="px-5 pb-4">
-          <button @click.prevent="$dispatch('open-meal-panel', {recipeId: recipe.id, recipeName: recipe.name})"
-            style="width: 100%; font-size: 0.75rem; color: var(--green); border: 1px solid var(--green-light); border-radius: 0.5rem; padding: 0.35rem; transition: background 0.12s;"
-            @mouseenter="$el.style.background='var(--green-light)';"
-            @mouseleave="$el.style.background='';">
-            + Add to Meal Plan
-          </button>
+        <!-- Action buttons: Add to List + Add to Meal Plan -->
+        <div class="px-5 pb-4 flex gap-2">
+          <!-- Add to List -->
+          <div x-data="{ adding: false, done: false, err: '' }" style="flex: 1; min-width: 0;">
+            <button @click.prevent="
+                if (adding || done) return;
+                adding = true; err = '';
+                fetch('/api/shopping-list/add-recipe', {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({recipe_id: recipe.id})
+                })
+                .then(r => r.json().then(d => ({ok: r.ok, d})))
+                .then(({ok, d}) => {
+                  adding = false;
+                  if (ok) { done = true; setTimeout(() => done = false, 3000); }
+                  else { err = d.error || 'Error'; setTimeout(() => err = '', 3000); }
+                })
+                .catch(() => { adding = false; err = 'Failed'; setTimeout(() => err = '', 3000); })"
+              :style="done ? 'background: var(--green); color: white; border-color: var(--green);' : err ? 'background: oklch(92% 0.06 25); color: oklch(48% 0.17 25); border-color: oklch(88% 0.1 25);' : 'color: var(--green); border-color: var(--green-light);'"
+              style="width: 100%; font-size: 0.75rem; border: 1px solid; border-radius: 0.5rem; padding: 0.35rem; transition: background 0.12s; background: transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+              @mouseenter="if (!done && !err) $el.style.background='var(--green-light)';"
+              @mouseleave="if (!done && !err) $el.style.background='transparent';"
+              title="Add ingredients to shopping list">
+              <span x-show="!adding && !done && !err">+ List</span>
+              <span x-show="adding" aria-label="Adding">…</span>
+              <span x-show="done">✓ Added</span>
+              <span x-show="!!err" x-text="err.slice(0, 8)"></span>
+            </button>
+          </div>
+          <!-- Add to Meal Plan -->
+          <div style="flex: 1; min-width: 0;">
+            <button @click.prevent="$dispatch('open-meal-panel', {recipeId: recipe.id, recipeName: recipe.name})"
+              style="width: 100%; font-size: 0.75rem; color: var(--green); border: 1px solid var(--green-light); border-radius: 0.5rem; padding: 0.35rem; transition: background 0.12s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+              @mouseenter="$el.style.background='var(--green-light)';"
+              @mouseleave="$el.style.background='';">
+              + Meal Plan
+            </button>
+          </div>
         </div>
       </div>
     </template>
