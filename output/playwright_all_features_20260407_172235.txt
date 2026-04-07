@@ -1,0 +1,25 @@
+
+[Dashboard]
+  [32mPASS[0m  Dashboard page loads
+  [32mPASS[0m  Dashboard has stat cards (found 7)
+
+[Recipes Page]
+  [32mPASS[0m  Recipe cards visible (67)
+  [32mPASS[0m  "+ List" button on every card (67 btns, 67 cards)
+  [32mPASS[0m  "+ Meal Plan" on every card (67)
+  [32mPASS[0m  Search filters cards (67 → 21)
+  [32mPASS[0m  Tag filter shows checkboxes (217)
+  [32mPASS[0m  Sort dropdown opens with options
+  [32mPASS[0m  Add to List API returns 200 (got 200)
+  [32mPASS[0m  Meal plan panel opens
+  [33mWARN[0m  Unexpected dialog: "Delete this recipe?"
+node:internal/process/promises:394
+    triggerUncaughtException(err, true /* fromPromise */);
+    ^
+
+dialog.dismiss: Cannot dismiss dialog which is already handled!
+    at Page.<anonymous> (/Users/jeremyparker/Desktop/Claude Coding Projects/kroger-mcp/tests/playwright/test_all_features.js:167:44) {
+  name: 'Error'
+}
+
+Node.js v22.22.0
