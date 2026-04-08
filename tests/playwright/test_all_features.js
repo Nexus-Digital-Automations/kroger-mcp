@@ -107,10 +107,10 @@ async function testRecipesPage() {
   assert(cards > 0, `Recipe cards visible (${cards})`);
 
   // Both action buttons present
-  const listBtns = await page.locator('button >> text="+ List"').count();
-  const mealBtns = await page.locator('button >> text="+ Meal Plan"').count();
-  assert(listBtns >= cards, `"+ List" button on every card (${listBtns} btns, ${cards} cards)`);
-  assert(mealBtns >= cards, `"+ Meal Plan" on every card (${mealBtns})`);
+  const listBtns = await page.locator('button:has-text("Add to List")').count();
+  const mealBtns = await page.locator('button:has-text("Meal Plan")').count();
+  assert(listBtns >= cards, `"Add to List" button on every card (${listBtns} btns, ${cards} cards)`);
+  assert(mealBtns >= cards, `"Meal Plan" button on every card (${mealBtns})`);
 
   // Search filter
   const search = page.locator('input[x-model="search"]');
@@ -152,12 +152,12 @@ async function testRecipesPage() {
     if (res.url().includes('shopping-list/add-recipe'))
       responses.push({ status: res.status() });
   });
-  await page.locator('button >> text="+ List"').first().click();
+  await page.locator('button:has-text("Add to List")').first().click();
   await page.waitForTimeout(1500);
   assert(responses.length > 0 && responses[0].status === 200, `Add to List API returns 200 (got ${responses[0]?.status})`);
 
   // Meal Plan panel opens
-  await page.locator('button >> text="+ Meal Plan"').first().click();
+  await page.locator('button:has-text("Meal Plan")').first().click();
   await page.waitForTimeout(600);
   const panel = await page.locator('.fixed.inset-y-0.right-0').isVisible();
   assert(panel, 'Meal plan panel opens');

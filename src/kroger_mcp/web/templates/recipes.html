@@ -293,24 +293,26 @@
                   else { err = d.error || 'Error'; setTimeout(() => err = '', 3000); }
                 })
                 .catch(() => { adding = false; err = 'Failed'; setTimeout(() => err = '', 3000); })"
-              :style="done ? 'background: var(--green); color: white; border-color: var(--green);' : err ? 'background: oklch(92% 0.05 25); color: var(--danger); border-color: oklch(88% 0.08 25);' : 'color: var(--terra); border-color: var(--terra-light);'"
-              style="width: 100%; font-size: 0.75rem; font-weight: 500; border: 1px solid; border-radius: 0.5rem; padding: 0.4rem; transition: all 0.15s; background: transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
-              @mouseenter="if (!done && !err) $el.style.background='var(--terra-light)';"
-              @mouseleave="if (!done && !err) $el.style.background='transparent';"
+              :style="done ? 'background: var(--green); border-color: var(--green);' : err ? 'background: oklch(55% 0.16 25); border-color: oklch(55% 0.16 25);' : 'background: var(--terra); border-color: var(--terra);'"
+              style="width: 100%; font-size: 0.75rem; font-weight: 600; color: white; border: 1px solid; border-radius: 0.5rem; padding: 0.45rem 0.5rem; transition: all 0.15s; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; cursor: pointer;"
+              @mouseenter="if (!done && !err) $el.style.background='var(--terra-dark)'; $el.style.borderColor='var(--terra-dark)';"
+              @mouseleave="if (!done && !err) $el.style.background='var(--terra)'; $el.style.borderColor='var(--terra)';"
               title="Add ingredients to shopping list">
-              <span x-show="!adding && !done && !err">+ List</span>
-              <span x-show="adding" aria-label="Adding">…</span>
-              <span x-show="done">✓ Added</span>
-              <span x-show="!!err" x-text="err.slice(0, 8)"></span>
+              <svg x-show="!adding && !done && !err" style="width: 0.8rem; height: 0.8rem; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+              <span x-show="!adding && !done && !err">Add to List</span>
+              <span x-show="adding" aria-label="Adding">Adding…</span>
+              <span x-show="done">&#10003; Added</span>
+              <span x-show="!!err" x-text="err.slice(0, 12)"></span>
             </button>
           </div>
           <!-- Add to Meal Plan -->
           <div style="flex: 1; min-width: 0;">
             <button @click.prevent="$dispatch('open-meal-panel', {recipeId: recipe.id, recipeName: recipe.name})"
-              style="width: 100%; font-size: 0.75rem; font-weight: 500; color: var(--green); border: 1px solid var(--green-light); border-radius: 0.5rem; padding: 0.4rem; transition: all 0.15s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
-              @mouseenter="$el.style.background='var(--green-light)';"
-              @mouseleave="$el.style.background='';">
-              + Meal Plan
+              style="width: 100%; font-size: 0.75rem; font-weight: 600; color: var(--green); border: 1px solid var(--green); border-radius: 0.5rem; padding: 0.45rem 0.5rem; transition: all 0.15s; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; background: transparent; cursor: pointer;"
+              @mouseenter="$el.style.background='var(--green)'; $el.style.color='white';"
+              @mouseleave="$el.style.background='transparent'; $el.style.color='var(--green)';">
+              <svg style="width: 0.8rem; height: 0.8rem; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              Meal Plan
             </button>
           </div>
         </div>

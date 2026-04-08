@@ -1,5 +1,6 @@
 """Shopping list API endpoints."""
 import asyncio
+import math
 from datetime import datetime
 from typing import Optional
 
@@ -90,7 +91,19 @@ async def add_recipe_to_list(body: AddRecipeBody):
                 qty_num = float(qty) if qty not in (None, '', 0) else 1.0
             except (ValueError, TypeError):
                 qty_num = 1.0
-            scaled_qty = round(qty_num * scale_factor, 2)
+            raw_scaled = qty_num * scale_factor
+            # Smart rounding: produce realistic cooking quantities
+            # Quantities >= 3 round to nearest whole number
+            # Quantities >= 1 round to nearest 0.5
+            # Quantities < 1 round to nearest 0.25 (quarter measures)
+            if raw_scaled >= 3:
+                scaled_qty = round(raw_scaled)
+            elif raw_scaled >= 1:
+                scaled_qty = round(raw_scaled * 2) / 2  # nearest 0.5
+            elif raw_scaled > 0:
+                scaled_qty = max(0.25, round(raw_scaled * 4) / 4)  # nearest 0.25
+            else:
+                scaled_qty = 1
 
             if is_override:
                 override_reason = ing.get("override_reason", "Not from Kroger")
