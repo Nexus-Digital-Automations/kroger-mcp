@@ -23,23 +23,42 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
     :root {
-      --cream:        oklch(97% 0.012 80);
-      --surface:      oklch(99.5% 0.005 80);
-      --border:       oklch(88% 0.018 80);
-      --text-1:       oklch(18% 0.025 80);
-      --text-2:       oklch(44% 0.03 80);
-      --text-3:       oklch(62% 0.02 80);
-      --sidebar-bg:   oklch(21% 0.065 155);
-      --sidebar-border: oklch(28% 0.07 152);
-      --sidebar-link: oklch(68% 0.05 152);
-      --sidebar-hover-bg: oklch(28% 0.07 152);
-      --sidebar-hover: oklch(88% 0.04 150);
-      --sidebar-section: oklch(48% 0.09 150);
-      --green:        oklch(48% 0.14 148);
-      --green-light:  oklch(88% 0.06 148);
-      --amber:        oklch(72% 0.165 72);
-      --amber-dark:   oklch(55% 0.16 68);
-      --amber-text:   oklch(20% 0.05 70);
+      /* ── Warm kitchen palette ── */
+      --cream:        oklch(96.5% 0.015 75);
+      --surface:      oklch(99% 0.008 75);
+      --border:       oklch(89% 0.02 70);
+      --text-1:       oklch(20% 0.03 55);
+      --text-2:       oklch(42% 0.03 55);
+      --text-3:       oklch(58% 0.025 60);
+
+      /* Sidebar — deep warm charcoal-green */
+      --sidebar-bg:   oklch(22% 0.04 140);
+      --sidebar-border: oklch(28% 0.045 135);
+      --sidebar-link: oklch(70% 0.04 140);
+      --sidebar-hover-bg: oklch(28% 0.05 135);
+      --sidebar-hover: oklch(90% 0.03 80);
+      --sidebar-section: oklch(52% 0.06 140);
+
+      /* Primary — sage green (softer, warmer) */
+      --green:        oklch(46% 0.1 155);
+      --green-light:  oklch(92% 0.04 155);
+
+      /* Accent — warm terracotta */
+      --terra:        oklch(58% 0.14 38);
+      --terra-light:  oklch(92% 0.04 38);
+      --terra-dark:   oklch(42% 0.12 35);
+
+      /* Secondary accent — golden amber */
+      --amber:        oklch(72% 0.145 75);
+      --amber-dark:   oklch(55% 0.14 70);
+      --amber-text:   oklch(22% 0.05 65);
+      --amber-light:  oklch(93% 0.04 75);
+
+      /* Semantic warm colors */
+      --success:      oklch(52% 0.12 155);
+      --warning:      oklch(68% 0.15 72);
+      --danger:       oklch(55% 0.16 25);
+      --info:         oklch(52% 0.08 240);
     }
 
     *, *::before, *::after { box-sizing: border-box; }
@@ -66,11 +85,11 @@
     }
 
     .ss-brand-icon {
-      background-color: var(--amber);
-      color: var(--amber-text);
-      width: 1.75rem;
-      height: 1.75rem;
-      border-radius: 0.375rem;
+      background-color: var(--terra);
+      color: white;
+      width: 1.875rem;
+      height: 1.875rem;
+      border-radius: 0.5rem;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -109,20 +128,20 @@
     .sidebar-link:hover svg { opacity: 0.9; }
 
     .sidebar-link.active {
-      background-color: var(--amber);
-      color: var(--amber-text);
+      background-color: var(--terra);
+      color: white;
       font-weight: 600;
     }
     .sidebar-link.active svg { opacity: 1; }
     .sidebar-link.active:hover {
-      background-color: oklch(66% 0.18 70);
+      background-color: oklch(54% 0.14 38);
     }
 
     /* ── Page chrome ─────────────────────────── */
     .ss-header {
       background-color: var(--surface);
       border-bottom: 1px solid var(--border);
-      height: 3.5rem;
+      height: 4rem;
       display: flex;
       align-items: center;
       padding: 0 2rem;
@@ -130,29 +149,32 @@
 
     .ss-page-title {
       font-family: 'Lora', serif;
-      font-weight: 600;
-      font-size: 1.125rem;
+      font-weight: 700;
+      font-size: 1.375rem;
       color: var(--text-1);
-      letter-spacing: -0.01em;
+      letter-spacing: -0.02em;
     }
 
     /* ── Shared component helpers ────────────── */
     .ss-card {
       background-color: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 0.75rem;
+      border-radius: 0.875rem;
+      box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.04);
     }
 
     .ss-btn-primary {
-      background-color: var(--green);
+      background-color: var(--terra);
       color: white;
-      font-weight: 500;
+      font-weight: 600;
       font-size: 0.8125rem;
-      padding: 0.45rem 1rem;
+      padding: 0.5rem 1.125rem;
       border-radius: 0.5rem;
-      transition: background-color 0.12s;
+      transition: background-color 0.15s, transform 0.1s;
+      letter-spacing: 0.005em;
     }
-    .ss-btn-primary:hover { background-color: oklch(42% 0.15 148); }
+    .ss-btn-primary:hover { background-color: var(--terra-dark); transform: translateY(-1px); }
+    .ss-btn-primary:active { transform: translateY(0); }
 
     .ss-input {
       font-family: 'DM Sans', sans-serif;
@@ -444,7 +466,7 @@
       width: 3.25rem;
       height: 3.25rem;
       border-radius: 50%;
-      background: var(--green);
+      background: var(--terra);
       color: white;
       border: none;
       cursor: pointer;
@@ -452,15 +474,15 @@
       align-items: center;
       justify-content: center;
       box-shadow:
-        0 4px 14px oklch(48% 0.14 148 / 0.35),
-        0 1px 3px oklch(0% 0 0 / 0.1);
+        0 4px 14px oklch(58% 0.14 38 / 0.3),
+        0 1px 3px oklch(0% 0 0 / 0.08);
       transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     .chat-fab:hover {
       transform: scale(1.08);
       box-shadow:
-        0 6px 20px oklch(48% 0.14 148 / 0.45),
-        0 2px 6px oklch(0% 0 0 / 0.12);
+        0 6px 20px oklch(58% 0.14 38 / 0.4),
+        0 2px 6px oklch(0% 0 0 / 0.1);
     }
 
     .chat-panel {
@@ -493,8 +515,8 @@
       width: 1.5rem;
       height: 1.5rem;
       border-radius: 0.3rem;
-      background: var(--amber);
-      color: var(--amber-text);
+      background: var(--terra);
+      color: white;
       display: flex;
       align-items: center;
       justify-content: center;

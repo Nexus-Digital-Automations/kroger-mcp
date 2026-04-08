@@ -1,0 +1,94 @@
+
+[Dashboard]
+  [32mPASS[0m  Dashboard page loads
+  [32mPASS[0m  Dashboard has stat cards (found 7)
+
+[Recipes Page]
+  [32mPASS[0m  Recipe cards visible (67)
+  [32mPASS[0m  "+ List" button on every card (67 btns, 67 cards)
+  [32mPASS[0m  "+ Meal Plan" on every card (67)
+  [32mPASS[0m  Search filters cards (67 → 21)
+  [32mPASS[0m  Tag filter shows checkboxes (217)
+  [32mPASS[0m  Sort dropdown opens with options
+  [32mPASS[0m  Add to List API returns 200 (got 200)
+  [32mPASS[0m  Meal plan panel opens
+  [32mPASS[0m  Delete button triggers confirm dialog
+
+[Recipe Detail]
+  [32mPASS[0m  Recipe detail heading visible
+  [32mPASS[0m  Edit button present
+  [32mPASS[0m  "+ Meal Plan" button present
+  [32mPASS[0m  "Add to List" anchor present
+  [32mPASS[0m  Ingredients card present
+  [32mPASS[0m  Servings stepper works (6 → 7)
+  [32mPASS[0m  Category view toggle clickable
+  [32mPASS[0m  Ingredients "Add to Shopping List" returns 200
+  [32mPASS[0m  Button shows success feedback
+  [32mPASS[0m  Instructions section present
+  [32mPASS[0m  Health badge popup works
+
+[Shopping List]
+  [32mPASS[0m  Shopping list page loads
+  [32mPASS[0m  Recipe search input present
+  [32mPASS[0m  Shopping list has 44 item rows
+
+[Meal Plan]
+  [32mPASS[0m  Meal plan page loads
+  [32mPASS[0m  "New Plan" button present
+  [32mPASS[0m  Week grid renders
+  [32mPASS[0m  Week navigation buttons present
+
+[Pantry]
+  [32mPASS[0m  Pantry page loads
+  [32mPASS[0m  "Add Item" button present
+  [32mPASS[0m  Pantry has 40 items
+  [32mPASS[0m  "Restock" button present
+
+[Meal Tracker]
+  [32mPASS[0m  Meal tracker page loads
+  [32mPASS[0m  Meal type tabs clickable
+  [32mPASS[0m  Description input present
+
+[Favorites]
+  [32mPASS[0m  Favorites page loads
+  [32mPASS[0m  "New List" button present
+  [32mPASS[0m  Favorites lists visible (3)
+  [32mPASS[0m  Favorites detail page loads
+
+[Products]
+  [32mPASS[0m  Products page loads
+  [32mPASS[0m  Product search input present
+  [32mPASS[0m  Search returns results
+  [32mPASS[0m  Deals mode tab clickable
+
+[Deals]
+  [32mPASS[0m  Deals page loads (http://127.0.0.1:8080/products)
+
+[Analytics]
+  [32mPASS[0m  Analytics page loads
+  [32mPASS[0m  Analytics tabs work (4 found)
+  [32mPASS[0m  Time period selector works
+
+[Safety & Ingredients]
+  [32mPASS[0m  Safety page loads
+  [32mPASS[0m  Safety tabs work (3 found)
+  [32mPASS[0m  Ingredient search input works
+
+[Settings]
+  [32mPASS[0m  Settings page loads
+  [32mPASS[0m  Household servings input present
+  [32mPASS[0m  Location search input present
+  [32mPASS[0m  Save button present
+
+[Predictions]
+  [32mPASS[0m  Predictions page loads
+
+[Chat Widget]
+  [32mPASS[0m  Chat widget Alpine component present
+
+[Console Errors — All Pages]
+  [32mPASS[0m  No critical JS console errors across all pages
+
+════════════════════════════════════════════════════════════
+RESULTS: [32m58 passed[0m, [31m0 failed[0m, [33m0 warnings[0m
+

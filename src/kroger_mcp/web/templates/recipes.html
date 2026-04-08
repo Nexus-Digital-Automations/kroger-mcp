@@ -190,16 +190,16 @@
   <div class="grid grid-cols-3 gap-4">
     <template x-for="recipe in filtered" :key="recipe.id">
       <div class="relative flex flex-col"
-        style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; border-left: 3px solid var(--green); transition: box-shadow 0.15s, border-color 0.15s;"
-        @mouseenter="$el.style.boxShadow='0 4px 16px oklch(18% 0.025 80 / 0.08)'; $el.style.borderLeftColor='var(--amber)';"
-        @mouseleave="$el.style.boxShadow=''; $el.style.borderLeftColor='var(--green)';">
+        style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.875rem; border-left: 3.5px solid var(--terra); box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.04); transition: box-shadow 0.2s, border-color 0.2s, transform 0.15s;"
+        @mouseenter="$el.style.boxShadow='0 6px 20px oklch(20% 0.02 55 / 0.1)'; $el.style.borderLeftColor='var(--amber)'; $el.style.transform='translateY(-2px)';"
+        @mouseleave="$el.style.boxShadow='0 1px 3px oklch(20% 0.02 55 / 0.04)'; $el.style.borderLeftColor='var(--terra)'; $el.style.transform='';">
 
         <!-- Delete button -->
         <button @click.stop="deleteRecipe(recipe.id)"
           class="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-full transition-colors z-10"
-          style="background: oklch(93% 0.02 80); color: var(--text-3);"
-          @mouseenter="$el.style.background='oklch(92% 0.06 25)'; $el.style.color='oklch(48% 0.17 25)';"
-          @mouseleave="$el.style.background='oklch(93% 0.02 80)'; $el.style.color='var(--text-3)';"
+          style="background: oklch(94% 0.015 70); color: var(--text-3);"
+          @mouseenter="$el.style.background='oklch(92% 0.05 25)'; $el.style.color='var(--danger)';"
+          @mouseleave="$el.style.background='oklch(94% 0.015 70)'; $el.style.color='var(--text-3)';"
           title="Delete recipe">
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -208,7 +208,7 @@
 
         <a :href="'/recipes/' + recipe.id" class="block p-5 flex-1">
           <div class="mb-2 pr-6">
-            <h3 x-text="recipe.name" style="font-family: 'Lora', serif; font-weight: 600; font-size: 0.9rem; color: var(--text-1); line-height: 1.35; letter-spacing: -0.01em;"></h3>
+            <h3 x-text="recipe.name" style="font-family: 'Lora', serif; font-weight: 700; font-size: 0.9375rem; color: var(--text-1); line-height: 1.35; letter-spacing: -0.015em;"></h3>
           </div>
 
           <div class="flex items-center gap-3 mb-3 flex-wrap" style="font-size: 0.75rem; color: var(--text-3);">
@@ -293,9 +293,9 @@
                   else { err = d.error || 'Error'; setTimeout(() => err = '', 3000); }
                 })
                 .catch(() => { adding = false; err = 'Failed'; setTimeout(() => err = '', 3000); })"
-              :style="done ? 'background: var(--green); color: white; border-color: var(--green);' : err ? 'background: oklch(92% 0.06 25); color: oklch(48% 0.17 25); border-color: oklch(88% 0.1 25);' : 'color: var(--green); border-color: var(--green-light);'"
-              style="width: 100%; font-size: 0.75rem; border: 1px solid; border-radius: 0.5rem; padding: 0.35rem; transition: background 0.12s; background: transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
-              @mouseenter="if (!done && !err) $el.style.background='var(--green-light)';"
+              :style="done ? 'background: var(--green); color: white; border-color: var(--green);' : err ? 'background: oklch(92% 0.05 25); color: var(--danger); border-color: oklch(88% 0.08 25);' : 'color: var(--terra); border-color: var(--terra-light);'"
+              style="width: 100%; font-size: 0.75rem; font-weight: 500; border: 1px solid; border-radius: 0.5rem; padding: 0.4rem; transition: all 0.15s; background: transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+              @mouseenter="if (!done && !err) $el.style.background='var(--terra-light)';"
               @mouseleave="if (!done && !err) $el.style.background='transparent';"
               title="Add ingredients to shopping list">
               <span x-show="!adding && !done && !err">+ List</span>
@@ -307,7 +307,7 @@
           <!-- Add to Meal Plan -->
           <div style="flex: 1; min-width: 0;">
             <button @click.prevent="$dispatch('open-meal-panel', {recipeId: recipe.id, recipeName: recipe.name})"
-              style="width: 100%; font-size: 0.75rem; color: var(--green); border: 1px solid var(--green-light); border-radius: 0.5rem; padding: 0.35rem; transition: background 0.12s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+              style="width: 100%; font-size: 0.75rem; font-weight: 500; color: var(--green); border: 1px solid var(--green-light); border-radius: 0.5rem; padding: 0.4rem; transition: all 0.15s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
               @mouseenter="$el.style.background='var(--green-light)';"
               @mouseleave="$el.style.background='';">
               + Meal Plan
@@ -320,7 +320,9 @@
 
   <!-- Empty state -->
   <div x-show="filtered.length === 0" class="text-center py-16" style="color: var(--text-3);">
-    <p class="text-sm">No recipes found.</p>
+    <p style="font-size: 1.5rem; margin-bottom: 0.375rem;">&#127858;</p>
+    <p style="font-size: 0.9375rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">No recipes match your search</p>
+    <p style="font-size: 0.8125rem;">Try a different keyword or clear your filters.</p>
   </div>
 
 </div>
