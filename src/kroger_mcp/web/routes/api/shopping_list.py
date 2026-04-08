@@ -1,6 +1,5 @@
 """Shopping list API endpoints."""
 import asyncio
-import math
 from datetime import datetime
 from typing import Optional
 
