@@ -294,11 +294,10 @@
                 })
                 .catch(() => { adding = false; err = 'Failed'; setTimeout(() => err = '', 3000); })"
               :style="done
-                ? 'background: var(--green); color: white; border-color: var(--green);'
+                ? 'width:100%; font-size:0.75rem; font-weight:500; border:1px solid var(--green); border-radius:0.5rem; padding:0.4rem 0.5rem; transition:all 0.15s ease-out; cursor:pointer; background:var(--green); color:white;'
                 : err
-                ? 'background: oklch(95% 0.03 25); color: var(--danger); border-color: oklch(82% 0.06 25);'
-                : 'background: transparent; color: var(--green); border-color: var(--green);'"
-              style="width: 100%; font-size: 0.75rem; font-weight: 500; border: 1px solid; border-radius: 0.5rem; padding: 0.4rem 0.5rem; transition: all 0.15s ease-out; cursor: pointer;"
+                ? 'width:100%; font-size:0.75rem; font-weight:500; border:1px solid oklch(82% 0.06 25); border-radius:0.5rem; padding:0.4rem 0.5rem; transition:all 0.15s ease-out; cursor:pointer; background:oklch(95% 0.03 25); color:var(--danger);'
+                : 'width:100%; font-size:0.75rem; font-weight:500; color:var(--green); border:1px solid var(--green); border-radius:0.5rem; padding:0.4rem 0.5rem; transition:all 0.15s ease-out; background:transparent; cursor:pointer;'"
               @mouseenter="if (!done && !err) { $el.style.background='var(--green)'; $el.style.color='white'; }"
               @mouseleave="if (!done && !err) { $el.style.background='transparent'; $el.style.color='var(--green)'; }"
               title="Add ingredients to shopping list">
