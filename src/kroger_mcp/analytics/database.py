@@ -82,6 +82,7 @@ def initialize_database() -> None:
                 upc TEXT,
                 description TEXT,
                 brand TEXT,
+                ingredients_text TEXT,
                 category_type TEXT DEFAULT 'uncategorized',
                 category_override INTEGER DEFAULT 0,
                 first_purchased_at TEXT,
@@ -663,6 +664,15 @@ def run_schema_migrations() -> None:
                 conn.execute(
                     f"ALTER TABLE meal_entries ADD COLUMN {col_name} {col_def}"
                 )
+
+        # Migrate products table - add USDA ingredient text cache
+        cursor = conn.execute("PRAGMA table_info(products)")
+        products_columns = {row[1] for row in cursor.fetchall()}
+
+        if "ingredients_text" not in products_columns:
+            conn.execute(
+                "ALTER TABLE products ADD COLUMN ingredients_text TEXT"
+            )
 
         conn.commit()
     except Exception:

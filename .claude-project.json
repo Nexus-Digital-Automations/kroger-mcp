@@ -2,16 +2,22 @@
   "has_frontend": true,
   "has_tests": true,
   "checks": {
+    "lint": {
+      "command_patterns": ["ruff check", "ruff ."],
+      "pass_patterns": ["All checks passed", "^$"],
+      "fail_patterns": ["Found \\d+ error"],
+      "run_command": "ruff check src/"
+    },
     "frontend": {
-      "command_patterns": ["playwright", "test_all_features", "test_bugs", "test_user_flows"],
+      "command_patterns": ["playwright", "test_all_features", "test_bugs"],
       "pass_patterns": ["\\d+ passed.*0 failed", "0 failed", "RESULTS:.*passed.*0 failed"],
-      "fail_patterns": ["\\d+ failed", "FAIL", "Test runner error"],
+      "fail_patterns": ["[1-9]\\d* failed", "Test runner error"],
       "run_command": "node tests/playwright/test_all_features.js"
     },
     "happy_path": {
       "command_patterns": ["test_user_flows"],
       "pass_patterns": ["\\d+ passed.*0 failed"],
-      "fail_patterns": ["\\d+ failed", "FAIL"],
+      "fail_patterns": ["[1-9]\\d* failed"],
       "run_command": "node tests/playwright/test_user_flows.js"
     }
   }

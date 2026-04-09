@@ -297,10 +297,10 @@
                 ? 'background: var(--green); color: white; border-color: var(--green);'
                 : err
                 ? 'background: oklch(95% 0.03 25); color: var(--danger); border-color: oklch(82% 0.06 25);'
-                : 'background: transparent; color: var(--terra); border-color: var(--terra);'"
+                : 'background: transparent; color: var(--green); border-color: var(--green);'"
               style="width: 100%; font-size: 0.75rem; font-weight: 500; border: 1px solid; border-radius: 0.5rem; padding: 0.4rem 0.5rem; transition: all 0.15s ease-out; cursor: pointer;"
-              @mouseenter="if (!done && !err) { $el.style.background='var(--terra)'; $el.style.color='white'; }"
-              @mouseleave="if (!done && !err) { $el.style.background='transparent'; $el.style.color='var(--terra)'; }"
+              @mouseenter="if (!done && !err) { $el.style.background='var(--green)'; $el.style.color='white'; }"
+              @mouseleave="if (!done && !err) { $el.style.background='transparent'; $el.style.color='var(--green)'; }"
               title="Add ingredients to shopping list">
               <span x-show="!adding && !done && !err">Add to List</span>
               <span x-show="adding">Adding…</span>

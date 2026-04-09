@@ -32,6 +32,58 @@ from ..analytics.safety import (
 )
 
 
+def _cache_usda_ingredients(product: Dict[str, Any]) -> None:
+    """
+    If product has a UPC and no cached USDA ingredient text,
+    fetch from USDA FoodData Central and store in the local DB.
+    """
+    pid = product.get("product_id")
+    upc = product.get("upc")
+    if not pid or not upc:
+        return
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT ingredients_text FROM products WHERE product_id = ?",
+            (pid,),
+        ).fetchone()
+        if row and row["ingredients_text"]:
+            return  # Already cached
+
+        from ..analytics.usda import fetch_ingredients_by_name, fetch_ingredients_by_upc
+        ingredients_text = fetch_ingredients_by_upc(upc)
+        if not ingredients_text:
+            ingredients_text = fetch_ingredients_by_name(
+                product.get("description", ""),
+                product.get("brand", ""),
+            )
+        if not ingredients_text:
+            return
+
+        conn.execute(
+            "INSERT INTO products (product_id, upc, description, brand, "
+            "ingredients_text, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(product_id) DO UPDATE SET "
+            "upc = COALESCE(excluded.upc, products.upc), "
+            "ingredients_text = excluded.ingredients_text, "
+            "updated_at = excluded.updated_at",
+            (
+                pid,
+                upc,
+                product.get("description"),
+                product.get("brand"),
+                ingredients_text,
+                datetime.now().isoformat(),
+                datetime.now().isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def is_whole_food_eligible(
     description: str,
     brand: Optional[str] = None,
@@ -452,6 +504,11 @@ def register_tools(mcp):
                                         location_id=loc_id,
                                         source="search",
                                     )
+                            except Exception:
+                                pass
+                            # Cache UPC + USDA ingredient data for health scoring
+                            try:
+                                _cache_usda_ingredients(product)
                             except Exception:
                                 pass
 
