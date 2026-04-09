@@ -46,3 +46,4 @@ htmlcov/
 # SQLite WAL/SHM temporary files
 *.db-shm
 *.db-wal
+data/kroger_analytics.db
