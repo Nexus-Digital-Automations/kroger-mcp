@@ -17,10 +17,14 @@ HEALTHY_CATEGORIES: Dict[str, List[str]] = {
         "vegetable", "spinach", "kale", "broccoli", "carrot", "tomato",
         "onion", "garlic", "pepper", "lettuce", "cucumber", "zucchini",
         "asparagus", "apple", "banana", "berry", "lemon", "lime",
+        "celery", "mushroom", "peas", "squash", "eggplant", "cabbage",
+        "bok choy", "sweet potato", "potato", "orange", "cranberr",
+        "mango", "pineapple", "grapefruit", "scallion",
     ],
     "lean_protein": [
         "chicken", "turkey", "salmon", "tuna", "egg", "lentil",
         "chickpea", "black bean", "kidney bean", "tofu", "tempeh",
+        "shrimp", "cod", "tilapia", "fish", "clam", "bean",
     ],
     "whole_grain": [
         "brown rice", "quinoa", "oats", "whole wheat", "whole grain",
@@ -28,11 +32,14 @@ HEALTHY_CATEGORIES: Dict[str, List[str]] = {
     ],
     "healthy_fat": [
         "olive oil", "avocado", "almond", "walnut", "cashew",
-        "flaxseed", "chia", "hemp seed",
+        "flaxseed", "chia", "hemp seed", "pecan", "pine nut",
     ],
     "herbs_spices": [
         "basil", "oregano", "thyme", "rosemary", "cilantro", "parsley",
         "mint", "dill", "cumin", "turmeric", "ginger", "cinnamon",
+        "paprika", "cayenne", "sage", "bay leaf", "coriander",
+        "cardamom", "saffron", "nutmeg", "clove", "chive", "fennel",
+        "tarragon", "five-spice",
     ],
 }
 
@@ -49,6 +56,33 @@ _PENALTY_PER_MATCH = {
     "warning": 8,
     "watch": 3,
 }
+
+# ---------------------------------------------------------------------------
+# Build-up scoring: ingredient-name signal keywords
+# ---------------------------------------------------------------------------
+
+WHOLE_FOOD_SIGNALS: List[str] = [
+    "fresh", "whole", "organic", "raw", "grass-fed", "grass fed",
+    "wild-caught", "wild caught", "bone-in", "skin-on",
+]
+
+PROCESSED_INDICATORS: List[str] = [
+    "cream of", "condensed", "pre-made", "pre-packaged",
+    "store-bought", "cooking spray", "liquid smoke", "instant",
+]
+
+CONVENIENCE_INDICATORS: List[str] = [
+    "rotisserie", "canned", "breadcrumbs", "panko",
+    "marinara sauce", "curry paste", "better than bouillon",
+]
+
+HEAVY_NEGATIVES: List[str] = [
+    "bacon", "sausage", "andouille",
+]
+
+SUGAR_KEYWORDS: List[str] = [
+    "brown sugar", "powdered sugar", "corn syrup", "sugar",
+]
 
 
 def _grade(score: int) -> str:
@@ -68,11 +102,17 @@ def calculate_health_score(
     names_only: bool = False,
 ) -> Dict[str, Any]:
     """
-    Calculate a heuristic health score (0-100) for a recipe.
+    Calculate a health score (0-100) for a recipe using real ingredient data.
+
+    Looks up actual product ingredient lists from the USDA FoodData Central
+    database (cached locally) and scans them against the BAD_INGREDIENTS list.
+    This catches real additives (sodium nitrite, HFCS, artificial colors, etc.)
+    that would never appear in a human-readable ingredient name.
 
     Args:
         recipe: Recipe dict with "ingredients" list.
-        names_only: If True, only scan ingredient names (no DB product lookups).
+        names_only: If True, use only cached DB data (no live USDA API calls).
+                    Used for list views where speed matters.
 
     Returns:
         Dict with score, grade, confidence, flags, categories_detected, etc.
@@ -84,9 +124,9 @@ def calculate_health_score(
 
     if total == 0:
         return {
-            "score": 100,
-            "grade": "A",
-            "confidence": "high",
+            "score": 0,
+            "grade": "N/A",
+            "confidence": "none",
             "flags": [],
             "categories_detected": [],
             "bonus_applied": 0,
@@ -94,37 +134,46 @@ def calculate_health_score(
             "total_ingredients": 0,
         }
 
-    # Batch-load linked products if not names_only
+    # Batch-load linked products from DB (includes cached ingredients_text)
     product_info: Dict[str, Dict[str, str]] = {}
-    if not names_only:
-        linked_ids = [
-            ing["product_id"]
-            for ing in ingredients
-            if ing.get("product_id")
-        ]
-        if linked_ids:
+    linked_ids = [
+        ing["product_id"]
+        for ing in ingredients
+        if ing.get("product_id")
+    ]
+    if linked_ids:
+        try:
+            from .database import get_db_connection
+            conn = get_db_connection()
             try:
-                from .database import get_db_connection
-                conn = get_db_connection()
-                try:
-                    placeholders = ",".join("?" * len(linked_ids))
-                    rows = conn.execute(
-                        f"SELECT product_id, description, brand "
-                        f"FROM products WHERE product_id IN ({placeholders})",
-                        linked_ids,
-                    ).fetchall()
-                    for row in rows:
-                        product_info[row["product_id"]] = {
-                            "description": row["description"] or "",
-                            "brand": row["brand"] or "",
-                        }
-                finally:
-                    conn.close()
-            except Exception:
-                pass
+                placeholders = ",".join("?" * len(linked_ids))
+                rows = conn.execute(
+                    "SELECT product_id, upc, description, brand, "
+                    "ingredients_text "
+                    "FROM products "
+                    f"WHERE product_id IN ({placeholders})",
+                    linked_ids,
+                ).fetchall()
+                for row in rows:
+                    product_info[row["product_id"]] = {
+                        "description": row["description"] or "",
+                        "brand": row["brand"] or "",
+                        "upc": row["upc"] or "",
+                        "ingredients_text": row["ingredients_text"] or "",
+                    }
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+    # If not names_only, fetch missing USDA data for products without
+    # cached ingredients_text
+    if not names_only:
+        _fetch_missing_usda_data(product_info)
 
     # Accumulate penalties and flags
     linked_count = 0
+    usda_count = 0
     severity_counts: Dict[str, int] = {"critical": 0, "warning": 0, "watch": 0}
     flags: List[Dict[str, Any]] = []
 
@@ -134,11 +183,18 @@ def calculate_health_score(
 
         if pid and pid in product_info:
             linked_count += 1
-            scan_text = product_info[pid]["description"]
-            if product_info[pid]["brand"]:
-                scan_text = product_info[pid]["brand"] + " " + scan_text
+            info = product_info[pid]
+
+            # Prefer real ingredient list from USDA
+            if info["ingredients_text"]:
+                scan_text = info["ingredients_text"]
+                usda_count += 1
+            else:
+                # Fall back to product description + brand
+                scan_text = info["description"]
+                if info["brand"]:
+                    scan_text = info["brand"] + " " + scan_text
         elif pid:
-            # product_id present but not in DB — count as linked (best effort)
             linked_count += 1
             scan_text = ing_name
         else:
@@ -146,7 +202,7 @@ def calculate_health_score(
 
         result = check_product_safety(scan_text)
         for match in result.matches:
-            sev = match.severity.value  # "critical" | "warning" | "watch"
+            sev = match.severity.value
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
             flags.append({
                 "ingredient": ing_name,
@@ -155,36 +211,93 @@ def calculate_health_score(
                 "reason": match.reason,
             })
 
-    # Compute total penalty (capped per severity)
-    total_penalty = 0
+    # Compute BAD_INGREDIENTS penalty (capped per severity)
+    bad_ing_penalty = 0
     for sev, count in severity_counts.items():
         raw = count * _PENALTY_PER_MATCH[sev]
         capped = min(raw, _PENALTY_CAPS[sev])
-        total_penalty += capped
+        bad_ing_penalty += capped
 
-    # >50% unlinked penalty
-    unlinked_ratio = (total - linked_count) / total
-    if unlinked_ratio > 0.5:
-        total_penalty += 5
+    # --- Build-up scoring model ---
 
-    # Bonus: healthy category matching (on ingredient names always)
-    categories_detected: List[str] = []
-    all_ing_text = " ".join(
+    # Collect all ingredient names (lowercase) for scanning
+    ing_names_lower = [
         (ing.get("name") or "").lower() for ing in ingredients
-    )
+    ]
+    all_ing_text = " ".join(ing_names_lower)
+
+    # 1. Category coverage: 7 pts per healthy category (max 35)
+    categories_detected: List[str] = []
     for cat, keywords in HEALTHY_CATEGORIES.items():
         if any(kw in all_ing_text for kw in keywords):
             categories_detected.append(cat)
+    cat_score = min(len(categories_detected) * 7, 35)
 
-    bonus = min(len(categories_detected) * 3, 15)
+    # 2. Ingredient quality ratio: proportion matching healthy keywords (max 30)
+    all_keywords = [
+        kw for kws in HEALTHY_CATEGORIES.values() for kw in kws
+    ]
+    quality_hits = sum(
+        1 for name in ing_names_lower
+        if any(kw in name for kw in all_keywords)
+    )
+    quality_score = round((quality_hits / total) * 30) if total else 0
 
-    score = max(0, min(100, 100 - total_penalty + bonus))
+    # 3. Whole food signals: proportion with freshness markers (max 15)
+    whole_hits = sum(
+        1 for name in ing_names_lower
+        if any(sig in name for sig in WHOLE_FOOD_SIGNALS)
+    )
+    whole_score = round((whole_hits / total) * 15) if total else 0
 
-    # Confidence
-    if linked_count == total:
+    # 4. Processed indicators penalty (max -15, -5 each)
+    proc_penalty = 0
+    for name in ing_names_lower:
+        # Exclude "instant pot" from matching "instant"
+        scan = name.replace("instant pot", "")
+        if any(ind in scan for ind in PROCESSED_INDICATORS):
+            proc_penalty += 5
+    proc_penalty = min(proc_penalty, 15)
+
+    # 5. Convenience indicators penalty (max -8, -3 each)
+    conv_penalty = 0
+    for name in ing_names_lower:
+        if any(ind in name for ind in CONVENIENCE_INDICATORS):
+            conv_penalty += 3
+    conv_penalty = min(conv_penalty, 8)
+
+    # 6. Heavy negatives penalty (max -10, -3 each)
+    heavy_penalty = 0
+    for name in ing_names_lower:
+        if any(ind in name for ind in HEAVY_NEGATIVES):
+            heavy_penalty += 3
+    heavy_penalty = min(heavy_penalty, 10)
+
+    # 7. Sugar penalty (max -6, -2 each)
+    sugar_penalty = 0
+    for name in ing_names_lower:
+        if "stevia" in name:
+            continue
+        # Check longer patterns first to avoid double-counting
+        if any(kw in name for kw in SUGAR_KEYWORDS):
+            sugar_penalty += 2
+    sugar_penalty = min(sugar_penalty, 6)
+
+    base = 20
+    bonus = cat_score + quality_score + whole_score
+    total_penalty = (
+        proc_penalty + conv_penalty + heavy_penalty
+        + sugar_penalty + bad_ing_penalty
+    )
+    score = max(0, min(100, base + bonus - total_penalty))
+
+    # Confidence based on how much real data we had
+    if usda_count == total:
         confidence = "high"
-    elif linked_count >= total / 2:
+    elif usda_count >= total / 2:
         confidence = "medium"
+    elif linked_count >= total / 2:
+        confidence = "low"
     else:
         confidence = "low"
 
@@ -196,8 +309,65 @@ def calculate_health_score(
         "categories_detected": categories_detected,
         "bonus_applied": bonus,
         "linked_ingredients": linked_count,
+        "usda_ingredients": usda_count,
         "total_ingredients": total,
     }
+
+
+def _fetch_missing_usda_data(
+    product_info: Dict[str, Dict[str, str]],
+) -> None:
+    """
+    For products without cached ingredients_text, fetch from USDA
+    (by UPC first, then by name) and update the local DB cache.
+
+    Modifies product_info in place.
+    """
+    try:
+        from .usda import fetch_ingredients_by_name, fetch_ingredients_by_upc
+    except ImportError:
+        return
+
+    products_to_update: List[tuple] = []
+
+    for pid, info in product_info.items():
+        if info["ingredients_text"]:
+            continue
+
+        ingredients_text = None
+
+        # Try UPC first
+        upc = info.get("upc", "")
+        if upc:
+            ingredients_text = fetch_ingredients_by_upc(upc)
+
+        # Fall back to name search
+        if not ingredients_text and info.get("description"):
+            ingredients_text = fetch_ingredients_by_name(
+                info["description"], info.get("brand", "")
+            )
+
+        if ingredients_text:
+            info["ingredients_text"] = ingredients_text
+            products_to_update.append((ingredients_text, pid))
+
+    # Batch-update DB cache
+    if products_to_update:
+        try:
+            from .database import get_db_connection
+            conn = get_db_connection()
+            try:
+                for ing_text, pid in products_to_update:
+                    conn.execute(
+                        "UPDATE products SET ingredients_text = ? "
+                        "WHERE product_id = ?",
+                        (ing_text, pid),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
