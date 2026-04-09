@@ -401,26 +401,6 @@
     </div>
     <p x-show="ings.length === 0" class="text-sm text-gray-400">No ingredients listed.</p>
 
-    <!-- Add to Shopping List footer -->
-    <div x-show="ings.length > 0" style="margin-top: 0.875rem; padding-top: 0.875rem; border-top: 1px solid var(--border);">
-      <button @click="addToShoppingList()" :disabled="adding"
-        :style="addDone
-          ? 'background: var(--green); color: white; border-color: var(--green); opacity: 1;'
-          : addErr
-          ? 'background: oklch(92% 0.06 25); color: oklch(48% 0.17 25); border-color: oklch(88% 0.1 25); opacity: 1;'
-          : 'background: var(--green); color: white; border-color: var(--green);'"
-        style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 0.8125rem; font-weight: 500; border: 1px solid; border-radius: 0.5rem; padding: 0.5rem 1rem; transition: all 0.15s; font-family: 'DM Sans', sans-serif; cursor: pointer;"
-        @mouseenter="if (!addDone && !addErr && !adding) $el.style.background='oklch(42% 0.14 148)';"
-        @mouseleave="if (!addDone && !addErr && !adding) $el.style.background='var(--green)';">
-        <svg x-show="!adding && !addDone && !addErr" style="width: 0.875rem; height: 0.875rem; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-        </svg>
-        <span x-show="!adding && !addDone && !addErr">Add to Shopping List</span>
-        <span x-show="adding">Adding…</span>
-        <span x-show="addDone">✓ Added to List!</span>
-        <span x-show="!!addErr" x-text="addErr"></span>
-      </button>
-    </div>
   </div>
 
   <!-- Instructions -->

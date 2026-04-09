@@ -221,23 +221,9 @@ async function testRecipeDetail() {
     await page.waitForTimeout(200);
   }
 
-  // Add to Shopping List button in ingredients card
+  // Ingredients card footer button removed (add-to-list is on recipe cards only)
   const addListBtn = page.locator('#ingredients-card button:has-text("Add to Shopping List")');
-  if (await addListBtn.count() > 0) {
-    await addListBtn.scrollIntoViewIfNeeded();
-    const resp = [];
-    page.on('response', async res => {
-      if (res.url().includes('shopping-list/add-recipe'))
-        resp.push({ status: res.status() });
-    });
-    await addListBtn.click();
-    await page.waitForTimeout(1500);
-    assert(resp.length > 0 && resp[0].status === 200, `Ingredients "Add to Shopping List" returns 200`);
-    const btnText = await addListBtn.textContent();
-    assert(btnText.includes('Added'), `Button shows success feedback`);
-  } else {
-    assert(false, '"Add to Shopping List" button missing from ingredients card');
-  }
+  assert(await addListBtn.count() === 0, 'Ingredients footer button removed (by design)');
 
   // Instructions section
   assert(await page.locator('text=Instructions').count() > 0, 'Instructions section present');

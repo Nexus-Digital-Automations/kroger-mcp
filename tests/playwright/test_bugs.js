@@ -123,33 +123,12 @@ async function run() {
     const headerListBtn = await page.locator('a:has-text("Add to List")').count();
     assert(headerListBtn > 0, 'Header "Add to List" anchor present on recipe detail page');
 
-    // ── 6. Ingredients card Add to Shopping List button ──
-    console.log('\n[6] Ingredients card "Add to Shopping List" button');
+    // ── 6. Ingredients card footer button removed (by design) ──
+    console.log('\n[6] Ingredients card footer button removed');
     await page.waitForTimeout(600);
-
     const ingCardAddBtn = page.locator('#ingredients-card button:has-text("Add to Shopping List")');
     const ingCardAddCount = await ingCardAddBtn.count();
-    assert(ingCardAddCount > 0, `"Add to Shopping List" button present in ingredients card (found ${ingCardAddCount})`);
-
-    if (ingCardAddCount > 0) {
-      // Scroll button into view and click
-      await ingCardAddBtn.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(300);
-
-      const netReqs2 = [];
-      page.on('request', req => {
-        if (req.url().includes('shopping-list')) netReqs2.push(req.url());
-      });
-
-      await ingCardAddBtn.click();
-      await page.waitForTimeout(1500);
-      await ss('06_detail_add_to_list');
-
-      assert(netReqs2.length > 0, `Ingredients card Add to Shopping List fired API request`);
-      const btnText2 = await ingCardAddBtn.textContent().catch(() => '');
-      const hasSuccess = btnText2.includes('Added') || btnText2.includes('Error') || netReqs2.length > 0;
-      assert(hasSuccess, `Button shows feedback (text: "${btnText2?.trim().slice(0, 30)}")`);
-    }
+    assert(ingCardAddCount === 0, `"Add to Shopping List" footer button removed from ingredients card (found ${ingCardAddCount})`);
 
     // ── 7. Servings stepper ──
     console.log('\n[7] Servings stepper');
