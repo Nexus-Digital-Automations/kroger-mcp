@@ -1,0 +1,58 @@
+
+[Flow 1] Add recipe to list from card → verify on shopping list page
+     Recipe: "Ann's Improved Dirty Rice (Cajun Style)"
+  [32mPASS[0m  Card has "+ List" button
+  [32mPASS[0m  API returned 200 (got 200)
+  [32mPASS[0m  Button shows "Added" feedback (got: "Add to List
+              Addi")
+  [32mPASS[0m  Shopping list has items after add (20 rows)
+  [32mPASS[0m  API confirms 17 items on shopping list
+
+[Flow 2] Recipe detail — verify layout
+     Recipe: "Bean Cooking Starter Kit"
+  [32mPASS[0m  Header "Add to List" anchor present
+  [32mPASS[0m  Ingredients footer button removed (by design)
+
+[Flow 3] Search, filter, sort recipes
+  [32mPASS[0m  Search narrows results (67 → 21)
+  [32mPASS[0m  Tag filter applied (67 → 3)
+  [32mPASS[0m  Sort applied without error
+
+[Flow 4] Scale servings then add to list
+     Original servings: 6
+  [32mPASS[0m  Servings increased (6 → 9)
+  [32mPASS[0m  Ingredient quantities visible after scaling (first: "¾ lb")
+
+[Flow 5] Assign recipe to meal plan slot
+  [32mPASS[0m  Meal plan panel opens
+     No meal plans exist — skipping slot assignment
+  [32mPASS[0m  Panel correctly shows "No meal plans" state
+
+[Flow 6] Pantry — browse and interact
+  [32mPASS[0m  Pantry has 39 items
+  [32mPASS[0m  Restock API returns 200 (got 200)
+  [32mPASS[0m  Inline edit mode activates
+
+[Flow 7] Settings — update household servings
+     Current servings: 4
+  [32mPASS[0m  Save servings API returns 200 (got 200)
+
+[Flow 8] Analytics — navigate all tabs
+  [32mPASS[0m  Spending tab loads
+  [32mPASS[0m  Patterns tab loads
+  [32mPASS[0m  Pantry tab loads
+  [32mPASS[0m  Cookable tab loads
+
+[Flow 9] Favorites — browse and interact
+  [32mPASS[0m  Favorites detail page loads (title: My Favorites — Favorites)
+  [32mPASS[0m  "Add to Shopping List" button on favorites detail
+
+[Flow 10] Safety — tabs and search
+  [32mPASS[0m  Safety tabs all clickable
+  [32mPASS[0m  Ingredient search filters results (0 visible)
+
+[JS Errors]
+  [32mPASS[0m  No JS errors across all flows (found 0)
+
+════════════════════════════════════════════════════════════
+RESULTS: [32m27 passed[0m, [31m0 failed[0m

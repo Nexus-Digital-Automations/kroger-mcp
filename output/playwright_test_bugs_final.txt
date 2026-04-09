@@ -1,0 +1,41 @@
+
+[1] Recipes page loads
+  [32mPASS[0m  Page title includes "Recipe" — got: Recipes — Smart Shopper
+     Found 67 recipe cards
+  [32mPASS[0m  At least one recipe card visible (found 67)
+
+[2] Recipe card action buttons
+  [32mPASS[0m  "+ List" button on every card (found 68, cards 67)
+  [32mPASS[0m  "+ Meal Plan" button on every card (found 67, cards 67)
+
+[3] Meal Plan panel opens
+  [32mPASS[0m  Meal plan slide-out panel appears after click
+
+[4] Add to List button (recipe card)
+  [32mPASS[0m  Add to List fired shopping-list API request (1 requests)
+  [32mPASS[0m  API response OK (status 200)
+  [32mPASS[0m  Button shows feedback after click (text: "Add to List
+              Adding…
+              ✓ Added")
+
+[5] Recipe detail page
+  [32mPASS[0m  Recipe detail has a heading: "Ann's Improved Dirty Rice (Cajun Style)"
+  [32mPASS[0m  Header "Add to List" anchor present on recipe detail page
+
+[6] Ingredients card footer button removed
+  [32mPASS[0m  "Add to Shopping List" footer button removed from ingredients card (found 0)
+
+[7] Servings stepper
+  [32mPASS[0m  Servings stepper (+) clickable (6 → 7)
+
+[8] Navigation links
+  [32mPASS[0m  /recipes navigates correctly
+  [32mPASS[0m  /shopping-list navigates correctly
+  [32mPASS[0m  /meal-plan navigates correctly
+  [32mPASS[0m  /pantry navigates correctly
+
+[9] Console errors
+  [32mPASS[0m  No critical JS console errors
+
+───────────────────────────────────────────────────────
+Results: [32m17 passed[0m, [31m0 failed[0m

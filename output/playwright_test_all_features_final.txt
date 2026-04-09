@@ -5,8 +5,8 @@
 
 [Recipes Page]
   [32mPASS[0m  Recipe cards visible (67)
-  [32mPASS[0m  "+ List" button on every card (67 btns, 67 cards)
-  [32mPASS[0m  "+ Meal Plan" on every card (67)
+  [32mPASS[0m  "Add to List" button on every card (67 btns, 67 cards)
+  [32mPASS[0m  "Meal Plan" button on every card (67)
   [32mPASS[0m  Search filters cards (67 → 21)
   [32mPASS[0m  Tag filter shows checkboxes (217)
   [32mPASS[0m  Sort dropdown opens with options
@@ -22,15 +22,14 @@
   [32mPASS[0m  Ingredients card present
   [32mPASS[0m  Servings stepper works (6 → 7)
   [32mPASS[0m  Category view toggle clickable
-  [32mPASS[0m  Ingredients "Add to Shopping List" returns 200
-  [32mPASS[0m  Button shows success feedback
+  [32mPASS[0m  Ingredients footer button removed (by design)
   [32mPASS[0m  Instructions section present
   [32mPASS[0m  Health badge popup works
 
 [Shopping List]
   [32mPASS[0m  Shopping list page loads
   [32mPASS[0m  Recipe search input present
-  [32mPASS[0m  Shopping list has 44 item rows
+  [32mPASS[0m  Shopping list has 24 item rows
 
 [Meal Plan]
   [32mPASS[0m  Meal plan page loads
@@ -90,5 +89,5 @@
   [32mPASS[0m  No critical JS console errors across all pages
 
 ════════════════════════════════════════════════════════════
-RESULTS: [32m58 passed[0m, [31m0 failed[0m, [33m0 warnings[0m
+RESULTS: [32m57 passed[0m, [31m0 failed[0m, [33m0 warnings[0m
 
