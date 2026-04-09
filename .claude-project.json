@@ -1,0 +1,18 @@
+{
+  "has_frontend": true,
+  "has_tests": true,
+  "checks": {
+    "frontend": {
+      "command_patterns": ["playwright", "test_all_features", "test_bugs", "test_user_flows"],
+      "pass_patterns": ["\\d+ passed.*0 failed", "0 failed", "RESULTS:.*passed.*0 failed"],
+      "fail_patterns": ["\\d+ failed", "FAIL", "Test runner error"],
+      "run_command": "node tests/playwright/test_all_features.js"
+    },
+    "happy_path": {
+      "command_patterns": ["test_user_flows"],
+      "pass_patterns": ["\\d+ passed.*0 failed"],
+      "fail_patterns": ["\\d+ failed", "FAIL"],
+      "run_command": "node tests/playwright/test_user_flows.js"
+    }
+  }
+}
