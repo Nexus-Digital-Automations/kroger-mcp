@@ -1,20 +1,33 @@
 """
-Shared utilities and client management for Kroger MCP server
+Shared utilities and client management for Kroger MCP server.
+
+Owns:
+  - Kroger API client lifecycle (creation, caching, invalidation)
+  - Credential resolution (preferences file → env vars)
+  - User preferences persistence (location, servings, sort, credentials)
+  - Token file access (read/delete) for the web OAuth flow
+
+Does NOT own:
+  - OAuth flow orchestration (see web/routes/settings.py and tools/auth_tools.py)
+  - Kroger API calls (see tools/*_tools.py)
 """
 
 import asyncio
-import os
 import json
+import logging
+import os
 from pathlib import Path
 from typing import Optional
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
 from kroger_api.kroger_api import KrogerAPI
 from kroger_api.utils.env import load_and_validate_env, get_zip_code
 from kroger_api.token_storage import load_token
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Global state for clients and preferred location
 _authenticated_client: Optional[KrogerAPI] = None
@@ -260,15 +273,27 @@ def set_kroger_credentials(
 
 
 def get_token_info() -> dict | None:
-    """Load the user token file and return its contents, or None."""
+    """Load the user token file and return its contents, or None if missing.
+
+    Raises no exceptions — file-not-found and parse errors are logged and
+    return None so callers can treat a missing/corrupt token as "not authenticated".
+    """
     try:
         return load_token(".kroger_token_user.json")
-    except Exception:
+    except (json.JSONDecodeError, IOError) as exc:
+        logger.warning("Could not load user token file: %s", exc)
+        return None
+    except Exception as exc:
+        logger.error("Unexpected error loading user token file: %s", exc)
         return None
 
 
 def delete_user_token() -> None:
-    """Delete the user token file and invalidate the cached client."""
+    """Delete the user token file and invalidate the cached client.
+
+    Raises:
+        OSError: If the token file exists but cannot be deleted (permissions).
+    """
     from kroger_api.token_storage import clear_token
     clear_token(".kroger_token_user.json")
     invalidate_authenticated_client()

@@ -1,11 +1,14 @@
 """API routes for settings management."""
 import json
+import logging
 import pathlib
 import tempfile
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -186,7 +189,9 @@ async def get_auth_status():
         if "Authentication required" in str(exc):
             result["status"] = "not_authenticated"
         else:
+            logger.warning("Auth status check failed: %s", exc)
             result["status"] = "not_configured"
+            result["error"] = str(exc)
 
     return result
 

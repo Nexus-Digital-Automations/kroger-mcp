@@ -499,6 +499,63 @@ async function testSettings() {
   // Save servings button
   const saveBtn = page.locator('button:has-text("Save")').first();
   if (await saveBtn.count() > 0) assert(true, 'Save button present');
+
+  // --- Kroger Connection section ---
+  const krogerSection = page.locator('text=Kroger Connection').first();
+  assert(await krogerSection.isVisible(), 'Kroger Connection section visible');
+
+  // Status indicator (one of: green/amber/red dot)
+  const statusDot = page.locator('.bg-emerald-500, .bg-amber-500, .bg-red-500').first();
+  assert(await statusDot.count() > 0, 'Auth status indicator present');
+
+  // Connect or Disconnect button present (depends on current auth state)
+  const connectBtn = page.locator('button:has-text("Connect to Kroger")');
+  const disconnectBtn = page.locator('button:has-text("Disconnect")');
+  const hasAuthBtn = (await connectBtn.count()) > 0 || (await disconnectBtn.count()) > 0;
+  assert(hasAuthBtn, 'Connect or Disconnect button present');
+
+  // Advanced Settings toggle
+  const advToggle = page.locator('button:has-text("Advanced Settings")');
+  assert(await advToggle.count() > 0, 'Advanced Settings toggle present');
+
+  // Open advanced settings and check credential fields
+  if (await advToggle.count() > 0) {
+    await advToggle.click();
+    await page.waitForTimeout(400);
+
+    const clientIdInput = page.locator('input[x-model="creds.client_id"]');
+    assert(await clientIdInput.isVisible(), 'Client ID input visible after expanding');
+
+    const redirectInput = page.locator('input[x-model="creds.redirect_uri"]');
+    assert(await redirectInput.isVisible(), 'Redirect URI input visible after expanding');
+
+    const saveCredsBtn = page.locator('button:has-text("Save Credentials")');
+    assert(await saveCredsBtn.isVisible(), 'Save Credentials button visible');
+  }
+
+  // API: /api/settings/auth/status returns valid JSON
+  const authStatusResp = await page.evaluate(async () => {
+    const r = await fetch('/api/settings/auth/status');
+    return { ok: r.ok, data: await r.json() };
+  });
+  assert(authStatusResp.ok && 'status' in authStatusResp.data, 'Auth status API returns valid response');
+
+  // API: /api/settings/credentials returns masked secret
+  const credsResp = await page.evaluate(async () => {
+    const r = await fetch('/api/settings/credentials');
+    return { ok: r.ok, data: await r.json() };
+  });
+  assert(credsResp.ok && 'client_id' in credsResp.data, 'Credentials API returns valid response');
+
+  // Disconnect lifecycle (only if currently authenticated)
+  if (await disconnectBtn.count() > 0) {
+    expectDialog = true;
+    await disconnectBtn.click();
+    await page.waitForTimeout(1000);
+    // After disconnect, connect button should appear
+    const connectAfter = page.locator('button:has-text("Connect to Kroger")');
+    if (await connectAfter.count() > 0) assert(true, 'Disconnect → Connect button appears');
+  }
 }
 
 async function testPredictions() {
