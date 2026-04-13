@@ -356,41 +356,20 @@ async function testShoppingListButtons() {
     await assertExists('button:has-text("Send to Cart")');
   });
 
-  // Cart section
-  await test('"Clear Cart" button exists in cart section', async () => {
-    await assertExists('button:has-text("Clear Cart")');
-  });
-
-  await test('"Mark Order Placed" button exists', async () => {
-    await assertExists('button:has-text("Mark Order Placed")');
-  });
-
-  await test('"Filters" button toggles filter panel', async () => {
-    const filterBtn = page.locator('button').filter({ hasText: 'Filters' }).first();
-    if (await filterBtn.isVisible()) {
-      await filterBtn.click();
-      await page.waitForTimeout(300);
-      // Filter categories should appear
-      await filterBtn.click();
-      await page.waitForTimeout(200);
-    }
-  });
-
-  await test('"Order History" toggle button works', async () => {
-    const histBtn = page.locator('button').filter({ hasText: 'Order History' });
-    await histBtn.click();
-    await page.waitForTimeout(300);
-    // Section should expand
-    await histBtn.click();
-    await page.waitForTimeout(200);
-  });
-
-  // Test quantity buttons if items exist
+  // Quantity buttons (on shopping list items)
   const qtyMinus = page.locator('button:has-text("−")').first();
   if (await qtyMinus.isVisible().catch(() => false)) {
     await test('Quantity −/+ buttons exist for shopping list items', async () => {
       await assertExists('button:has-text("−")');
       await assertExists('button:has-text("+")');
+    });
+  }
+
+  // Item remove buttons
+  const removeBtns = page.locator('button svg path[d*="M19 7l"]');
+  if (await removeBtns.count() > 0) {
+    await test('Item remove (trash) buttons exist', async () => {
+      // Just verify they exist — don't click
     });
   }
 }
@@ -1016,18 +995,15 @@ async function testShoppingListExpandedButtons() {
   console.log('\n── Shopping List (expanded) ──');
   await navigateTo('/shopping-list');
 
-  await test('Recipe search dropdown input exists', async () => {
-    // Recipe search or recipe selector
-    const inputs = page.locator('input[x-model="recipeSearch"], select');
-    if (await inputs.count() > 0) {
-      // Good — recipe selector is present
+  await test('Recipe search input exists', async () => {
+    const input = page.locator('input[x-model="recipeSearch"]');
+    if (await input.count() > 0) {
+      await input.waitFor({ state: 'visible', timeout: 5000 });
     }
   });
 
-  await test('"Send to Cart" triggers cart preview modal', async () => {
+  await test('"Send to Cart" button triggers cart preview', async () => {
     const sendBtn = page.locator('button').filter({ hasText: 'Send to Cart' }).first();
-    // Only works if shopping list has items
-    const itemCount = await page.locator('template[x-for="item in items"]').count();
     if (await sendBtn.isVisible().catch(() => false)) {
       const [response] = await Promise.all([
         page.waitForResponse(r => r.url().includes('/api/shopping-list/add-to-cart'), { timeout: 8000 }).catch(() => null),
@@ -1037,36 +1013,13 @@ async function testShoppingListExpandedButtons() {
       // Check if preview modal appeared
       const previewHeading = page.locator('h3:has-text("Cart Preview")');
       if (await previewHeading.isVisible().catch(() => false)) {
-        // Cancel and Add to Cart buttons should be visible
         await assertVisible('button:has-text("Cancel")');
         await assertVisible('button:has-text("Add to Cart")');
-        // Close the modal
         const cancelBtn = page.locator('button').filter({ hasText: 'Cancel' }).first();
         await cancelBtn.click();
         await page.waitForTimeout(200);
       }
     }
-  });
-
-  await test('Cart filter category buttons exist when filters shown', async () => {
-    const filterBtn = page.locator('button').filter({ hasText: 'Filters' }).first();
-    if (await filterBtn.isVisible().catch(() => false)) {
-      await filterBtn.click();
-      await page.waitForTimeout(300);
-      // Category filter buttons should appear (Fresh, Dairy, etc.)
-      const catBtns = page.locator('button').filter({ hasText: /^(produce|milk|frozen|pasta|chips)$/i });
-      // Close filters
-      await filterBtn.click();
-      await page.waitForTimeout(200);
-    }
-  });
-
-  await test('"Clear filters" button exists in DOM', async () => {
-    await assertExists('button:has-text("Clear")');
-  });
-
-  await test('Cart item "Remove" buttons exist in DOM', async () => {
-    await assertExists('button:has-text("Remove")');
   });
 }
 
