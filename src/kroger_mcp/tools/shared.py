@@ -230,6 +230,50 @@ def set_default_servings(servings: int) -> None:
     _save_preferences(preferences)
 
 
+def get_kroger_credentials() -> dict:
+    """Get Kroger API credentials: preferences first, then env vars."""
+    preferences = _load_preferences()
+    creds = preferences.get("kroger_credentials", {})
+    return {
+        "client_id": creds.get("client_id") or os.environ.get("KROGER_CLIENT_ID", ""),
+        "client_secret": creds.get("client_secret") or os.environ.get("KROGER_CLIENT_SECRET", ""),
+        "redirect_uri": creds.get("redirect_uri") or os.environ.get("KROGER_REDIRECT_URI", ""),
+    }
+
+
+def set_kroger_credentials(
+    client_id: str = None,
+    client_secret: str = None,
+    redirect_uri: str = None,
+) -> None:
+    """Save Kroger API credentials to preferences file."""
+    preferences = _load_preferences()
+    existing = preferences.get("kroger_credentials", {})
+    if client_id is not None:
+        existing["client_id"] = client_id
+    if client_secret is not None:
+        existing["client_secret"] = client_secret
+    if redirect_uri is not None:
+        existing["redirect_uri"] = redirect_uri
+    preferences["kroger_credentials"] = existing
+    _save_preferences(preferences)
+
+
+def get_token_info() -> dict | None:
+    """Load the user token file and return its contents, or None."""
+    try:
+        return load_token(".kroger_token_user.json")
+    except Exception:
+        return None
+
+
+def delete_user_token() -> None:
+    """Delete the user token file and invalidate the cached client."""
+    from kroger_api.token_storage import clear_token
+    clear_token(".kroger_token_user.json")
+    invalidate_authenticated_client()
+
+
 def get_product_sort_preferences() -> dict:
     """Get saved product page sort preferences."""
     preferences = _load_preferences()
