@@ -23,7 +23,7 @@ async function main() {
     }
   });
 
-  await page.goto('http://127.0.0.1:8080/recipes', { waitUntil: 'networkidle' });
+  await page.goto('http://127.0.0.1:8000/recipes', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
   // Find first "List" button and check its containing card

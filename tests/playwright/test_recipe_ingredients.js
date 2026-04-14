@@ -6,7 +6,7 @@
 
 const { chromium } = require('playwright');
 
-const BASE = 'http://127.0.0.1:8080';
+const BASE = 'http://127.0.0.1:8000';
 
 let browser, page;
 let passed = 0, failed = 0;

@@ -7,7 +7,7 @@ async function main() {
   const errs = [];
   page.on('console', msg => { if (msg.type() === 'error') errs.push(msg.text()); });
 
-  await page.goto('http://127.0.0.1:8080/recipes', { waitUntil: 'networkidle' });
+  await page.goto('http://127.0.0.1:8000/recipes', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500); // wait for Alpine to render x-for
 
   // Count all buttons

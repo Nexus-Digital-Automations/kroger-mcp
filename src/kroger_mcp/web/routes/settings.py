@@ -85,7 +85,7 @@ async def oauth_callback(
 
     # Exchange authorization code for token
     creds = get_kroger_credentials()
-    redirect_uri = saved.get("redirect_uri", "http://localhost:8080/callback")
+    redirect_uri = saved.get("redirect_uri", "http://localhost:8000/callback")
 
     try:
         kroger = KrogerAPI(

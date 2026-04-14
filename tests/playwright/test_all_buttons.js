@@ -4,7 +4,7 @@
  */
 const { chromium } = require('playwright');
 
-const BASE = 'http://127.0.0.1:8080';
+const BASE = 'http://127.0.0.1:8000';
 const TIMEOUT = 10000;
 
 let browser, context, page;

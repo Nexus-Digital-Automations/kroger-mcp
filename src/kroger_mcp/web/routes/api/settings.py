@@ -210,10 +210,7 @@ async def start_oauth():
             content={"error": "Kroger credentials not configured. Open Advanced Settings to add your Client ID and Secret."},
         )
 
-    redirect_uri = creds.get("redirect_uri") or "http://localhost:8080/callback"
-    # Fix port mismatch: .env may have :8000 but web app runs on :8080
-    if ":8000/callback" in redirect_uri:
-        redirect_uri = redirect_uri.replace(":8000/callback", ":8080/callback")
+    redirect_uri = creds.get("redirect_uri") or "http://localhost:8000/callback"
 
     pkce = generate_pkce_parameters()
     state = pkce["code_verifier"][:16]
