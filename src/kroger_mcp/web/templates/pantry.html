@@ -9,33 +9,33 @@
 <div x-data="{ open: false, pid: '', desc: '', level: 100, saving: false, err: '' }"
      x-show="open"
      x-cloak
-     class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+     class="ss-modal-overlay"
      @keydown.escape.window="open = false"
      @open-add-modal.window="open = true; pid = ''; desc = ''; level = 100; err = ''">
-  <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6"
+  <div class="ss-modal-card mx-4"
        @click.stop>
-    <h3 class="text-base font-semibold text-gray-800 mb-4">Add Pantry Item</h3>
-    <p x-show="err" class="text-xs text-red-600 mb-3" x-text="err"></p>
+    <h3 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); margin-bottom: 1rem;">Add Pantry Item</h3>
+    <p x-show="err" style="font-size: 0.75rem; color: var(--danger); margin-bottom: 0.75rem;" x-text="err"></p>
     <div class="space-y-3">
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Product ID</label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Product ID</label>
         <input x-model="pid" type="text" placeholder="e.g. 0001111042018"
-               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+               class="ss-input w-full" />
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Description (optional)</label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Description (optional)</label>
         <input x-model="desc" type="text" placeholder="e.g. Organic Whole Milk"
-               class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+               class="ss-input w-full" />
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Initial Level: <span x-text="level"></span>%</label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Initial Level: <span x-text="level"></span>%</label>
         <input x-model.number="level" type="range" min="0" max="100"
-               class="w-full accent-emerald-500" />
+               style="width: 100%; accent-color: var(--green);" />
       </div>
     </div>
     <div class="flex gap-3 mt-5">
       <button @click="open = false"
-              class="flex-1 px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
+              class="ss-btn-secondary flex-1 justify-center">
         Cancel
       </button>
       <button :disabled="saving || !pid.trim()"
@@ -50,7 +50,7 @@
                 .then(d => { if (d.error) { err = d.error; saving = false; } else { window.location.reload(); } })
                 .catch(() => { err = 'Network error'; saving = false; });
               "
-              class="flex-1 px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50">
+              class="ss-btn-primary flex-1 justify-center">
         <span x-show="!saving">Add Item</span>
         <span x-show="saving">Adding…</span>
       </button>
@@ -65,7 +65,7 @@
     <!-- Trigger for the add modal -->
     <button
       @click="$dispatch('open-add-modal')"
-      class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors shadow-sm">
+      class="ss-btn-primary gap-1.5">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
       Add Item
     </button>
@@ -87,7 +87,7 @@
         .catch(() => { alert('Restock failed'); restocking = false; });
       "
       :disabled="restocking"
-      class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors shadow-sm disabled:opacity-50">
+      class="ss-btn-warning gap-1.5">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
       Restock All Low
     </button>
@@ -104,7 +104,7 @@
           .catch(() => { alert('Network error'); clearing = false; });
       "
       :disabled="clearing"
-      class="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg border border-red-200 text-red-600 font-medium hover:bg-red-50 transition-colors shadow-sm disabled:opacity-50">
+      class="ss-btn-danger gap-1.5">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
       Clear Pantry
     </button>
@@ -113,101 +113,101 @@
 
 <!-- Summary strip -->
 <div class="grid grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-    <p class="text-xs text-gray-500 font-medium">Tracked Items</p>
-    <p class="text-2xl font-bold text-gray-900 mt-1">{{ total_count }}</p>
+  <div class="ss-card p-4">
+    <p style="font-size: 0.8125rem; color: var(--text-3); font-weight: 500;">Tracked Items</p>
+    <p style="font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; color: var(--text-1); letter-spacing: -0.03em; line-height: 1; margin-top: 0.25rem;">{{ total_count }}</p>
   </div>
-  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-    <p class="text-xs text-gray-500 font-medium">Out of Stock</p>
-    <p class="text-2xl font-bold text-red-600 mt-1">{{ out_count }}</p>
+  <div class="ss-card p-4">
+    <p style="font-size: 0.8125rem; color: var(--text-3); font-weight: 500;">Out of Stock</p>
+    <p style="font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; color: var(--danger); letter-spacing: -0.03em; line-height: 1; margin-top: 0.25rem;">{{ out_count }}</p>
   </div>
-  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-    <p class="text-xs text-gray-500 font-medium">Running Low</p>
-    <p class="text-2xl font-bold text-amber-600 mt-1">{{ low_count }}</p>
+  <div class="ss-card p-4">
+    <p style="font-size: 0.8125rem; color: var(--text-3); font-weight: 500;">Running Low</p>
+    <p style="font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; color: var(--amber-dark); letter-spacing: -0.03em; line-height: 1; margin-top: 0.25rem;">{{ low_count }}</p>
   </div>
-  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-    <p class="text-xs text-gray-500 font-medium">Expiring Soon</p>
-    <p class="text-2xl font-bold text-orange-600 mt-1">{{ expiring_soon_count }}</p>
+  <div class="ss-card p-4">
+    <p style="font-size: 0.8125rem; color: var(--text-3); font-weight: 500;">Expiring Soon</p>
+    <p style="font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; color: var(--warning); letter-spacing: -0.03em; line-height: 1; margin-top: 0.25rem;">{{ expiring_soon_count }}</p>
   </div>
 </div>
 
 {% if not all_items %}
-<div class="text-center py-16 text-gray-400">
-  <p class="text-sm">No pantry items tracked yet. Add items to cart through Claude to start tracking.</p>
+<div style="text-align: center; padding: 4rem 1rem;">
+  <p style="font-size: 0.875rem; color: var(--text-3);">No pantry items tracked yet. Add items to cart through Claude to start tracking.</p>
 </div>
 {% else %}
 
 <!-- All items table (sorted by level ASC already from data layer) -->
-<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-  <div class="px-6 py-4 border-b border-gray-100">
-    <h2 class="text-sm font-semibold text-gray-700">All Items <span class="text-gray-400 font-normal ml-1">(sorted by level)</span></h2>
+<div class="ss-card overflow-hidden">
+  <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);">
+    <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-1);">All Items <span style="color: var(--text-3); font-weight: 400; margin-left: 0.25rem;">(sorted by level)</span></h2>
   </div>
   <table class="w-full text-sm">
-    <thead class="bg-gray-50 border-b border-gray-100">
+    <thead>
       <tr>
-        <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Item</th>
-        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-48">Level</th>
-        <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-        <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Days Left</th>
-        <th class="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Expiration</th>
-        <th class="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+        <th class="ss-table-th">Item</th>
+        <th class="ss-table-th w-48">Level</th>
+        <th class="ss-table-th" style="text-align: center;">Status</th>
+        <th class="ss-table-th" style="text-align: right;">Days Left</th>
+        <th class="ss-table-th" style="text-align: right;">Expiration</th>
+        <th class="ss-table-th" style="text-align: right;">Actions</th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-gray-50">
+    <tbody>
       {% for item in all_items %}
       {% set level = item.level_percent %}
       {% set status = item.status %}
-      <tr class="hover:bg-gray-50 transition-colors"
+      <tr class="ss-table-tr"
           {% if status == 'low' or status == 'out' %}data-low-id="{{ item.product_id }}"{% endif %}>
-        <td class="px-6 py-3">
-          <span class="font-medium text-gray-800">{{ item.description or item.product_id }}</span>
+        <td style="padding: 0.75rem 1.5rem;">
+          <span style="font-weight: 500; color: var(--text-1);">{{ item.description or item.product_id }}</span>
         </td>
-        <td class="px-4 py-3">
+        <td style="padding: 0.75rem 1rem;">
           <div class="flex items-center gap-2">
-            <div class="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-              <div class="h-2 rounded-full transition-all
-                {% if status == 'out' %}bg-red-500
-                {% elif status == 'low' %}bg-amber-500
-                {% else %}bg-emerald-500{% endif %}"
-                style="width: {{ [level, 100] | min }}%">
+            <div style="flex: 1; background: oklch(92% 0.01 70); border-radius: 99px; height: 0.5rem; overflow: hidden;">
+              <div style="height: 0.5rem; border-radius: 99px; transition: width 0.3s;
+                {% if status == 'out' %}background: var(--danger);
+                {% elif status == 'low' %}background: var(--amber);
+                {% else %}background: var(--success);{% endif %}
+                width: {{ [level, 100] | min }}%;">
               </div>
             </div>
-            <span class="text-xs text-gray-500 w-8 text-right">{{ level }}%</span>
+            <span style="font-size: 0.75rem; color: var(--text-3); width: 2rem; text-align: right;">{{ level }}%</span>
           </div>
         </td>
-        <td class="px-4 py-3 text-center">
+        <td style="padding: 0.75rem 1rem; text-align: center;">
           {% if status == 'out' %}
-          <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">OUT</span>
+          <span class="ss-badge ss-badge-danger">OUT</span>
           {% elif status == 'low' %}
-          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">LOW</span>
+          <span class="ss-badge ss-badge-warning">LOW</span>
           {% else %}
-          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">OK</span>
+          <span class="ss-badge ss-badge-ok">OK</span>
           {% endif %}
         </td>
-        <td class="px-4 py-3 text-right text-gray-500 text-xs">
+        <td style="padding: 0.75rem 1rem; text-align: right; font-size: 0.75rem; color: var(--text-3);">
           {% if item.days_until_empty is not none %}
           {{ item.days_until_empty }}d
           {% else %}
           —
           {% endif %}
         </td>
-        <td class="px-6 py-3 text-right">
+        <td style="padding: 0.75rem 1.5rem; text-align: right;">
           {% if item.days_to_expiration is not none %}
             {% if item.days_to_expiration <= 0 %}
-            <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">Expired</span>
+            <span class="ss-badge ss-badge-danger">Expired</span>
             {% elif item.days_to_expiration <= 3 %}
-            <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">{{ item.days_to_expiration }}d</span>
+            <span class="ss-badge ss-badge-danger">{{ item.days_to_expiration }}d</span>
             {% elif item.days_to_expiration <= 7 %}
-            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">{{ item.days_to_expiration }}d</span>
+            <span class="ss-badge ss-badge-warning">{{ item.days_to_expiration }}d</span>
             {% else %}
-            <span class="text-xs text-gray-400">{{ item.days_to_expiration }}d</span>
+            <span style="font-size: 0.75rem; color: var(--text-3);">{{ item.days_to_expiration }}d</span>
             {% endif %}
           {% else %}
-          <span class="text-xs text-gray-300">—</span>
+          <span style="font-size: 0.75rem; color: var(--text-3);">—</span>
           {% endif %}
         </td>
         <!-- Actions cell -->
-        <td class="px-6 py-3 text-right"
+        <td style="padding: 0.75rem 1.5rem; text-align: right;"
             x-data="{ editing: false, newLevel: {{ level }}, saving: false }">
           <div class="flex items-center justify-end gap-2">
 
@@ -215,7 +215,8 @@
             <template x-if="editing">
               <div class="flex items-center gap-1">
                 <input x-model.number="newLevel" type="number" min="0" max="100"
-                       class="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                       class="ss-input"
+                       style="width: 4rem; text-align: center; padding: 0.25rem 0.375rem; font-size: 0.75rem;"
                        @keydown.enter="
                          saving = true;
                          fetch('/api/pantry/update', {
@@ -234,11 +235,13 @@
                             body: JSON.stringify({product_id: '{{ item.product_id }}', level_percent: newLevel})
                           }).then(() => window.location.reload());
                         "
-                        class="text-xs px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50">
+                        class="ss-btn-primary"
+                        style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
                   Save
                 </button>
                 <button @click="editing = false"
-                        class="text-xs px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
+                        class="ss-btn-secondary"
+                        style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
                   ✕
                 </button>
               </div>
@@ -248,7 +251,8 @@
             <template x-if="!editing">
               <button @click="editing = true"
                       title="Edit level"
-                      class="text-xs px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-100 transition-colors">
+                      class="ss-btn-secondary"
+                      style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
                 Edit %
               </button>
             </template>
@@ -265,7 +269,8 @@
                       }).then(() => window.location.reload());
                     "
                     title="Restock to 100%"
-                    class="text-xs px-2 py-0.5 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-50">
+                    class="ss-btn-secondary"
+                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem; border-color: var(--green-light); color: var(--success);">
               Restock
             </button>
 
@@ -278,7 +283,8 @@
                         .then(() => window.location.reload());
                     "
                     title="Remove from pantry"
-                    class="text-xs px-2 py-0.5 rounded border border-red-200 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50">
+                    class="ss-btn-danger"
+                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
               Remove
             </button>
 

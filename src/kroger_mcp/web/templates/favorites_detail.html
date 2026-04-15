@@ -68,19 +68,19 @@
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">Name <span class="text-red-500">*</span></label>
           <input x-model="editName" type="text"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            class="ss-input w-full"
             @keydown.enter="submitEdit()"/>
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
           <input x-model="editDescription" type="text" placeholder="Optional description"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+            class="ss-input w-full"/>
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">Reorder schedule (weeks)</label>
           <input x-model="editReorderWeeks" type="number" min="0" max="52"
             placeholder="0 = no schedule"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+            class="ss-input w-full"/>
           <p class="text-xs text-gray-400 mt-1">Set to 0 to disable reorder reminders.</p>
         </div>
         <p x-show="error" class="text-xs text-red-600" x-text="error"></p>
@@ -89,7 +89,7 @@
         <button @click="editOpen = false; error = '';"
           class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
         <button @click="submitEdit()" :disabled="loading"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+          class="ss-btn-primary">
           <span x-show="!loading">Save Changes</span>
           <span x-show="loading">Saving...</span>
         </button>
@@ -178,15 +178,15 @@
   <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Add Item</h3>
   <div class="flex gap-3 flex-wrap">
     <input x-model="productId" type="text" placeholder="Product ID *"
-      class="w-40 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      class="ss-input w-40"/>
     <input x-model="description" type="text" placeholder="Description *"
-      class="flex-1 min-w-40 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      class="ss-input flex-1 min-w-40"/>
     <input x-model="brand" type="text" placeholder="Brand"
-      class="w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      class="ss-input w-32"/>
     <input x-model.number="quantity" type="number" min="1" placeholder="Qty"
       class="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
     <button @click="submit()" :disabled="loading"
-      class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+      class="ss-btn-primary">
       <span x-show="!loading">Add</span>
       <span x-show="loading">Adding...</span>
     </button>
@@ -195,7 +195,7 @@
 </div>
 
 <!-- Items Table -->
-<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+<div class="ss-card overflow-hidden">
   {% if items %}
   <table class="w-full text-sm">
     <thead class="bg-gray-50 border-b border-gray-100">

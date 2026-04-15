@@ -91,39 +91,38 @@
   <!-- Trigger button -->
   <div class="flex items-center justify-between mb-6">
     <div></div>
-    <button @click="open = true"
-      class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+    <button @click="open = true" class="ss-btn-primary">
       + New List
     </button>
   </div>
 
   <!-- New List Modal -->
   <div x-show="open" x-cloak
-    class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+    class="ss-modal-overlay"
     @click.self="open = false">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-      <h2 class="text-base font-semibold text-gray-900 mb-4">New Favorites List</h2>
+    <div class="ss-modal-card">
+      <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); margin-bottom: 1rem;">New Favorites List</h2>
       <div class="space-y-4">
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Name <span class="text-red-500">*</span></label>
+          <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Name <span style="color: var(--danger);">*</span></label>
           <input x-model="name" type="text" placeholder="e.g. Weekly Staples"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            class="ss-input w-full"
             @keydown.enter="submit()"/>
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
+          <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Description</label>
           <input x-model="description" type="text" placeholder="Optional description"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+            class="ss-input w-full"/>
         </div>
-        <p x-show="error" class="text-xs text-red-600" x-text="error"></p>
+        <p x-show="error" style="font-size: 0.75rem; color: var(--danger);" x-text="error"></p>
       </div>
       <div class="flex justify-end gap-3 mt-6">
         <button @click="open = false; name=''; description=''; error='';"
-          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">
+          class="ss-btn-ghost">
           Cancel
         </button>
         <button @click="submit()" :disabled="loading"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+          class="ss-btn-primary">
           <span x-show="!loading">Create List</span>
           <span x-show="loading">Creating...</span>
         </button>
@@ -133,38 +132,38 @@
 
   <!-- Edit List Modal -->
   <div x-show="editOpen" x-cloak
-    class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+    class="ss-modal-overlay"
     @click.self="editOpen = false">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-      <h2 class="text-base font-semibold text-gray-900 mb-4">Edit List</h2>
+    <div class="ss-modal-card">
+      <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); margin-bottom: 1rem;">Edit List</h2>
       <div class="space-y-4">
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Name <span class="text-red-500">*</span></label>
+          <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Name <span style="color: var(--danger);">*</span></label>
           <input x-model="editName" type="text" placeholder="List name"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            class="ss-input w-full"
             @keydown.enter="submitEdit()"/>
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
+          <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Description</label>
           <input x-model="editDescription" type="text" placeholder="Optional description"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+            class="ss-input w-full"/>
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Reorder schedule (weeks)</label>
+          <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Reorder schedule (weeks)</label>
           <input x-model="editReorderWeeks" type="number" min="0" max="52"
             placeholder="0 = no schedule"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-          <p class="text-xs text-gray-400 mt-1">Set to 0 to disable reorder reminders.</p>
+            class="ss-input w-full"/>
+          <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.25rem;">Set to 0 to disable reorder reminders.</p>
         </div>
-        <p x-show="error" class="text-xs text-red-600" x-text="error"></p>
+        <p x-show="error" style="font-size: 0.75rem; color: var(--danger);" x-text="error"></p>
       </div>
       <div class="flex justify-end gap-3 mt-6">
         <button @click="editOpen = false; error = '';"
-          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">
+          class="ss-btn-ghost">
           Cancel
         </button>
         <button @click="submitEdit()" :disabled="loading"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+          class="ss-btn-primary">
           <span x-show="!loading">Save Changes</span>
           <span x-show="loading">Saving...</span>
         </button>
@@ -173,26 +172,30 @@
   </div>
 
 {% if not lists %}
-<div class="text-center py-16 text-gray-400">
-  <p class="text-sm">No favorites lists yet. Create your first list above.</p>
+<div style="text-align: center; padding: 4rem 1rem;">
+  <p style="font-size: 0.875rem; color: var(--text-3);">No favorites lists yet. Create your first list above.</p>
 </div>
 {% else %}
 
 <div class="grid grid-cols-3 gap-4">
   {% for lst in lists %}
-  {% set color_map = {"red": "bg-red-100 text-red-700", "amber": "bg-amber-100 text-amber-700", "emerald": "bg-emerald-100 text-emerald-700", "gray": "bg-gray-100 text-gray-500"} %}
-  <div class="relative bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-emerald-200 transition-all">
+  {% set badge_class_map = {"red": "ss-badge ss-badge-danger", "amber": "ss-badge ss-badge-warning", "emerald": "ss-badge ss-badge-ok", "gray": "ss-badge ss-badge-muted"} %}
+  <div class="ss-card ss-card-interactive relative">
     <!-- Action buttons -->
     <div class="absolute top-3 right-3 flex items-center gap-1 z-10">
       <button @click.prevent="openEdit('{{ lst.id }}', '{{ lst.name | e }}', '{{ lst.description | e }}', {{ lst.reorder_weeks | tojson }})"
-        class="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 hover:bg-blue-100 text-gray-400 hover:text-blue-600 transition-colors"
+        style="width: 1.5rem; height: 1.5rem; display: flex; align-items: center; justify-content: center; border-radius: 99px; background: oklch(93% 0.008 70); color: var(--text-3); transition: background 0.12s, color 0.12s;"
+        onmouseenter="this.style.background='oklch(88% 0.04 240)'; this.style.color='var(--info)'"
+        onmouseleave="this.style.background='oklch(93% 0.008 70)'; this.style.color='var(--text-3)'"
         title="Edit list">
         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M9 13l6.5-6.5a2 2 0 012.828 2.828L11.828 15.828a4 4 0 01-1.414.94l-3 1 1-3a4 4 0 01.94-1.414z"/>
         </svg>
       </button>
       <button @click.prevent="deleteList('{{ lst.id }}', '{{ lst.name | e }}')"
-        class="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors"
+        style="width: 1.5rem; height: 1.5rem; display: flex; align-items: center; justify-content: center; border-radius: 99px; background: oklch(93% 0.008 70); color: var(--text-3); transition: background 0.12s, color 0.12s;"
+        onmouseenter="this.style.background='oklch(92% 0.05 25)'; this.style.color='var(--danger)'"
+        onmouseleave="this.style.background='oklch(93% 0.008 70)'; this.style.color='var(--text-3)'"
         title="Delete list">
         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -201,47 +204,47 @@
     </div>
     <a href="/favorites/{{ lst.id }}" class="block p-5 pr-16">
       <div class="flex items-start justify-between mb-3">
-        <h3 class="text-sm font-semibold text-gray-900">{{ lst.name }}</h3>
-        <span class="text-xs px-2 py-0.5 rounded-full font-medium ml-2 flex-shrink-0
-          {{ color_map.get(lst.badge_color, 'bg-gray-100 text-gray-500') }}">
+        <h3 style="font-size: 0.875rem; font-weight: 600; color: var(--text-1);">{{ lst.name }}</h3>
+        <span class="{{ badge_class_map.get(lst.badge_color, 'ss-badge ss-badge-muted') }} ml-2 flex-shrink-0">
           {{ lst.badge_label }}
         </span>
       </div>
 
       {% if lst.description %}
-      <p class="text-xs text-gray-500 mb-3 line-clamp-2">{{ lst.description }}</p>
+      <p style="font-size: 0.75rem; color: var(--text-3); margin-bottom: 0.75rem;" class="line-clamp-2">{{ lst.description }}</p>
       {% endif %}
 
-      <div class="flex items-center justify-between text-xs text-gray-500">
+      <div class="flex items-center justify-between" style="font-size: 0.75rem; color: var(--text-3);">
         <span>{{ lst.item_count }} item{{ 's' if lst.item_count != 1 else '' }}</span>
         {% set rs = lst.reorder_status %}
         {% if rs.has_schedule %}
           {% if rs.status == 'overdue' %}
-          <span class="text-red-600 font-medium">{{ rs.days_overdue }}d overdue</span>
+          <span style="color: var(--danger); font-weight: 600;">{{ rs.days_overdue }}d overdue</span>
           {% elif rs.status == 'due_soon' %}
-          <span class="text-amber-600 font-medium">Due in {{ rs.days_until_due }}d</span>
+          <span style="color: var(--amber-dark); font-weight: 600;">Due in {{ rs.days_until_due }}d</span>
           {% elif rs.status == 'never_ordered' %}
-          <span class="text-red-600 font-medium">Never ordered</span>
+          <span style="color: var(--danger); font-weight: 600;">Never ordered</span>
           {% else %}
-          <span class="text-emerald-600 font-medium">{{ rs.days_until_due }}d until due</span>
+          <span style="color: var(--success); font-weight: 600;">{{ rs.days_until_due }}d until due</span>
           {% endif %}
         {% endif %}
       </div>
 
       {% if lst.reorder_weeks %}
-      <p class="text-xs text-gray-400 mt-2">Every {{ lst.reorder_weeks }} week{{ 's' if lst.reorder_weeks != 1 else '' }}</p>
+      <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.5rem;">Every {{ lst.reorder_weeks }} week{{ 's' if lst.reorder_weeks != 1 else '' }}</p>
       {% endif %}
     </a>
     <!-- Add to List footer strip -->
-    <div class="border-t border-gray-50 px-5 py-2 flex items-center justify-between gap-2">
+    <div style="border-top: 1px solid var(--border); padding: 0.5rem 1.25rem;" class="flex items-center justify-between gap-2">
       <button @click.stop="addToList('{{ lst.id }}', '{{ lst.name | e }}')"
         :disabled="addListLoading === '{{ lst.id }}'"
-        class="text-xs font-medium px-3 py-1 border border-gray-200 text-gray-600 rounded-md hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 transition-colors">
+        class="ss-btn-secondary"
+        style="padding: 0.2rem 0.625rem; font-size: 0.75rem;">
         <span x-show="addListLoading !== '{{ lst.id }}'">+ Add to List</span>
         <span x-show="addListLoading === '{{ lst.id }}'">Adding...</span>
       </button>
       <span x-show="addListMsgListId === '{{ lst.id }}'"
-        class="text-xs text-emerald-700 truncate"
+        style="font-size: 0.75rem; color: var(--success); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
         x-text="addListMsg"></span>
     </div>
   </div>

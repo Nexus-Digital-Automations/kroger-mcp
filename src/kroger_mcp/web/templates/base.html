@@ -193,6 +193,142 @@
     }
 
     [x-cloak] { display: none !important; }
+
+    /* ── Secondary button — outlined neutral ── */
+    .ss-btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      background-color: var(--surface);
+      color: var(--text-2);
+      font-weight: 500;
+      font-size: 0.8125rem;
+      padding: 0.5rem 1.125rem;
+      border-radius: 0.5rem;
+      border: 1px solid var(--border);
+      text-decoration: none;
+      transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+      letter-spacing: 0.005em;
+      cursor: pointer;
+    }
+    .ss-btn-secondary:hover { border-color: var(--terra); color: var(--terra); }
+
+    /* ── Warning button — amber fill ── */
+    .ss-btn-warning {
+      display: inline-flex;
+      align-items: center;
+      background-color: var(--amber);
+      color: var(--amber-text);
+      font-weight: 600;
+      font-size: 0.8125rem;
+      padding: 0.5rem 1.125rem;
+      border-radius: 0.5rem;
+      transition: background-color 0.15s, transform 0.1s;
+      letter-spacing: 0.005em;
+      cursor: pointer;
+    }
+    .ss-btn-warning:hover { background-color: var(--amber-dark); transform: translateY(-1px); }
+    .ss-btn-warning:active { transform: translateY(0); }
+    .ss-btn-warning:disabled { opacity: 0.5; transform: none; cursor: not-allowed; }
+
+    /* ── Danger button — outlined red ── */
+    .ss-btn-danger {
+      display: inline-flex;
+      align-items: center;
+      background-color: transparent;
+      color: var(--danger);
+      font-weight: 500;
+      font-size: 0.8125rem;
+      padding: 0.5rem 1.125rem;
+      border-radius: 0.5rem;
+      border: 1px solid oklch(85% 0.05 25);
+      transition: background-color 0.15s, border-color 0.15s;
+      letter-spacing: 0.005em;
+      cursor: pointer;
+    }
+    .ss-btn-danger:hover { background-color: oklch(96% 0.02 25); border-color: var(--danger); }
+    .ss-btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Ghost button — text only ── */
+    .ss-btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      background: none;
+      border: none;
+      color: var(--text-2);
+      font-weight: 500;
+      font-size: 0.8125rem;
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      transition: color 0.12s, background-color 0.12s;
+      cursor: pointer;
+    }
+    .ss-btn-ghost:hover { color: var(--text-1); background-color: oklch(95% 0.01 70); }
+
+    /* Shared disabled state for ss-btn-primary */
+    .ss-btn-primary:disabled { opacity: 0.5; transform: none; cursor: not-allowed; }
+
+    /* ── Badges ── */
+    .ss-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      border-radius: 99px;
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+    .ss-badge-ok      { background: var(--green-light); color: var(--success); }
+    .ss-badge-warning { background: var(--amber-light); color: var(--amber-dark); }
+    .ss-badge-danger  { background: oklch(92% 0.05 25); color: var(--danger); }
+    .ss-badge-muted   { background: oklch(93% 0.008 70); color: var(--text-3); }
+    .ss-badge-info    { background: oklch(93% 0.04 240); color: var(--info); }
+
+    /* ── Modal overlay + card ── */
+    .ss-modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: oklch(0% 0 0 / 0.40);
+    }
+    .ss-modal-card {
+      background-color: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      box-shadow: 0 8px 40px oklch(18% 0.025 80 / 0.14), 0 2px 8px oklch(18% 0.025 80 / 0.06);
+      width: 100%;
+      max-width: 28rem;
+      padding: 1.5rem;
+    }
+
+    /* ── Table chrome ── */
+    .ss-table-th {
+      text-align: left;
+      padding: 0.75rem 1.5rem;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: oklch(97% 0.01 70);
+      border-bottom: 1px solid var(--border);
+    }
+    .ss-table-tr { transition: background-color 0.1s; }
+    .ss-table-tr:hover { background-color: oklch(97.5% 0.008 75); }
+    .ss-table-tr + .ss-table-tr { border-top: 1px solid oklch(95% 0.01 70); }
+
+    /* ── Interactive card (hover lift) ── */
+    .ss-card-interactive {
+      transition: box-shadow 0.15s, border-color 0.15s;
+      cursor: pointer;
+    }
+    .ss-card-interactive:hover {
+      box-shadow: 0 4px 12px oklch(20% 0.02 55 / 0.08);
+      border-color: oklch(82% 0.03 70);
+    }
   </style>
 </head>
 <body class="min-h-screen flex">

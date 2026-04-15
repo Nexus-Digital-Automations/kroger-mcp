@@ -256,37 +256,37 @@
 
 <!-- ── New Plan Modal ── -->
 <div x-show="open" x-cloak
-  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+  class="ss-modal-overlay"
   @click.self="open = false">
-  <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">New Meal Plan</h2>
+  <div class="ss-modal-card">
+    <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); margin-bottom: 1rem;">New Meal Plan</h2>
     <div class="space-y-4">
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Plan Name <span class="text-red-500">*</span></label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Plan Name <span style="color: var(--danger);">*</span></label>
         <input x-model="name" type="text" placeholder="e.g. Week of March 10"
-          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+          class="ss-input w-full"/>
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Start Date <span class="text-red-500">*</span></label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Start Date <span style="color: var(--danger);">*</span></label>
         <input x-model="startDate" type="date"
-          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+          class="ss-input w-full"/>
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Plan Type</label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Plan Type</label>
         <select x-model="planType"
-          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          class="ss-input w-full">
           <option value="weekly">Weekly</option>
           <option value="monthly">Monthly</option>
           <option value="custom">Custom</option>
         </select>
       </div>
-      <p x-show="error" class="text-xs text-red-600" x-text="error"></p>
+      <p x-show="error" style="font-size: 0.75rem; color: var(--danger);" x-text="error"></p>
     </div>
     <div class="flex justify-end gap-3 mt-6">
       <button @click="open = false; name=''; startDate=''; error='';"
-        class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
+        class="ss-btn-ghost">Cancel</button>
       <button @click="submit()" :disabled="loading"
-        class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+        class="ss-btn-primary">
         <span x-show="!loading">Create Plan</span>
         <span x-show="loading">Creating...</span>
       </button>
@@ -296,26 +296,26 @@
 
 <!-- ── Add Meal Modal ── -->
 <div x-show="addMealOpen" x-cloak
-  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+  class="ss-modal-overlay"
   @click.self="addMealOpen = false">
-  <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-1">Add Meal</h2>
+  <div class="ss-modal-card" style="max-width: 24rem;">
+    <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); margin-bottom: 0.25rem;">Add Meal</h2>
     <p class="text-xs text-gray-500 mb-4" x-text="addMealSlot.charAt(0).toUpperCase() + addMealSlot.slice(1) + ' · ' + addMealDate"></p>
     <div class="space-y-3">
       <select x-model="addMealRecipe"
-        class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        class="ss-input w-full">
         <option value="">Select a recipe...</option>
         {% for recipe in recipes %}
         <option value="{{ recipe.id }}">{{ recipe.name }}</option>
         {% endfor %}
       </select>
-      <p x-show="addMealError" class="text-xs text-red-600" x-text="addMealError"></p>
+      <p x-show="addMealError" style="font-size: 0.75rem; color: var(--danger);" x-text="addMealError"></p>
     </div>
     <div class="flex justify-end gap-3 mt-5">
       <button @click="addMealOpen = false"
-        class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
+        class="ss-btn-ghost">Cancel</button>
       <button @click="submitMeal()" :disabled="addMealLoading"
-        class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+        class="ss-btn-primary">
         <span x-show="!addMealLoading">Add</span>
         <span x-show="addMealLoading">Adding...</span>
       </button>
@@ -325,28 +325,28 @@
 
 <!-- ── Copy Week Modal ── -->
 <div x-show="copyWeekOpen" x-cloak
-  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+  class="ss-modal-overlay"
   @click.self="copyWeekOpen = false">
-  <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">Copy Plan</h2>
+  <div class="ss-modal-card" style="max-width: 24rem;">
+    <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); margin-bottom: 1rem;">Copy Plan</h2>
     <div class="space-y-3">
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">New Plan Name <span class="text-red-500">*</span></label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">New Plan Name <span style="color: var(--danger);">*</span></label>
         <input x-model="copyWeekName" type="text" placeholder="Copy of current plan"
-          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+          class="ss-input w-full"/>
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">New Start Date <span class="text-red-500">*</span></label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">New Start Date <span style="color: var(--danger);">*</span></label>
         <input x-model="copyWeekDate" type="date"
-          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+          class="ss-input w-full"/>
       </div>
-      <p x-show="copyWeekError" class="text-xs text-red-600" x-text="copyWeekError"></p>
+      <p x-show="copyWeekError" style="font-size: 0.75rem; color: var(--danger);" x-text="copyWeekError"></p>
     </div>
     <div class="flex justify-end gap-3 mt-5">
       <button @click="copyWeekOpen = false; copyWeekError = ''"
-        class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
+        class="ss-btn-ghost">Cancel</button>
       <button @click="copyWeek()" :disabled="copyWeekLoading"
-        class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+        class="ss-btn-primary">
         <span x-show="!copyWeekLoading">Copy Plan</span>
         <span x-show="copyWeekLoading">Copying...</span>
       </button>
@@ -356,15 +356,15 @@
 
 <!-- ── From Template Modal ── -->
 <div x-show="fromTemplateOpen" x-cloak
-  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+  class="ss-modal-overlay"
   @click.self="fromTemplateOpen = false">
-  <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">New Plan from Template</h2>
+  <div class="ss-modal-card" style="max-width: 24rem;">
+    <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); margin-bottom: 1rem;">New Plan from Template</h2>
     <div class="space-y-3">
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Template</label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Template</label>
         <select x-model="fromTemplatePlanId"
-          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          class="ss-input w-full">
           <option value="">Select template...</option>
           {% for t in templates_list %}
           <option value="{{ t.id }}">{{ t.name }}</option>
@@ -372,22 +372,22 @@
         </select>
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">New Plan Name <span class="text-red-500">*</span></label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">New Plan Name <span style="color: var(--danger);">*</span></label>
         <input x-model="fromTemplateName" type="text" placeholder="Week of..."
-          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+          class="ss-input w-full"/>
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Start Date <span class="text-red-500">*</span></label>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Start Date <span style="color: var(--danger);">*</span></label>
         <input x-model="fromTemplateDate" type="date"
-          class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+          class="ss-input w-full"/>
       </div>
-      <p x-show="fromTemplateError" class="text-xs text-red-600" x-text="fromTemplateError"></p>
+      <p x-show="fromTemplateError" style="font-size: 0.75rem; color: var(--danger);" x-text="fromTemplateError"></p>
     </div>
     <div class="flex justify-end gap-3 mt-5">
       <button @click="fromTemplateOpen = false; fromTemplateError = ''"
-        class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
+        class="ss-btn-ghost">Cancel</button>
       <button @click="createFromTemplate()" :disabled="fromTemplateLoading"
-        class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+        class="ss-btn-primary">
         <span x-show="!fromTemplateLoading">Create</span>
         <span x-show="fromTemplateLoading">Creating...</span>
       </button>
@@ -397,13 +397,13 @@
 
 <!-- ── Shopping Preview Modal ── -->
 <div x-show="shopPreviewOpen" x-cloak
-  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+  class="ss-modal-overlay p-4"
   @click.self="shopPreviewOpen = false">
-  <div class="bg-white rounded-xl shadow-xl w-full max-w-lg flex flex-col max-h-[80vh]">
+  <div class="ss-modal-card flex flex-col" style="max-width: 32rem; max-height: 80vh; padding: 0;">
     <!-- Header -->
-    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-      <h3 class="text-base font-semibold text-gray-900">Shopping Preview</h3>
-      <button @click="shopPreviewOpen = false" class="text-gray-400 hover:text-gray-600">
+    <div class="flex items-center justify-between flex-shrink-0" style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);">
+      <h3 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1);">Shopping Preview</h3>
+      <button @click="shopPreviewOpen = false" class="ss-btn-ghost" style="padding: 0.25rem;">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
@@ -455,22 +455,22 @@
     </div>
 
     <!-- Footer -->
-    <div x-show="!shopPreviewLoading" class="px-6 py-4 border-t border-gray-100 flex-shrink-0">
-      <div x-show="cartDone" class="text-center text-sm text-emerald-700 font-medium mb-3">
+    <div x-show="!shopPreviewLoading" class="flex-shrink-0" style="padding: 1rem 1.5rem; border-top: 1px solid var(--border);">
+      <div x-show="cartDone" style="text-align: center; font-size: 0.875rem; color: var(--success); font-weight: 600; margin-bottom: 0.75rem;">
         ✅ Items added to cart!
       </div>
-      <p x-show="cartError" class="text-xs text-red-600 mb-3" x-text="cartError"></p>
+      <p x-show="cartError" style="font-size: 0.75rem; color: var(--danger); margin-bottom: 0.75rem;" x-text="cartError"></p>
       <div x-show="!cartDone" class="flex items-center gap-3">
         <div class="flex gap-2 flex-1">
           <button @click="cartModality='PICKUP'"
-            :class="cartModality==='PICKUP' ? 'bg-emerald-600 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'"
-            class="flex-1 py-2 text-xs font-medium rounded-lg transition-colors">Pickup</button>
+            :class="cartModality==='PICKUP' ? 'ss-btn-primary' : 'ss-btn-secondary'"
+            class="flex-1 justify-center" style="padding: 0.5rem; font-size: 0.75rem;">Pickup</button>
           <button @click="cartModality='DELIVERY'"
-            :class="cartModality==='DELIVERY' ? 'bg-emerald-600 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'"
-            class="flex-1 py-2 text-xs font-medium rounded-lg transition-colors">Delivery</button>
+            :class="cartModality==='DELIVERY' ? 'ss-btn-primary' : 'ss-btn-secondary'"
+            class="flex-1 justify-center" style="padding: 0.5rem; font-size: 0.75rem;">Delivery</button>
         </div>
         <button @click="addAllToCart()" :disabled="cartLoading"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+          class="ss-btn-primary">
           <span x-show="!cartLoading">Add to Cart</span>
           <span x-show="cartLoading">Adding...</span>
         </button>
@@ -483,7 +483,7 @@
 <div class="flex flex-col items-center py-16 text-gray-400 gap-4">
   <p class="text-sm">No meal plans yet.</p>
   <button @click="open = true"
-    class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+    class="ss-btn-primary">
     + New Plan
   </button>
 </div>
@@ -492,7 +492,7 @@
 <!-- Plan selector bar -->
 <div class="flex items-center gap-3 mb-4">
   <select onchange="window.location='/meal-plan?plan_id='+this.value"
-    class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white min-w-48 max-w-sm">
+    class="ss-input min-w-48 max-w-sm">
     {% for plan in plans %}
     <option value="{{ plan.id }}" {% if active_plan and active_plan.id == plan.id %}selected{% endif %}>
       {{ plan.name }}{% if plan.start_date %} — {{ plan.start_date }}{% endif %}
@@ -500,12 +500,12 @@
     {% endfor %}
   </select>
   <button @click="open = true"
-    class="px-3 py-2 text-sm font-medium text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors whitespace-nowrap">
+    class="ss-btn-primary whitespace-nowrap">
     + New Plan
   </button>
   {% if templates_list %}
   <button @click="fromTemplateOpen = true"
-    class="px-3 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap">
+    class="ss-btn-secondary whitespace-nowrap">
     📋 From Template
   </button>
   {% endif %}
@@ -518,10 +518,10 @@
 
     {% if active_plan %}
     <!-- Plan metadata strip + toolbar -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 mb-4 flex items-center justify-between">
+    <div class="ss-card px-6 py-4 mb-4 flex items-center justify-between">
       <div>
-        <h2 class="text-base font-semibold text-gray-900">{{ active_plan.name }}</h2>
-        <p class="text-xs text-gray-500 mt-0.5">
+        <h2 style="font-size: 0.9375rem; font-weight: 600; color: var(--text-1);">{{ active_plan.name }}</h2>
+        <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.125rem;">
           {{ active_plan.start_date }} to {{ active_plan.end_date }}
         </p>
       </div>
@@ -530,12 +530,12 @@
       <div class="flex items-center gap-3">
         <!-- Toolbar buttons -->
         <button @click="copyWeekOpen = true; copyWeekName = ''; copyWeekDate = ''"
-          class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          class="ss-btn-secondary" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;"
           title="Copy this plan to new dates">
           ⊞ Copy Plan
         </button>
         <button @click="saveAsTemplate()"
-          class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          class="ss-btn-secondary" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;"
           title="Save as reusable template">
           ★ Template
         </button>
@@ -546,7 +546,7 @@
         </button>
         {% if templates_list %}
         <button @click="fromTemplateOpen = true"
-          class="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          class="ss-btn-secondary" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;"
           title="Create plan from template">
           📋 From Template
         </button>
@@ -574,7 +574,7 @@
     </div>
 
     <!-- Calendar Grid -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="ss-card overflow-hidden">
       <!-- Day headers -->
       <div class="grid border-b border-gray-100" style="grid-template-columns: 90px repeat(7, 1fr)">
         <div class="px-3 py-2 bg-gray-50"></div>
@@ -677,7 +677,7 @@
     </div>
 
     <!-- Bottom Stats + Action Bar -->
-    <div class="mt-4 bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
+    <div class="ss-card mt-4 px-6 py-4 flex items-center justify-between">
       <div class="flex items-center gap-6 text-sm text-gray-600">
         <span>✅ <strong>{{ cooked_count }}</strong> cooked</span>
         <span>🍽 <strong>{{ total_meals }}</strong> meal{{ 's' if total_meals != 1 else '' }}</span>

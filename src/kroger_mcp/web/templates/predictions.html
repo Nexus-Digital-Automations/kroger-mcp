@@ -68,7 +68,7 @@ function predictionsData() {
 
   <!-- Summary cards -->
   <div class="grid grid-cols-4 gap-4 mb-6">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+    <div class="ss-card p-4">
       <p class="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Predictions</p>
       <p class="text-2xl font-bold text-gray-900 mt-1">{{ prediction_count }}</p>
     </div>
@@ -106,7 +106,7 @@ function predictionsData() {
   </div>
 
   <!-- Predictions table -->
-  <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+  <div class="ss-card overflow-hidden">
     <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
       <h2 class="text-sm font-semibold text-gray-700">Upcoming Purchases</h2>
       <span class="text-xs text-gray-400" x-text="predictions.length + ' items'"></span>
