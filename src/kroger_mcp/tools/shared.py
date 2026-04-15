@@ -1,20 +1,33 @@
 """
-Shared utilities and client management for Kroger MCP server
+Shared utilities and client management for Kroger MCP server.
+
+Owns:
+  - Kroger API client lifecycle (creation, caching, invalidation)
+  - Credential resolution (preferences file → env vars)
+  - User preferences persistence (location, servings, sort, credentials)
+  - Token file access (read/delete) for the web OAuth flow
+
+Does NOT own:
+  - OAuth flow orchestration (see web/routes/settings.py and tools/auth_tools.py)
+  - Kroger API calls (see tools/*_tools.py)
 """
 
 import asyncio
-import os
 import json
+import logging
+import os
 from pathlib import Path
 from typing import Optional
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
 from kroger_api.kroger_api import KrogerAPI
 from kroger_api.utils.env import load_and_validate_env, get_zip_code
 from kroger_api.token_storage import load_token
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Global state for clients and preferred location
 _authenticated_client: Optional[KrogerAPI] = None
@@ -228,6 +241,62 @@ def set_default_servings(servings: int) -> None:
     preferences = _load_preferences()
     preferences["default_servings_per_meal"] = servings
     _save_preferences(preferences)
+
+
+def get_kroger_credentials() -> dict:
+    """Get Kroger API credentials: preferences first, then env vars."""
+    preferences = _load_preferences()
+    creds = preferences.get("kroger_credentials", {})
+    return {
+        "client_id": creds.get("client_id") or os.environ.get("KROGER_CLIENT_ID", ""),
+        "client_secret": creds.get("client_secret") or os.environ.get("KROGER_CLIENT_SECRET", ""),
+        "redirect_uri": creds.get("redirect_uri") or os.environ.get("KROGER_REDIRECT_URI", ""),
+    }
+
+
+def set_kroger_credentials(
+    client_id: str = None,
+    client_secret: str = None,
+    redirect_uri: str = None,
+) -> None:
+    """Save Kroger API credentials to preferences file."""
+    preferences = _load_preferences()
+    existing = preferences.get("kroger_credentials", {})
+    if client_id is not None:
+        existing["client_id"] = client_id
+    if client_secret is not None:
+        existing["client_secret"] = client_secret
+    if redirect_uri is not None:
+        existing["redirect_uri"] = redirect_uri
+    preferences["kroger_credentials"] = existing
+    _save_preferences(preferences)
+
+
+def get_token_info() -> dict | None:
+    """Load the user token file and return its contents, or None if missing.
+
+    Raises no exceptions — file-not-found and parse errors are logged and
+    return None so callers can treat a missing/corrupt token as "not authenticated".
+    """
+    try:
+        return load_token(".kroger_token_user.json")
+    except (json.JSONDecodeError, IOError) as exc:
+        logger.warning("Could not load user token file: %s", exc)
+        return None
+    except Exception as exc:
+        logger.error("Unexpected error loading user token file: %s", exc)
+        return None
+
+
+def delete_user_token() -> None:
+    """Delete the user token file and invalidate the cached client.
+
+    Raises:
+        OSError: If the token file exists but cannot be deleted (permissions).
+    """
+    from kroger_api.token_storage import clear_token
+    clear_token(".kroger_token_user.json")
+    invalidate_authenticated_client()
 
 
 def get_product_sort_preferences() -> dict:

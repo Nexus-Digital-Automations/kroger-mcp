@@ -18,7 +18,7 @@ const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 
-const BASE = 'http://127.0.0.1:8080';
+const BASE = 'http://127.0.0.1:8000';
 const SCREENSHOT_DIR = path.join(__dirname, 'screenshots');
 const PAUSE_MS = 600;
 const SHORT_PAUSE = 300;

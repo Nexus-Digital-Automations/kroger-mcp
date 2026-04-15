@@ -127,79 +127,12 @@ function shoppingListData() {
 }
 </script>
 
-<script>
-function cartData() {
-  return {
-    cart: {{ current_cart | tojson }},
-    history: {{ order_history | tojson }},
-    showHistory: false,
-    showFilters: false,
-    msg: '',
-    filterText: '',
-    activeFilters: [],
-    categoryGroups: [
-      { label: 'Fresh',      items: ['produce','fruit','vegetables','meat','chicken','beef','pork','lamb','seafood','fish','shrimp','crab','deli','bakery','eggs'] },
-      { label: 'Dairy',      items: ['milk','cheese','yogurt','butter','cream','cream cheese','sour cream','cottage cheese','half and half'] },
-      { label: 'Frozen',     items: ['frozen','ice cream','frozen meals','frozen pizza','frozen vegetables','frozen fruit','frozen breakfast'] },
-      { label: 'Pantry',     items: ['pasta','rice','soup','canned','cereal','oatmeal','bread','beans','quinoa','flour','sugar','crackers','tortillas','noodles'] },
-      { label: 'Flavoring',  items: ['sauce','salsa','ketchup','mustard','mayo','dressing','hot sauce','soy sauce','olive oil','vinegar','spices','herbs','peanut butter','honey','jam'] },
-      { label: 'Beverages',  items: ['water','juice','soda','coffee','tea','energy drink','sports drink','kombucha','lemonade','cocoa'] },
-      { label: 'Snacks',     items: ['chips','pretzels','popcorn','crackers','cookies','candy','chocolate','nuts','trail mix','granola','jerky','protein bar'] },
-      { label: 'Breakfast',  items: ['cereal','granola','pancake','syrup','waffle','muffin','bagel','orange juice','creamer','oatmeal'] },
-      { label: 'Health',     items: ['organic','natural','gluten free','vegan','keto','protein','vitamin','supplement','almond milk','oat milk','tofu','chia'] },
-      { label: 'Baking',     items: ['flour','sugar','yeast','chocolate chip','cocoa','vanilla','baking powder','cake mix','frosting'] },
-      { label: 'Household',  items: ['cleaning','laundry','dish soap','paper towel','toilet paper','trash bag','sponge','air freshener','disinfectant','foil','plastic wrap'] },
-      { label: 'Personal',   items: ['shampoo','conditioner','body wash','soap','toothpaste','deodorant','lotion','sunscreen','razor'] },
-      { label: 'Baby & Pet', items: ['baby food','formula','diaper','baby wipe','dog food','cat food','dog treat','cat treat','litter'] },
-      { label: 'Alcohol',    items: ['wine','beer','spirits','whiskey','vodka','rum','tequila','hard seltzer','cider'] },
-      { label: 'Deli & Prepared', items: ['deli','lunch meat','ham','turkey','salami','pepperoni','hummus','guacamole','rotisserie','sushi'] },
-    ],
-    get filteredCart() {
-      let items = this.cart;
-      const q = this.filterText.toLowerCase().trim();
-      const af = this.activeFilters;
-      if (q) items = items.filter(i => (i.description || '').toLowerCase().includes(q));
-      if (af.length > 0) items = items.filter(i => {
-        const desc = (i.description || '').toLowerCase();
-        return af.some(f => desc.includes(f.toLowerCase()));
-      });
-      return items;
-    },
-    toggleFilter(cat) {
-      const idx = this.activeFilters.indexOf(cat);
-      if (idx >= 0) this.activeFilters.splice(idx, 1);
-      else this.activeFilters.push(cat);
-    },
-    clearFilters() { this.filterText = ''; this.activeFilters = []; },
-    async removeItem(productId) {
-      const r = await fetch('/api/cart/' + productId, {method: 'DELETE'});
-      if (r.ok) { this.cart = this.cart.filter(i => i.product_id !== productId); this.msg = 'Item removed'; }
-      else this.msg = 'Error removing item';
-      setTimeout(() => this.msg = '', 3000);
-    },
-    async clearCart() {
-      const r = await fetch('/api/cart', {method: 'DELETE'});
-      if (r.ok) { this.cart = []; this.msg = 'Cart cleared'; }
-      setTimeout(() => this.msg = '', 3000);
-    },
-    async markPlaced() {
-      const r = await fetch('/api/cart/mark-placed', {method: 'POST'});
-      const data = await r.json();
-      if (r.ok) {
-        this.cart = [];
-        const hr = await fetch('/api/cart/history');
-        if (hr.ok) { const hd = await hr.json(); this.history = (hd.history || []).slice(-10); }
-        this.msg = data.message || 'Order placed!';
-      } else {
-        this.msg = 'Error: ' + (data.error || 'Failed to mark placed');
-      }
-      setTimeout(() => this.msg = '', 4000);
-    }
-  };
-}
-</script>
 
 <div x-data="shoppingListData()">
+
+  <!-- Status message -->
+  <div x-show="msg" x-transition style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: var(--green-light); border: 1px solid var(--success); border-radius: 0.75rem; font-size: 0.875rem; color: var(--success);" x-text="msg"></div>
+
 
   <!-- Shopping List table -->
   <div class="ss-card overflow-hidden mb-6">

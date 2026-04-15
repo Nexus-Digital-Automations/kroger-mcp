@@ -10,6 +10,110 @@
   locationResults: [],
   searching: false,
   msg: {},
+
+  // Kroger connection state
+  authStatus: '{{ auth_status }}',
+  authLoading: false,
+  tokenInfo: null,
+  oauthResult: '{{ oauth_result }}',
+  oauthDetail: '{{ oauth_detail }}',
+
+  // Advanced credentials
+  advancedOpen: false,
+  creds: { client_id: '', client_secret: '', redirect_uri: '' },
+  credsLoading: false,
+  secretEditing: false,
+
+  init() {
+    this.loadAuthStatus();
+    this.loadCredentials();
+    if (this.oauthResult) {
+      setTimeout(() => { this.oauthResult = ''; }, 6000);
+    }
+  },
+
+  async loadAuthStatus() {
+    try {
+      const r = await fetch('/api/settings/auth/status');
+      if (r.ok) {
+        const d = await r.json();
+        this.authStatus = d.status;
+        this.tokenInfo = d.token_info;
+      }
+    } catch (e) {}
+  },
+  async connectKroger() {
+    this.authLoading = true;
+    try {
+      const r = await fetch('/api/settings/auth/connect', { method: 'POST' });
+      if (r.ok) {
+        const d = await r.json();
+        window.location.href = d.auth_url;
+        return;
+      }
+      const err = await r.json();
+      this.msg.auth = err.error || 'Failed to start OAuth';
+    } catch (e) {
+      this.msg.auth = 'Connection error';
+    }
+    this.authLoading = false;
+    setTimeout(() => { delete this.msg.auth; this.msg = {...this.msg}; }, 5000);
+  },
+  async disconnectKroger() {
+    if (!confirm('Disconnect from Kroger? You will need to re-authenticate to use cart features.')) return;
+    try {
+      const r = await fetch('/api/settings/auth/disconnect', { method: 'POST' });
+      if (r.ok) {
+        this.authStatus = 'not_authenticated';
+        this.tokenInfo = null;
+        this.msg.auth = 'Disconnected';
+      }
+    } catch (e) {
+      this.msg.auth = 'Error disconnecting';
+    }
+    setTimeout(() => { delete this.msg.auth; this.msg = {...this.msg}; }, 3000);
+  },
+  async loadCredentials() {
+    try {
+      const r = await fetch('/api/settings/credentials');
+      if (r.ok) {
+        const d = await r.json();
+        this.creds.client_id = d.client_id || '';
+        this.creds.redirect_uri = d.redirect_uri || '';
+        this.creds.client_secret = '';
+        this.creds._masked = d.client_secret_masked || '';
+        this.creds._hasSecret = d.has_secret || false;
+      }
+    } catch (e) {}
+  },
+  async saveCredentials() {
+    this.credsLoading = true;
+    const payload = {
+      client_id: this.creds.client_id,
+      redirect_uri: this.creds.redirect_uri,
+    };
+    if (this.secretEditing && this.creds.client_secret) {
+      payload.client_secret = this.creds.client_secret;
+    }
+    try {
+      const r = await fetch('/api/settings/credentials', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      this.msg.creds = r.ok ? 'Credentials saved!' : 'Error saving';
+      if (r.ok) {
+        this.secretEditing = false;
+        this.loadAuthStatus();
+        this.loadCredentials();
+      }
+    } catch (e) {
+      this.msg.creds = 'Error saving';
+    }
+    this.credsLoading = false;
+    setTimeout(() => { delete this.msg.creds; this.msg = {...this.msg}; }, 3000);
+  },
+
   async saveServings() {
     const r = await fetch('/api/settings/servings', {
       method: 'POST',
@@ -105,24 +209,144 @@
   </div>
 </div>
 
-<!-- Auth Status -->
+<!-- Kroger Connection -->
 <div class="ss-card p-6">
-  <h2 class="text-sm font-semibold text-gray-700 mb-4">Kroger Authentication</h2>
-  <div class="flex items-center gap-3">
-    {% if auth_status == 'authenticated' %}
-    <div class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>
-    <span class="text-sm text-gray-700">Authenticated — cart operations available</span>
-    {% elif auth_status == 'not_authenticated' %}
-    <div class="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
-    <span class="text-sm text-gray-700">Not authenticated — use Claude to authenticate via OAuth</span>
-    {% else %}
-    <div class="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
-    <span class="text-sm text-gray-700">Not configured — check KROGER_CLIENT_ID / KROGER_CLIENT_SECRET in .env</span>
-    {% endif %}
+  <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-1); margin-bottom: 1rem;">Kroger Connection</h2>
+
+  <!-- OAuth result banner -->
+  <div x-show="oauthResult === 'success'" x-transition
+    style="margin-bottom: 1rem; padding: 0.75rem 1rem; border-radius: 0.5rem; background: var(--green-light); border: 1px solid var(--success); font-size: 0.875rem; color: var(--success);"
+    class="flex items-center gap-2">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <span>Successfully connected to Kroger!</span>
   </div>
-  <p class="text-xs text-gray-400 mt-3">
-    To authenticate: ask Claude to "start Kroger authentication" and follow the OAuth flow.
-  </p>
+  <div x-show="oauthResult === 'error'" x-transition
+    style="margin-bottom: 1rem; padding: 0.75rem 1rem; border-radius: 0.5rem; background: oklch(96% 0.02 25); border: 1px solid var(--danger); font-size: 0.875rem; color: var(--danger);"
+    class="flex items-center gap-2">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118zm-9 3.75h.008v.008H12v-.008z"/></svg>
+    <span>Connection failed<template x-if="oauthDetail">: <span x-text="oauthDetail.replace(/_/g, ' ')"></span></template></span>
+  </div>
+
+  <!-- Auth error from connect attempt -->
+  <div x-show="msg.auth" x-transition
+    style="margin-bottom: 1rem; padding: 0.75rem 1rem; border-radius: 0.5rem; background: var(--amber-light); border: 1px solid var(--amber); font-size: 0.875rem; color: var(--amber-dark);" x-text="msg.auth"></div>
+
+  <!-- Status indicator -->
+  <div class="flex items-center gap-3 mb-4">
+    <template x-if="authStatus === 'authenticated'">
+      <div class="flex items-center gap-3">
+        <div style="width: 0.625rem; height: 0.625rem; border-radius: 99px; background: var(--success);"></div>
+        <span style="font-size: 0.875rem; color: var(--text-2);">Connected — cart and profile operations available</span>
+      </div>
+    </template>
+    <template x-if="authStatus === 'not_authenticated'">
+      <div class="flex items-center gap-3">
+        <div style="width: 0.625rem; height: 0.625rem; border-radius: 99px; background: var(--amber);"></div>
+        <span style="font-size: 0.875rem; color: var(--text-2);">Not connected — sign in to enable cart features</span>
+      </div>
+    </template>
+    <template x-if="authStatus === 'not_configured'">
+      <div class="flex items-center gap-3">
+        <div style="width: 0.625rem; height: 0.625rem; border-radius: 99px; background: var(--danger);"></div>
+        <span style="font-size: 0.875rem; color: var(--text-2);">Not configured — add your API credentials below</span>
+      </div>
+    </template>
+  </div>
+
+  <!-- Token details (when connected) -->
+  <div x-show="authStatus === 'authenticated' && tokenInfo" x-transition style="margin-bottom: 1rem; background: oklch(97% 0.01 70); border-radius: 0.5rem; padding: 0.75rem;">
+    <div class="grid grid-cols-2 gap-2" style="font-size: 0.75rem; color: var(--text-2);">
+      <div>
+        <span style="color: var(--text-3);">Scope:</span>
+        <span x-text="tokenInfo?.scope || 'N/A'" style="font-family: monospace;"></span>
+      </div>
+      <div>
+        <span style="color: var(--text-3);">Token type:</span>
+        <span x-text="tokenInfo?.token_type || 'N/A'" style="font-family: monospace;"></span>
+      </div>
+      <div>
+        <span style="color: var(--text-3);">Refresh token:</span>
+        <span x-text="tokenInfo?.has_refresh_token ? 'Available' : 'None'"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action buttons -->
+  <div class="flex items-center gap-3">
+    <template x-if="authStatus !== 'authenticated'">
+      <button @click="connectKroger()" :disabled="authLoading || authStatus === 'not_configured'"
+        class="ss-btn-primary gap-2">
+        <template x-if="authLoading">
+          <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25"/><path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" class="opacity-75"/></svg>
+        </template>
+        <span x-text="authLoading ? 'Redirecting...' : 'Connect to Kroger'"></span>
+      </button>
+    </template>
+    <template x-if="authStatus === 'authenticated'">
+      <button @click="disconnectKroger()"
+        class="ss-btn-danger">
+        Disconnect
+      </button>
+    </template>
+  </div>
+
+  <!-- Advanced Settings toggle -->
+  <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+    <button @click="advancedOpen = !advancedOpen"
+      class="flex items-center gap-1.5 ss-btn-ghost" style="padding: 0.25rem 0; font-size: 0.75rem; color: var(--text-3);">
+      <svg class="w-3.5 h-3.5 transition-transform" :class="advancedOpen && 'rotate-90'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+      <span>Advanced Settings</span>
+    </button>
+
+    <div x-show="advancedOpen" x-transition class="mt-4 space-y-3">
+      <p style="font-size: 0.75rem; color: var(--text-3);">
+        Configure your Kroger API credentials. Get them from
+        <a href="https://developer.kroger.com/" target="_blank" rel="noopener"
+          style="color: var(--terra); text-decoration: none;" onmouseenter="this.style.textDecoration='underline'" onmouseleave="this.style.textDecoration='none'">developer.kroger.com</a>.
+        The redirect URI must match what's registered in your Kroger app.
+      </p>
+
+      <!-- Client ID -->
+      <div>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Client ID</label>
+        <input x-model="creds.client_id" type="text" placeholder="your_client_id"
+          class="ss-input w-full" style="font-family: monospace;"/>
+      </div>
+
+      <!-- Client Secret -->
+      <div>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Client Secret</label>
+        <template x-if="!secretEditing && creds._hasSecret">
+          <div class="flex items-center gap-2">
+            <span class="ss-input flex-1" style="font-family: monospace; color: var(--text-3);" x-text="creds._masked"></span>
+            <button @click="secretEditing = true; creds.client_secret = ''"
+              class="ss-btn-ghost" style="font-size: 0.75rem; color: var(--terra);">Change</button>
+          </div>
+        </template>
+        <template x-if="secretEditing || !creds._hasSecret">
+          <input x-model="creds.client_secret" type="password" placeholder="your_client_secret"
+            class="ss-input w-full" style="font-family: monospace;"/>
+        </template>
+      </div>
+
+      <!-- Redirect URI -->
+      <div>
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Redirect URI</label>
+        <input x-model="creds.redirect_uri" type="text" placeholder="http://localhost:8000/callback"
+          class="ss-input w-full" style="font-family: monospace;"/>
+        <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.25rem;">Must use port 8080 to match this web app. Register this URI in your Kroger Developer Portal app.</p>
+      </div>
+
+      <!-- Save button -->
+      <div class="flex items-center gap-3">
+        <button @click="saveCredentials()" :disabled="credsLoading"
+          class="ss-btn-primary">
+          <span x-text="credsLoading ? 'Saving...' : 'Save Credentials'"></span>
+        </button>
+        <span x-show="msg.creds" style="font-size: 0.875rem; color: var(--success);" x-text="msg.creds"></span>
+      </div>
+    </div>
+  </div>
 </div>
 
 </div>

@@ -8,7 +8,6 @@ from fastapi.templating import Jinja2Templates
 from kroger_mcp.tools.shopping_list_tools import _load_shopping_list
 from kroger_mcp.tools.recipe_tools import _load_recipes
 from kroger_mcp.tools.shared import get_default_servings
-from kroger_mcp.tools.cart_tools import _load_cart_data, _load_order_history
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -24,12 +23,9 @@ async def cart_redirect():
 async def shopping_list_page(request: Request):
     sl_data = _load_shopping_list()
     recipe_data = _load_recipes()
-    cart_data = _load_cart_data()
-    history = _load_order_history()
     recipes = recipe_data.get("recipes", [])
     items = sl_data.get("items", [])
     servings = get_default_servings()
-    current_cart = cart_data.get("current_cart", [])
     return templates.TemplateResponse("shopping_list.html", {
         "request": request,
         "active_page": "shopping_list",
@@ -37,6 +33,4 @@ async def shopping_list_page(request: Request):
         "recipes": recipes,
         "default_servings": servings,
         "item_count": len(items),
-        "current_cart": current_cart,
-        "order_history": history[-10:] if history else [],
     })

@@ -138,7 +138,7 @@ async def shutdown():
     return {"message": "Server shutting down"}
 
 
-PORT = 8080
+PORT = int(os.environ.get("WEB_PORT", 8000))
 
 
 def run():

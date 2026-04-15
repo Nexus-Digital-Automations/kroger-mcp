@@ -1,9 +1,19 @@
 """API routes for settings management."""
+import json
+import logging
+import pathlib
+import tempfile
+
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+# Web OAuth state file — separate from MCP flow to avoid conflicts
+_WEB_OAUTH_STATE_FILE = pathlib.Path(tempfile.gettempdir()) / "kroger_web_oauth_state.json"
 
 
 class ServingsBody(BaseModel):
@@ -17,6 +27,12 @@ class LocationBody(BaseModel):
 class SortPreferencesBody(BaseModel):
     search_sort_stack: list[str] = []
     deals_sort_stack: list[str] = []
+
+
+class CredentialsBody(BaseModel):
+    client_id: str = ""
+    client_secret: str = ""
+    redirect_uri: str = ""
 
 
 @router.get("/api/settings")
@@ -129,3 +145,143 @@ async def set_product_sort(body: SortPreferencesBody):
         return {"success": True}
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+# --------------- Kroger OAuth / Credentials endpoints ---------------
+
+
+@router.get("/api/settings/auth/status")
+async def get_auth_status():
+    """Return detailed Kroger auth status and token info."""
+    from kroger_mcp.tools.shared import (
+        get_kroger_credentials,
+        get_token_info,
+        get_authenticated_client,
+    )
+
+    creds = get_kroger_credentials()
+    configured = bool(creds["client_id"] and creds["client_secret"])
+
+    result = {
+        "configured": configured,
+        "authenticated": False,
+        "status": "not_configured",
+        "token_info": None,
+    }
+
+    if not configured:
+        return result
+
+    token_data = get_token_info()
+    if token_data:
+        result["token_info"] = {
+            "scope": token_data.get("scope", ""),
+            "token_type": token_data.get("token_type", ""),
+            "has_refresh_token": "refresh_token" in token_data,
+            "expires_in": token_data.get("expires_in"),
+        }
+
+    try:
+        get_authenticated_client()
+        result["authenticated"] = True
+        result["status"] = "authenticated"
+    except Exception as exc:
+        if "Authentication required" in str(exc):
+            result["status"] = "not_authenticated"
+        else:
+            logger.warning("Auth status check failed: %s", exc)
+            result["status"] = "not_configured"
+            result["error"] = str(exc)
+
+    return result
+
+
+@router.post("/api/settings/auth/connect")
+async def start_oauth():
+    """Start OAuth PKCE flow; returns auth URL for browser redirect."""
+    from kroger_api import KrogerAPI
+    from kroger_api.utils import generate_pkce_parameters
+    from kroger_mcp.tools.shared import get_kroger_credentials
+
+    creds = get_kroger_credentials()
+    if not creds["client_id"] or not creds["client_secret"]:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Kroger credentials not configured. Open Advanced Settings to add your Client ID and Secret."},
+        )
+
+    redirect_uri = creds.get("redirect_uri") or "http://localhost:8000/callback"
+
+    pkce = generate_pkce_parameters()
+    state = pkce["code_verifier"][:16]
+
+    try:
+        kroger = KrogerAPI(
+            client_id=creds["client_id"],
+            client_secret=creds["client_secret"],
+            redirect_uri=redirect_uri,
+        )
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    auth_url = kroger.authorization.get_authorization_url(
+        scope="product.compact cart.basic:write",
+        state=state,
+        code_challenge=pkce["code_challenge"],
+        code_challenge_method=pkce["code_challenge_method"],
+    )
+
+    # Persist PKCE state for the callback
+    _WEB_OAUTH_STATE_FILE.write_text(json.dumps({
+        "pkce_params": pkce,
+        "state": state,
+        "redirect_uri": redirect_uri,
+    }))
+
+    return {"auth_url": auth_url}
+
+
+@router.post("/api/settings/auth/disconnect")
+async def disconnect_kroger():
+    """Clear Kroger token and disconnect."""
+    from kroger_mcp.tools.shared import delete_user_token
+    try:
+        delete_user_token()
+        return {"success": True}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/settings/credentials")
+async def get_credentials():
+    """Get current Kroger API credentials (secret masked)."""
+    from kroger_mcp.tools.shared import get_kroger_credentials
+
+    creds = get_kroger_credentials()
+    secret = creds["client_secret"]
+    return {
+        "client_id": creds["client_id"],
+        "client_secret_masked": ("*" * 8 + secret[-4:]) if len(secret) > 4 else "",
+        "redirect_uri": creds["redirect_uri"],
+        "has_secret": bool(secret),
+    }
+
+
+@router.post("/api/settings/credentials")
+async def save_credentials(body: CredentialsBody):
+    """Save Kroger API credentials to preferences."""
+    from kroger_mcp.tools.shared import (
+        set_kroger_credentials,
+        invalidate_authenticated_client,
+        invalidate_client_credentials_client,
+    )
+
+    set_kroger_credentials(
+        client_id=body.client_id or None,
+        client_secret=body.client_secret or None,
+        redirect_uri=body.redirect_uri or None,
+    )
+    # Force clients to reinitialize with new credentials
+    invalidate_authenticated_client()
+    invalidate_client_credentials_client()
+    return {"success": True}
