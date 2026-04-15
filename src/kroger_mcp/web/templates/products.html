@@ -312,7 +312,7 @@ function productsPageData() {
     <button
       @click="mode === 'search' ? search() : findDeals()"
       :disabled="mode === 'search' ? loading : dealsLoading"
-      class="px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+      class="ss-btn-primary whitespace-nowrap"
     >
       <span x-show="mode === 'search' && !loading">Search</span>
       <span x-show="mode === 'search' && loading">Searching...</span>
@@ -810,20 +810,20 @@ function productsPageData() {
         <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Track New Item</h3>
         <div class="flex gap-2 flex-wrap">
           <input x-model="newWatch.product_id" placeholder="Product ID (UPC)"
-            class="flex-1 min-w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            class="ss-input flex-1 min-w-32" />
           <input x-model="newWatch.description" placeholder="Description"
-            class="flex-1 min-w-40 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            class="ss-input flex-1 min-w-40" />
           <input x-model="newWatch.target_price" type="number" step="0.01" placeholder="Target $"
-            class="w-28 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            class="ss-input w-28" />
           <button @click="addWatch()" :disabled="!newWatch.product_id"
-            class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+            class="ss-btn-primary">
             Track
           </button>
         </div>
       </div>
 
       <!-- Watchlist table -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div class="ss-card overflow-hidden">
         <div x-show="watchlist.length === 0" class="text-center py-10 text-gray-400">
           <p class="text-sm">No items being watched. Add an item above.</p>
         </div>

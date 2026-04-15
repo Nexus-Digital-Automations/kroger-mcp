@@ -108,21 +108,21 @@ function ingredientsData() {
       <h3 class="text-sm font-semibold text-gray-700 mb-3">Add Custom Ingredient</h3>
       <div class="grid grid-cols-2 gap-3 mb-3">
         <input x-model="newIng.name" placeholder="Ingredient name*"
-          class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input" />
         <select x-model="newIng.severity"
-          class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          class="ss-input">
           <option value="critical">Critical — strong evidence of harm</option>
           <option value="warning">Warning — moderate concern</option>
           <option value="watch">Watch — informational / low concern</option>
         </select>
         <input x-model="newIng.category" placeholder="Category (e.g. Preservative, Sweetener)"
-          class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input" />
         <input x-model="newIng.reason" placeholder="Health concern or reason for flagging"
-          class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input" />
       </div>
       <div class="flex items-center justify-between">
         <button @click="addIng()"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+          class="ss-btn-primary">
           Add Ingredient
         </button>
         <span x-show="msg" class="text-sm"
@@ -132,7 +132,7 @@ function ingredientsData() {
       </div>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="ss-card overflow-hidden">
       <div x-show="custom.length === 0" class="text-center py-12 text-gray-400">
         <p class="text-sm">No custom ingredients added yet.</p>
         <p class="text-xs mt-1">Use the form above to flag ingredients beyond the system defaults.</p>
@@ -182,7 +182,7 @@ function ingredientsData() {
       <input type="text" x-model="search" placeholder="Search all ingredients..."
         class="text-sm border border-gray-200 rounded-xl px-4 py-2.5 w-full max-w-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="ss-card overflow-hidden">
       <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-100">
           <tr>

@@ -265,7 +265,7 @@ function dealsData() {
       <button
         @click="findDeals()"
         :disabled="loading"
-        class="px-5 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+        class="ss-btn-primary"
       >
         <span x-show="!loading">Search</span>
         <span x-show="loading">Searching...</span>
@@ -505,19 +505,19 @@ function dealsData() {
       <h3 class="text-sm font-semibold text-gray-700 mb-3">Track New Item</h3>
       <div class="flex gap-3 flex-wrap">
         <input x-model="newProduct.product_id" placeholder="Product ID (UPC)"
-          class="flex-1 min-w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input flex-1 min-w-32" />
         <input x-model="newProduct.description" placeholder="Description"
-          class="flex-1 min-w-40 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input flex-1 min-w-40" />
         <input x-model="newProduct.target_price" type="number" step="0.01" placeholder="Target $"
-          class="w-28 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input w-28" />
         <button @click="addCustomWatch()" :disabled="!newProduct.product_id"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+          class="ss-btn-primary">
           Track
         </button>
       </div>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="ss-card overflow-hidden">
       <div x-show="watchlist.length === 0" class="text-center py-12 text-gray-400">
         <svg class="w-10 h-10 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>

@@ -100,11 +100,11 @@ function cartData() {
       Clear List
     </button>
     <button @click="markPlaced()" x-show="cart.length > 0"
-      class="px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+      class="ss-btn-primary">
       Add to Kroger Cart
     </button>
     <a href="/products" x-show="cart.length === 0"
-      class="px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+      class="ss-btn-primary">
       Search Products
     </a>
   </div>
@@ -200,7 +200,7 @@ function cartData() {
 </div>
 
 <!-- Order History -->
-<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+<div class="ss-card overflow-hidden">
   <button @click="showHistory = !showHistory"
     class="w-full px-6 py-4 flex items-center justify-between text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
     <span>Order History</span>

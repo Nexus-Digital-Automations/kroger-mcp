@@ -223,7 +223,7 @@ function safetyData() {
       <input type="text" x-model="ingredientSearch" placeholder="Search ingredients..."
         class="text-sm border border-gray-200 rounded-xl px-4 py-2.5 w-full max-w-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="ss-card overflow-hidden">
       <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-100">
           <tr>
@@ -265,27 +265,27 @@ function safetyData() {
       <h3 class="text-sm font-semibold text-gray-700 mb-3">Add Custom Ingredient</h3>
       <div class="grid grid-cols-2 gap-3 mb-3">
         <input x-model="newIng.name" placeholder="Ingredient name*"
-          class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input" />
         <select x-model="newIng.severity"
-          class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+          class="ss-input">
           <option value="critical">Critical — strong evidence of harm</option>
           <option value="warning">Warning — moderate concern</option>
           <option value="watch">Watch — informational / low concern</option>
         </select>
         <input x-model="newIng.category" placeholder="Category (e.g. Preservative, Sweetener)"
-          class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input" />
         <input x-model="newIng.reason" placeholder="Health concern or reason for flagging"
-          class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input" />
       </div>
       <div class="flex items-center justify-between">
         <button @click="addIng()"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+          class="ss-btn-primary">
           Add Ingredient
         </button>
       </div>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="ss-card overflow-hidden">
       <div x-show="custom.length === 0" class="text-center py-12 text-gray-400">
         <p class="text-sm">No custom ingredients added yet.</p>
         <p class="text-xs mt-1">Use the form above to flag ingredients beyond the system defaults.</p>
@@ -335,16 +335,16 @@ function safetyData() {
       <h3 class="text-sm font-semibold text-gray-700 mb-3">Add Safe Product</h3>
       <div class="flex gap-3">
         <input x-model="newSafe.product_id" placeholder="Product ID (UPC)"
-          class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input flex-1" />
         <input x-model="newSafe.description" placeholder="Description"
-          class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input flex-1" />
         <button @click="approveProd()"
-          class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">
+          class="ss-btn-primary">
           Approve
         </button>
       </div>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="ss-card overflow-hidden">
       <div x-show="safe.length === 0" class="text-center py-8 text-gray-400 text-sm">
         No approved products
       </div>
@@ -382,18 +382,18 @@ function safetyData() {
       <h3 class="text-sm font-semibold text-gray-700 mb-3">Block Product</h3>
       <div class="flex gap-3">
         <input x-model="newBlocked.product_id" placeholder="Product ID (UPC)"
-          class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input flex-1" />
         <input x-model="newBlocked.description" placeholder="Description"
-          class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input flex-1" />
         <input x-model="newBlocked.reason" placeholder="Reason (optional)"
-          class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          class="ss-input flex-1" />
         <button @click="blockProd()"
           class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors">
           Block
         </button>
       </div>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="ss-card overflow-hidden">
       <div x-show="blocked.length === 0" class="text-center py-8 text-gray-400 text-sm">
         No blocked products
       </div>
