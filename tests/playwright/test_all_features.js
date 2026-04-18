@@ -511,8 +511,9 @@ async function testSettings() {
   const krogerSection = page.locator('text=Kroger Connection').first();
   assert(await krogerSection.isVisible(), 'Kroger Connection section visible');
 
-  // Status indicator (one of: green/amber/red dot)
-  const statusDot = page.locator('.bg-emerald-500, .bg-amber-500, .bg-red-500').first();
+  // Status indicator — dot uses CSS variable inline styles, rendered in x-if by Alpine
+  await page.waitForTimeout(400);
+  const statusDot = page.locator('[style*="border-radius: 99px"]').first();
   assert(await statusDot.count() > 0, 'Auth status indicator present');
 
   // Connect or Disconnect button present (depends on current auth state)
