@@ -106,11 +106,14 @@ async function testRecipesPage() {
   const cards = await page.locator('[x-data="recipesGrid"] .relative.flex.flex-col').count();
   assert(cards > 0, `Recipe cards visible (${cards})`);
 
-  // Both action buttons present
-  const listBtns = await page.locator('button:has-text("Add to List")').count();
-  const mealBtns = await page.locator('button:has-text("Meal Plan")').count();
-  assert(listBtns >= cards, `"Add to List" button on every card (${listBtns} btns, ${cards} cards)`);
-  assert(mealBtns >= cards, `"Meal Plan" button on every card (${mealBtns})`);
+  // Each card has exactly one Actions button (all actions are inside the unified menu)
+  const actionTriggers = await page.locator('button.action-menu-trigger').count();
+  assert(actionTriggers >= cards, `Actions button on every card (${actionTriggers} btns, ${cards} cards)`);
+  // Menu items exist in DOM (hidden until menu opens)
+  const listBtns = await page.locator('button:has-text("Add to Shopping List")').count();
+  const mealBtns = await page.locator('button:has-text("Add to Meal Plan")').count();
+  assert(listBtns >= cards, `"Add to Shopping List" in every card menu (${listBtns} btns, ${cards} cards)`);
+  assert(mealBtns >= cards, `"Add to Meal Plan" in every card menu (${mealBtns})`);
 
   // Search filter
   const search = page.locator('input[x-model="search"]');
@@ -146,18 +149,22 @@ async function testRecipesPage() {
   await sortBtn.click(); // close
   await page.waitForTimeout(200);
 
-  // Add to List button fires API and succeeds
+  // Add to Shopping List (inside Actions menu) fires API and succeeds
   const responses = [];
   page.on('response', async res => {
     if (res.url().includes('shopping-list/add-recipe'))
       responses.push({ status: res.status() });
   });
-  await page.locator('button:has-text("Add to List")').first().click();
+  await page.locator('button.action-menu-trigger').first().click();
+  await page.waitForTimeout(200);
+  await page.locator('.action-menu-panel button:has-text("Add to Shopping List")').first().click();
   await page.waitForTimeout(1500);
-  assert(responses.length > 0 && responses[0].status === 200, `Add to List API returns 200 (got ${responses[0]?.status})`);
+  assert(responses.length > 0 && responses[0].status === 200, `Add to Shopping List API returns 200 (got ${responses[0]?.status})`);
 
-  // Meal Plan panel opens
-  await page.locator('button:has-text("Meal Plan")').first().click();
+  // Meal Plan panel opens via Actions menu
+  await page.locator('button.action-menu-trigger').first().click();
+  await page.waitForTimeout(200);
+  await page.locator('.action-menu-panel button:has-text("Add to Meal Plan")').first().click();
   await page.waitForTimeout(600);
   const panel = await page.locator('.fixed.inset-y-0.right-0').isVisible();
   assert(panel, 'Meal plan panel opens');
