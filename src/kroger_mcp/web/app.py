@@ -42,6 +42,7 @@ _load_claude_desktop_env()
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .routes import dashboard, favorites, meal_plan, pantry, recipes
@@ -72,8 +73,13 @@ from .routes.api import chat as api_chat
 from .routes import auth as auth_routes
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Smart Shopper", docs_url=None, redoc_url=None)
+
+# Shared CSS + JS for the unified action-menu dropdown (see
+# static/js/action_menu.js and templates/_macros/action_menu.html).
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Initialize auth tables (SQLite dev mode)
 try:

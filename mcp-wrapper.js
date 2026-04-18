@@ -7,7 +7,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-const PROJECT_DIR = '/Users/jeremyparker/Desktop/Claude Coding Projects/kroger-mcp';
+const PROJECT_DIR = '/Users/jeremyparker/Desktop/Claude Coding Projects/Smart Shopper';
 const UV_PATH = '/opt/homebrew/bin/uv';
 
 // Spawn the uv process

@@ -200,25 +200,42 @@ async function testRecipesButtons() {
   const hasRecipes = await page.locator('[x-text="recipe.name"]').count();
 
   if (hasRecipes > 0) {
+    // Buttons are now inside the unified Actions dropdown — open it first.
+    const openFirstRecipeMenu = async () => {
+      await page.keyboard.press('Escape'); // close any open menu
+      await page.waitForTimeout(100);
+      const trigger = page.locator('button.action-menu-trigger').first();
+      await trigger.waitFor({ state: 'visible', timeout: 5000 });
+      await trigger.click();
+      await page.waitForTimeout(200);
+    };
+
     await test('Recipe card: "Add to List" button exists', async () => {
-      const btn = page.locator('button').filter({ hasText: 'Add to List' }).first();
+      await openFirstRecipeMenu();
+      const btn = page.locator('.action-menu-panel [role="menuitem"]').filter({ hasText: 'Add to' }).first();
       await btn.waitFor({ state: 'visible', timeout: 5000 });
+      await page.keyboard.press('Escape');
     });
 
     await test('Recipe card: "Meal Plan" button exists', async () => {
-      const btn = page.locator('button').filter({ hasText: 'Meal Plan' }).first();
+      await openFirstRecipeMenu();
+      const btn = page.locator('.action-menu-panel [role="menuitem"]').filter({ hasText: 'Meal Plan' }).first();
       await btn.waitFor({ state: 'visible', timeout: 5000 });
+      await page.keyboard.press('Escape');
     });
 
     await test('Recipe card: delete button exists', async () => {
-      const btn = page.locator('button[title="Delete recipe"]').first();
+      await openFirstRecipeMenu();
+      const btn = page.locator('.action-menu-panel [role="menuitem"].is-danger').first();
       await btn.waitFor({ state: 'visible', timeout: 5000 });
+      await page.keyboard.press('Escape');
     });
 
     await test('Recipe card: "Add to List" button fires API call', async () => {
+      await openFirstRecipeMenu();
       const [response] = await Promise.all([
         page.waitForResponse(r => r.url().includes('/api/shopping-list/add-recipe'), { timeout: 8000 }),
-        page.locator('button').filter({ hasText: 'Add to List' }).first().click(),
+        page.locator('.action-menu-panel [role="menuitem"]').filter({ hasText: 'Add to' }).first().click(),
       ]);
       const status = response.status();
       if (status >= 500) {
@@ -227,7 +244,8 @@ async function testRecipesButtons() {
     });
 
     await test('Recipe card: "Meal Plan" button opens meal panel', async () => {
-      await page.locator('button').filter({ hasText: 'Meal Plan' }).first().click();
+      await openFirstRecipeMenu();
+      await page.locator('.action-menu-panel [role="menuitem"]').filter({ hasText: 'Meal Plan' }).first().click();
       await page.waitForTimeout(500);
       // The meal plan modal should become visible
       const modal = page.locator('[x-show="open"]').filter({ hasText: /Meal Plan|assign|week/i });

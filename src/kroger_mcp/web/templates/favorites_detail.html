@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros/action_menu.html" import action_menu %}
 
 {% block title %}{{ lst.name }} — Favorites{% endblock %}
 {% block heading %}Favorites{% endblock %}
@@ -195,7 +196,20 @@
 </div>
 
 <!-- Items Table -->
-<div class="ss-card overflow-hidden">
+<div
+  x-data='favoriteItemsActions({{ lst.id | tojson }})'
+  @action-menu:favorites-move.window="moveToList($event.detail.item, $event.detail.listId, $event.detail.listName)"
+  @action-menu:cart-add.window="addToCart($event.detail.item)"
+  @action-menu:recipe-add.window="addToRecipe($event.detail.item, $event.detail.recipeId, $event.detail.recipeName)"
+  @action-menu:delete.window="removeItem($event.detail.item)"
+  class="ss-card overflow-hidden"
+>
+  <div
+    x-show="msg"
+    x-transition
+    class="px-4 py-2 bg-emerald-50 text-emerald-700 text-xs border-b border-emerald-100"
+    x-text="msg"
+  ></div>
   {% if items %}
   <table class="w-full text-sm">
     <thead class="bg-gray-50 border-b border-gray-100">
@@ -252,12 +266,7 @@
           {{ item.times_ordered or 0 }}x
         </td>
         <td class="px-4 py-4 text-right">
-          <button
-            onclick="fetch('/api/favorites/lists/{{ lst.id }}/items/{{ item.product_id }}', {method:'DELETE'})
-              .then(r => r.ok ? window.location.reload() : alert('Failed to remove item'));"
-            class="text-xs text-red-500 hover:text-red-700 font-medium transition-colors px-2 py-1 rounded hover:bg-red-50">
-            Remove
-          </button>
+          {{ action_menu('favorite_item', item_expr=(item | tojson), current_list_expr=(lst.id | tojson)) }}
         </td>
       </tr>
       {% endfor %}
@@ -269,5 +278,94 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+/**
+ * favoriteItemsActions — event handlers for the action-menu on each row.
+ *
+ * Counterpart: static/js/action_menu.js dispatches action-menu:* events
+ * from inside each row's Actions dropdown.
+ */
+function favoriteItemsActions(currentListId) {
+  return {
+    currentListId,
+    msg: '',
+
+    _flash(text) {
+      this.msg = text;
+      clearTimeout(this._msgTimer);
+      this._msgTimer = setTimeout(() => { this.msg = ''; }, 3000);
+    },
+
+    async moveToList(item, targetListId, targetListName) {
+      if (targetListId === this.currentListId) return;
+      // Add to target first; only remove from current if the add succeeded
+      // so a failed move leaves the item in place instead of losing it.
+      const addRes = await fetch('/api/favorites/lists/' + targetListId + '/items', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          product_id: item.product_id,
+          description: item.description,
+          brand: item.brand || '',
+          quantity: item.default_quantity || 1,
+          notes: item.notes || null,
+        }),
+      });
+      const addData = await addRes.json();
+      if (!addRes.ok || !addData.success) {
+        this._flash('Move failed: ' + (addData.error || 'target list rejected item'));
+        return;
+      }
+      await fetch(
+        '/api/favorites/lists/' + this.currentListId + '/items/' + item.product_id,
+        {method: 'DELETE'},
+      );
+      this._flash('Moved to ' + targetListName);
+      setTimeout(() => window.location.reload(), 600);
+    },
+
+    async addToCart(item) {
+      const r = await fetch('/api/products/' + item.product_id + '/add-to-cart', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          quantity: item.default_quantity || 1,
+          modality: 'PICKUP',
+          description: item.description,
+        }),
+      });
+      const d = await r.json();
+      this._flash(r.ok ? 'Added to cart' : ('Error: ' + (d.error || 'Failed')));
+    },
+
+    async addToRecipe(item, recipeId, recipeName) {
+      const r = await fetch('/api/recipes/' + recipeId + '/ingredients', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          product_id: item.product_id,
+          description: item.description,
+          brand: item.brand || null,
+        }),
+      });
+      const d = await r.json();
+      this._flash((r.ok && d.success) ? ('Added to ' + recipeName) : ('Error: ' + (d.error || 'Failed')));
+    },
+
+    async removeItem(item) {
+      const r = await fetch(
+        '/api/favorites/lists/' + this.currentListId + '/items/' + item.product_id,
+        {method: 'DELETE'},
+      );
+      if (r.ok) {
+        window.location.reload();
+      } else {
+        this._flash('Remove failed');
+      }
+    },
+  };
+}
+</script>
 
 {% endblock %}

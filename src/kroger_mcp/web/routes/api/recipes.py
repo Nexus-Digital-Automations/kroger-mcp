@@ -43,6 +43,64 @@ class UpdateRecipeBody(BaseModel):
     servings: Optional[int] = None
 
 
+class AddIngredientBody(BaseModel):
+    # Kroger product id (aka UPC). Required — callers pair a Kroger product
+    # with an existing recipe so that later recipe-to-cart flows can locate
+    # the SKU. Manual (non-Kroger) ingredients are authored elsewhere.
+    product_id: str
+    description: str
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+
+
+@router.post("/api/recipes/{recipe_id}/ingredients")
+async def add_ingredient_to_recipe(recipe_id: str, body: AddIngredientBody):
+    """
+    Append a Kroger product as an ingredient on an existing recipe.
+
+    Counterpart: templates/_macros/action_menu.html — the "Add to Recipe"
+    submenu on product cards dispatches 'action-menu:recipe-add' and the
+    host page POSTs here.
+
+    Returns 404 when the recipe id is not found — the caller's recipe list
+    is stale (e.g., recipe was deleted in another tab).
+    """
+    try:
+        from kroger_mcp.tools.recipe_tools import _load_recipes, _save_recipes
+        data = _load_recipes()
+        recipe = next(
+            (r for r in data.get("recipes", []) if r.get("id") == recipe_id),
+            None,
+        )
+        if not recipe:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Recipe '{recipe_id}' not found"},
+            )
+        ingredients = recipe.setdefault("ingredients", [])
+        ingredients.append({
+            "name": body.description,
+            "quantity": body.quantity,
+            "unit": body.unit,
+            "category": body.category,
+            "product_id": body.product_id,
+            "override": False,
+            "override_reason": None,
+        })
+        recipe["updated_at"] = datetime.now().isoformat()
+        _save_recipes(data)
+        return {
+            "success": True,
+            "recipe_id": recipe_id,
+            "recipe_name": recipe.get("name"),
+            "ingredient_count": len(ingredients),
+        }
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @router.patch("/api/recipes/{recipe_id}")
 async def update_recipe(recipe_id: str, body: UpdateRecipeBody):
     """Update recipe metadata (name, description, tags, servings)."""

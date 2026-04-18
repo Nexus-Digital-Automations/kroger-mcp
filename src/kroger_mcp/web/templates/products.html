@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros/action_menu.html" import action_menu %}
 {% block title %}Products — Smart Shopper{% endblock %}
 {% block heading %}Products{% endblock %}
 {% block content %}
@@ -284,12 +285,61 @@ function productsPageData() {
         const r = await fetch('/api/favorites/lists');
         if (r.ok) this.favLists = await r.json();
       } catch(e) {}
-    }
+    },
+
+    // Action-menu handlers. Counterpart: static/js/action_menu.js dispatches
+    // these events from the product-card Actions dropdown.
+    async menuNewList(item) {
+      const name = window.prompt('Name for the new favorites list:');
+      if (!name || !name.trim()) return;
+      const r = await fetch('/api/favorites/lists', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name.trim()}),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.success) {
+        this.favMsg[item.product_id] = 'Error: ' + (d.error || 'Failed');
+        return;
+      }
+      const newListId = d.list && d.list.id;
+      await this.loadFavLists();
+      if (window.Alpine && window.Alpine.store) {
+        await window.Alpine.store('actionMenu').refreshFavorites();
+      }
+      if (newListId) await this.addToFavorites(item, newListId);
+    },
+
+    async menuAddToRecipe(item, recipeId, recipeName) {
+      const r = await fetch('/api/recipes/' + recipeId + '/ingredients', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          product_id: item.product_id,
+          description: item.description,
+          brand: item.brand || null,
+        }),
+      });
+      const d = await r.json();
+      this.favMsg[item.product_id] = (r.ok && d.success)
+        ? 'Added to ' + recipeName
+        : 'Error: ' + (d.error || 'Failed');
+      const pid = item.product_id;
+      setTimeout(() => { const m = {...this.favMsg}; delete m[pid]; this.favMsg = m; }, 2500);
+    },
   };
 }
 </script>
 
-<div x-data="productsPageData()" x-init="loadFavLists()">
+<div
+  x-data="productsPageData()"
+  x-init="loadFavLists()"
+  @action-menu:favorites-add.window="addToFavorites($event.detail.item, $event.detail.listId)"
+  @action-menu:favorites-new-list.window="menuNewList($event.detail.item)"
+  @action-menu:cart-add.window="addToCart($event.detail.item)"
+  @action-menu:recipe-add.window="menuAddToRecipe($event.detail.item, $event.detail.recipeId, $event.detail.recipeName)"
+  @action-menu:view-details.window="window.location.href = '/products?q=' + encodeURIComponent($event.detail.item.description || '')"
+>
 
   <!-- Top bar: search input + action button + mode toggle -->
   <div class="flex items-center gap-3 mb-4">
@@ -632,34 +682,17 @@ function productsPageData() {
           </div>
         </div>
 
-        <div class="flex gap-2 mt-auto">
-          <div class="relative flex-1" x-data="{ favOpen: false }" @click.away="favOpen = false">
-            <button @click="favOpen = !favOpen"
-              :class="favoriteIds.has(product.product_id)
-                ? 'text-amber-500 border-amber-300 bg-amber-50 hover:bg-amber-100'
-                : 'text-gray-500 border-gray-200 hover:border-amber-300 hover:bg-amber-50'"
-              class="w-full py-2 text-xs border rounded-lg transition-colors flex items-center justify-center gap-1">
-              <span x-text="favoriteIds.has(product.product_id) ? '\u2605' : '\u2606'"></span>
-              <span x-text="favMsg[product.product_id] || (favoriteIds.has(product.product_id) ? 'Saved' : 'Save')"></span>
-            </button>
-            <div x-show="favOpen" x-transition
-              class="absolute bottom-full mb-1 left-0 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
-              <p class="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 border-b border-gray-100">Save to list</p>
-              <template x-for="lst in favLists" :key="lst.id">
-                <button @click="addToFavorites(product, lst.id); favOpen = false"
-                  class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
-                  x-text="lst.name"></button>
-              </template>
-              <p x-show="favLists.length === 0" class="px-3 py-2 text-xs text-gray-400 italic">
-                No lists yet — <a href="/favorites" class="text-emerald-600 underline">create one</a>
-              </p>
-            </div>
+        <div class="flex items-center justify-between gap-2 mt-auto">
+          <span
+            x-show="cartMsg[product.product_id] || favMsg[product.product_id]"
+            class="text-xs text-emerald-700 truncate"
+            x-text="cartMsg[product.product_id] || favMsg[product.product_id]"
+          ></span>
+          <span x-show="!cartMsg[product.product_id] && !favMsg[product.product_id] && favoriteIds.has(product.product_id)"
+                class="text-xs text-amber-600">&#9733; Saved</span>
+          <div class="ml-auto">
+            {{ action_menu('product', item_expr='product') }}
           </div>
-          <button @click="addToCart(product)"
-            :class="cartMsg[product.product_id] === '\u2713 Added' ? 'bg-emerald-600' : 'bg-gray-900 hover:bg-gray-800'"
-            class="flex-1 py-2 text-xs font-medium text-white rounded-lg transition-colors"
-            x-text="cartMsg[product.product_id] || '+ Cart'">
-          </button>
         </div>
 
       </div>
@@ -734,34 +767,17 @@ function productsPageData() {
             x-text="'Save $' + ((deal.regular_price || 0) - (deal.sale_price || deal.regular_price || 0)).toFixed(2)"></p>
         </div>
 
-        <div class="flex gap-2 mt-3">
-          <div class="relative flex-1" x-data="{ favOpen: false }" @click.away="favOpen = false">
-            <button @click="favOpen = !favOpen"
-              :class="favoriteIds.has(deal.product_id)
-                ? 'text-amber-500 border-amber-300 bg-amber-50 hover:bg-amber-100'
-                : 'text-gray-500 border-gray-200 hover:border-amber-300 hover:bg-amber-50'"
-              class="w-full py-1.5 text-xs border rounded-lg transition-colors flex items-center justify-center gap-1">
-              <span x-text="favoriteIds.has(deal.product_id) ? '\u2605' : '\u2606'"></span>
-              <span x-text="favMsg[deal.product_id] || (favoriteIds.has(deal.product_id) ? 'Saved' : 'Save')"></span>
-            </button>
-            <div x-show="favOpen" x-transition
-              class="absolute bottom-full mb-1 left-0 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
-              <p class="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 border-b border-gray-100">Save to list</p>
-              <template x-for="lst in favLists" :key="lst.id">
-                <button @click="addToFavorites(deal, lst.id); favOpen = false"
-                  class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
-                  x-text="lst.name"></button>
-              </template>
-              <p x-show="favLists.length === 0" class="px-3 py-2 text-xs text-gray-400 italic">
-                No lists yet — <a href="/favorites" class="text-emerald-600 underline">create one</a>
-              </p>
-            </div>
+        <div class="flex items-center justify-between gap-2 mt-3">
+          <span
+            x-show="cartMsg[deal.product_id] || favMsg[deal.product_id]"
+            class="text-xs text-emerald-700 truncate"
+            x-text="cartMsg[deal.product_id] || favMsg[deal.product_id]"
+          ></span>
+          <span x-show="!cartMsg[deal.product_id] && !favMsg[deal.product_id] && favoriteIds.has(deal.product_id)"
+                class="text-xs text-amber-600">&#9733; Saved</span>
+          <div class="ml-auto">
+            {{ action_menu('product', item_expr='deal') }}
           </div>
-          <button @click="addToCart(deal)"
-            :class="cartMsg[deal.product_id] === '\u2713 Added' ? 'bg-emerald-600' : 'bg-gray-900 hover:bg-gray-800'"
-            class="flex-1 py-1.5 text-xs font-medium text-white rounded-lg transition-colors"
-            x-text="cartMsg[deal.product_id] || '+ Cart'">
-          </button>
         </div>
 
       </div>

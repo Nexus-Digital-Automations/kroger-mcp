@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.favorites import get_list_items, get_lists
+from kroger_mcp.web.context import action_menu_context
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -84,4 +85,5 @@ async def favorites_detail(request: Request, list_id: str):
         "badge_label": badge_label,
         "badge_color": badge_color,
         "reorder_status": reorder_status,
+        **action_menu_context(),
     })

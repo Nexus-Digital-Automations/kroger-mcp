@@ -1,0 +1,188 @@
+/*
+ * Unified action-menu styles.
+ *
+ * OWNS: visual layout and mode-aware positioning for the shared Actions
+ * dropdown. Toggled by data-mode="desktop|mobile" on the menu root (set by
+ * the Alpine component from matchMedia).
+ * DOES NOT OWN: per-page overrides — none currently exist and new ones
+ * should be avoided to preserve consistency across cards.
+ *
+ * Loaded by templates/base.html.
+ */
+
+.action-menu-root {
+  position: relative;
+  display: inline-block;
+}
+
+.action-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+  font-family: inherit;
+  line-height: 1;
+}
+.action-menu-trigger:hover {
+  background: var(--cream);
+  color: var(--text-1);
+  border-color: var(--green);
+}
+.action-menu-trigger[aria-expanded="true"] {
+  background: var(--green-light);
+  color: var(--green);
+  border-color: var(--green);
+}
+.action-menu-trigger:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+.action-menu-trigger-chevron {
+  width: 0.7rem;
+  height: 0.7rem;
+  opacity: 0.6;
+}
+
+.action-menu-panel {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 40;
+  min-width: 11rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow:
+    0 10px 24px oklch(0% 0 0 / 0.08),
+    0 2px 6px oklch(0% 0 0 / 0.06);
+  padding: 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.action-menu-level {
+  display: flex;
+  flex-direction: column;
+}
+
+.action-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0.35rem;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  transition: background-color 0.1s, color 0.1s;
+}
+.action-menu-item:hover,
+.action-menu-item:focus-visible {
+  background: var(--green-light);
+  color: var(--green);
+  outline: none;
+}
+.action-menu-item[aria-expanded="true"] {
+  background: var(--green-light);
+  color: var(--green);
+}
+.action-menu-item.is-danger {
+  color: var(--danger);
+}
+.action-menu-item.is-danger:hover,
+.action-menu-item.is-danger:focus-visible {
+  background: oklch(93% 0.04 25);
+  color: var(--danger);
+}
+
+.action-menu-arrow {
+  font-size: 0.7em;
+  opacity: 0.55;
+}
+
+.action-menu-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 0.25rem 0;
+}
+
+.action-menu-empty {
+  padding: 0.5rem 0.55rem;
+  font-size: 0.75rem;
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.action-menu-back {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-2);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 0.3rem;
+  border-bottom: 1px solid var(--border);
+  font-family: inherit;
+}
+.action-menu-back:hover,
+.action-menu-back:focus-visible {
+  background: var(--cream);
+  color: var(--text-1);
+  outline: none;
+}
+
+/* ── Desktop: level 2 is a flyout beside level 1 ───────────────── */
+.action-menu-panel[data-mode="desktop"] .action-menu-submenu {
+  position: absolute;
+  top: 0;
+  right: 100%;
+  margin-right: 0.25rem;
+  min-width: 11rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow:
+    0 10px 24px oklch(0% 0 0 / 0.08),
+    0 2px 6px oklch(0% 0 0 / 0.06);
+  padding: 0.25rem;
+}
+.action-menu-panel[data-mode="desktop"] .action-menu-back {
+  display: none;
+}
+
+/* ── Mobile: level 2 replaces level 1 in place ─────────────────── */
+.action-menu-panel[data-mode="mobile"] {
+  min-width: 14rem;
+}
+.action-menu-panel[data-mode="mobile"] .action-menu-submenu {
+  display: flex;
+  flex-direction: column;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+/* Hide parent level while a submenu is active on mobile — CSS alone
+   can't know the state, so the Alpine template toggles x-show. This
+   rule just guarantees spacing when the level swaps. */
+.action-menu-panel .action-menu-submenu {
+  z-index: 1;
+}

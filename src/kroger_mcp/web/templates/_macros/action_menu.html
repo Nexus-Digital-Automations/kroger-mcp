@@ -1,0 +1,214 @@
+{#
+  Unified action-menu Jinja macro for product, recipe, favorites-detail, and
+  shopping-list cards.
+
+  OWNS: rendered DOM (trigger button + menu + per-card-type submenu tree)
+  with full ARIA attributes.
+  DOES NOT OWN:
+    - interaction state or keyboard handling (see static/js/action_menu.js)
+    - network calls (host page's Alpine component listens for the
+      'action-menu:*' CustomEvents this macro's leaves dispatch)
+    - styling (see static/css/action_menu.css)
+
+  CALLED BY: templates for product cards (products.html), favorites-detail
+  item rows (favorites_detail.html), recipe cards (recipes.html), and
+  shopping-list rows (shopping_list.html).
+
+  Arguments:
+    card_type          'product' | 'favorite_item' | 'recipe' | 'shopping_row'
+    item_expr          Alpine expression that evaluates to the item dict.
+                       Defaults to 'item' — the conventional x-for loop
+                       variable on client-rendered cards. For server-rendered
+                       cards, pass a JSON literal, e.g.
+                       `item_expr=(item | tojson)`.
+    current_list_expr  Alpine expression for the current list id (used on
+                       favorite_item cards so the user's current list is
+                       disabled in the "Move to List" submenu). Defaults to
+                       'null'. Pass `(lst.id | tojson)` on server-rendered
+                       favorites_detail rows.
+
+  Event contract — each leaf dispatches a bubbling CustomEvent named
+  'action-menu:<action>' on the menu root. The host page listens on the
+  card container or page root. See action_menu.js for the authoritative
+  list of event names.
+
+  # EXTENSION POINT — to add a new card type, add a {% elif %} branch
+  below and wire up the host page's Alpine component listeners.
+#}
+
+{% macro action_menu(card_type, item_expr='item', current_list_expr='null') %}
+<div
+  class="action-menu-root"
+  data-action-menu-root
+  data-card-type="{{ card_type }}"
+  x-data='actionMenu({cardType: "{{ card_type }}", item: {{ item_expr }}, currentListId: {{ current_list_expr }}})'
+  @click.outside="clickAway($event)"
+  @keydown="handleKey($event)"
+>
+  <button
+    type="button"
+    class="action-menu-trigger"
+    x-ref="trigger"
+    :aria-expanded="open ? 'true' : 'false'"
+    aria-haspopup="menu"
+    @click="toggle()"
+    @keydown.arrow-down.prevent="open ? null : openMenu()"
+  >
+    <span>Actions</span>
+    <svg class="action-menu-trigger-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M5 7l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <div
+    x-show="open"
+    x-cloak
+    role="menu"
+    class="action-menu-panel"
+    :data-mode="mode"
+    x-transition:enter="transition ease-out duration-100"
+    x-transition:enter-start="opacity-0 scale-95"
+    x-transition:enter-end="opacity-100 scale-100"
+  >
+
+    {# ─── Level 1 (root) ─────────────────────────────────────── #}
+    <div
+      class="action-menu-level"
+      data-menu-level="root"
+      x-show="mode === 'desktop' || activeSub === null"
+    >
+
+      {% if card_type == 'product' %}
+        {{ _submenu_trigger('favorites', 'Add to Favorites') }}
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('cart-add')">+ Cart</button>
+        {{ _submenu_trigger('recipes', 'Add to Recipe') }}
+        <div class="action-menu-separator" role="none"></div>
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('view-details')">View Details</button>
+
+      {% elif card_type == 'favorite_item' %}
+        {{ _submenu_trigger('favorites', 'Move to List') }}
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('cart-add')">+ Cart</button>
+        {{ _submenu_trigger('recipes', 'Add to Recipe') }}
+        <div class="action-menu-separator" role="none"></div>
+        <button type="button" role="menuitem" class="action-menu-item is-danger" @click="act('delete')">Remove</button>
+
+      {% elif card_type == 'recipe' %}
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('shopping-add')">Add to Shopping List</button>
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('meal-plan-add')">Add to Meal Plan</button>
+        <div class="action-menu-separator" role="none"></div>
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('edit')">Edit</button>
+        <button type="button" role="menuitem" class="action-menu-item is-danger" @click="act('delete')">Delete</button>
+
+      {% elif card_type == 'shopping_row' %}
+        {{ _submenu_trigger('favorites', 'Save to Favorites') }}
+        <div class="action-menu-separator" role="none"></div>
+        <button type="button" role="menuitem" class="action-menu-item is-danger" @click="act('shopping-remove')">Remove</button>
+
+      {% endif %}
+    </div>
+
+    {# ─── Level 2: Favorites submenu ─────────────────────────── #}
+    {% if card_type in ('product', 'favorite_item', 'shopping_row') %}
+    <div
+      class="action-menu-submenu"
+      data-menu-level="favorites"
+      role="menu"
+      x-show="activeSub === 'favorites'"
+      @mouseenter="mode === 'desktop' && clearCloseTimer()"
+      @mouseleave="mode === 'desktop' && scheduleClose('favorites')"
+    >
+      <button type="button" class="action-menu-back" @click="back()" role="menuitem">
+        <svg width="12" height="12" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M12 5l-5 5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back
+      </button>
+
+      <template x-for="lst in $store.actionMenu.favoritesLists" :key="lst.id">
+        <button
+          type="button"
+          role="menuitem"
+          class="action-menu-item"
+          :disabled="config.currentListId === lst.id"
+          @click="act('{{ 'favorites-move' if card_type == 'favorite_item' else 'favorites-add' }}', {listId: lst.id, listName: lst.name})"
+          x-text="lst.name + (config.currentListId === lst.id ? ' (current)' : '')"
+        ></button>
+      </template>
+
+      <div
+        class="action-menu-empty"
+        x-show="$store.actionMenu.favoritesLists.length === 0"
+      >No lists yet</div>
+
+      {% if card_type == 'product' %}
+      <div class="action-menu-separator" role="none"></div>
+      <button
+        type="button"
+        role="menuitem"
+        class="action-menu-item"
+        @click="act('favorites-new-list')"
+      >+ New List</button>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# ─── Level 2: Recipes submenu ───────────────────────────── #}
+    {% if card_type in ('product', 'favorite_item') %}
+    <div
+      class="action-menu-submenu"
+      data-menu-level="recipes"
+      role="menu"
+      x-show="activeSub === 'recipes'"
+      @mouseenter="mode === 'desktop' && clearCloseTimer()"
+      @mouseleave="mode === 'desktop' && scheduleClose('recipes')"
+    >
+      <button type="button" class="action-menu-back" @click="back()" role="menuitem">
+        <svg width="12" height="12" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M12 5l-5 5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back
+      </button>
+
+      <template x-for="recipe in $store.actionMenu.recipes" :key="recipe.id">
+        <button
+          type="button"
+          role="menuitem"
+          class="action-menu-item"
+          @click="act('recipe-add', {recipeId: recipe.id, recipeName: recipe.name})"
+          x-text="recipe.name"
+        ></button>
+      </template>
+
+      <div
+        class="action-menu-empty"
+        x-show="$store.actionMenu.recipes.length === 0"
+      >No recipes yet</div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endmacro %}
+
+
+{# Internal — a level-1 button that opens a submenu. Kept local so all
+   submenu triggers share the exact same ARIA + event wiring. #}
+{% macro _submenu_trigger(name, label) %}
+<button
+  type="button"
+  role="menuitem"
+  class="action-menu-item"
+  data-submenu-trigger="{{ name }}"
+  aria-haspopup="menu"
+  :aria-expanded="activeSub === '{{ name }}' ? 'true' : 'false'"
+  @mouseenter="mode === 'desktop' && openSub('{{ name }}')"
+  @mouseleave="mode === 'desktop' && scheduleClose('{{ name }}')"
+  @click="openSub('{{ name }}')"
+  @keydown.arrow-right.prevent="openSub('{{ name }}')"
+  @keydown.enter.prevent="openSub('{{ name }}')"
+  @keydown.space.prevent="openSub('{{ name }}')"
+>
+  <span>{{ label }}</span>
+  <span class="action-menu-arrow" aria-hidden="true">▸</span>
+</button>
+{% endmacro %}

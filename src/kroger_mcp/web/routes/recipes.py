@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.recipe_scoring import calculate_health_score, estimate_recipe_cost
 from kroger_mcp.tools.recipe_tools import _find_recipe, _load_recipes
+from kroger_mcp.web.context import action_menu_context
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -150,6 +151,7 @@ async def recipes_list(request: Request):
         "all_tags": all_tags,
         "recipe_count": len(recipes),
         "recipes_json": recipes_json,
+        **action_menu_context(),
     })
 
 

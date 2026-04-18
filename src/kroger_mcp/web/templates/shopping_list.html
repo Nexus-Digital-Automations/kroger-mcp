@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros/action_menu.html" import action_menu %}
 {% block title %}Shopping List — Smart Shopper{% endblock %}
 {% block heading %}Shopping List{% endblock %}
 {% block content %}
@@ -73,6 +74,33 @@ function shoppingListData() {
       await this.reload();
     },
 
+    // Action-menu event handlers. Counterpart: static/js/action_menu.js
+    // dispatches these events on leaf activation.
+    async saveToFavorites(item, listId, listName) {
+      if (!item.product_id) {
+        this.msg = 'Cannot save manual items to favorites (no product ID)';
+        return;
+      }
+      const body = {
+        product_id: item.product_id,
+        description: this.displayName(item),
+        quantity: Math.max(1, Math.round(item.quantity || 1)),
+      };
+      try {
+        const r = await fetch('/api/favorites/lists/' + listId + '/items', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        this.msg = (r.ok && d.success)
+          ? `Saved to ${listName}`
+          : 'Error: ' + (d.error || 'Failed to save');
+      } catch (e) {
+        this.msg = 'Network error: ' + e.message;
+      }
+    },
+
     async adjustQty(item, delta) {
       const newQty = Math.max(1, (item.quantity || 1) + delta);
       await fetch('/api/shopping-list/' + item.id, {
@@ -128,7 +156,11 @@ function shoppingListData() {
 </script>
 
 
-<div x-data="shoppingListData()">
+<div
+  x-data="shoppingListData()"
+  @action-menu:favorites-add.window="saveToFavorites($event.detail.item, $event.detail.listId, $event.detail.listName)"
+  @action-menu:shopping-remove.window="removeItem($event.detail.item.id, $event.detail.item.product_id)"
+>
 
   <!-- Status message -->
   <div x-show="msg" x-transition style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: var(--green-light); border: 1px solid var(--success); border-radius: 0.75rem; font-size: 0.875rem; color: var(--success);" x-text="msg"></div>
@@ -193,17 +225,9 @@ function shoppingListData() {
                 <span style="font-size: 0.75rem; color: var(--text-3); margin-left: 0.125rem;" x-text="item.unit || ''"></span>
               </div>
             </td>
-            <td style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--text-3);" x-text="item.recipe_name || (item.sources && item.sources[0] && item.sources[0].recipe_name) || '\u2014'"></td>
-            <td style="padding: 0.75rem 1.5rem; text-align: right;">
-              <button @click="removeItem(item.id, item.product_id)"
-                style="padding: 0.375rem; border-radius: 0.375rem; color: var(--danger); opacity: 0.6; transition: opacity 0.12s, background 0.12s;"
-                onmouseenter="this.style.opacity='1'; this.style.background='oklch(96% 0.02 25)'"
-                onmouseleave="this.style.opacity='0.6'; this.style.background=''">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                </svg>
-              </button>
+            <td class="px-4 py-3 text-gray-500 text-xs" x-text="item.recipe_name || (item.sources && item.sources[0] && item.sources[0].recipe_name) || '\u2014'"></td>
+            <td class="px-6 py-3 text-right">
+              {{ action_menu('shopping_row') }}
             </td>
           </tr>
         </template>

@@ -20,6 +20,10 @@
       }
     }
   </script>
+  <!-- Shared action-menu assets. The component registers on alpine:init so
+       it must load before the Alpine CDN bundle triggers that event. -->
+  <link rel="stylesheet" href="/static/css/action_menu.css" />
+  <script src="/static/js/action_menu.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
     :root {
@@ -332,6 +336,17 @@
   </style>
 </head>
 <body class="min-h-screen flex">
+
+  {# Server-rendered action-menu target entities. Pages that include cards
+     with Actions dropdowns pass the `action_menu_data` dict via
+     context.action_menu_context(); pages that don't fall through to the
+     empty default and the Alpine store renders no submenu choices. The key
+     deliberately differs from the `action_menu` macro imported by page
+     templates (name collision would shadow the macro). #}
+  <script id="action-menu-data" type="application/json">{{
+    (action_menu_data if action_menu_data is defined else {"favoritesLists": [], "recipes": [], "mealPlans": []}) | tojson
+  }}</script>
+
 
   <!-- Sidebar -->
   <aside class="ss-sidebar fixed inset-y-0 left-0 w-56 flex flex-col z-10">
