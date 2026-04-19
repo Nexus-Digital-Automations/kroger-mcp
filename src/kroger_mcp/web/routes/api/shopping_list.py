@@ -178,6 +178,28 @@ async def add_recipe_to_list(body: AddRecipeBody):
 
 
 # ---------------------------------------------------------------------------
+# DELETE /api/shopping-list  (clear-all)
+# Must be registered before /{item_id} so FastAPI doesn't treat the empty
+# path as an item_id match.
+# ---------------------------------------------------------------------------
+
+@router.delete('/api/shopping-list')
+async def clear_shopping_list():
+    """Remove all items from the shopping list."""
+    try:
+        data = _load_shopping_list()
+        count = len(data["items"])
+        data["items"] = []
+        _save_shopping_list(data)
+        return JSONResponse(content={"success": True, "cleared": count})
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to clear shopping list: {str(e)}"},
+        )
+
+
+# ---------------------------------------------------------------------------
 # DELETE /api/shopping-list/{item_id}
 # ---------------------------------------------------------------------------
 

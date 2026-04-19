@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_macros/action_menu.html" import action_menu %}
 {% block title %}Shopping List — Smart Shopper{% endblock %}
 {% block heading %}Shopping List{% endblock %}
 {% block content %}
@@ -7,53 +6,9 @@
 <script>
 function shoppingListData() {
   return {
-    selectedRecipe: '',
-    selectedRecipeName: '',
-    recipeSearch: '',
-    recipeDropOpen: false,
-    recipeList: [
-      {% for recipe in recipes %}{"id": "{{ recipe.id }}", "name": {{ recipe.name | tojson }}, "servings": {{ recipe.servings or 'null' }}},{% endfor %}
-    ],
-    servings: {{ default_servings }},
     items: {{ items | tojson }},
     loading: false,
     msg: '',
-    previewItems: [],
-    previewSkipped: [],
-    showPreview: false,
-
-    selectRecipe(id, name) {
-      this.selectedRecipe = id;
-      this.selectedRecipeName = name;
-      this.recipeDropOpen = false;
-      this.recipeSearch = '';
-    },
-
-    get filteredRecipes() {
-      if (!this.recipeSearch) return this.recipeList;
-      const q = this.recipeSearch.toLowerCase();
-      return this.recipeList.filter(r => r.name.toLowerCase().includes(q));
-    },
-
-    async addRecipe() {
-      if (!this.selectedRecipe) return;
-      this.loading = true; this.msg = '';
-      try {
-        const r = await fetch('/api/shopping-list/add-recipe', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({recipe_id: this.selectedRecipe, servings_override: this.servings})
-        });
-        const data = await r.json();
-        if (r.ok) {
-          this.msg = data.message || 'Added!';
-          await this.reload();
-        } else {
-          this.msg = 'Error: ' + (data.error || 'Failed');
-        }
-      } catch(e) { this.msg = 'Error: ' + e.message; }
-      this.loading = false;
-    },
 
     async reload() {
       const r = await fetch('/api/shopping-list');
@@ -74,31 +29,10 @@ function shoppingListData() {
       await this.reload();
     },
 
-    // Action-menu event handlers. Counterpart: static/js/action_menu.js
-    // dispatches these events on leaf activation.
-    async saveToFavorites(item, listId, listName) {
-      if (!item.product_id) {
-        this.msg = 'Cannot save manual items to favorites (no product ID)';
-        return;
-      }
-      const body = {
-        product_id: item.product_id,
-        description: this.displayName(item),
-        quantity: Math.max(1, Math.round(item.quantity || 1)),
-      };
-      try {
-        const r = await fetch('/api/favorites/lists/' + listId + '/items', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(body),
-        });
-        const d = await r.json();
-        this.msg = (r.ok && d.success)
-          ? `Saved to ${listName}`
-          : 'Error: ' + (d.error || 'Failed to save');
-      } catch (e) {
-        this.msg = 'Network error: ' + e.message;
-      }
+    async clearList() {
+      if (!confirm('Clear all items from your shopping list?')) return;
+      await fetch('/api/shopping-list', {method: 'DELETE'});
+      await this.reload();
     },
 
     async adjustQty(item, delta) {
@@ -121,50 +55,15 @@ function shoppingListData() {
       });
       await this.reload();
     },
-
-    async previewCart() {
-      const r = await fetch('/api/shopping-list/add-to-cart', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({confirm: false})
-      });
-      if (r.ok) {
-        const d = await r.json();
-        this.previewItems = d.items || [];
-        this.previewSkipped = d.items_to_skip || [];
-        this.showPreview = true;
-      }
-    },
-
-    async sendToCart() {
-      const r = await fetch('/api/shopping-list/add-to-cart', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({confirm: true})
-      });
-      const data = await r.json();
-      this.showPreview = false;
-      if (r.ok) {
-        this.msg = data.message || 'Sent to cart!';
-      } else {
-        this.msg = 'Error: ' + (data.error || 'Failed');
-      }
-      await this.reload();
-    }
   };
 }
 </script>
 
 
-<div
-  x-data="shoppingListData()"
-  @action-menu:favorites-add.window="saveToFavorites($event.detail.item, $event.detail.listId, $event.detail.listName)"
-  @action-menu:shopping-remove.window="removeItem($event.detail.item.id, $event.detail.item.product_id)"
->
+<div x-data="shoppingListData()">
 
   <!-- Status message -->
   <div x-show="msg" x-transition style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: var(--green-light); border: 1px solid var(--success); border-radius: 0.75rem; font-size: 0.875rem; color: var(--success);" x-text="msg"></div>
-
 
   <!-- Shopping List table -->
   <div class="ss-card overflow-hidden mb-6">
@@ -175,11 +74,11 @@ function shoppingListData() {
       </h2>
       <button
         x-show="items.length > 0"
-        @click="previewCart()"
-        class="ss-btn-primary"
+        @click="clearList()"
+        class="ss-btn-secondary"
         style="padding: 0.375rem 1rem; font-size: 0.75rem;"
       >
-        Send to Cart
+        Clear List
       </button>
     </div>
 
@@ -187,7 +86,7 @@ function shoppingListData() {
       <svg style="width: 2.5rem; height: 2.5rem; margin: 0 auto 0.75rem; color: var(--border);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
       </svg>
-      <p style="font-size: 0.875rem; color: var(--text-3);">List is empty. Add a recipe above.</p>
+      <p style="font-size: 0.875rem; color: var(--text-3);">Your shopping list is empty.</p>
     </div>
 
     <table x-show="items.length > 0" class="w-full text-sm">
@@ -225,212 +124,22 @@ function shoppingListData() {
                 <span style="font-size: 0.75rem; color: var(--text-3); margin-left: 0.125rem;" x-text="item.unit || ''"></span>
               </div>
             </td>
-            <td class="px-4 py-3 text-gray-500 text-xs" x-text="item.recipe_name || (item.sources && item.sources[0] && item.sources[0].recipe_name) || '\u2014'"></td>
-            <td class="px-6 py-3 text-right">
-              {{ action_menu('shopping_row') }}
+            <td class="px-4 py-3 text-gray-500 text-xs" x-text="item.recipe_name || (item.sources && item.sources[0] && item.sources[0].recipe_name) || '—'"></td>
+            <td style="padding: 0.75rem 1.5rem; text-align: right;">
+              <button @click="removeItem(item.id, item.product_id)"
+                style="color: var(--danger); background: none; border: none; cursor: pointer; padding: 0.25rem; line-height: 0; transition: opacity 0.12s;"
+                onmouseenter="this.style.opacity='0.6'"
+                onmouseleave="this.style.opacity='1'"
+                title="Remove item">
+                <svg style="width: 1rem; height: 1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+              </button>
             </td>
           </tr>
         </template>
       </tbody>
     </table>
-  </div>
-
-  <!-- Kroger Cart Section -->
-  <div x-data="cartData()" class="mt-6">
-
-    <div class="flex items-center gap-3 mb-4">
-      <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-1);">Kroger Cart</h2>
-      <span style="font-size: 0.75rem; color: var(--text-3);" x-text="'(' + cart.length + ' items)'"></span>
-    </div>
-
-    <!-- Status message -->
-    <div x-show="msg" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: var(--green-light); border: 1px solid var(--success); border-radius: 0.75rem; font-size: 0.875rem; color: var(--success);" x-text="msg"></div>
-
-    <!-- Cart summary bar -->
-    <div class="ss-card px-6 py-4 mb-4 flex items-center justify-between">
-      <div class="flex items-center gap-6">
-        <div>
-          <p style="font-size: 0.75rem; color: var(--text-3);">Items</p>
-          <p style="font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; color: var(--text-1); letter-spacing: -0.03em; line-height: 1;" x-text="cart.length"></p>
-        </div>
-        <div>
-          <p style="font-size: 0.75rem; color: var(--text-3);">Total qty</p>
-          <p style="font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; color: var(--text-1); letter-spacing: -0.03em; line-height: 1;" x-text="cart.reduce((s, i) => s + (i.quantity || 1), 0)"></p>
-        </div>
-      </div>
-      <div class="flex items-center gap-3">
-        <button @click="clearCart()" x-show="cart.length > 0"
-          class="ss-btn-secondary">
-          Clear Cart
-        </button>
-        <button @click="markPlaced()" x-show="cart.length > 0"
-          class="ss-btn-primary">
-          Mark Order Placed
-        </button>
-        <span x-show="cart.length === 0" style="font-size: 0.875rem; color: var(--text-3);">Cart is empty</span>
-      </div>
-    </div>
-
-    <!-- Search & Filter -->
-    <div class="ss-card p-4 mb-4" x-show="cart.length > 0">
-      <div class="flex gap-2 mb-2">
-        <input type="text" x-model="filterText" placeholder="Search cart items..."
-          class="ss-input flex-1" />
-        <button @click="showFilters = !showFilters"
-          :style="showFilters || activeFilters.length > 0 ? 'background: var(--terra); color: white; border-color: var(--terra);' : ''"
-          class="ss-btn-secondary gap-1.5"
-          style="padding: 0.5rem 0.75rem;">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"/></svg>
-          Filters
-          <span x-show="activeFilters.length > 0"
-            style="background: var(--terra-light); color: var(--terra-dark); font-size: 0.6rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 99px; line-height: 1.4;"
-            x-text="activeFilters.length"></span>
-        </button>
-        <button x-show="filterText || activeFilters.length > 0" @click="clearFilters()"
-          class="ss-btn-ghost" style="padding: 0.375rem 0.625rem; font-size: 0.75rem; color: var(--danger);">✕ Clear</button>
-      </div>
-
-      <div x-show="showFilters" style="margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.75rem;" class="space-y-2">
-        <template x-for="group in categoryGroups" :key="group.label">
-          <div class="flex flex-wrap items-start gap-1.5">
-            <span style="font-size: 0.6875rem; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; width: 5rem; flex-shrink: 0; padding-top: 0.125rem;" x-text="group.label"></span>
-            <div class="flex flex-wrap gap-1">
-              <template x-for="cat in group.items" :key="cat">
-                <button @click="toggleFilter(cat)"
-                  :class="activeFilters.includes(cat) ? 'ss-badge ss-badge-ok' : 'ss-badge ss-badge-muted'"
-                  style="cursor: pointer; transition: background 0.1s, color 0.1s;"
-                  x-text="cat"></button>
-              </template>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
-
-    <!-- Cart items -->
-    <div class="ss-card overflow-hidden mb-4">
-      <div x-show="cart.length === 0" style="text-align: center; padding: 3rem 1rem;">
-        <svg style="width: 2.5rem; height: 2.5rem; margin: 0 auto 0.75rem; color: var(--border);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-1.4 5M17 13l1.4 5M9 18a1 1 0 100 2 1 1 0 000-2zm8 0a1 1 0 100 2 1 1 0 000-2z"/>
-        </svg>
-        <p style="font-size: 0.875rem; color: var(--text-3);">Cart is empty. Use "Send to Cart" above.</p>
-      </div>
-
-      <div x-show="cart.length > 0 && filteredCart.length === 0" style="text-align: center; padding: 2.5rem 1rem;">
-        <p style="font-size: 0.875rem; color: var(--text-3);">No items match your filter.</p>
-        <button @click="clearFilters()" class="ss-btn-ghost" style="font-size: 0.75rem; margin-top: 0.25rem;">Clear filters</button>
-      </div>
-
-      <table x-show="cart.length > 0 && filteredCart.length > 0" class="w-full text-sm">
-        <thead>
-          <tr>
-            <th class="ss-table-th">Item</th>
-            <th class="ss-table-th">Product ID</th>
-            <th class="ss-table-th" style="text-align: center;">Qty</th>
-            <th class="ss-table-th" style="text-align: center;">Modality</th>
-            <th class="ss-table-th" style="text-align: right;">Remove</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template x-for="item in filteredCart" :key="item.product_id">
-            <tr class="ss-table-tr">
-              <td style="padding: 0.75rem 1.5rem;">
-                <span style="font-weight: 500; color: var(--text-1);" x-text="item.description || item.product_id"></span>
-              </td>
-              <td style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--text-3); font-family: monospace;" x-text="item.product_id"></td>
-              <td style="padding: 0.75rem 1rem; text-align: center; color: var(--text-2);" x-text="item.quantity || 1"></td>
-              <td style="padding: 0.75rem 1rem; text-align: center;">
-                <span
-                  :class="item.modality === 'DELIVERY' ? 'ss-badge ss-badge-info' : 'ss-badge ss-badge-ok'"
-                  x-text="item.modality || 'PICKUP'">
-                </span>
-              </td>
-              <td style="padding: 0.75rem 1.5rem; text-align: right;">
-                <button @click="removeItem(item.product_id)"
-                  style="font-size: 0.75rem; color: var(--danger); background: none; border: none; cursor: pointer; transition: opacity 0.12s;"
-                  onmouseenter="this.style.opacity='0.7'"
-                  onmouseleave="this.style.opacity='1'">Remove</button>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Order History -->
-    <div class="ss-card overflow-hidden mb-6">
-      <button @click="showHistory = !showHistory"
-        style="width: 100%; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.875rem; font-weight: 600; color: var(--text-1); background: none; border: none; cursor: pointer; transition: background 0.1s;"
-        onmouseenter="this.style.background='oklch(97.5% 0.008 75)'"
-        onmouseleave="this.style.background=''">
-        <span>Order History</span>
-        <svg style="width: 1rem; height: 1rem; color: var(--text-3); transition: transform 0.15s;" :style="showHistory ? 'transform: rotate(180deg)' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-        </svg>
-      </button>
-      <div x-show="showHistory" style="border-top: 1px solid var(--border);">
-        <div x-show="history.length === 0" style="text-align: center; padding: 2rem 1rem; font-size: 0.875rem; color: var(--text-3);">No orders yet.</div>
-        <div>
-          <template x-for="(order, i) in history.slice().reverse()" :key="i">
-            <div style="padding: 1rem 1.5rem; border-bottom: 1px solid oklch(95% 0.01 70);">
-              <div class="flex items-center justify-between mb-2">
-                <span style="font-size: 0.875rem; font-weight: 500; color: var(--text-1);" x-text="order.placed_at ? order.placed_at.slice(0,10) : ('Order #' + (history.length - i))"></span>
-                <span style="font-size: 0.75rem; color: var(--text-3);" x-text="(order.items ? order.items.length : 0) + ' items'"></span>
-              </div>
-              <div class="flex flex-wrap gap-1">
-                <template x-for="item in (order.items || []).slice(0,6)" :key="item.product_id">
-                  <span class="ss-badge ss-badge-muted" x-text="item.description || item.product_id"></span>
-                </template>
-                <span x-show="(order.items || []).length > 6" style="font-size: 0.75rem; color: var(--text-3);" x-text="'+' + ((order.items||[]).length - 6) + ' more'"></span>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Cart Preview Modal -->
-  <div
-    x-show="showPreview"
-    class="ss-modal-overlay"
-    @click.self="showPreview = false"
-  >
-    <div class="ss-modal-card">
-      <h3 style="font-family: 'Lora', serif; font-size: 1rem; font-weight: 600; color: var(--text-1); margin-bottom: 0.25rem;">Cart Preview</h3>
-      <p style="font-size: 0.75rem; color: var(--text-3); margin-bottom: 1rem;">Review items before sending to Kroger</p>
-
-      <!-- Items to add -->
-      <div class="space-y-1 mb-4 max-h-52 overflow-y-auto">
-        <template x-for="item in previewItems" :key="item.product_id">
-          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.875rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border);">
-            <span style="color: var(--text-1);" x-text="item.name || item.product_id"></span>
-            <span style="font-size: 0.75rem; color: var(--text-3);" x-text="'x' + (item.quantity || 1)"></span>
-          </div>
-        </template>
-        <div x-show="previewItems.length === 0" style="font-size: 0.875rem; color: var(--text-3); text-align: center; padding: 1rem;">
-          No purchasable items found
-        </div>
-      </div>
-
-      <!-- Skipped items notice -->
-      <div x-show="previewSkipped.length > 0" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--amber-light); border-radius: 0.5rem; font-size: 0.75rem; color: var(--amber-dark);">
-        <span x-text="previewSkipped.length + ' item(s) will be skipped (pantry stocked or no product ID)'"></span>
-      </div>
-
-      <div class="flex gap-3">
-        <button
-          @click="showPreview = false"
-          class="ss-btn-secondary flex-1 justify-center"
-        >Cancel</button>
-        <button
-          @click="sendToCart()"
-          :disabled="previewItems.length === 0"
-          class="ss-btn-primary flex-1 justify-center"
-        >Add to Cart</button>
-      </div>
-    </div>
   </div>
 
 </div>
