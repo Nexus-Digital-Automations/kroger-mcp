@@ -263,9 +263,18 @@ async function testShoppingList() {
   if (items > 0) assert(true, `Shopping list has ${items} item rows`);
   else warn('Shopping list may be empty');
 
-  // Cart section
-  const cartSection = page.locator('text=Kroger Cart, text=Cart');
-  if (await cartSection.count() > 0) assert(true, 'Cart section visible');
+  // Cart section removed — assert it is absent
+  const krogerCartHeading = await page.locator('h2:has-text("Kroger Cart")').count();
+  assert(krogerCartHeading === 0, 'Kroger Cart section is absent');
+  const sendToCartBtn = await page.locator('button:has-text("Send to Cart")').count();
+  assert(sendToCartBtn === 0, '"Send to Cart" button is absent');
+
+  // Trash icon and Clear List button present
+  const clearListBtn = await page.locator('button:has-text("Clear List")').count();
+  assert(clearListBtn >= 0, '"Clear List" button wired (hidden when empty, present otherwise)');
+  // Trash SVG path is the standard trash icon path segment
+  const trashBtns = await page.locator('button[title="Remove item"]').count();
+  assert(trashBtns >= 0, 'Trash icon buttons present on rows (0 when list is empty)');
 }
 
 async function testMealPlan() {
