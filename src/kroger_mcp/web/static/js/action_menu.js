@@ -159,9 +159,7 @@ document.addEventListener('alpine:init', () => {
         const subName = this.activeSub;
         this.activeSub = null;
         this.$nextTick(() => {
-          const trigger = this.$el.querySelector(
-            `[data-submenu-trigger="${subName}"]`
-          );
+          const trigger = this.$el.querySelector(`[data-submenu-trigger="${subName}"]`);
           if (trigger) trigger.focus();
           else this._focusFirstAt('[data-menu-level="root"]');
         });
@@ -247,7 +245,9 @@ document.addEventListener('alpine:init', () => {
       const currentIdx = items.indexOf(activeEl);
       const nextIdx =
         currentIdx < 0
-          ? (delta > 0 ? 0 : items.length - 1)
+          ? delta > 0
+            ? 0
+            : items.length - 1
           : (currentIdx + delta + items.length) % items.length;
       items[nextIdx].focus();
     },

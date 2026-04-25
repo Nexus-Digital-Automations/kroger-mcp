@@ -4,7 +4,7 @@ Reporting and export tools for the Kroger MCP server.
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
@@ -24,68 +24,89 @@ def register_tools(mcp):
         ] = Field(
             description="get_analytics|export_data|check_recipe_pantry|generate_shopping_list|get_cookable_recipes"
         ),
-        report_type: Optional[str] = Field(
+        report_type: str | None = Field(
             default=None,
             description="spending|predictions|patterns|pantry",
         ),
-        days_back: Optional[int] = Field(
+        days_back: int | None = Field(
             default=30,
             description="Days to analyze",
         ),
-        include_orders: Optional[bool] = Field(
+        include_orders: bool | None = Field(
             default=True,
             description="Include order history",
         ),
-        include_products: Optional[bool] = Field(
+        include_products: bool | None = Field(
             default=True,
             description="Include product catalog",
         ),
-        include_pantry_data: Optional[bool] = Field(
+        include_pantry_data: bool | None = Field(
             default=True,
             description="Include pantry inventory",
         ),
-        include_recipes: Optional[bool] = Field(
+        include_recipes: bool | None = Field(
             default=True,
             description="Include saved recipes",
         ),
-        recipe_id: Optional[str] = Field(
+        recipe_id: str | None = Field(
             default=None,
             description="Recipe ID",
         ),
-        scale: Optional[float] = Field(
+        scale: float | None = Field(
             default=1.0,
             description="Recipe scale multiplier",
         ),
-        recipe_ids: Optional[List[str]] = Field(
+        recipe_ids: list[str] | None = Field(
             default=None,
             description="List of recipe IDs",
         ),
-        skip_in_pantry: Optional[bool] = Field(
+        skip_in_pantry: bool | None = Field(
             default=True,
             description="Skip items already in pantry",
         ),
-        pantry_threshold: Optional[int] = Field(
+        pantry_threshold: int | None = Field(
             default=30,
             description="Pantry level % threshold",
         ),
-        combine_duplicates: Optional[bool] = Field(
+        combine_duplicates: bool | None = Field(
             default=True,
             description="Combine same ingredients across recipes",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Reporting and analytics operations."""
         return await asyncio.to_thread(
-            _reports_impl, action, report_type, days_back, include_orders,
-            include_products, include_pantry_data, include_recipes, recipe_id,
-            scale, recipe_ids, skip_in_pantry, pantry_threshold, combine_duplicates,
+            _reports_impl,
+            action,
+            report_type,
+            days_back,
+            include_orders,
+            include_products,
+            include_pantry_data,
+            include_recipes,
+            recipe_id,
+            scale,
+            recipe_ids,
+            skip_in_pantry,
+            pantry_threshold,
+            combine_duplicates,
             ctx,
         )
 
     def _reports_impl(
-        action, report_type, days_back, include_orders,
-        include_products, include_pantry_data, include_recipes, recipe_id,
-        scale, recipe_ids, skip_in_pantry, pantry_threshold, combine_duplicates,
+        action,
+        report_type,
+        days_back,
+        include_orders,
+        include_products,
+        include_pantry_data,
+        include_recipes,
+        recipe_id,
+        scale,
+        recipe_ids,
+        skip_in_pantry,
+        pantry_threshold,
+        combine_duplicates,
         ctx,
     ):
         match action:
@@ -136,7 +157,9 @@ def register_tools(mcp):
                     export = export_all_data(
                         include_orders=include_orders if include_orders is not None else True,
                         include_products=include_products if include_products is not None else True,
-                        include_pantry=include_pantry_data if include_pantry_data is not None else True,
+                        include_pantry=(
+                            include_pantry_data if include_pantry_data is not None else True
+                        ),
                         include_recipes=include_recipes if include_recipes is not None else True,
                     )
                     return {"success": True, "export": export}
@@ -168,7 +191,9 @@ def register_tools(mcp):
 
                     result = generate_shopping_list(
                         recipe_ids=recipe_ids,
-                        combine_duplicates=combine_duplicates if combine_duplicates is not None else True,
+                        combine_duplicates=(
+                            combine_duplicates if combine_duplicates is not None else True
+                        ),
                         skip_in_pantry=skip_in_pantry if skip_in_pantry is not None else True,
                         pantry_threshold=pantry_threshold if pantry_threshold is not None else 30,
                         scale=scale or 1.0,

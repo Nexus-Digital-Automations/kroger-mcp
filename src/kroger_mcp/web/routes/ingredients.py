@@ -1,4 +1,5 @@
 """Ingredient management page — redirects to /safety."""
+
 from fastapi import APIRouter
 from fastapi.responses import RedirectResponse
 

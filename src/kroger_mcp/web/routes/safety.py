@@ -1,4 +1,5 @@
 """Safety configuration page route."""
+
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -24,6 +25,7 @@ async def safety_page(request: Request):
 
     try:
         from kroger_mcp.analytics.safety import get_safety_settings
+
         settings = get_safety_settings()
     except Exception:
         pass
@@ -36,6 +38,7 @@ async def safety_page(request: Request):
     custom_ingredients = []
     try:
         from kroger_mcp.analytics.database import get_db_connection
+
         conn = get_db_connection()
         r1 = conn.execute("SELECT COUNT(*) as cnt FROM safe_products")
         safe_count = r1.fetchone()["cnt"]
@@ -47,6 +50,7 @@ async def safety_page(request: Request):
 
     try:
         from kroger_mcp.analytics.database import get_db_connection
+
         conn2 = get_db_connection()
         cursor = conn2.execute(
             "SELECT * FROM custom_ingredients WHERE is_active = 1 ORDER BY ingredient_name"
@@ -56,12 +60,15 @@ async def safety_page(request: Request):
     except Exception:
         pass
 
-    return templates.TemplateResponse("safety.html", {
-        "request": request,
-        "active_page": "safety",
-        "settings": settings,
-        "safe_count": safe_count,
-        "blocked_count": blocked_count,
-        "ingredient_count": ingredient_count,
-        "custom_ingredients": custom_ingredients,
-    })
+    return templates.TemplateResponse(
+        "safety.html",
+        {
+            "request": request,
+            "active_page": "safety",
+            "settings": settings,
+            "safe_count": safe_count,
+            "blocked_count": blocked_count,
+            "ingredient_count": ingredient_count,
+            "custom_ingredients": custom_ingredients,
+        },
+    )

@@ -24,7 +24,7 @@ def _parse_instructions(text: str) -> list[dict]:
         return []
     # Handle JSON-array-encoded instructions: ["step1", "step2", ...]
     stripped = text.strip()
-    if stripped.startswith('['):
+    if stripped.startswith("["):
         try:
             steps = json.loads(stripped)
             if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
@@ -33,11 +33,11 @@ def _parse_instructions(text: str) -> list[dict]:
         except (json.JSONDecodeError, ValueError):
             pass
     # Normalize literal \n escape sequences to real newlines
-    text = text.replace('\\n', '\n')
+    text = text.replace("\\n", "\n")
     groups = []
     current_header = None
     current_steps = []
-    for line in text.split('\n'):
+    for line in text.split("\n"):
         line = line.strip()
         if not line:
             continue
@@ -56,30 +56,30 @@ def _parse_instructions(text: str) -> list[dict]:
 
 
 def _is_instruction_header(line: str) -> bool:
-    if re.match(r'^Step\s+\d+\s*[\u2013\u2014:\-]', line):
+    if re.match(r"^Step\s+\d+\s*[\u2013\u2014:\-]", line):
         return True
-    if re.match(r'^\*\*[^*]+\*\*:?\s*$', line):
+    if re.match(r"^\*\*[^*]+\*\*:?\s*$", line):
         return True
-    if re.match(r'^[A-Z][A-Z0-9\s\(\)\/]+:\s*$', line):
+    if re.match(r"^[A-Z][A-Z0-9\s\(\)\/]+:\s*$", line):
         return True
     return False
 
 
 def _clean_instruction_header(line: str) -> str:
     # Remove Step X: prefix
-    line = re.sub(r'^Step\s+\d+\s*[\u2013\u2014:\-]\s*', '', line)
+    line = re.sub(r"^Step\s+\d+\s*[\u2013\u2014:\-]\s*", "", line)
     # Remove bold markers
-    line = re.sub(r'\*\*([^*]+)\*\*', r'\1', line)
+    line = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
     # Remove trailing colon
-    line = re.sub(r':\s*$', '', line)
+    line = re.sub(r":\s*$", "", line)
     return line.strip()
 
 
 def _clean_instruction_step(line: str) -> str:
     # Remove bullet/asterisk
-    line = re.sub(r'^[\*\-\u2022]\s*', '', line)
+    line = re.sub(r"^[\*\-\u2022]\s*", "", line)
     # Remove numbered prefix (1., 2., etc.)
-    line = re.sub(r'^\d+[\.\)]\s*', '', line)
+    line = re.sub(r"^\d+[\.\)]\s*", "", line)
     return line.strip()
 
 
@@ -129,30 +129,38 @@ async def recipes_list(request: Request):
             r["health_bonus"] = 0
 
     # Build JSON array for Alpine x-for rendering
-    recipes_json = json.dumps([{
-        "id": r.get("id", ""),
-        "name": r.get("name", ""),
-        "servings": r.get("servings"),
-        "ing_count": len(r.get("ingredients", [])),
-        "tags": r.get("tags", []),
-        "times_ordered": r.get("times_ordered") or 0,
-        "cost": r.get("cost_per_serving"),
-        "health_score": r.get("health_score"),
-        "health_grade": r.get("health_grade"),
-        "health_flags": r.get("health_flags", []),
-        "health_categories": r.get("health_categories", []),
-        "health_bonus": r.get("health_bonus", 0),
-    } for r in recipes])
+    recipes_json = json.dumps(
+        [
+            {
+                "id": r.get("id", ""),
+                "name": r.get("name", ""),
+                "servings": r.get("servings"),
+                "ing_count": len(r.get("ingredients", [])),
+                "tags": r.get("tags", []),
+                "times_ordered": r.get("times_ordered") or 0,
+                "cost": r.get("cost_per_serving"),
+                "health_score": r.get("health_score"),
+                "health_grade": r.get("health_grade"),
+                "health_flags": r.get("health_flags", []),
+                "health_categories": r.get("health_categories", []),
+                "health_bonus": r.get("health_bonus", 0),
+            }
+            for r in recipes
+        ]
+    )
 
-    return templates.TemplateResponse("recipes.html", {
-        "request": request,
-        "active_page": "recipes",
-        "recipes": recipes,
-        "all_tags": all_tags,
-        "recipe_count": len(recipes),
-        "recipes_json": recipes_json,
-        **action_menu_context(),
-    })
+    return templates.TemplateResponse(
+        "recipes.html",
+        {
+            "request": request,
+            "active_page": "recipes",
+            "recipes": recipes,
+            "all_tags": all_tags,
+            "recipe_count": len(recipes),
+            "recipes_json": recipes_json,
+            **action_menu_context(),
+        },
+    )
 
 
 @router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
@@ -184,8 +192,8 @@ async def recipe_detail(request: Request, recipe_id: str):
 
     # Per-ingredient safety — use product descriptions from DB when available
     try:
-        from kroger_mcp.analytics.ingredients import check_product_safety
         from kroger_mcp.analytics.database import get_db_connection
+        from kroger_mcp.analytics.ingredients import check_product_safety
 
         # Batch-load product descriptions for linked ingredients
         product_descs: dict[str, str] = {}
@@ -218,7 +226,12 @@ async def recipe_detail(request: Request, recipe_id: str):
             ing["safety_score"] = result.score
             ing["safety_grade"] = result.grade
             ing["safety_flags"] = [
-                {"ingredient": m.ingredient_name, "severity": m.severity.value, "reason": m.reason, "category": m.category}
+                {
+                    "ingredient": m.ingredient_name,
+                    "severity": m.severity.value,
+                    "reason": m.reason,
+                    "category": m.category,
+                }
                 for m in result.matches
             ]
             ing["safety_positives"] = [
@@ -247,11 +260,14 @@ async def recipe_detail(request: Request, recipe_id: str):
                     ing["category"] = cat
                     break
 
-    return templates.TemplateResponse("recipe_detail.html", {
-        "request": request,
-        "active_page": "recipes",
-        "recipe": recipe,
-        "ingredients": ingredients,
-        "instruction_groups": instruction_groups,
-        "health_data": health_data,
-    })
+    return templates.TemplateResponse(
+        "recipe_detail.html",
+        {
+            "request": request,
+            "active_page": "recipes",
+            "recipe": recipe,
+            "ingredients": ingredients,
+            "instruction_groups": instruction_groups,
+            "health_data": health_data,
+        },
+    )

@@ -8,35 +8,35 @@ giving more weight to recent purchases.
 import statistics as stats
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .database import get_db_connection, ensure_initialized
 from .config import load_config
+from .database import ensure_initialized, get_db_connection
 from .trend_analysis import (
-    detect_trend,
-    calculate_recency_score,
-    calculate_quantity_consistency,
     calculate_enhanced_confidence,
-    calculate_quantity_adjusted_rate
+    calculate_quantity_adjusted_rate,
+    calculate_quantity_consistency,
+    calculate_recency_score,
+    detect_trend,
 )
 
 
 @dataclass
 class ConsumptionRate:
     """Represents the calculated consumption rate for a product."""
-    days_between: Optional[float]
+
+    days_between: float | None
     std_dev: float
     confidence: float
     sample_size: int
     # Enhanced fields
-    quantity_adjusted_rate: Optional[float] = None  # Days per unit
-    trend_direction: str = 'stable'  # stable, increasing, decreasing
+    quantity_adjusted_rate: float | None = None  # Days per unit
+    trend_direction: str = "stable"  # stable, increasing, decreasing
     trend_strength: float = 0.0  # 0-1
 
 
 def calculate_consumption_rate(
-    purchase_events: List[Dict[str, Any]],
-    alpha: Optional[float] = None
+    purchase_events: list[dict[str, Any]], alpha: float | None = None
 ) -> ConsumptionRate:
     """
     Calculate consumption rate using exponential weighted moving average.
@@ -53,10 +53,7 @@ def calculate_consumption_rate(
     """
     if len(purchase_events) < 2:
         return ConsumptionRate(
-            days_between=None,
-            std_dev=0.0,
-            confidence=0.0,
-            sample_size=len(purchase_events)
+            days_between=None, std_dev=0.0, confidence=0.0, sample_size=len(purchase_events)
         )
 
     # Load config for EWMA alpha
@@ -67,34 +64,31 @@ def calculate_consumption_rate(
     intervals = []
     quantities = []
     for i in range(1, len(purchase_events)):
-        prev_date = _parse_date(purchase_events[i - 1].get('event_date', ''))
-        curr_date = _parse_date(purchase_events[i].get('event_date', ''))
+        prev_date = _parse_date(purchase_events[i - 1].get("event_date", ""))
+        curr_date = _parse_date(purchase_events[i].get("event_date", ""))
 
         if prev_date and curr_date:
             days = (curr_date - prev_date).days
             if days > 0:  # Only count positive intervals
                 intervals.append(days)
                 # Quantity for the starting purchase of this interval
-                quantities.append(purchase_events[i - 1].get('quantity', 1) or 1)
+                quantities.append(purchase_events[i - 1].get("quantity", 1) or 1)
 
     # Add last quantity for completeness
     if purchase_events:
-        quantities.append(purchase_events[-1].get('quantity', 1) or 1)
+        quantities.append(purchase_events[-1].get("quantity", 1) or 1)
 
     if not intervals:
         return ConsumptionRate(
-            days_between=None,
-            std_dev=0.0,
-            confidence=0.0,
-            sample_size=len(purchase_events)
+            days_between=None, std_dev=0.0, confidence=0.0, sample_size=len(purchase_events)
         )
 
     # Exponential weighted moving average with configurable decay
     # Weights: newest = 1.0, each older = decay^i
-    weights = [decay ** i for i in range(len(intervals))]
+    weights = [decay**i for i in range(len(intervals))]
     weights.reverse()  # Oldest first, so reverse to give newest highest weight
 
-    ewma = sum(w * v for w, v in zip(weights, intervals)) / sum(weights)
+    ewma = sum(w * v for w, v in zip(weights, intervals, strict=False)) / sum(weights)
 
     # Standard deviation
     std_dev = stats.stdev(intervals) if len(intervals) > 1 else 0.0
@@ -112,7 +106,7 @@ def calculate_consumption_rate(
     quantity_adjusted = calculate_quantity_adjusted_rate(intervals, quantities)
 
     # Enhanced: Recency score
-    last_date = purchase_events[-1].get('event_date') if purchase_events else None
+    last_date = purchase_events[-1].get("event_date") if purchase_events else None
     recency = calculate_recency_score(last_date)
 
     # Enhanced: Quantity consistency
@@ -124,7 +118,7 @@ def calculate_consumption_rate(
         interval_consistency=interval_consistency,
         recency_score=recency,
         quantity_consistency=qty_consistency,
-        max_samples=config.max_confidence_purchases
+        max_samples=config.max_confidence_purchases,
     )
 
     return ConsumptionRate(
@@ -134,24 +128,24 @@ def calculate_consumption_rate(
         sample_size=len(intervals),
         quantity_adjusted_rate=quantity_adjusted,
         trend_direction=trend_direction,
-        trend_strength=trend_strength
+        trend_strength=trend_strength,
     )
 
 
-def _parse_date(date_str: str) -> Optional[datetime]:
+def _parse_date(date_str: str) -> datetime | None:
     """Parse a date string to datetime."""
     if not date_str:
         return None
     try:
         # Handle both date-only and full timestamp formats
-        if 'T' in date_str:
-            return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-        return datetime.strptime(date_str, '%Y-%m-%d')
+        if "T" in date_str:
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        return datetime.strptime(date_str, "%Y-%m-%d")
     except (ValueError, TypeError):
         return None
 
 
-def update_product_stats(product_id: str) -> Dict[str, Any]:
+def update_product_stats(product_id: str) -> dict[str, Any]:
     """
     Update statistics for a single product.
 
@@ -167,27 +161,30 @@ def update_product_stats(product_id: str) -> Dict[str, Any]:
     try:
         # Get all consumption-related events for this product (sorted by date)
         # Includes both actual orders and pantry depletion feedback
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT * FROM purchase_events
             WHERE product_id = ? AND event_type IN ('order_placed', 'pantry_depleted')
             ORDER BY event_date ASC
-        """, (product_id,))
+        """,
+            (product_id,),
+        )
         events = [dict(row) for row in cursor.fetchall()]
 
         if not events:
-            return {'product_id': product_id, 'total_purchases': 0}
+            return {"product_id": product_id, "total_purchases": 0}
 
         # Calculate basic stats
         total_purchases = len(events)
-        total_quantity = sum(e.get('quantity', 1) for e in events)
+        total_quantity = sum(e.get("quantity", 1) for e in events)
         avg_quantity = total_quantity / total_purchases if total_purchases > 0 else 0
 
         # Calculate consumption rate
         consumption = calculate_consumption_rate(events)
 
         # Get first and last purchase dates
-        first_date = events[0].get('event_date')
-        last_date = events[-1].get('event_date')
+        first_date = events[0].get("event_date")
+        last_date = events[-1].get("event_date")
 
         # Calculate purchase frequency score (higher = more frequent)
         # Score of 1.0 = daily, 0.1 = every 10 days, etc.
@@ -198,20 +195,23 @@ def update_product_stats(product_id: str) -> Dict[str, Any]:
 
         # Calculate seasonality score
         from .seasonal import calculate_seasonality_score
+
         seasonality = calculate_seasonality_score(events)
 
         # Detect category based on patterns
         from .categories import detect_category
+
         detected_cat = detect_category(
             avg_days=consumption.days_between,
             seasonality_score=seasonality,
-            total_purchases=total_purchases
+            total_purchases=total_purchases,
         )
 
         now = datetime.now().isoformat()
 
         # Upsert statistics (including new trend fields)
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO product_statistics
             (product_id, total_purchases, total_quantity, avg_quantity_per_purchase,
              avg_days_between_purchases, std_dev_days, last_purchase_date,
@@ -234,47 +234,49 @@ def update_product_stats(product_id: str) -> Dict[str, Any]:
                 trend_strength = excluded.trend_strength,
                 quantity_adjusted_rate = excluded.quantity_adjusted_rate,
                 updated_at = excluded.updated_at
-        """, (
-            product_id,
-            total_purchases,
-            total_quantity,
-            avg_quantity,
-            consumption.days_between,
-            consumption.std_dev,
-            last_date,
-            first_date,
-            frequency_score,
-            seasonality,
-            detected_cat,
-            consumption.trend_direction,
-            consumption.trend_strength,
-            consumption.quantity_adjusted_rate,
-            now
-        ))
+        """,
+            (
+                product_id,
+                total_purchases,
+                total_quantity,
+                avg_quantity,
+                consumption.days_between,
+                consumption.std_dev,
+                last_date,
+                first_date,
+                frequency_score,
+                seasonality,
+                detected_cat,
+                consumption.trend_direction,
+                consumption.trend_strength,
+                consumption.quantity_adjusted_rate,
+                now,
+            ),
+        )
         conn.commit()
 
         return {
-            'product_id': product_id,
-            'total_purchases': total_purchases,
-            'total_quantity': total_quantity,
-            'avg_quantity_per_purchase': avg_quantity,
-            'avg_days_between_purchases': consumption.days_between,
-            'std_dev_days': consumption.std_dev,
-            'confidence': consumption.confidence,
-            'last_purchase_date': last_date,
-            'first_purchase_date': first_date,
-            'purchase_frequency_score': frequency_score,
-            'seasonality_score': seasonality,
-            'detected_category': detected_cat,
-            'trend_direction': consumption.trend_direction,
-            'trend_strength': consumption.trend_strength,
-            'quantity_adjusted_rate': consumption.quantity_adjusted_rate
+            "product_id": product_id,
+            "total_purchases": total_purchases,
+            "total_quantity": total_quantity,
+            "avg_quantity_per_purchase": avg_quantity,
+            "avg_days_between_purchases": consumption.days_between,
+            "std_dev_days": consumption.std_dev,
+            "confidence": consumption.confidence,
+            "last_purchase_date": last_date,
+            "first_purchase_date": first_date,
+            "purchase_frequency_score": frequency_score,
+            "seasonality_score": seasonality,
+            "detected_category": detected_cat,
+            "trend_direction": consumption.trend_direction,
+            "trend_strength": consumption.trend_strength,
+            "quantity_adjusted_rate": consumption.quantity_adjusted_rate,
         }
     finally:
         conn.close()
 
 
-def update_all_product_stats(product_ids: List[str]) -> Dict[str, Any]:
+def update_all_product_stats(product_ids: list[str]) -> dict[str, Any]:
     """
     Update statistics for multiple products.
 
@@ -289,13 +291,10 @@ def update_all_product_stats(product_ids: List[str]) -> Dict[str, Any]:
         result = update_product_stats(product_id)
         results.append(result)
 
-    return {
-        'updated_count': len(results),
-        'products': results
-    }
+    return {"updated_count": len(results), "products": results}
 
 
-def get_product_statistics(product_id: str) -> Optional[Dict[str, Any]]:
+def get_product_statistics(product_id: str) -> dict[str, Any] | None:
     """
     Get cached statistics for a product.
 
@@ -309,19 +308,22 @@ def get_product_statistics(product_id: str) -> Optional[Dict[str, Any]]:
 
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT ps.*, p.description, p.brand, p.category_type, p.category_override
             FROM product_statistics ps
             LEFT JOIN products p ON ps.product_id = p.product_id
             WHERE ps.product_id = ?
-        """, (product_id,))
+        """,
+            (product_id,),
+        )
         row = cursor.fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
 
 
-def get_all_product_statistics() -> List[Dict[str, Any]]:
+def get_all_product_statistics() -> list[dict[str, Any]]:
     """
     Get statistics for all tracked products.
 
@@ -332,22 +334,22 @@ def get_all_product_statistics() -> List[Dict[str, Any]]:
 
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT ps.*, p.description, p.brand, p.category_type, p.category_override
             FROM product_statistics ps
             LEFT JOIN products p ON ps.product_id = p.product_id
             ORDER BY ps.last_purchase_date DESC
-        """)
+        """
+        )
         return [dict(row) for row in cursor.fetchall()]
     finally:
         conn.close()
 
 
 def get_recent_purchases(
-    days: int = 30,
-    limit: int = 100,
-    event_type: str = "order_placed"
-) -> List[Dict[str, Any]]:
+    days: int = 30, limit: int = 100, event_type: str = "order_placed"
+) -> list[dict[str, Any]]:
     """
     Get recent product purchases within specified time window.
 
@@ -380,7 +382,8 @@ def get_recent_purchases(
 
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT DISTINCT
                 pe.product_id,
                 p.description,
@@ -393,7 +396,9 @@ def get_recent_purchases(
             GROUP BY pe.product_id
             ORDER BY last_purchase DESC
             LIMIT ?
-        """, (cutoff_date, event_type, limit))
+        """,
+            (cutoff_date, event_type, limit),
+        )
 
         return [dict(row) for row in cursor.fetchall()]
     finally:

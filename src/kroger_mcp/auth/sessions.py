@@ -7,7 +7,6 @@ via a token stored in an HTTP-only cookie.
 import hashlib
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 SESSION_EXPIRY_DAYS = 30
 
@@ -64,7 +63,7 @@ def create_session(user_id: str, ip_address: str = "") -> str:
     return token
 
 
-def validate_session(token: str) -> Optional[dict]:
+def validate_session(token: str) -> dict | None:
     """Validate a session token. Returns user dict if valid, None if expired/invalid."""
     token_hash = _hash_token(token)
 

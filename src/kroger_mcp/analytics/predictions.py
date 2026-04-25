@@ -6,27 +6,28 @@ Predicts when items will need to be repurchased based on consumption patterns.
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .database import get_db_connection, ensure_initialized
-from .statistics import get_product_statistics
 from .config import load_config
+from .database import ensure_initialized, get_db_connection
+from .statistics import get_product_statistics
 from .trend_analysis import predict_with_trend_adjustment
 
 
 @dataclass
 class RepurchasePrediction:
     """Represents a repurchase prediction for a product."""
+
     product_id: str
-    description: Optional[str]
+    description: str | None
     category: str
-    predicted_date: Optional[datetime]
-    days_until: Optional[int]
+    predicted_date: datetime | None
+    days_until: int | None
     urgency: float  # 0-1, higher = more urgent
     urgency_label: str  # low, medium, high, critical
     confidence: float  # 0-1
-    last_purchase_date: Optional[str]
-    avg_days_between: Optional[float]
+    last_purchase_date: str | None
+    avg_days_between: float | None
 
 
 def get_urgency_label(urgency: float, is_overdue: bool = False) -> str:
@@ -41,25 +42,24 @@ def get_urgency_label(urgency: float, is_overdue: bool = False) -> str:
         Label: 'none', 'low', 'medium', 'high', 'critical', or 'overdue'
     """
     if is_overdue:
-        return 'overdue'
+        return "overdue"
 
     config = load_config()
 
     if urgency >= config.urgency_critical:
-        return 'critical'
+        return "critical"
     elif urgency >= config.urgency_high:
-        return 'high'
+        return "high"
     elif urgency >= config.urgency_medium:
-        return 'medium'
+        return "medium"
     elif urgency > 0:
-        return 'low'
+        return "low"
     else:
-        return 'none'
+        return "none"
 
 
 def predict_repurchase_date(
-    product_id: str,
-    stats: Optional[Dict[str, Any]] = None
+    product_id: str, stats: dict[str, Any] | None = None
 ) -> RepurchasePrediction:
     """
     Predict when a product will need to be repurchased.
@@ -77,25 +77,25 @@ def predict_repurchase_date(
     if stats is None:
         stats = get_product_statistics(product_id)
 
-    if not stats or stats.get('total_purchases', 0) < 2:
+    if not stats or stats.get("total_purchases", 0) < 2:
         return RepurchasePrediction(
             product_id=product_id,
-            description=stats.get('description') if stats else None,
-            category=stats.get('category_type', 'uncategorized') if stats else 'uncategorized',
+            description=stats.get("description") if stats else None,
+            category=stats.get("category_type", "uncategorized") if stats else "uncategorized",
             predicted_date=None,
             days_until=None,
             urgency=0.0,
-            urgency_label='low',
+            urgency_label="low",
             confidence=0.0,
             last_purchase_date=None,
-            avg_days_between=None
+            avg_days_between=None,
         )
 
-    avg_days = stats.get('avg_days_between_purchases')
-    std_dev = stats.get('std_dev_days', 0) or 0
-    last_date_str = stats.get('last_purchase_date')
-    category = stats.get('category_type', 'uncategorized')
-    description = stats.get('description')
+    avg_days = stats.get("avg_days_between_purchases")
+    std_dev = stats.get("std_dev_days", 0) or 0
+    last_date_str = stats.get("last_purchase_date")
+    category = stats.get("category_type", "uncategorized")
+    description = stats.get("description")
 
     if not avg_days or not last_date_str:
         return RepurchasePrediction(
@@ -105,19 +105,18 @@ def predict_repurchase_date(
             predicted_date=None,
             days_until=None,
             urgency=0.0,
-            urgency_label='low',
+            urgency_label="low",
             confidence=0.0,
             last_purchase_date=last_date_str,
-            avg_days_between=avg_days
+            avg_days_between=avg_days,
         )
 
     # Parse last purchase date
     try:
-        if 'T' in last_date_str:
-            last_date = datetime.fromisoformat(
-                last_date_str.replace('Z', '+00:00'))
+        if "T" in last_date_str:
+            last_date = datetime.fromisoformat(last_date_str.replace("Z", "+00:00"))
         else:
-            last_date = datetime.strptime(last_date_str, '%Y-%m-%d')
+            last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
     except (ValueError, TypeError):
         return RepurchasePrediction(
             product_id=product_id,
@@ -126,10 +125,10 @@ def predict_repurchase_date(
             predicted_date=None,
             days_until=None,
             urgency=0.0,
-            urgency_label='low',
+            urgency_label="low",
             confidence=0.0,
             last_purchase_date=last_date_str,
-            avg_days_between=avg_days
+            avg_days_between=avg_days,
         )
 
     # Load config for buffer multipliers
@@ -139,12 +138,10 @@ def predict_repurchase_date(
     base_days = avg_days
 
     # Apply trend adjustment if trend data available
-    trend_direction = stats.get('trend_direction', 'stable')
-    trend_strength = stats.get('trend_strength', 0.0)
-    if trend_direction != 'stable' and trend_strength > 0:
-        base_days = predict_with_trend_adjustment(
-            base_days, trend_direction, trend_strength
-        )
+    trend_direction = stats.get("trend_direction", "stable")
+    trend_strength = stats.get("trend_strength", 0.0)
+    if trend_direction != "stable" and trend_strength > 0:
+        base_days = predict_with_trend_adjustment(base_days, trend_direction, trend_strength)
 
     base_prediction = last_date + timedelta(days=base_days)
 
@@ -171,11 +168,11 @@ def predict_repurchase_date(
         urgency = 0.0
 
     # Boost urgency for routine items
-    if category == 'routine' and urgency > 0:
+    if category == "routine" and urgency > 0:
         urgency = min(1.0, urgency * 1.2)
 
     # Calculate confidence
-    total_purchases = stats.get('total_purchases', 0)
+    total_purchases = stats.get("total_purchases", 0)
     data_confidence = min(1.0, total_purchases / 10)
 
     # Consistency score (lower variance = higher confidence)
@@ -199,16 +196,16 @@ def predict_repurchase_date(
         urgency_label=get_urgency_label(urgency, is_overdue),
         confidence=round(confidence, 2),
         last_purchase_date=last_date_str,
-        avg_days_between=round(avg_days, 1)
+        avg_days_between=round(avg_days, 1),
     )
 
 
 def get_predictions_for_period(
     days_ahead: int = 14,
-    category_filter: Optional[str] = None,
+    category_filter: str | None = None,
     min_confidence: float = 0.0,
-    include_overdue: bool = True
-) -> List[RepurchasePrediction]:
+    include_overdue: bool = True,
+) -> list[RepurchasePrediction]:
     """
     Get predictions for items that will need repurchase within a period.
 
@@ -243,7 +240,7 @@ def get_predictions_for_period(
 
         predictions = []
         for product in products:
-            pred = predict_repurchase_date(product['product_id'], product)
+            pred = predict_repurchase_date(product["product_id"], product)
 
             # Filter by confidence
             if pred.confidence < min_confidence:
@@ -269,9 +266,7 @@ def get_predictions_for_period(
         conn.close()
 
 
-def get_overdue_items(
-    category_filter: Optional[str] = None
-) -> List[RepurchasePrediction]:
+def get_overdue_items(category_filter: str | None = None) -> list[RepurchasePrediction]:
     """
     Get items that are overdue for repurchase.
 
@@ -282,9 +277,7 @@ def get_overdue_items(
         List of overdue items sorted by days overdue
     """
     predictions = get_predictions_for_period(
-        days_ahead=0,
-        category_filter=category_filter,
-        include_overdue=True
+        days_ahead=0, category_filter=category_filter, include_overdue=True
     )
 
     return [p for p in predictions if p.days_until is not None and p.days_until < 0]
@@ -295,8 +288,8 @@ def get_shopping_suggestions(
     include_predicted: bool = True,
     include_seasonal: bool = True,
     days_ahead: int = 7,
-    min_confidence: float = 0.5
-) -> Dict[str, Any]:
+    min_confidence: float = 0.5,
+) -> dict[str, Any]:
     """
     Generate smart shopping suggestions.
 
@@ -313,79 +306,76 @@ def get_shopping_suggestions(
     ensure_initialized()
 
     suggestions = {
-        'overdue': [],
-        'routine_items': [],
-        'predicted_needs': [],
-        'seasonal_items': [],
-        'summary': {}
+        "overdue": [],
+        "routine_items": [],
+        "predicted_needs": [],
+        "seasonal_items": [],
+        "summary": {},
     }
 
     # Get overdue items (always include if any)
     overdue = get_overdue_items()
-    suggestions['overdue'] = [
+    suggestions["overdue"] = [
         {
-            'product_id': p.product_id,
-            'description': p.description,
-            'category': p.category,
-            'days_overdue': abs(p.days_until) if p.days_until else 0,
-            'urgency': p.urgency,
-            'urgency_label': p.urgency_label
+            "product_id": p.product_id,
+            "description": p.description,
+            "category": p.category,
+            "days_overdue": abs(p.days_until) if p.days_until else 0,
+            "urgency": p.urgency,
+            "urgency_label": p.urgency_label,
         }
         for p in overdue
     ]
 
     if include_routine or include_predicted:
         predictions = get_predictions_for_period(
-            days_ahead=days_ahead,
-            min_confidence=min_confidence,
-            include_overdue=False
+            days_ahead=days_ahead, min_confidence=min_confidence, include_overdue=False
         )
 
         for p in predictions:
             item = {
-                'product_id': p.product_id,
-                'description': p.description,
-                'category': p.category,
-                'predicted_date': p.predicted_date.isoformat() if p.predicted_date else None,
-                'days_until': p.days_until,
-                'urgency': p.urgency,
-                'urgency_label': p.urgency_label,
-                'confidence': p.confidence
+                "product_id": p.product_id,
+                "description": p.description,
+                "category": p.category,
+                "predicted_date": p.predicted_date.isoformat() if p.predicted_date else None,
+                "days_until": p.days_until,
+                "urgency": p.urgency,
+                "urgency_label": p.urgency_label,
+                "confidence": p.confidence,
             }
 
-            if include_routine and p.category == 'routine':
-                suggestions['routine_items'].append(item)
+            if include_routine and p.category == "routine":
+                suggestions["routine_items"].append(item)
             elif include_predicted:
-                suggestions['predicted_needs'].append(item)
+                suggestions["predicted_needs"].append(item)
 
     if include_seasonal:
         from .seasonal import get_upcoming_seasonal_items
+
         seasonal = get_upcoming_seasonal_items(days_ahead)
-        suggestions['seasonal_items'] = seasonal
+        suggestions["seasonal_items"] = seasonal
 
     # Summary
     total_items = (
-        len(suggestions['overdue']) +
-        len(suggestions['routine_items']) +
-        len(suggestions['predicted_needs']) +
-        len(suggestions['seasonal_items'])
+        len(suggestions["overdue"])
+        + len(suggestions["routine_items"])
+        + len(suggestions["predicted_needs"])
+        + len(suggestions["seasonal_items"])
     )
 
     high_urgency = (
-        len([i for i in suggestions['overdue']]) +
-        len([i for i in suggestions['routine_items']
-             if i.get('urgency', 0) >= 0.7]) +
-        len([i for i in suggestions['predicted_needs']
-             if i.get('urgency', 0) >= 0.7])
+        len([i for i in suggestions["overdue"]])
+        + len([i for i in suggestions["routine_items"] if i.get("urgency", 0) >= 0.7])
+        + len([i for i in suggestions["predicted_needs"] if i.get("urgency", 0) >= 0.7])
     )
 
-    suggestions['summary'] = {
-        'total_items': total_items,
-        'overdue_count': len(suggestions['overdue']),
-        'high_urgency_count': high_urgency,
-        'routine_count': len(suggestions['routine_items']),
-        'predicted_count': len(suggestions['predicted_needs']),
-        'seasonal_count': len(suggestions['seasonal_items'])
+    suggestions["summary"] = {
+        "total_items": total_items,
+        "overdue_count": len(suggestions["overdue"]),
+        "high_urgency_count": high_urgency,
+        "routine_count": len(suggestions["routine_items"]),
+        "predicted_count": len(suggestions["predicted_needs"]),
+        "seasonal_count": len(suggestions["seasonal_items"]),
     }
 
     return suggestions

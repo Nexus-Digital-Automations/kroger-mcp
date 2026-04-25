@@ -1,6 +1,6 @@
 """API routes for recipe write operations."""
+
 from datetime import datetime
-from typing import List, Optional
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -19,12 +19,10 @@ async def delete_recipe(recipe_id: str):
     """Delete a recipe by ID."""
     try:
         from kroger_mcp.tools.recipe_tools import _load_recipes, _save_recipes
+
         data = _load_recipes()
         original_count = len(data.get("recipes", []))
-        data["recipes"] = [
-            r for r in data.get("recipes", [])
-            if r.get("id") != recipe_id
-        ]
+        data["recipes"] = [r for r in data.get("recipes", []) if r.get("id") != recipe_id]
         if len(data["recipes"]) == original_count:
             return JSONResponse(
                 status_code=404,
@@ -37,10 +35,10 @@ async def delete_recipe(recipe_id: str):
 
 
 class UpdateRecipeBody(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    tags: Optional[List[str]] = None
-    servings: Optional[int] = None
+    name: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+    servings: int | None = None
 
 
 class AddIngredientBody(BaseModel):
@@ -49,10 +47,10 @@ class AddIngredientBody(BaseModel):
     # the SKU. Manual (non-Kroger) ingredients are authored elsewhere.
     product_id: str
     description: str
-    quantity: Optional[float] = None
-    unit: Optional[str] = None
-    brand: Optional[str] = None
-    category: Optional[str] = None
+    quantity: float | None = None
+    unit: str | None = None
+    brand: str | None = None
+    category: str | None = None
 
 
 @router.post("/api/recipes/{recipe_id}/ingredients")
@@ -69,6 +67,7 @@ async def add_ingredient_to_recipe(recipe_id: str, body: AddIngredientBody):
     """
     try:
         from kroger_mcp.tools.recipe_tools import _load_recipes, _save_recipes
+
         data = _load_recipes()
         recipe = next(
             (r for r in data.get("recipes", []) if r.get("id") == recipe_id),
@@ -80,15 +79,17 @@ async def add_ingredient_to_recipe(recipe_id: str, body: AddIngredientBody):
                 content={"error": f"Recipe '{recipe_id}' not found"},
             )
         ingredients = recipe.setdefault("ingredients", [])
-        ingredients.append({
-            "name": body.description,
-            "quantity": body.quantity,
-            "unit": body.unit,
-            "category": body.category,
-            "product_id": body.product_id,
-            "override": False,
-            "override_reason": None,
-        })
+        ingredients.append(
+            {
+                "name": body.description,
+                "quantity": body.quantity,
+                "unit": body.unit,
+                "category": body.category,
+                "product_id": body.product_id,
+                "override": False,
+                "override_reason": None,
+            }
+        )
         recipe["updated_at"] = datetime.now().isoformat()
         _save_recipes(data)
         return {
@@ -106,6 +107,7 @@ async def update_recipe(recipe_id: str, body: UpdateRecipeBody):
     """Update recipe metadata (name, description, tags, servings)."""
     try:
         from kroger_mcp.tools.recipe_tools import _load_recipes, _save_recipes
+
         data = _load_recipes()
         recipe = next(
             (r for r in data.get("recipes", []) if r.get("id") == recipe_id),
@@ -141,6 +143,7 @@ async def add_recipe_to_cart(recipe_id: str, body: AddToCartBody):
     """
     try:
         from kroger_mcp.tools.recipe_tools import _find_recipe
+
         recipe = _find_recipe(recipe_id)
         if not recipe:
             return JSONResponse(
@@ -151,8 +154,7 @@ async def add_recipe_to_cart(recipe_id: str, body: AddToCartBody):
         ingredients = recipe.get("ingredients", [])
         # Only ingredients with a real Kroger product_id (not overrides)
         cart_items = [
-            ing for ing in ingredients
-            if ing.get("product_id") and not ing.get("override")
+            ing for ing in ingredients if ing.get("product_id") and not ing.get("override")
         ]
 
         if not body.confirm:
@@ -182,6 +184,7 @@ async def add_recipe_to_cart(recipe_id: str, body: AddToCartBody):
 
         # Confirm mode — add to local cart
         from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
+
         added = []
         failed = []
         for ing in cart_items:

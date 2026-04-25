@@ -4,7 +4,7 @@ Location management tools for Kroger MCP server
 
 import asyncio
 import functools
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
@@ -32,28 +32,28 @@ def register_tools(mcp):
         ] = Field(
             description="search|get_details|set_preferred|get_preferred|check_exists|get_zip"
         ),
-        zip_code: Optional[str] = Field(
+        zip_code: str | None = Field(
             default=None,
             description="Zip code to search near",
         ),
-        radius_in_miles: Optional[int] = Field(
+        radius_in_miles: int | None = Field(
             default=10,
             description="Search radius in miles 1-100",
         ),
-        limit: Optional[int] = Field(
+        limit: int | None = Field(
             default=10,
             description="Number of results 1-200",
         ),
-        chain: Optional[str] = Field(
+        chain: str | None = Field(
             default=None,
             description="Filter by chain name",
         ),
-        location_id: Optional[str] = Field(
+        location_id: str | None = Field(
             default=None,
             description="Store location ID",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Store location management operations."""
         match action:
             case "search":
@@ -178,9 +178,7 @@ def register_tools(mcp):
                             if monday.get("open24", False):
                                 dept_info["hours_monday"] = "Open 24 hours"
                             elif "open" in monday and "close" in monday:
-                                dept_info["hours_monday"] = (
-                                    f"{monday['open']} - {monday['close']}"
-                                )
+                                dept_info["hours_monday"] = f"{monday['open']} - {monday['close']}"
                         departments.append(dept_info)
 
                     address = loc.get("address", {})
@@ -216,9 +214,7 @@ def register_tools(mcp):
                 client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
-                    exists = await asyncio.to_thread(
-                        client.location.location_exists, location_id
-                    )
+                    exists = await asyncio.to_thread(client.location.location_exists, location_id)
                     if not exists:
                         return {
                             "success": False,
@@ -300,9 +296,7 @@ def register_tools(mcp):
                 client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
-                    exists = await asyncio.to_thread(
-                        client.location.location_exists, location_id
-                    )
+                    exists = await asyncio.to_thread(client.location.location_exists, location_id)
                     return {
                         "success": True,
                         "location_id": location_id,

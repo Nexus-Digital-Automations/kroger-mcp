@@ -11,7 +11,7 @@ Provides MCP tools for:
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
@@ -19,9 +19,9 @@ from pydantic import Field
 
 def _get_session_id(ctx) -> str:
     """Extract session ID from MCP context."""
-    if ctx and hasattr(ctx, 'session_id'):
+    if ctx and hasattr(ctx, "session_id"):
         return str(ctx.session_id)
-    return 'default'
+    return "default"
 
 
 def register_tools(mcp):
@@ -45,36 +45,36 @@ def register_tools(mcp):
                 "Other: get|add|update_item|restock|get_low_inventory|remove"
             )
         ),
-        product_id: Optional[str] = Field(
+        product_id: str | None = Field(
             default=None,
             description="Product ID for single-item operations",
         ),
-        product_ids: Optional[List[str]] = Field(
+        product_ids: list[str] | None = Field(
             default=None,
             description="Product IDs for batch operations (max 50)",
         ),
-        description: Optional[str] = Field(
+        description: str | None = Field(
             default=None,
             description="Product description",
         ),
-        level: Optional[int] = Field(
+        level: int | None = Field(
             default=None,
             description="Inventory level 0-100%",
         ),
-        low_threshold: Optional[int] = Field(
+        low_threshold: int | None = Field(
             default=None,
             description="Alert threshold % (default 20)",
         ),
-        threshold: Optional[int] = Field(
+        threshold: int | None = Field(
             default=None,
             description="Low inventory threshold % (default 20)",
         ),
-        days_ahead: Optional[int] = Field(
+        days_ahead: int | None = Field(
             default=None,
             description="Days ahead to check for expiring items",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Pantry inventory tracking with auto-depletion modeling.
 
         SESSION GATE: pantry(action='get_attention') MUST be called before any
@@ -85,13 +85,28 @@ def register_tools(mcp):
         Levels are 0-100%. Low inventory threshold defaults to 20%.
         """
         return await asyncio.to_thread(
-            _pantry_impl, action, product_id, product_ids, description,
-            level, low_threshold, threshold, days_ahead, ctx,
+            _pantry_impl,
+            action,
+            product_id,
+            product_ids,
+            description,
+            level,
+            low_threshold,
+            threshold,
+            days_ahead,
+            ctx,
         )
 
     def _pantry_impl(
-        action, product_id, product_ids, description,
-        level, low_threshold, threshold, days_ahead, ctx,
+        action,
+        product_id,
+        product_ids,
+        description,
+        level,
+        low_threshold,
+        threshold,
+        days_ahead,
+        ctx,
     ):
         match action:
             case "get":
@@ -137,7 +152,10 @@ def register_tools(mcp):
                             )
                             results[pid] = result
                         except Exception as e:
-                            results[pid] = {"success": False, "error": f"Failed to add {pid}: {str(e)}"}
+                            results[pid] = {
+                                "success": False,
+                                "error": f"Failed to add {pid}: {str(e)}",
+                            }
 
                     if is_batch:
                         success_count = sum(1 for r in results.values() if r.get("success"))
@@ -175,7 +193,10 @@ def register_tools(mcp):
                         try:
                             results[pid] = update_pantry_level(pid, level)
                         except Exception as e:
-                            results[pid] = {"success": False, "error": f"Failed to update {pid}: {str(e)}"}
+                            results[pid] = {
+                                "success": False,
+                                "error": f"Failed to update {pid}: {str(e)}",
+                            }
 
                     if is_batch:
                         success_count = sum(1 for r in results.values() if r.get("success"))
@@ -212,7 +233,10 @@ def register_tools(mcp):
                         try:
                             results[pid] = restock_item(pid, _level)
                         except Exception as e:
-                            results[pid] = {"success": False, "error": f"Failed to restock {pid}: {str(e)}"}
+                            results[pid] = {
+                                "success": False,
+                                "error": f"Failed to restock {pid}: {str(e)}",
+                            }
 
                     if is_batch:
                         success_count = sum(1 for r in results.values() if r.get("success"))
@@ -263,7 +287,10 @@ def register_tools(mcp):
                         try:
                             results[pid] = _remove_from_pantry(pid)
                         except Exception as e:
-                            results[pid] = {"success": False, "error": f"Failed to remove {pid}: {str(e)}"}
+                            results[pid] = {
+                                "success": False,
+                                "error": f"Failed to remove {pid}: {str(e)}",
+                            }
 
                     if is_batch:
                         success_count = sum(1 for r in results.values() if r.get("success"))
@@ -290,74 +317,109 @@ def register_tools(mcp):
                     session_id = _get_session_id(ctx)
                     pantry_items = get_pantry_status(apply_depletion=True)
                     overdue_predictions = get_predictions_for_period(
-                        days_ahead=0,
-                        min_confidence=0.5,
-                        include_overdue=True
+                        days_ahead=0, min_confidence=0.5, include_overdue=True
                     )
-                    overdue_ids = {p.product_id: p for p in overdue_predictions if p.days_until is not None and p.days_until < 0}
+                    overdue_ids = {
+                        p.product_id: p
+                        for p in overdue_predictions
+                        if p.days_until is not None and p.days_until < 0
+                    }
                     attention_items = []
 
                     for item in pantry_items:
-                        pid = item['product_id']
+                        pid = item["product_id"]
                         reasons = []
                         urgency_level = None
                         action_msg = None
-                        exp_status = item.get('expiration_status', 'none')
-                        days_to_exp = item.get('days_to_expiration')
-                        if exp_status == 'expired':
-                            reasons.append('expired')
-                            urgency_level = 'critical'
-                            action_msg = f"Use immediately or discard - expired {abs(days_to_exp)} days ago"
-                        elif exp_status == 'critical':
-                            reasons.append('expiring_critical')
-                            urgency_level = 'critical'
+                        exp_status = item.get("expiration_status", "none")
+                        days_to_exp = item.get("days_to_expiration")
+                        if exp_status == "expired":
+                            reasons.append("expired")
+                            urgency_level = "critical"
+                            action_msg = (
+                                f"Use immediately or discard - expired {abs(days_to_exp)} days ago"
+                            )
+                        elif exp_status == "critical":
+                            reasons.append("expiring_critical")
+                            urgency_level = "critical"
                             action_msg = f"Expires in {days_to_exp} days"
-                        elif exp_status == 'warning' and days_to_exp is not None and days_to_exp <= days_ahead_val:
-                            reasons.append('expiring_soon')
-                            urgency_level = urgency_level or 'high'
+                        elif (
+                            exp_status == "warning"
+                            and days_to_exp is not None
+                            and days_to_exp <= days_ahead_val
+                        ):
+                            reasons.append("expiring_soon")
+                            urgency_level = urgency_level or "high"
                             action_msg = action_msg or f"Expiring soon ({days_to_exp} days)"
-                        level = item.get('level_percent', 100)
-                        status = item.get('status', 'ok')
+                        level = item.get("level_percent", 100)
+                        status = item.get("status", "ok")
                         if level <= 10:
-                            reasons.append('critical_inventory')
-                            urgency_level = 'critical'
-                            action_msg = action_msg or f"Running critically low ({level}%) - reorder immediately"
-                        elif level <= 25 and status == 'low':
-                            reasons.append('low_inventory')
-                            urgency_level = urgency_level or 'medium'
+                            reasons.append("critical_inventory")
+                            urgency_level = "critical"
+                            action_msg = (
+                                action_msg
+                                or f"Running critically low ({level}%) - reorder immediately"
+                            )
+                        elif level <= 25 and status == "low":
+                            reasons.append("low_inventory")
+                            urgency_level = urgency_level or "medium"
                             action_msg = action_msg or f"Running low ({level}%) - reorder soon"
                         if pid in overdue_ids:
                             pred = overdue_ids[pid]
                             days_overdue = abs(pred.days_until)
-                            reasons.append('overdue')
-                            urgency_level = urgency_level or 'medium'
-                            action_msg = action_msg or f"Overdue by {days_overdue} days - time to repurchase"
+                            reasons.append("overdue")
+                            urgency_level = urgency_level or "medium"
+                            action_msg = (
+                                action_msg or f"Overdue by {days_overdue} days - time to repurchase"
+                            )
                         if reasons:
-                            attention_items.append({
-                                "product_id": pid,
-                                "description": item['description'],
-                                "attention_reason": reasons[0],
-                                "urgency_level": urgency_level,
-                                "details": {
-                                    "expiration_date": item.get('expiration_date'),
-                                    "days_to_expiration": days_to_exp,
-                                    "pantry_level": level,
-                                    "days_overdue": abs(overdue_ids[pid].days_until) if pid in overdue_ids else 0,
-                                    "days_until_empty": item.get('days_until_empty')
-                                },
-                                "action": action_msg
-                            })
+                            attention_items.append(
+                                {
+                                    "product_id": pid,
+                                    "description": item["description"],
+                                    "attention_reason": reasons[0],
+                                    "urgency_level": urgency_level,
+                                    "details": {
+                                        "expiration_date": item.get("expiration_date"),
+                                        "days_to_expiration": days_to_exp,
+                                        "pantry_level": level,
+                                        "days_overdue": (
+                                            abs(overdue_ids[pid].days_until)
+                                            if pid in overdue_ids
+                                            else 0
+                                        ),
+                                        "days_until_empty": item.get("days_until_empty"),
+                                    },
+                                    "action": action_msg,
+                                }
+                            )
 
-                    urgency_order = {'critical': 0, 'high': 1, 'medium': 2}
-                    attention_items.sort(key=lambda x: urgency_order.get(x['urgency_level'], 3))
+                    urgency_order = {"critical": 0, "high": 1, "medium": 2}
+                    attention_items.sort(key=lambda x: urgency_order.get(x["urgency_level"], 3))
                     summary = {
                         "total_items": len(attention_items),
-                        "expired": sum(1 for i in attention_items if i['attention_reason'] == 'expired'),
-                        "expiring_critical": sum(1 for i in attention_items if i['attention_reason'] == 'expiring_critical'),
-                        "expiring_soon": sum(1 for i in attention_items if i['attention_reason'] == 'expiring_soon'),
-                        "critical_inventory": sum(1 for i in attention_items if i['attention_reason'] == 'critical_inventory'),
-                        "low_inventory": sum(1 for i in attention_items if i['attention_reason'] == 'low_inventory'),
-                        "overdue": sum(1 for i in attention_items if i['attention_reason'] == 'overdue')
+                        "expired": sum(
+                            1 for i in attention_items if i["attention_reason"] == "expired"
+                        ),
+                        "expiring_critical": sum(
+                            1
+                            for i in attention_items
+                            if i["attention_reason"] == "expiring_critical"
+                        ),
+                        "expiring_soon": sum(
+                            1 for i in attention_items if i["attention_reason"] == "expiring_soon"
+                        ),
+                        "critical_inventory": sum(
+                            1
+                            for i in attention_items
+                            if i["attention_reason"] == "critical_inventory"
+                        ),
+                        "low_inventory": sum(
+                            1 for i in attention_items if i["attention_reason"] == "low_inventory"
+                        ),
+                        "overdue": sum(
+                            1 for i in attention_items if i["attention_reason"] == "overdue"
+                        ),
                     }
                     session_manager = get_session_manager()
                     session_manager.mark_tool_called(session_id, "get_pantry_attention")
@@ -366,10 +428,13 @@ def register_tools(mcp):
                         "items": attention_items,
                         "summary": summary,
                         "timestamp": datetime.now().isoformat(),
-                        "_session_requirement_fulfilled": True
+                        "_session_requirement_fulfilled": True,
                     }
                 except Exception as e:
-                    return {"success": False, "error": f"Failed to get pantry attention items: {str(e)}"}
+                    return {
+                        "success": False,
+                        "error": f"Failed to get pantry attention items: {str(e)}",
+                    }
 
             case _:
                 return {"success": False, "error": f"Unknown action: {action}"}
@@ -398,104 +463,104 @@ def register_tools(mcp):
                 "Other: get_item_stats|get_by_category|get_history|get_suggestions|get_seasonal|migrate_data|get_category_summary|configure|get_config|reset_config"
             )
         ),
-        days_ahead: Optional[int] = Field(
+        days_ahead: int | None = Field(
             default=None,
             description="Days to look ahead for predictions",
         ),
-        category: Optional[str] = Field(
+        category: str | None = Field(
             default=None,
             description="Category: routine|regular|treat|uncategorized",
         ),
-        min_confidence: Optional[float] = Field(
+        min_confidence: float | None = Field(
             default=None,
             description="Minimum prediction confidence 0-1",
         ),
-        product_id: Optional[str] = Field(
+        product_id: str | None = Field(
             default=None,
             description="Product ID for single-item operations",
         ),
-        product_ids: Optional[List[str]] = Field(
+        product_ids: list[str] | None = Field(
             default=None,
             description="Product IDs for batch operations (max 20)",
         ),
-        items: Optional[List[Dict[str, Any]]] = Field(
+        items: list[dict[str, Any]] | None = Field(
             default=None,
             description="Batch list: [{product_id, category}] max 50",
         ),
-        history_limit: Optional[int] = Field(
+        history_limit: int | None = Field(
             default=None,
             description="Max history events 1-100",
         ),
-        include_routine: Optional[bool] = Field(
+        include_routine: bool | None = Field(
             default=None,
             description="Include routine items",
         ),
-        include_predicted: Optional[bool] = Field(
+        include_predicted: bool | None = Field(
             default=None,
             description="Include predicted items",
         ),
-        include_seasonal: Optional[bool] = Field(
+        include_seasonal: bool | None = Field(
             default=None,
             description="Include seasonal items",
         ),
-        include_low_pantry: Optional[bool] = Field(
+        include_low_pantry: bool | None = Field(
             default=None,
             description="Include low-inventory items",
         ),
-        include_deals: Optional[bool] = Field(
+        include_deals: bool | None = Field(
             default=None,
             description="Prioritize sale items",
         ),
-        include_predictions_flag: Optional[bool] = Field(
+        include_predictions_flag: bool | None = Field(
             default=None,
             description="Include consumption-based predictions",
         ),
-        include_favorites_only: Optional[bool] = Field(
+        include_favorites_only: bool | None = Field(
             default=None,
             description="Only recommend favorites",
         ),
-        min_score: Optional[int] = Field(
+        min_score: int | None = Field(
             default=None,
             description="Minimum score filter 0-100",
         ),
-        max_results: Optional[int] = Field(
+        max_results: int | None = Field(
             default=None,
             description="Max recommendations 1-100",
         ),
-        holiday: Optional[str] = Field(
+        holiday: str | None = Field(
             default=None,
             description="Holiday: thanksgiving|christmas|halloween|easter|july_4th",
         ),
-        force: Optional[bool] = Field(
+        force: bool | None = Field(
             default=None,
             description="Force re-migration",
         ),
-        ewma_alpha: Optional[float] = Field(
+        ewma_alpha: float | None = Field(
             default=None,
             description="EWMA decay factor 0.1-0.9",
         ),
-        routine_buffer: Optional[float] = Field(
+        routine_buffer: float | None = Field(
             default=None,
             description="Routine items buffer multiplier",
         ),
-        regular_buffer: Optional[float] = Field(
+        regular_buffer: float | None = Field(
             default=None,
             description="Regular items buffer multiplier",
         ),
-        treat_buffer: Optional[float] = Field(
+        treat_buffer: float | None = Field(
             default=None,
             description="Treat items buffer multiplier",
         ),
-        routine_max_days: Optional[int] = Field(
+        routine_max_days: int | None = Field(
             default=None,
             description="Max days between purchases for routine",
         ),
-        regular_max_days: Optional[int] = Field(
+        regular_max_days: int | None = Field(
             default=None,
             description="Max days between purchases for regular",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Purchase predictions and analytics.
 
         Predictions: get_predictions (when to reorder), get_suggestions (what to buy),
@@ -507,21 +572,62 @@ def register_tools(mcp):
         Data: migrate_data.
         """
         return await asyncio.to_thread(
-            _predictions_impl, action, days_ahead, category, min_confidence,
-            product_id, product_ids, items, history_limit, include_routine,
-            include_predicted, include_seasonal, include_low_pantry, include_deals,
-            include_predictions_flag, include_favorites_only, min_score, max_results,
-            holiday, force, ewma_alpha, routine_buffer, regular_buffer, treat_buffer,
-            routine_max_days, regular_max_days, ctx,
+            _predictions_impl,
+            action,
+            days_ahead,
+            category,
+            min_confidence,
+            product_id,
+            product_ids,
+            items,
+            history_limit,
+            include_routine,
+            include_predicted,
+            include_seasonal,
+            include_low_pantry,
+            include_deals,
+            include_predictions_flag,
+            include_favorites_only,
+            min_score,
+            max_results,
+            holiday,
+            force,
+            ewma_alpha,
+            routine_buffer,
+            regular_buffer,
+            treat_buffer,
+            routine_max_days,
+            regular_max_days,
+            ctx,
         )
 
     def _predictions_impl(
-        action, days_ahead, category, min_confidence,
-        product_id, product_ids, items, history_limit, include_routine,
-        include_predicted, include_seasonal, include_low_pantry, include_deals,
-        include_predictions_flag, include_favorites_only, min_score, max_results,
-        holiday, force, ewma_alpha, routine_buffer, regular_buffer, treat_buffer,
-        routine_max_days, regular_max_days, ctx,
+        action,
+        days_ahead,
+        category,
+        min_confidence,
+        product_id,
+        product_ids,
+        items,
+        history_limit,
+        include_routine,
+        include_predicted,
+        include_seasonal,
+        include_low_pantry,
+        include_deals,
+        include_predictions_flag,
+        include_favorites_only,
+        min_score,
+        max_results,
+        holiday,
+        force,
+        ewma_alpha,
+        routine_buffer,
+        regular_buffer,
+        treat_buffer,
+        routine_max_days,
+        regular_max_days,
+        ctx,
     ):
         match action:
             case "get_predictions":
@@ -576,14 +682,17 @@ def register_tools(mcp):
                     return {"success": False, "error": "Maximum 20 products per batch request"}
 
                 try:
-                    from ..analytics.statistics import get_product_statistics
                     from ..analytics.predictions import predict_repurchase_date
                     from ..analytics.purchase_tracker import get_purchase_events
+                    from ..analytics.statistics import get_product_statistics
 
-                    def get_stats_for(pid: str) -> Dict[str, Any]:
+                    def get_stats_for(pid: str) -> dict[str, Any]:
                         stats = get_product_statistics(pid)
                         if not stats:
-                            return {"success": False, "error": f"No statistics found for product {pid}"}
+                            return {
+                                "success": False,
+                                "error": f"No statistics found for product {pid}",
+                            }
                         prediction = predict_repurchase_date(pid, stats)
                         events = get_purchase_events(pid, "order_placed", limit=10)
                         return {
@@ -608,9 +717,7 @@ def register_tools(mcp):
                                 "purchase_frequency_score": round(
                                     stats.get("purchase_frequency_score") or 0, 3
                                 ),
-                                "seasonality_score": round(
-                                    stats.get("seasonality_score") or 0, 2
-                                ),
+                                "seasonality_score": round(stats.get("seasonality_score") or 0, 2),
                             },
                             "prediction": {
                                 "next_purchase_date": (
@@ -747,9 +854,7 @@ def register_tools(mcp):
                                     item.get("avg_days_between_purchases") or 0, 1
                                 ),
                                 "last_purchase": item.get("last_purchase_date"),
-                                "seasonality_score": round(
-                                    item.get("seasonality_score") or 0, 2
-                                ),
+                                "seasonality_score": round(item.get("seasonality_score") or 0, 2),
                             }
                             for item in cat_items
                         ],
@@ -765,7 +870,9 @@ def register_tools(mcp):
                 try:
                     from ..analytics.purchase_tracker import get_purchase_events
 
-                    events = get_purchase_events(product_id, event_type="order_placed", limit=_limit)
+                    events = get_purchase_events(
+                        product_id, event_type="order_placed", limit=_limit
+                    )
                     return {
                         "success": True,
                         "product_id": product_id,
@@ -811,14 +918,19 @@ def register_tools(mcp):
                     _days = days_ahead if days_ahead is not None else 14
                     _low_pantry = include_low_pantry if include_low_pantry is not None else True
                     _deals = include_deals if include_deals is not None else True
-                    _preds = include_predictions_flag if include_predictions_flag is not None else True
-                    _fav_only = include_favorites_only if include_favorites_only is not None else False
+                    _preds = (
+                        include_predictions_flag if include_predictions_flag is not None else True
+                    )
+                    _fav_only = (
+                        include_favorites_only if include_favorites_only is not None else False
+                    )
                     _min_score = min_score if min_score is not None else 20
                     _max_res = max_results if max_results is not None else 50
 
                     location_id = None
                     try:
                         from ..storage import get_preferred_location
+
                         location = get_preferred_location()
                         if location:
                             location_id = location.get("location_id")
@@ -836,19 +948,34 @@ def register_tools(mcp):
                         location_id=location_id,
                     )
                 except Exception as e:
-                    return {"success": False, "error": f"Failed to get smart recommendations: {str(e)}"}
+                    return {
+                        "success": False,
+                        "error": f"Failed to get smart recommendations: {str(e)}",
+                    }
 
             case "get_seasonal":
                 try:
                     _days = days_ahead if days_ahead is not None else 30
                     if holiday:
                         from ..analytics.seasonal import get_holiday_items
+
                         sea_items = get_holiday_items(holiday)
-                        return {"success": True, "holiday": holiday, "items": sea_items, "count": len(sea_items)}
+                        return {
+                            "success": True,
+                            "holiday": holiday,
+                            "items": sea_items,
+                            "count": len(sea_items),
+                        }
                     else:
                         from ..analytics.seasonal import get_upcoming_seasonal_items
+
                         sea_items = get_upcoming_seasonal_items(_days)
-                        return {"success": True, "days_ahead": _days, "items": sea_items, "count": len(sea_items)}
+                        return {
+                            "success": True,
+                            "days_ahead": _days,
+                            "items": sea_items,
+                            "count": len(sea_items),
+                        }
                 except Exception as e:
                     return {"success": False, "error": f"Failed to get seasonal items: {str(e)}"}
 
@@ -904,7 +1031,11 @@ def register_tools(mcp):
                     if regular_max_days is not None:
                         kwargs["regular_max_days"] = regular_max_days
 
-                    result = update_config(**kwargs) if kwargs else {"success": True, "message": "No changes specified"}
+                    result = (
+                        update_config(**kwargs)
+                        if kwargs
+                        else {"success": True, "message": "No changes specified"}
+                    )
                     result["current_config"] = get_config_summary()
                     return result
                 except Exception as e:

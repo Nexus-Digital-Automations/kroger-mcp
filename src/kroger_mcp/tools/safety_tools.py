@@ -3,7 +3,7 @@ Safety management tools for Kroger MCP server.
 """
 
 import asyncio
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
@@ -38,76 +38,101 @@ def register_tools(mcp):
         ] = Field(
             description="get_settings|configure|get_bad_ingredients|toggle_ingredient|get_preferences|reset_preferences|approve_product|unapprove_product|get_safe_products|block_product|unblock_product|get_blocked_products|check_product|check_products|check_cart"
         ),
-        filtering_enabled: Optional[bool] = Field(
+        filtering_enabled: bool | None = Field(
             default=None,
             description="Enable or disable ingredient filtering",
         ),
-        block_mode: Optional[str] = Field(
+        block_mode: str | None = Field(
             default=None,
             description="soft|hard|warn_only",
         ),
-        include_custom: Optional[bool] = Field(
+        include_custom: bool | None = Field(
             default=True,
             description="Include custom ingredients",
         ),
-        include_overrides: Optional[bool] = Field(
+        include_overrides: bool | None = Field(
             default=True,
             description="Apply user overrides",
         ),
-        filter_severity: Optional[Literal["critical", "warning", "watch"]] = Field(
+        filter_severity: Literal["critical", "warning", "watch"] | None = Field(
             default=None,
             description="Filter by severity",
         ),
-        filter_category: Optional[str] = Field(
+        filter_category: str | None = Field(
             default=None,
             description="Filter by category",
         ),
-        ingredient_key: Optional[str] = Field(
+        ingredient_key: str | None = Field(
             default=None,
             description="Ingredient key e.g. msg",
         ),
-        enabled: Optional[bool] = Field(
+        enabled: bool | None = Field(
             default=None,
             description="True=enable, False=disable",
         ),
-        product_id: Optional[str] = Field(
+        product_id: str | None = Field(
             default=None,
             description="Kroger product ID",
         ),
-        description: Optional[str] = Field(
+        description: str | None = Field(
             default=None,
             description="Product description",
         ),
-        brand: Optional[str] = Field(
+        brand: str | None = Field(
             default=None,
             description="Product brand",
         ),
-        reason: Optional[str] = Field(
+        reason: str | None = Field(
             default=None,
             description="Reason for approval or blocking",
         ),
-        products: Optional[List[Dict[str, Any]]] = Field(
+        products: list[dict[str, Any]] | None = Field(
             default=None,
             description="List of {product_id, description}",
         ),
-        product_ids: Optional[List[str]] = Field(
+        product_ids: list[str] | None = Field(
             default=None,
             description="Batch unapprove/unblock: list of product IDs",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Ingredient safety filter and product management operations."""
         return await asyncio.to_thread(
-            _safety_impl, action, filtering_enabled, block_mode, include_custom,
-            include_overrides, filter_severity, filter_category, ingredient_key,
-            enabled, product_id, description, brand, reason, products, product_ids,
+            _safety_impl,
+            action,
+            filtering_enabled,
+            block_mode,
+            include_custom,
+            include_overrides,
+            filter_severity,
+            filter_category,
+            ingredient_key,
+            enabled,
+            product_id,
+            description,
+            brand,
+            reason,
+            products,
+            product_ids,
             ctx,
         )
 
     def _safety_impl(
-        action, filtering_enabled, block_mode, include_custom,
-        include_overrides, filter_severity, filter_category, ingredient_key,
-        enabled, product_id, description, brand, reason, products, product_ids,
+        action,
+        filtering_enabled,
+        block_mode,
+        include_custom,
+        include_overrides,
+        filter_severity,
+        filter_category,
+        ingredient_key,
+        enabled,
+        product_id,
+        description,
+        brand,
+        reason,
+        products,
+        product_ids,
         ctx,
     ):
         match action:
@@ -235,7 +260,12 @@ def register_tools(mcp):
                         for p in products
                     ]
                     approved = sum(1 for r in results if r.get("success"))
-                    return {"success": True, "approved": approved, "total": len(products), "results": results}
+                    return {
+                        "success": True,
+                        "approved": approved,
+                        "total": len(products),
+                        "results": results,
+                    }
 
                 if not product_id:
                     return {"success": False, "error": "product_id or products is required"}
@@ -287,7 +317,12 @@ def register_tools(mcp):
                         for p in products
                     ]
                     blocked = sum(1 for r in results if r.get("success"))
-                    return {"success": True, "blocked": blocked, "total": len(products), "results": results}
+                    return {
+                        "success": True,
+                        "blocked": blocked,
+                        "total": len(products),
+                        "results": results,
+                    }
 
                 if not product_id:
                     return {"success": False, "error": "product_id or products is required"}
@@ -312,7 +347,12 @@ def register_tools(mcp):
 
                 results = {pid: _safety.remove_from_blocked_list(pid) for pid in ids}
                 unblocked = sum(1 for r in results.values() if r.get("success"))
-                return {"success": True, "unblocked": unblocked, "total": len(ids), "results": results}
+                return {
+                    "success": True,
+                    "unblocked": unblocked,
+                    "total": len(ids),
+                    "results": results,
+                }
 
             case "get_blocked_products":
                 if ctx:

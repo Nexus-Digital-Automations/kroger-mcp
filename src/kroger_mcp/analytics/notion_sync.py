@@ -9,10 +9,9 @@ failures never block recipe operations.
 import json
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-from urllib.request import Request, urlopen
+from typing import Any
 from urllib.error import HTTPError
-
+from urllib.request import Request, urlopen
 
 # Sync state file — maps recipe_id → notion_page_id
 NOTION_SYNC_FILE = "kroger_notion_sync.json"
@@ -26,11 +25,12 @@ NOTION_VERSION = "2022-06-28"
 # Sync state helpers
 # ---------------------------------------------------------------------------
 
-def _load_sync_state() -> Dict[str, Any]:
+
+def _load_sync_state() -> dict[str, Any]:
     """Load the Notion sync state from disk."""
     try:
         if os.path.exists(NOTION_SYNC_FILE):
-            with open(NOTION_SYNC_FILE, "r") as f:
+            with open(NOTION_SYNC_FILE) as f:
                 return json.load(f)
     except Exception:
         pass
@@ -43,7 +43,7 @@ def _load_sync_state() -> Dict[str, Any]:
     }
 
 
-def _save_sync_state(state: Dict[str, Any]) -> None:
+def _save_sync_state(state: dict[str, Any]) -> None:
     """Persist sync state to disk."""
     try:
         with open(NOTION_SYNC_FILE, "w") as f:
@@ -56,12 +56,13 @@ def _save_sync_state(state: Dict[str, Any]) -> None:
 # Notion API helpers
 # ---------------------------------------------------------------------------
 
+
 def _notion_request(
     method: str,
     path: str,
     api_key: str,
-    body: Optional[Dict] = None,
-) -> Dict[str, Any]:
+    body: dict | None = None,
+) -> dict[str, Any]:
     """
     Make a Notion API request. Raises on HTTP error.
 
@@ -91,16 +92,16 @@ def _notion_request(
             error_data = json.loads(error_body)
             raise RuntimeError(
                 f"Notion API {e.code}: {error_data.get('message', error_body)}"
-            )
+            ) from e
         except (json.JSONDecodeError, KeyError):
-            raise RuntimeError(f"Notion API {e.code}: {error_body}")
+            raise RuntimeError(f"Notion API {e.code}: {error_body}") from e
 
 
 def _paginate_query(
     api_key: str,
     database_id: str,
-    filter_body: Optional[Dict] = None,
-) -> List[Dict]:
+    filter_body: dict | None = None,
+) -> list[dict]:
     """
     Query all pages from a Notion database, handling pagination.
     Returns list of page objects.
@@ -109,15 +110,13 @@ def _paginate_query(
     start_cursor = None
 
     while True:
-        body: Dict[str, Any] = {"page_size": 100}
+        body: dict[str, Any] = {"page_size": 100}
         if filter_body:
             body["filter"] = filter_body
         if start_cursor:
             body["start_cursor"] = start_cursor
 
-        resp = _notion_request(
-            "POST", f"/databases/{database_id}/query", api_key, body
-        )
+        resp = _notion_request("POST", f"/databases/{database_id}/query", api_key, body)
         results.extend(resp.get("results", []))
 
         if not resp.get("has_more"):
@@ -131,20 +130,17 @@ def _paginate_query(
 # Property builders
 # ---------------------------------------------------------------------------
 
-def _build_properties(recipe: Dict[str, Any]) -> Dict[str, Any]:
+
+def _build_properties(recipe: dict[str, Any]) -> dict[str, Any]:
     """Build Notion page properties from a recipe dict."""
-    props: Dict[str, Any] = {}
+    props: dict[str, Any] = {}
 
     # Name (title property)
-    props["Name"] = {
-        "title": [{"text": {"content": recipe.get("name", "Untitled Recipe")}}]
-    }
+    props["Name"] = {"title": [{"text": {"content": recipe.get("name", "Untitled Recipe")}}]}
 
     # Tags (multi_select)
     tags = recipe.get("tags", [])
-    props["Tags"] = {
-        "multi_select": [{"name": str(t)} for t in tags if t]
-    }
+    props["Tags"] = {"multi_select": [{"name": str(t)} for t in tags if t]}
 
     # Servings (number)
     servings = recipe.get("servings")
@@ -157,9 +153,7 @@ def _build_properties(recipe: Dict[str, Any]) -> Dict[str, Any]:
 
     # Description (rich_text)
     description = recipe.get("description") or ""
-    props["Description"] = {
-        "rich_text": [{"text": {"content": description[:2000]}}]
-    }
+    props["Description"] = {"rich_text": [{"text": {"content": description[:2000]}}]}
 
     # Last Ordered (date)
     last_ordered = recipe.get("last_ordered_at")
@@ -172,27 +166,25 @@ def _build_properties(recipe: Dict[str, Any]) -> Dict[str, Any]:
         props["Created"] = {"date": {"start": created_at[:10]}}
 
     # Recipe ID (rich_text — used for sync matching)
-    props["Recipe ID"] = {
-        "rich_text": [{"text": {"content": recipe.get("id", "")}}]
-    }
+    props["Recipe ID"] = {"rich_text": [{"text": {"content": recipe.get("id", "")}}]}
 
     return props
 
 
-def _build_page_blocks(recipe: Dict[str, Any]) -> List[Dict]:
+def _build_page_blocks(recipe: dict[str, Any]) -> list[dict]:
     """Build Notion page body blocks for a recipe."""
-    blocks: List[Dict] = []
+    blocks: list[dict] = []
 
     # Ingredients section
     ingredients = recipe.get("ingredients", [])
     if ingredients:
-        blocks.append({
-            "object": "block",
-            "type": "heading_2",
-            "heading_2": {
-                "rich_text": [{"type": "text", "text": {"content": "Ingredients"}}]
-            },
-        })
+        blocks.append(
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {"rich_text": [{"type": "text", "text": {"content": "Ingredients"}}]},
+            }
+        )
         for ing in ingredients:
             qty = ing.get("quantity", "")
             unit = ing.get("unit", "")
@@ -204,50 +196,56 @@ def _build_page_blocks(recipe: Dict[str, Any]) -> List[Dict]:
             if substitutes:
                 text += f" (or: {', '.join(substitutes)})"
 
-            blocks.append({
-                "object": "block",
-                "type": "bulleted_list_item",
-                "bulleted_list_item": {
-                    "rich_text": [{"type": "text", "text": {"content": text[:2000]}}]
-                },
-            })
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "bulleted_list_item",
+                    "bulleted_list_item": {
+                        "rich_text": [{"type": "text", "text": {"content": text[:2000]}}]
+                    },
+                }
+            )
 
     # Instructions section
     steps = recipe.get("steps", [])
     instructions = recipe.get("instructions", "")
 
     if steps:
-        blocks.append({
-            "object": "block",
-            "type": "heading_2",
-            "heading_2": {
-                "rich_text": [{"type": "text", "text": {"content": "Instructions"}}]
-            },
-        })
+        blocks.append(
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {"rich_text": [{"type": "text", "text": {"content": "Instructions"}}]},
+            }
+        )
         for step in steps:
             step_text = step.get("instruction", "") if isinstance(step, dict) else str(step)
-            blocks.append({
-                "object": "block",
-                "type": "numbered_list_item",
-                "numbered_list_item": {
-                    "rich_text": [{"type": "text", "text": {"content": step_text[:2000]}}]
-                },
-            })
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "numbered_list_item",
+                    "numbered_list_item": {
+                        "rich_text": [{"type": "text", "text": {"content": step_text[:2000]}}]
+                    },
+                }
+            )
     elif instructions:
-        blocks.append({
-            "object": "block",
-            "type": "heading_2",
-            "heading_2": {
-                "rich_text": [{"type": "text", "text": {"content": "Instructions"}}]
-            },
-        })
-        blocks.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": instructions[:2000]}}]
-            },
-        })
+        blocks.append(
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {"rich_text": [{"type": "text", "text": {"content": "Instructions"}}]},
+            }
+        )
+        blocks.append(
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"type": "text", "text": {"content": instructions[:2000]}}]
+                },
+            }
+        )
 
     return blocks
 
@@ -255,6 +253,7 @@ def _build_page_blocks(recipe: Dict[str, Any]) -> List[Dict]:
 # ---------------------------------------------------------------------------
 # Database setup
 # ---------------------------------------------------------------------------
+
 
 def setup_database(workspace_id: str, api_key: str) -> str:
     """
@@ -302,7 +301,8 @@ def setup_database(workspace_id: str, api_key: str) -> str:
 # Push / create / update
 # ---------------------------------------------------------------------------
 
-def push_recipe(recipe: Dict[str, Any], api_key: str, database_id: str) -> str:
+
+def push_recipe(recipe: dict[str, Any], api_key: str, database_id: str) -> str:
     """
     Create or update a Notion page for a recipe.
 
@@ -325,16 +325,14 @@ def push_recipe(recipe: Dict[str, Any], api_key: str, database_id: str) -> str:
     if existing_entry and existing_entry.get("notion_page_id"):
         # Update existing page properties
         page_id = existing_entry["notion_page_id"]
-        _notion_request(
-            "PATCH", f"/pages/{page_id}", api_key, {"properties": properties}
-        )
+        _notion_request("PATCH", f"/pages/{page_id}", api_key, {"properties": properties})
         # Note: Notion API does not support replacing block children directly
         # without first deleting them. For simplicity, property updates only.
         # Full block refresh would require listing & deleting existing children first.
     else:
         # Create new page with properties + body blocks
         blocks = _build_page_blocks(recipe)
-        body: Dict[str, Any] = {
+        body: dict[str, Any] = {
             "parent": {"database_id": database_id},
             "properties": properties,
         }
@@ -361,6 +359,7 @@ def push_recipe(recipe: Dict[str, Any], api_key: str, database_id: str) -> str:
 # ---------------------------------------------------------------------------
 # Delete
 # ---------------------------------------------------------------------------
+
 
 def delete_recipe_page(recipe_id: str, api_key: str) -> bool:
     """
@@ -391,7 +390,8 @@ def delete_recipe_page(recipe_id: str, api_key: str) -> bool:
 # Pull changes
 # ---------------------------------------------------------------------------
 
-def pull_changes(api_key: str, database_id: str) -> List[Dict[str, Any]]:
+
+def pull_changes(api_key: str, database_id: str) -> list[dict[str, Any]]:
     """
     Fetch pages edited in Notion since last pull and return updated recipe dicts.
 
@@ -414,9 +414,7 @@ def pull_changes(api_key: str, database_id: str) -> List[Dict[str, Any]]:
 
     # Build reverse map: page_id → recipe_id
     page_to_recipe = {
-        v["notion_page_id"]: rid
-        for rid, v in recipe_sync.items()
-        if v.get("notion_page_id")
+        v["notion_page_id"]: rid for rid, v in recipe_sync.items() if v.get("notion_page_id")
     }
 
     for page in pages:
@@ -426,11 +424,7 @@ def pull_changes(api_key: str, database_id: str) -> List[Dict[str, Any]]:
         recipe_id = page_to_recipe.get(page_id_normalized)
         if not recipe_id:
             # Try to extract Recipe ID property
-            recipe_id_prop = (
-                page.get("properties", {})
-                .get("Recipe ID", {})
-                .get("rich_text", [{}])
-            )
+            recipe_id_prop = page.get("properties", {}).get("Recipe ID", {}).get("rich_text", [{}])
             if recipe_id_prop:
                 recipe_id = recipe_id_prop[0].get("text", {}).get("content", "")
 
@@ -447,7 +441,7 @@ def pull_changes(api_key: str, database_id: str) -> List[Dict[str, Any]]:
 
         # Extract property changes from Notion page
         props = page.get("properties", {})
-        changes: Dict[str, Any] = {}
+        changes: dict[str, Any] = {}
 
         # Name
         name_prop = props.get("Name", {}).get("title", [{}])
@@ -469,12 +463,14 @@ def pull_changes(api_key: str, database_id: str) -> List[Dict[str, Any]]:
             changes["servings"] = servings_prop
 
         if changes:
-            updated.append({
-                "recipe_id": recipe_id,
-                "notion_page_id": page_id_normalized,
-                "notion_last_edited": notion_edited,
-                "changes": changes,
-            })
+            updated.append(
+                {
+                    "recipe_id": recipe_id,
+                    "notion_page_id": page_id_normalized,
+                    "notion_last_edited": notion_edited,
+                    "changes": changes,
+                }
+            )
 
             # Update sync state timestamps
             if recipe_id in recipe_sync:
@@ -491,7 +487,8 @@ def pull_changes(api_key: str, database_id: str) -> List[Dict[str, Any]]:
 # Full sync
 # ---------------------------------------------------------------------------
 
-def sync_all(recipes: List[Dict[str, Any]], api_key: str, database_id: str) -> Dict[str, Any]:
+
+def sync_all(recipes: list[dict[str, Any]], api_key: str, database_id: str) -> dict[str, Any]:
     """
     Full resync: push all recipes to Notion.
 
@@ -527,9 +524,10 @@ def sync_all(recipes: List[Dict[str, Any]], api_key: str, database_id: str) -> D
 # Tag operations
 # ---------------------------------------------------------------------------
 
+
 def update_recipe_tags(
     recipe_id: str,
-    tags: List[str],
+    tags: list[str],
     api_key: str,
     database_id: str,
 ) -> bool:
@@ -561,11 +559,11 @@ def update_recipe_tags(
 
 
 def bulk_tag(
-    recipe_ids: List[str],
+    recipe_ids: list[str],
     tag: str,
     api_key: str,
     database_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Add a tag to many recipes at once (on Notion pages).
 
@@ -595,9 +593,7 @@ def bulk_tag(
             resp = _notion_request("GET", f"/pages/{page_id}", api_key)
             current_tags = [
                 t["name"]
-                for t in resp.get("properties", {})
-                .get("Tags", {})
-                .get("multi_select", [])
+                for t in resp.get("properties", {}).get("Tags", {}).get("multi_select", [])
             ]
             if tag not in current_tags:
                 current_tags.append(tag)
@@ -606,13 +602,7 @@ def bulk_tag(
                 "PATCH",
                 f"/pages/{page_id}",
                 api_key,
-                {
-                    "properties": {
-                        "Tags": {
-                            "multi_select": [{"name": t} for t in current_tags]
-                        }
-                    }
-                },
+                {"properties": {"Tags": {"multi_select": [{"name": t} for t in current_tags]}}},
             )
             updated += 1
         except Exception as e:
@@ -625,7 +615,8 @@ def bulk_tag(
 # Status
 # ---------------------------------------------------------------------------
 
-def get_sync_status(api_key: str, database_id: str) -> Dict[str, Any]:
+
+def get_sync_status(api_key: str, database_id: str) -> dict[str, Any]:
     """
     Return sync stats: total pages in Notion vs local sync state.
 

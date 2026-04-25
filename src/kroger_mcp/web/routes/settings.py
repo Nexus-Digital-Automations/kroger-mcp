@@ -1,14 +1,15 @@
 """Settings page route."""
+
 import json
 import pathlib
 import tempfile
-from typing import Optional
+from pathlib import Path
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from kroger_mcp.tools.shared import get_preferred_location_id, get_default_servings
-from pathlib import Path
+
+from kroger_mcp.tools.shared import get_default_servings, get_preferred_location_id
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -21,8 +22,8 @@ _WEB_OAUTH_STATE_FILE = pathlib.Path(tempfile.gettempdir()) / "kroger_web_oauth_
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(
     request: Request,
-    oauth: Optional[str] = Query(default=None),
-    detail: Optional[str] = Query(default=None),
+    oauth: str | None = Query(default=None),
+    detail: str | None = Query(default=None),
 ):
     location_id = get_preferred_location_id() or ""
     servings = get_default_servings()
@@ -31,6 +32,7 @@ async def settings_page(
     auth_status = "not_configured"
     try:
         from kroger_mcp.tools.shared import get_authenticated_client
+
         get_authenticated_client()
         auth_status = "authenticated"
     except Exception as exc:
@@ -39,26 +41,30 @@ async def settings_page(
         else:
             auth_status = "not_configured"
 
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
-        "active_page": "settings",
-        "location_id": location_id,
-        "servings": servings,
-        "auth_status": auth_status,
-        "oauth_result": oauth or "",
-        "oauth_detail": detail or "",
-    })
+    return templates.TemplateResponse(
+        "settings.html",
+        {
+            "request": request,
+            "active_page": "settings",
+            "location_id": location_id,
+            "servings": servings,
+            "auth_status": auth_status,
+            "oauth_result": oauth or "",
+            "oauth_detail": detail or "",
+        },
+    )
 
 
 @router.get("/callback")
 async def oauth_callback(
     request: Request,
-    code: Optional[str] = Query(default=None),
-    state: Optional[str] = Query(default=None),
-    error: Optional[str] = Query(default=None),
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
 ):
     """Handle Kroger OAuth callback — exchange code for token, redirect to settings."""
     from kroger_api import KrogerAPI
+
     from kroger_mcp.tools.shared import (
         get_kroger_credentials,
         invalidate_authenticated_client,

@@ -14,33 +14,32 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
-
 
 # Shopping list storage file
 _BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
 SHOPPING_LIST_FILE = str(_BASE_DIR / "kroger_shopping_list.json")
 
 
-def _load_shopping_list() -> Dict[str, Any]:
+def _load_shopping_list() -> dict[str, Any]:
     """Load shopping list from JSON file."""
     try:
         if os.path.exists(SHOPPING_LIST_FILE):
-            with open(SHOPPING_LIST_FILE, 'r') as f:
+            with open(SHOPPING_LIST_FILE) as f:
                 return json.load(f)
     except Exception:
         pass
     return {"items": [], "last_updated": None}
 
 
-def _save_shopping_list(data: Dict[str, Any]) -> None:
+def _save_shopping_list(data: dict[str, Any]) -> None:
     """Save shopping list to JSON file."""
     try:
         data["last_updated"] = datetime.now().isoformat()
-        with open(SHOPPING_LIST_FILE, 'w') as f:
+        with open(SHOPPING_LIST_FILE, "w") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
         print(f"Warning: Could not save shopping list: {e}")
@@ -51,7 +50,7 @@ def _generate_list_item_id() -> str:
     return f"list_item_{str(uuid.uuid4())[:8]}"
 
 
-def _consolidate_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _consolidate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Consolidate shopping list items by product_id.
 
@@ -93,12 +92,12 @@ def _get_session_id(ctx: Context) -> str:
 
     Falls back to 'default' if no context available (testing, etc.)
     """
-    if ctx and hasattr(ctx, 'session_id'):
+    if ctx and hasattr(ctx, "session_id"):
         return str(ctx.session_id)
-    return 'default'
+    return "default"
 
 
-def _check_attention_requirement(ctx: Context) -> Optional[Dict[str, Any]]:
+def _check_attention_requirement(ctx: Context) -> dict[str, Any] | None:
     """
     Check if get_pantry_attention was called this session.
 
@@ -119,13 +118,13 @@ def _check_attention_requirement(ctx: Context) -> Optional[Dict[str, Any]]:
                 "This ensures you review expiring items, low inventory, and what you "
                 "already have before building your shopping list."
             ),
-            "required_action": "Call get_pantry_attention() first"
+            "required_action": "Call get_pantry_attention() first",
         }
 
     return None  # Requirement met
 
 
-def _ingredient_matches(ingredient_name: str, skip_items: List[str]) -> bool:
+def _ingredient_matches(ingredient_name: str, skip_items: list[str]) -> bool:
     """Check if ingredient matches any skip item (case-insensitive, partial)."""
     if not skip_items:
         return False
@@ -150,18 +149,18 @@ def register_tools(mcp):
                 "Other: get|remove|update_item"
             )
         ),
-        recipe_id: Optional[str] = Field(default=None, description="Recipe ID"),
-        servings: Optional[int] = Field(default=None, ge=1, le=20, description="Override servings"),
-        skip_items: Optional[List[str]] = Field(default=None, description="Ingredient names to skip"),
-        item_id: Optional[str] = Field(default=None, description="Item ID"),
-        item_ids: Optional[List[str]] = Field(default=None, description="Item IDs for batch remove"),
-        clear_all: Optional[bool] = Field(default=None, description="Clear entire list"),
-        quantity: Optional[int] = Field(default=None, ge=1, description="New quantity"),
-        notes: Optional[str] = Field(default=None, description="Item notes"),
-        modality: Optional[str] = Field(default=None, description="PICKUP or DELIVERY"),
-        confirm: Optional[bool] = Field(default=None, description="False=preview, True=execute"),
+        recipe_id: str | None = Field(default=None, description="Recipe ID"),
+        servings: int | None = Field(default=None, ge=1, le=20, description="Override servings"),
+        skip_items: list[str] | None = Field(default=None, description="Ingredient names to skip"),
+        item_id: str | None = Field(default=None, description="Item ID"),
+        item_ids: list[str] | None = Field(default=None, description="Item IDs for batch remove"),
+        clear_all: bool | None = Field(default=None, description="Clear entire list"),
+        quantity: int | None = Field(default=None, ge=1, description="New quantity"),
+        notes: str | None = Field(default=None, description="Item notes"),
+        modality: str | None = Field(default=None, description="PICKUP or DELIVERY"),
+        confirm: bool | None = Field(default=None, description="False=preview, True=execute"),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Shopping list — intermediate buffer between recipes and cart.
 
         SESSION REQUIREMENT: Call pantry(action='get_attention') before using.
@@ -170,13 +169,34 @@ def register_tools(mcp):
         Supports skip_items to exclude specific ingredients.
         """
         return await asyncio.to_thread(
-            _shopping_list_impl, action, recipe_id, servings, skip_items,
-            item_id, item_ids, clear_all, quantity, notes, modality, confirm, ctx,
+            _shopping_list_impl,
+            action,
+            recipe_id,
+            servings,
+            skip_items,
+            item_id,
+            item_ids,
+            clear_all,
+            quantity,
+            notes,
+            modality,
+            confirm,
+            ctx,
         )
 
     def _shopping_list_impl(
-        action, recipe_id, servings, skip_items,
-        item_id, item_ids, clear_all, quantity, notes, modality, confirm, ctx,
+        action,
+        recipe_id,
+        servings,
+        skip_items,
+        item_id,
+        item_ids,
+        clear_all,
+        quantity,
+        notes,
+        modality,
+        confirm,
+        ctx,
     ):
         match action:
             case "add_recipe":
@@ -192,10 +212,7 @@ def register_tools(mcp):
                     # Find recipe
                     recipe = _find_recipe(recipe_id)
                     if not recipe:
-                        return {
-                            "success": False,
-                            "error": f"Recipe '{recipe_id}' not found"
-                        }
+                        return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
 
                     # Determine servings to use
                     household_default = get_default_servings()
@@ -212,11 +229,12 @@ def register_tools(mcp):
                     pantry_context = {}
                     try:
                         from ..analytics.pantry import get_pantry_status
+
                         pantry_items = get_pantry_status(apply_depletion=True)
                         for item in pantry_items:
-                            pantry_context[item['product_id']] = {
+                            pantry_context[item["product_id"]] = {
                                 "level_percent": item.get("level_percent", 0),
-                                "status": item.get("status")
+                                "status": item.get("status"),
                             }
                     except Exception:
                         pass
@@ -237,7 +255,9 @@ def register_tools(mcp):
                         is_override = ing.get("override", False)
 
                         # Calculate scaled quantity
-                        scaled_quantity = round(quantity_val * scale_factor, 2) if quantity_val else 1
+                        scaled_quantity = (
+                            round(quantity_val * scale_factor, 2) if quantity_val else 1
+                        )
 
                         # Handle override (manual purchase) items
                         if is_override:
@@ -262,7 +282,9 @@ def register_tools(mcp):
                                 "manual_purchase": True,
                             }
                             data["items"].append(list_item)
-                            manual_purchase_items.append({"name": name, "override_reason": override_reason})
+                            manual_purchase_items.append(
+                                {"name": name, "override_reason": override_reason}
+                            )
                             items_added += 1
                             continue
 
@@ -278,7 +300,9 @@ def register_tools(mcp):
                         pantry_level = pantry.get("level_percent")
                         if pantry_level is not None and pantry_level >= 30:
                             items_skipped += 1
-                            skip_reasons["pantry_threshold"].append(f"{name} (pantry at {pantry_level}%)")
+                            skip_reasons["pantry_threshold"].append(
+                                f"{name} (pantry at {pantry_level}%)"
+                            )
                             continue
 
                         # Add to shopping list
@@ -294,7 +318,7 @@ def register_tools(mcp):
                                     "recipe_name": recipe.get("name"),
                                     "servings_used": servings,
                                     "original_quantity": quantity_val,
-                                    "scaled_quantity": scaled_quantity
+                                    "scaled_quantity": scaled_quantity,
                                 }
                             ],
                             "added_at": datetime.now().isoformat(),
@@ -309,7 +333,9 @@ def register_tools(mcp):
                     _save_shopping_list(data)
 
                     if ctx:
-                        ctx.info(f"Added {items_added} ingredients from '{recipe.get('name')}' to shopping list")
+                        ctx.info(
+                            f"Added {items_added} ingredients from '{recipe.get('name')}' to shopping list"
+                        )
 
                     return {
                         "success": True,
@@ -330,7 +356,8 @@ def register_tools(mcp):
                             f"(scaled to {servings} servings)"
                             + (
                                 f". {len(manual_purchase_items)} item(s) require manual purchase."
-                                if manual_purchase_items else ""
+                                if manual_purchase_items
+                                else ""
                             )
                         ),
                     }
@@ -338,7 +365,7 @@ def register_tools(mcp):
                 except Exception as e:
                     return {
                         "success": False,
-                        "error": f"Failed to add recipe to shopping list: {str(e)}"
+                        "error": f"Failed to add recipe to shopping list: {str(e)}",
                     }
 
             case "get":
@@ -357,7 +384,7 @@ def register_tools(mcp):
                                 recipes_map[rid] = {
                                     "recipe_id": rid,
                                     "recipe_name": source.get("recipe_name"),
-                                    "servings": source.get("servings_used")
+                                    "servings": source.get("servings_used"),
                                 }
 
                     recipes_included = list(recipes_map.values())
@@ -371,15 +398,12 @@ def register_tools(mcp):
                         "servings_summary": {
                             "household_default": get_default_servings(),
                             "total_servings_planned": total_servings,
-                            "total_meals": len(recipes_included)
-                        }
+                            "total_meals": len(recipes_included),
+                        },
                     }
 
                 except Exception as e:
-                    return {
-                        "success": False,
-                        "error": f"Failed to get shopping list: {str(e)}"
-                    }
+                    return {"success": False, "error": f"Failed to get shopping list: {str(e)}"}
 
             case "remove":
                 try:
@@ -392,7 +416,7 @@ def register_tools(mcp):
                         return {
                             "success": True,
                             "message": f"Cleared {item_count} items from shopping list",
-                            "items_removed": item_count
+                            "items_removed": item_count,
                         }
 
                     if item_id:
@@ -402,13 +426,12 @@ def register_tools(mcp):
                     else:
                         return {
                             "success": False,
-                            "error": "Provide item_id, item_ids, or set clear_all=True"
+                            "error": "Provide item_id, item_ids, or set clear_all=True",
                         }
 
                     original_count = len(data["items"])
                     data["items"] = [
-                        item for item in data["items"]
-                        if item.get("id") not in ids_to_remove
+                        item for item in data["items"] if item.get("id") not in ids_to_remove
                     ]
                     removed_count = original_count - len(data["items"])
 
@@ -418,13 +441,13 @@ def register_tools(mcp):
                         "success": True,
                         "items_removed": removed_count,
                         "remaining_items": len(data["items"]),
-                        "message": f"Removed {removed_count} item(s) from shopping list"
+                        "message": f"Removed {removed_count} item(s) from shopping list",
                     }
 
                 except Exception as e:
                     return {
                         "success": False,
-                        "error": f"Failed to remove from shopping list: {str(e)}"
+                        "error": f"Failed to remove from shopping list: {str(e)}",
                     }
 
             case "update_item":
@@ -445,7 +468,7 @@ def register_tools(mcp):
                     if not found:
                         return {
                             "success": False,
-                            "error": f"Item '{item_id}' not found in shopping list"
+                            "error": f"Item '{item_id}' not found in shopping list",
                         }
 
                     _save_shopping_list(data)
@@ -453,13 +476,13 @@ def register_tools(mcp):
                     return {
                         "success": True,
                         "message": f"Updated item '{item_id}'",
-                        "item_id": item_id
+                        "item_id": item_id,
                     }
 
                 except Exception as e:
                     return {
                         "success": False,
-                        "error": f"Failed to update shopping list item: {str(e)}"
+                        "error": f"Failed to update shopping list item: {str(e)}",
                     }
 
             case "add_to_cart":
@@ -469,8 +492,8 @@ def register_tools(mcp):
                     return requirement_error
 
                 try:
-                    from .shared import get_authenticated_client
                     from .cart_tools import _add_item_to_local_cart
+                    from .shared import get_authenticated_client
 
                     data = _load_shopping_list()
                     items = data.get("items", [])
@@ -479,16 +502,17 @@ def register_tools(mcp):
                         return {
                             "success": True,
                             "message": "Shopping list is empty - nothing to add",
-                            "items_added": 0
+                            "items_added": 0,
                         }
 
                     # Get pantry context for re-check
                     pantry_context = {}
                     try:
                         from ..analytics.pantry import get_pantry_status
+
                         pantry_items = get_pantry_status(apply_depletion=True)
                         for item in pantry_items:
-                            pantry_context[item['product_id']] = {
+                            pantry_context[item["product_id"]] = {
                                 "level_percent": item.get("level_percent", 0)
                             }
                     except Exception:
@@ -504,18 +528,22 @@ def register_tools(mcp):
                     for item in items:
                         product_id = item.get("product_id")
                         if item.get("manual_purchase"):
-                            items_manual.append({
-                                "ingredient_name": item.get("ingredient_name"),
-                                "quantity": item.get("quantity"),
-                                "unit": item.get("unit", ""),
-                                "notes": item.get("notes", "Manual purchase required"),
-                            })
+                            items_manual.append(
+                                {
+                                    "ingredient_name": item.get("ingredient_name"),
+                                    "quantity": item.get("quantity"),
+                                    "unit": item.get("unit", ""),
+                                    "notes": item.get("notes", "Manual purchase required"),
+                                }
+                            )
                             continue
                         if not product_id:
-                            items_to_skip.append({
-                                "ingredient_name": item.get("ingredient_name"),
-                                "reason": "No product_id (search for product first)"
-                            })
+                            items_to_skip.append(
+                                {
+                                    "ingredient_name": item.get("ingredient_name"),
+                                    "reason": "No product_id (search for product first)",
+                                }
+                            )
                             continue
 
                         # Check pantry again
@@ -523,22 +551,30 @@ def register_tools(mcp):
                         pantry_level = pantry.get("level_percent")
 
                         if pantry_level is not None and pantry_level >= 30:
-                            items_to_skip.append({
-                                "product_id": product_id,
-                                "ingredient_name": item.get("ingredient_name"),
-                                "reason": f"Pantry at {pantry_level}%",
-                                "action": "SKIP"
-                            })
+                            items_to_skip.append(
+                                {
+                                    "product_id": product_id,
+                                    "ingredient_name": item.get("ingredient_name"),
+                                    "reason": f"Pantry at {pantry_level}%",
+                                    "action": "SKIP",
+                                }
+                            )
                         else:
                             from_recipes = [s.get("recipe_name") for s in item.get("sources", [])]
-                            items_to_add.append({
-                                "product_id": product_id,
-                                "ingredient_name": item.get("ingredient_name"),
-                                "quantity": max(1, round(item.get("quantity", 1))),
-                                "from_recipes": from_recipes,
-                                "action": "ADD",
-                                "reason": "Not in pantry" if pantry_level is None else f"Pantry low: {pantry_level}%"
-                            })
+                            items_to_add.append(
+                                {
+                                    "product_id": product_id,
+                                    "ingredient_name": item.get("ingredient_name"),
+                                    "quantity": max(1, round(item.get("quantity", 1))),
+                                    "from_recipes": from_recipes,
+                                    "action": "ADD",
+                                    "reason": (
+                                        "Not in pantry"
+                                        if pantry_level is None
+                                        else f"Pantry low: {pantry_level}%"
+                                    ),
+                                }
+                            )
 
                     # Preview mode
                     if not _confirm:
@@ -557,7 +593,8 @@ def register_tools(mcp):
                                 "Review the items above. Call this tool again with confirm=True to add to cart."
                                 + (
                                     f" Note: {len(items_manual)} item(s) require manual purchase."
-                                    if items_manual else ""
+                                    if items_manual
+                                    else ""
                                 )
                             ),
                         }
@@ -583,7 +620,7 @@ def register_tools(mcp):
                             {
                                 "upc": item["product_id"],
                                 "quantity": item["quantity"],
-                                "modality": _modality
+                                "modality": _modality,
                             }
                             for item in items_to_add
                         ]
@@ -592,11 +629,7 @@ def register_tools(mcp):
 
                         # Track in local cart
                         for item in items_to_add:
-                            _add_item_to_local_cart(
-                                item["product_id"],
-                                item["quantity"],
-                                _modality
-                            )
+                            _add_item_to_local_cart(item["product_id"], item["quantity"], _modality)
 
                         # Clear shopping list
                         data["items"] = []
@@ -614,7 +647,8 @@ def register_tools(mcp):
                                 "Review your cart in the Kroger app before checkout."
                                 + (
                                     f" Don't forget to source {len(items_manual)} item(s) manually."
-                                    if items_manual else ""
+                                    if items_manual
+                                    else ""
                                 )
                             ),
                         }
@@ -625,19 +659,16 @@ def register_tools(mcp):
                             return {
                                 "success": False,
                                 "error": "Authentication failed. Run force_reauthenticate.",
-                                "details": error_msg
+                                "details": error_msg,
                             }
                         return {
                             "success": False,
                             "error": f"Failed to add to cart: {error_msg}",
-                            "items_attempted": len(items_to_add)
+                            "items_attempted": len(items_to_add),
                         }
 
                 except Exception as e:
-                    return {
-                        "success": False,
-                        "error": f"Failed to process shopping list: {str(e)}"
-                    }
+                    return {"success": False, "error": f"Failed to process shopping list: {str(e)}"}
 
             case _:
                 return {"success": False, "error": f"Unknown action: {action}"}

@@ -1,4 +1,5 @@
 """Predictions page route."""
+
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -15,6 +16,7 @@ async def predictions_page(request: Request):
     predictions = []
     try:
         from kroger_mcp.analytics.predictions import get_predictions_for_period
+
         # Parameter is days_ahead (not days)
         raw = get_predictions_for_period(days_ahead=14)
         if isinstance(raw, list):
@@ -25,7 +27,9 @@ async def predictions_page(request: Request):
                         "product_id": pred.product_id,
                         "description": pred.description,
                         "category_type": pred.category,
-                        "predicted_date": pred.predicted_date.isoformat() if pred.predicted_date else None,
+                        "predicted_date": (
+                            pred.predicted_date.isoformat() if pred.predicted_date else None
+                        ),
                         "days_until": pred.days_until,
                         "urgency": pred.urgency,
                         "urgency_label": pred.urgency_label,
@@ -39,9 +43,12 @@ async def predictions_page(request: Request):
     except Exception:
         pass
 
-    return templates.TemplateResponse("predictions.html", {
-        "request": request,
-        "active_page": "predictions",
-        "predictions": predictions,
-        "prediction_count": len(predictions),
-    })
+    return templates.TemplateResponse(
+        "predictions.html",
+        {
+            "request": request,
+            "active_page": "predictions",
+            "predictions": predictions,
+            "prediction_count": len(predictions),
+        },
+    )

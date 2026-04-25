@@ -13,13 +13,12 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
 
 from .shared import get_authenticated_client
-
 
 # Recipe storage file
 _BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
@@ -34,6 +33,7 @@ def _trigger_notion_sync(op: str, data) -> None:
             delete_recipe_page,
             push_recipe,
         )
+
         state = _load_sync_state()
         if not state.get("database_id"):
             return  # Not configured yet
@@ -49,18 +49,18 @@ def _trigger_notion_sync(op: str, data) -> None:
         pass  # Never block recipe operations
 
 
-def _load_recipes() -> Dict[str, Any]:
+def _load_recipes() -> dict[str, Any]:
     """Load recipes from JSON file."""
     try:
         if os.path.exists(RECIPES_FILE):
-            with open(RECIPES_FILE, "r") as f:
+            with open(RECIPES_FILE) as f:
                 return json.load(f)
     except Exception:
         pass
     return {"recipes": [], "last_updated": None}
 
 
-def _normalize_ingredients(ingredients: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _normalize_ingredients(ingredients: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Normalize ingredient data to prevent boolean/type issues."""
     for ing in ingredients:
         qty = ing.get("quantity")
@@ -69,7 +69,7 @@ def _normalize_ingredients(ingredients: List[Dict[str, Any]]) -> List[Dict[str, 
     return ingredients
 
 
-def _save_recipes(data: Dict[str, Any]) -> None:
+def _save_recipes(data: dict[str, Any]) -> None:
     """Save recipes to JSON file."""
     try:
         data["last_updated"] = datetime.now().isoformat()
@@ -79,7 +79,7 @@ def _save_recipes(data: Dict[str, Any]) -> None:
         print(f"Warning: Could not save recipes: {e}")
 
 
-def _find_recipe(recipe_id: str) -> Optional[Dict[str, Any]]:
+def _find_recipe(recipe_id: str) -> dict[str, Any] | None:
     """Find a recipe by ID."""
     data = _load_recipes()
     for recipe in data.get("recipes", []):
@@ -88,7 +88,7 @@ def _find_recipe(recipe_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _ingredient_matches(ingredient_name: str, skip_items: List[str]) -> bool:
+def _ingredient_matches(ingredient_name: str, skip_items: list[str]) -> bool:
     """Check if ingredient matches any skip item (case-insensitive, partial)."""
     if not skip_items:
         return False
@@ -147,80 +147,80 @@ def register_tools(mcp):
                 "Other: list|get|update|delete|search|analyze"
             )
         ),
-        recipe_id: Optional[str] = Field(
+        recipe_id: str | None = Field(
             default=None,
             description="Recipe ID",
         ),
-        name: Optional[str] = Field(
+        name: str | None = Field(
             default=None,
             description="Recipe name",
         ),
-        ingredients: Optional[List[Dict[str, Any]]] = Field(
+        ingredients: list[dict[str, Any]] | None = Field(
             default=None,
             description="List of {name, quantity, unit, product_id (required), category, override (bool), override_reason (required if override=True)}",
         ),
-        instructions: Optional[str] = Field(
+        instructions: str | None = Field(
             default=None,
             description="Cooking instructions",
         ),
-        servings: Optional[int] = Field(
+        servings: int | None = Field(
             default=None,
             description="Number of servings",
         ),
-        description: Optional[str] = Field(
+        description: str | None = Field(
             default=None,
             description="Brief recipe description",
         ),
-        source: Optional[str] = Field(
+        source: str | None = Field(
             default=None,
             description="Recipe source",
         ),
-        tags: Optional[List[str]] = Field(
+        tags: list[str] | None = Field(
             default=None,
             description="Tags for categorization",
         ),
-        limit: Optional[int] = Field(
+        limit: int | None = Field(
             default=20,
             description="Max recipes to return",
         ),
-        tag_filter: Optional[str] = Field(
+        tag_filter: str | None = Field(
             default=None,
             description="Filter by tag",
         ),
-        query: Optional[str] = Field(
+        query: str | None = Field(
             default=None,
             description="Search term",
         ),
-        skip_items: Optional[List[str]] = Field(
+        skip_items: list[str] | None = Field(
             default=None,
             description="Ingredient names to skip",
         ),
-        scale: Optional[float] = Field(
+        scale: float | None = Field(
             default=None,
             description="Scale factor e.g. 2.0 doubles recipe",
         ),
-        ingredient_index: Optional[int] = Field(
+        ingredient_index: int | None = Field(
             default=None,
             description="Ingredient index 0-based",
         ),
-        product_id: Optional[str] = Field(
+        product_id: str | None = Field(
             default=None,
             description="Kroger product ID to link",
         ),
-        links: Optional[List[Dict[str, Any]]] = Field(
+        links: list[dict[str, Any]] | None = Field(
             default=None,
             description="Batch links: [{recipe_id, ingredient_index, product_id}]",
         ),
-        modality: Optional[str] = Field(
+        modality: str | None = Field(
             default=None,
             description="PICKUP or DELIVERY",
         ),
-        confirm: Optional[bool] = Field(
+        confirm: bool | None = Field(
             default=None,
             description="True to confirm add after preview",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Recipe management with Kroger product linking.
 
         CRITICAL: Every ingredient requires either a product_id (from products tool)
@@ -231,17 +231,50 @@ def register_tools(mcp):
         Auto-syncs to Notion if configured.
         """
         return await asyncio.to_thread(
-            _recipes_impl, action, recipe_id, name, ingredients, instructions,
-            servings, description, source, tags, limit, tag_filter, query,
-            skip_items, scale, ingredient_index, product_id, links, modality,
-            confirm, ctx,
+            _recipes_impl,
+            action,
+            recipe_id,
+            name,
+            ingredients,
+            instructions,
+            servings,
+            description,
+            source,
+            tags,
+            limit,
+            tag_filter,
+            query,
+            skip_items,
+            scale,
+            ingredient_index,
+            product_id,
+            links,
+            modality,
+            confirm,
+            ctx,
         )
 
     def _recipes_impl(
-        action, recipe_id, name, ingredients, instructions,
-        servings, description, source, tags, limit, tag_filter, query,
-        skip_items, scale, ingredient_index, product_id, links, modality,
-        confirm, ctx,
+        action,
+        recipe_id,
+        name,
+        ingredients,
+        instructions,
+        servings,
+        description,
+        source,
+        tags,
+        limit,
+        tag_filter,
+        query,
+        skip_items,
+        scale,
+        ingredient_index,
+        product_id,
+        links,
+        modality,
+        confirm,
+        ctx,
     ):
         match action:
             case "save":
@@ -264,7 +297,7 @@ def register_tools(mcp):
                     }
 
                 if instructions:
-                    instructions = instructions.replace('\\n', '\n')
+                    instructions = instructions.replace("\\n", "\n")
                 recipe_id_new = str(uuid.uuid4())[:8]
                 recipe = {
                     "id": recipe_id_new,
@@ -304,7 +337,8 @@ def register_tools(mcp):
                     if tag_filter:
                         tag_lower = tag_filter.lower()
                         recipe_list = [
-                            r for r in recipe_list
+                            r
+                            for r in recipe_list
                             if any(tag_lower in t.lower() for t in r.get("tags", []))
                         ]
 
@@ -328,6 +362,7 @@ def register_tools(mcp):
                         }
                         try:
                             from ..analytics.recipe_scoring import calculate_health_score
+
                             hs = calculate_health_score(r, names_only=True)
                             summary["health_score"] = hs["score"]
                             summary["health_grade"] = hs["grade"]
@@ -357,11 +392,10 @@ def register_tools(mcp):
                             estimate_recipe_cost,
                         )
                         from .shared import get_preferred_location_id
+
                         loc_id = get_preferred_location_id()
                         recipe["health_score"] = calculate_health_score(recipe)
-                        recipe["cost_estimate"] = estimate_recipe_cost(
-                            recipe, location_id=loc_id
-                        )
+                        recipe["cost_estimate"] = estimate_recipe_cost(recipe, location_id=loc_id)
                     except Exception:
                         pass  # Never block get on scoring errors
                     return {"success": True, "recipe": recipe}
@@ -391,7 +425,7 @@ def register_tools(mcp):
                             if ingredients is not None:
                                 recipe["ingredients"] = _normalize_ingredients(ingredients)
                             if instructions is not None:
-                                recipe["instructions"] = instructions.replace('\\n', '\n')
+                                recipe["instructions"] = instructions.replace("\\n", "\n")
                             if servings is not None:
                                 recipe["servings"] = servings
                             if description is not None:
@@ -499,14 +533,16 @@ def register_tools(mcp):
                         if is_override:
                             action_val = "MANUAL"
                             override_reason = ing.get("override_reason")
-                            manual_purchase.append({
-                                "index": i,
-                                "name": ing_name,
-                                "quantity": qty,
-                                "unit": unit,
-                                "scaled_quantity": round(qty * _scale, 2) if qty else None,
-                                "override_reason": override_reason,
-                            })
+                            manual_purchase.append(
+                                {
+                                    "index": i,
+                                    "name": ing_name,
+                                    "quantity": qty,
+                                    "unit": unit,
+                                    "scaled_quantity": round(qty * _scale, 2) if qty else None,
+                                    "override_reason": override_reason,
+                                }
+                            )
                         elif will_skip:
                             action_val = "SKIP"
                             items_to_skip_count += 1
@@ -514,22 +550,27 @@ def register_tools(mcp):
                             action_val = "ORDER"
                             items_to_order += 1
 
-                        ingredients_preview.append({
-                            "index": i,
-                            "name": ing_name,
-                            "quantity": qty,
-                            "unit": unit,
-                            "scaled_quantity": round(qty * _scale, 2) if qty else None,
-                            "product_id": pid,
-                            "has_product_id": pid is not None,
-                            "action": action_val,
-                            "will_order": action_val == "ORDER",
-                            "skip_reason": (
-                                "user has item" if will_skip and not is_override
-                                else ("manual purchase" if is_override else None)
-                            ),
-                            "override_reason": ing.get("override_reason") if is_override else None,
-                        })
+                        ingredients_preview.append(
+                            {
+                                "index": i,
+                                "name": ing_name,
+                                "quantity": qty,
+                                "unit": unit,
+                                "scaled_quantity": round(qty * _scale, 2) if qty else None,
+                                "product_id": pid,
+                                "has_product_id": pid is not None,
+                                "action": action_val,
+                                "will_order": action_val == "ORDER",
+                                "skip_reason": (
+                                    "user has item"
+                                    if will_skip and not is_override
+                                    else ("manual purchase" if is_override else None)
+                                ),
+                                "override_reason": (
+                                    ing.get("override_reason") if is_override else None
+                                ),
+                            }
+                        )
 
                     return {
                         "success": True,
@@ -566,11 +607,13 @@ def register_tools(mcp):
                             pid = link.get("product_id")
 
                             if not all([rid, idx is not None, pid]):
-                                results.append({
-                                    "success": False,
-                                    "error": "Missing required fields",
-                                    "link": link,
-                                })
+                                results.append(
+                                    {
+                                        "success": False,
+                                        "error": "Missing required fields",
+                                        "link": link,
+                                    }
+                                )
                                 continue
 
                             recipe = None
@@ -580,32 +623,38 @@ def register_tools(mcp):
                                     break
 
                             if not recipe:
-                                results.append({
-                                    "success": False,
-                                    "error": f"Recipe '{rid}' not found",
-                                    "link": link,
-                                })
+                                results.append(
+                                    {
+                                        "success": False,
+                                        "error": f"Recipe '{rid}' not found",
+                                        "link": link,
+                                    }
+                                )
                                 continue
 
                             recipe_ings = recipe.get("ingredients", [])
                             if idx < 0 or idx >= len(recipe_ings):
-                                results.append({
-                                    "success": False,
-                                    "error": f"Invalid ingredient index {idx}",
-                                    "link": link,
-                                })
+                                results.append(
+                                    {
+                                        "success": False,
+                                        "error": f"Invalid ingredient index {idx}",
+                                        "link": link,
+                                    }
+                                )
                                 continue
 
                             recipe_ings[idx]["product_id"] = pid
                             recipe_ings[idx]["override"] = False
                             recipe_ings[idx]["override_reason"] = None
                             updated_recipes.add(rid)
-                            results.append({
-                                "success": True,
-                                "recipe_id": rid,
-                                "ingredient_name": recipe_ings[idx].get("name"),
-                                "product_id": pid,
-                            })
+                            results.append(
+                                {
+                                    "success": True,
+                                    "recipe_id": rid,
+                                    "ingredient_name": recipe_ings[idx].get("name"),
+                                    "product_id": pid,
+                                }
+                            )
 
                         for r in data.get("recipes", []):
                             if r.get("id") in updated_recipes:
@@ -675,6 +724,7 @@ def register_tools(mcp):
                     pantry_context = {}
                     try:
                         from ..analytics.pantry import get_pantry_status
+
                         pantry_items = get_pantry_status(apply_depletion=True)
                         for item in pantry_items:
                             pantry_context[item["product_id"]] = {
@@ -705,12 +755,18 @@ def register_tools(mcp):
 
                         if is_override:
                             action_val = "MANUAL"
-                            reason = f"Manual purchase: {ing.get('override_reason', 'Not from Kroger')}"
-                            items_manual.append({
-                                "name": ing_name,
-                                "quantity": f"{scaled_qty} {unit}".strip(),
-                                "override_reason": ing.get("override_reason", "Not from Kroger"),
-                            })
+                            reason = (
+                                f"Manual purchase: {ing.get('override_reason', 'Not from Kroger')}"
+                            )
+                            items_manual.append(
+                                {
+                                    "name": ing_name,
+                                    "quantity": f"{scaled_qty} {unit}".strip(),
+                                    "override_reason": ing.get(
+                                        "override_reason", "Not from Kroger"
+                                    ),
+                                }
+                            )
                         elif user_skip:
                             action_val = "SKIP"
                             reason = "User specified to skip"
@@ -726,23 +782,27 @@ def register_tools(mcp):
                                 "Not in pantry" if not in_pantry else f"Pantry low: {pantry_level}%"
                             )
                             if pid:
-                                items_to_add.append({
-                                    "product_id": pid,
-                                    "name": ing_name,
-                                    "quantity": scaled_qty,
-                                    "modality": _modality,
-                                })
+                                items_to_add.append(
+                                    {
+                                        "product_id": pid,
+                                        "name": ing_name,
+                                        "quantity": scaled_qty,
+                                        "modality": _modality,
+                                    }
+                                )
 
-                        ingredients_preview.append({
-                            "index": i,
-                            "name": ing_name,
-                            "quantity": f"{scaled_qty} {unit}".strip(),
-                            "action": action_val,
-                            "reason": reason,
-                            "product_id": pid,
-                            "pantry_level": pantry_level,
-                            "in_favorites": False,
-                        })
+                        ingredients_preview.append(
+                            {
+                                "index": i,
+                                "name": ing_name,
+                                "quantity": f"{scaled_qty} {unit}".strip(),
+                                "action": action_val,
+                                "reason": reason,
+                                "product_id": pid,
+                                "pantry_level": pantry_level,
+                                "in_favorites": False,
+                            }
+                        )
 
                     if not _confirm:
                         return {
@@ -770,7 +830,8 @@ def register_tools(mcp):
                                 + (
                                     f" Note: {len(items_manual)} item(s) require manual purchase "
                                     f"(not available at Kroger)."
-                                    if items_manual else ""
+                                    if items_manual
+                                    else ""
                                 )
                             ),
                         }
@@ -801,6 +862,7 @@ def register_tools(mcp):
                     client.cart.add_to_cart(api_items)
 
                     from .cart_tools import _add_item_to_local_cart
+
                     for item in items_to_add:
                         _add_item_to_local_cart(
                             item["product_id"], item["quantity"], item["modality"]
@@ -835,7 +897,8 @@ def register_tools(mcp):
                             "Would you like to update any pantry levels?"
                             + (
                                 f" Don't forget to source {len(items_manual)} item(s) manually."
-                                if items_manual else ""
+                                if items_manual
+                                else ""
                             )
                         ),
                     }
@@ -866,7 +929,7 @@ def register_tools(mcp):
                         estimate_recipe_cost,
                         estimate_recipe_cost_with_api,
                     )
-                    from .shared import get_preferred_location_id, get_client_credentials_client
+                    from .shared import get_client_credentials_client, get_preferred_location_id
 
                     loc_id = get_preferred_location_id()
                     health = calculate_health_score(recipe)
@@ -902,10 +965,14 @@ def register_tools(mcp):
                         "linked": linked,
                         "unlinked": unlinked,
                         "tip": (
-                            "Use recipes(action='link_ingredient', recipe_id=..., "
-                            "ingredient_index=..., product_id=...) to link unlinked ingredients "
-                            "for better price and health data."
-                        ) if unlinked else None,
+                            (
+                                "Use recipes(action='link_ingredient', recipe_id=..., "
+                                "ingredient_index=..., product_id=...) to link unlinked ingredients "
+                                "for better price and health data."
+                            )
+                            if unlinked
+                            else None
+                        ),
                     }
 
                     return {

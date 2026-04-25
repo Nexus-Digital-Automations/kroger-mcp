@@ -14,12 +14,13 @@ Auth: free data.gov API key via env var USDA_API_KEY.
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 try:
     from dotenv import load_dotenv
+
     # Walk up to find .env in the project root
     _here = Path(__file__).resolve()
     for _parent in _here.parents:
@@ -34,7 +35,7 @@ except ImportError:
 FDC_API_BASE = "https://api.nal.usda.gov/fdc/v1"
 
 
-def _get_api_key() -> Optional[str]:
+def _get_api_key() -> str | None:
     """Return the USDA API key from environment, or None."""
     key = os.environ.get("USDA_API_KEY", "").strip()
     return key if key else None
@@ -43,8 +44,8 @@ def _get_api_key() -> Optional[str]:
 def _fdc_request(
     endpoint: str,
     method: str = "GET",
-    body: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Make a FoodData Central API request.
 
@@ -68,7 +69,7 @@ def _fdc_request(
         return {}
 
 
-def fetch_ingredients_by_upc(upc: str) -> Optional[str]:
+def fetch_ingredients_by_upc(upc: str) -> str | None:
     """
     Search FoodData Central for a branded product by UPC and return
     its ingredient statement text.
@@ -119,7 +120,7 @@ def fetch_ingredients_by_upc(upc: str) -> Optional[str]:
 def fetch_ingredients_by_name(
     product_name: str,
     brand: str = "",
-) -> Optional[str]:
+) -> str | None:
     """
     Search FoodData Central by product name/description and return
     the ingredient statement from the best match.
@@ -159,7 +160,7 @@ def fetch_ingredients_by_name(
     return None
 
 
-def fetch_food_details(fdc_id: int) -> Optional[Dict[str, Any]]:
+def fetch_food_details(fdc_id: int) -> dict[str, Any] | None:
     """
     Get full food details by FDC ID.
 

@@ -1,26 +1,26 @@
 """
 Cart tracking and management functionality
 """
+
 import asyncio
 import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
 
-from .shared import get_authenticated_client, get_preferred_location_id
+from ..analytics.deals import calculate_cart_savings, record_price_observation
+from ..analytics.ingredients import check_product_safety
 from ..analytics.safety import (
-    get_all_safe_product_ids,
     get_all_blocked_product_ids,
+    get_all_safe_product_ids,
     get_disabled_ingredients,
     is_filtering_enabled,
 )
-from ..analytics.ingredients import check_product_safety
-from ..analytics.deals import record_price_observation, calculate_cart_savings
-
+from .shared import get_authenticated_client, get_preferred_location_id
 
 # Cart storage file
 _BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
@@ -30,46 +30,46 @@ ORDER_HISTORY_FILE = str(_BASE_DIR / "kroger_order_history.json")
 
 def _get_session_id(ctx) -> str:
     """Extract session ID from MCP context."""
-    if ctx and hasattr(ctx, 'session_id'):
+    if ctx and hasattr(ctx, "session_id"):
         return str(ctx.session_id)
-    return 'default'
+    return "default"
 
 
-def _load_cart_data() -> Dict[str, Any]:
+def _load_cart_data() -> dict[str, Any]:
     """Load cart data from file"""
     try:
         if os.path.exists(CART_FILE):
-            with open(CART_FILE, 'r') as f:
+            with open(CART_FILE) as f:
                 return json.load(f)
     except Exception:
         pass
     return {"current_cart": [], "last_updated": None, "preferred_location_id": None}
 
 
-def _save_cart_data(cart_data: Dict[str, Any]) -> None:
+def _save_cart_data(cart_data: dict[str, Any]) -> None:
     """Save cart data to file"""
     try:
-        with open(CART_FILE, 'w') as f:
+        with open(CART_FILE, "w") as f:
             json.dump(cart_data, f, indent=2)
     except Exception as e:
         print(f"Warning: Could not save cart data: {e}")
 
 
-def _load_order_history() -> List[Dict[str, Any]]:
+def _load_order_history() -> list[dict[str, Any]]:
     """Load order history from file"""
     try:
         if os.path.exists(ORDER_HISTORY_FILE):
-            with open(ORDER_HISTORY_FILE, 'r') as f:
+            with open(ORDER_HISTORY_FILE) as f:
                 return json.load(f)
     except Exception:
         pass
     return []
 
 
-def _save_order_history(history: List[Dict[str, Any]]) -> None:
+def _save_order_history(history: list[dict[str, Any]]) -> None:
     """Save order history to file"""
     try:
-        with open(ORDER_HISTORY_FILE, 'w') as f:
+        with open(ORDER_HISTORY_FILE, "w") as f:
             json.dump(history, f, indent=2)
     except Exception as e:
         print(f"Warning: Could not save order history: {e}")
@@ -79,7 +79,7 @@ def _add_item_to_local_cart(
     product_id: str,
     quantity: int,
     modality: str,
-    product_details: Dict[str, Any] = None,
+    product_details: dict[str, Any] = None,
 ) -> None:
     """Add an item to the local cart tracking and analytics database"""
     cart_data = _load_cart_data()
@@ -112,6 +112,7 @@ def _add_item_to_local_cart(
 
     try:
         from ..analytics.purchase_tracker import record_cart_add
+
         record_cart_add(product_id, quantity, modality, product_details)
     except Exception as e:
         print(f"Warning: Could not record analytics: {e}")
@@ -133,6 +134,7 @@ def _add_item_to_local_cart(
 
     try:
         from ..analytics.pantry import add_to_pantry
+
         description = (product_details or {}).get("description") or None
         add_to_pantry(product_id=product_id, description=description)
     except Exception as e:
@@ -154,24 +156,24 @@ def register_tools(mcp):
             "get_context",
         ] = Field(
             description=(
-            "add — supports BATCH via items=[...] (max 50). "
-            "To order a favorites list, use favorites(action='order') instead. "
-            "Other: view|remove|clear|mark_placed|view_history|get_context"
-        )
+                "add — supports BATCH via items=[...] (max 50). "
+                "To order a favorites list, use favorites(action='order') instead. "
+                "Other: view|remove|clear|mark_placed|view_history|get_context"
+            )
         ),
-        product_id: Optional[str] = Field(
+        product_id: str | None = Field(
             default=None,
             description="Product ID",
         ),
-        quantity: Optional[int] = Field(
+        quantity: int | None = Field(
             default=1,
             description="Quantity to add 1-99",
         ),
-        modality: Optional[str] = Field(
+        modality: str | None = Field(
             default="PICKUP",
             description="PICKUP or DELIVERY",
         ),
-        items: Optional[List[Dict[str, Any]]] = Field(
+        items: list[dict[str, Any]] | None = Field(
             default=None,
             description=(
                 "PREFERRED for multi-item adds. List of dicts: "
@@ -179,32 +181,32 @@ def register_tools(mcp):
                 "Always use this instead of calling add multiple times."
             ),
         ),
-        preview_only: Optional[bool] = Field(
+        preview_only: bool | None = Field(
             default=False,
             description="Preview without adding",
         ),
-        confirm_unsafe: Optional[bool] = Field(
+        confirm_unsafe: bool | None = Field(
             default=False,
             description="Override safety warnings",
         ),
-        order_notes: Optional[str] = Field(
+        order_notes: str | None = Field(
             default=None,
             description="Order notes",
         ),
-        limit: Optional[int] = Field(
+        limit: int | None = Field(
             default=10,
             description="Recent orders to show 1-50",
         ),
-        product_ids: Optional[List[str]] = Field(
+        product_ids: list[str] | None = Field(
             default=None,
             description="Product IDs to check context for",
         ),
-        pantry_threshold: Optional[int] = Field(
+        pantry_threshold: int | None = Field(
             default=30,
             description="Skip items above this pantry %",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Cart management operations.
 
         BATCH ADD: Use items=[{product_id, quantity, modality}, ...] to add up to 50
@@ -265,12 +267,14 @@ def register_tools(mcp):
                         ]
                     elif product_id:
                         is_batch = False
-                        formatted_items = [{
-                            "product_id": product_id,
-                            "quantity": quantity or 1,
-                            "modality": modality or "PICKUP",
-                            "description": None,
-                        }]
+                        formatted_items = [
+                            {
+                                "product_id": product_id,
+                                "quantity": quantity or 1,
+                                "modality": modality or "PICKUP",
+                                "description": None,
+                            }
+                        ]
                     else:
                         return {
                             "success": False,
@@ -282,6 +286,7 @@ def register_tools(mcp):
                         pantry_context = {}
                         try:
                             from ..analytics.pantry import get_pantry_item
+
                             for pid in pids:
                                 pantry_item = get_pantry_item(pid)
                                 if pantry_item:
@@ -344,11 +349,13 @@ def register_tools(mcp):
                             if pid in safe_ids:
                                 continue
                             if pid in blocked_ids_set:
-                                blocked_items.append({
-                                    "product_id": pid,
-                                    "description": description,
-                                    "reason": "Product is on your blocked list",
-                                })
+                                blocked_items.append(
+                                    {
+                                        "product_id": pid,
+                                        "description": description,
+                                        "reason": "Product is on your blocked list",
+                                    }
+                                )
                                 continue
                             if description:
                                 safety_result = check_product_safety(
@@ -356,20 +363,22 @@ def register_tools(mcp):
                                     disabled_ingredients=disabled_ingredients,
                                 )
                                 if safety_result.has_concerns:
-                                    safety_warnings.append({
-                                        "product_id": pid,
-                                        "description": description,
-                                        "severity": safety_result.highest_severity.value,
-                                        "flagged_ingredients": [
-                                            {
-                                                "ingredient": match.ingredient_name,
-                                                "severity": match.severity.value,
-                                                "reason": match.reason,
-                                                "matched_text": match.matched_text,
-                                            }
-                                            for match in safety_result.matches
-                                        ],
-                                    })
+                                    safety_warnings.append(
+                                        {
+                                            "product_id": pid,
+                                            "description": description,
+                                            "severity": safety_result.highest_severity.value,
+                                            "flagged_ingredients": [
+                                                {
+                                                    "ingredient": match.ingredient_name,
+                                                    "severity": match.severity.value,
+                                                    "reason": match.reason,
+                                                    "matched_text": match.matched_text,
+                                                }
+                                                for match in safety_result.matches
+                                            ],
+                                        }
+                                    )
 
                         if blocked_items or safety_warnings:
                             return {
@@ -427,11 +436,11 @@ def register_tools(mcp):
                                 await ctx.info(
                                     "Batch add failed (400). Retrying items one at a time..."
                                 )
-                            for cart_item, fmt_item in zip(cart_items, formatted_items):
+                            for cart_item, fmt_item in zip(
+                                cart_items, formatted_items, strict=False
+                            ):
                                 try:
-                                    await asyncio.to_thread(
-                                        client.cart.add_to_cart, [cart_item]
-                                    )
+                                    await asyncio.to_thread(client.cart.add_to_cart, [cart_item])
                                     added_items.append(fmt_item)
                                 except Exception as item_err:
                                     item_err_str = str(item_err)
@@ -441,11 +450,13 @@ def register_tools(mcp):
                                             item_detail = item_err.response.text
                                         except Exception:
                                             pass
-                                    failed_items.append({
-                                        "product_id": fmt_item["product_id"],
-                                        "error": item_err_str,
-                                        "kroger_response": item_detail,
-                                    })
+                                    failed_items.append(
+                                        {
+                                            "product_id": fmt_item["product_id"],
+                                            "error": item_err_str,
+                                            "kroger_response": item_detail,
+                                        }
+                                    )
                         else:
                             # Single-item 400 or non-400 batch error — re-raise
                             raise
@@ -528,7 +539,9 @@ def register_tools(mcp):
                         }
 
             case "remove":
-                ids_to_remove = product_ids if product_ids else ([product_id] if product_id else None)
+                ids_to_remove = (
+                    product_ids if product_ids else ([product_id] if product_id else None)
+                )
                 if not ids_to_remove:
                     return {"success": False, "error": "product_id or product_ids is required"}
                 try:
@@ -539,7 +552,8 @@ def register_tools(mcp):
 
                     if modality:
                         cart_data["current_cart"] = [
-                            item for item in current_cart
+                            item
+                            for item in current_cart
                             if not (
                                 item.get("product_id") in ids_set
                                 and item.get("modality") == modality
@@ -547,8 +561,7 @@ def register_tools(mcp):
                         ]
                     else:
                         cart_data["current_cart"] = [
-                            item for item in current_cart
-                            if item.get("product_id") not in ids_set
+                            item for item in current_cart if item.get("product_id") not in ids_set
                         ]
 
                     items_removed = original_count - len(cart_data["current_cart"])
@@ -604,9 +617,7 @@ def register_tools(mcp):
                         "items": current_cart.copy(),
                         "placed_at": datetime.now().isoformat(),
                         "item_count": len(current_cart),
-                        "total_quantity": sum(
-                            item.get("quantity", 0) for item in current_cart
-                        ),
+                        "total_quantity": sum(item.get("quantity", 0) for item in current_cart),
                         "notes": order_notes,
                     }
 
@@ -629,6 +640,7 @@ def register_tools(mcp):
                     pantry_restocked = 0
                     try:
                         from ..analytics.pantry import restock_item
+
                         for item in current_cart:
                             pid = item.get("product_id")
                             if pid:
@@ -697,8 +709,8 @@ def register_tools(mcp):
 
             case "get_context":
                 try:
+                    from ..analytics.favorites import get_list_items, get_lists
                     from ..analytics.pantry import get_pantry_status
-                    from ..analytics.favorites import get_lists, get_list_items
 
                     threshold = pantry_threshold if pantry_threshold is not None else 30
 
@@ -716,8 +728,7 @@ def register_tools(mcp):
                     if product_ids:
                         product_id_set = set(product_ids)
                         filtered_pantry = [
-                            item for item in all_pantry
-                            if item["product_id"] in product_id_set
+                            item for item in all_pantry if item["product_id"] in product_id_set
                         ]
                     else:
                         filtered_pantry = all_pantry
@@ -727,43 +738,44 @@ def register_tools(mcp):
                     for item in filtered_pantry:
                         level = item.get("level_percent", 0)
                         if level >= threshold:
-                            result["skip_suggestions"].append({
-                                "product_id": item["product_id"],
-                                "description": item.get("description"),
-                                "level_percent": level,
-                                "reason": f"Pantry at {level}% (above {threshold}% threshold)",
-                            })
+                            result["skip_suggestions"].append(
+                                {
+                                    "product_id": item["product_id"],
+                                    "description": item.get("description"),
+                                    "level_percent": level,
+                                    "reason": f"Pantry at {level}% (above {threshold}% threshold)",
+                                }
+                            )
                         elif level <= 20:
-                            result["low_inventory_alerts"].append({
-                                "product_id": item["product_id"],
-                                "description": item.get("description"),
-                                "level_percent": level,
-                                "days_until_empty": item.get("days_until_empty"),
-                                "urgency": "high" if level <= 10 else "medium",
-                            })
+                            result["low_inventory_alerts"].append(
+                                {
+                                    "product_id": item["product_id"],
+                                    "description": item.get("description"),
+                                    "level_percent": level,
+                                    "days_until_empty": item.get("days_until_empty"),
+                                    "urgency": "high" if level <= 10 else "medium",
+                                }
+                            )
 
                     all_lists = get_lists()
                     for fav_list in all_lists:
                         list_id = fav_list["id"]
-                        list_items_result = get_list_items(
-                            list_id, include_pantry_status=False
-                        )
+                        list_items_result = get_list_items(list_id, include_pantry_status=False)
                         if list_items_result.get("success") and list_items_result.get("items"):
-                            list_pids = {
-                                item["product_id"]
-                                for item in list_items_result["items"]
-                            }
+                            list_pids = {item["product_id"] for item in list_items_result["items"]}
                             if product_ids:
                                 matching_ids = list_pids.intersection(set(product_ids))
                             else:
                                 matching_ids = list_pids
                             if matching_ids:
-                                result["favorite_matches"].append({
-                                    "list_id": list_id,
-                                    "list_name": fav_list["name"],
-                                    "matching_products": list(matching_ids),
-                                    "match_count": len(matching_ids),
-                                })
+                                result["favorite_matches"].append(
+                                    {
+                                        "list_id": list_id,
+                                        "list_name": fav_list["name"],
+                                        "matching_products": list(matching_ids),
+                                        "match_count": len(matching_ids),
+                                    }
+                                )
 
                     result["summary"] = {
                         "pantry_items_checked": len(filtered_pantry),

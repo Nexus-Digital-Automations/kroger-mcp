@@ -5,7 +5,6 @@ Tracks which tools have been called in the current session to enforce
 workflow requirements (e.g., must check pantry attention before adding to cart).
 """
 
-from typing import Dict, Set
 from datetime import datetime, timedelta
 
 
@@ -18,9 +17,9 @@ class SessionStateManager:
 
     def __init__(self):
         # Dict[session_id: str, Set[tool_name: str]]
-        self._tool_calls: Dict[str, Set[str]] = {}
+        self._tool_calls: dict[str, set[str]] = {}
         # Track last activity for cleanup
-        self._last_activity: Dict[str, datetime] = {}
+        self._last_activity: dict[str, datetime] = {}
 
     def mark_tool_called(self, session_id: str, tool_name: str) -> None:
         """Record that a tool was called in this session."""
@@ -45,9 +44,7 @@ class SessionStateManager:
         """Remove sessions with no activity in max_age_hours."""
         cutoff = datetime.now() - timedelta(hours=max_age_hours)
         stale_sessions = [
-            sid
-            for sid, last_active in self._last_activity.items()
-            if last_active < cutoff
+            sid for sid, last_active in self._last_activity.items() if last_active < cutoff
         ]
         for sid in stale_sessions:
             self.reset_session(sid)

@@ -23,19 +23,21 @@ async def pantry_page(request: Request):
     ok_items = [i for i in items if i["status"] == "ok"]
 
     expiring_soon = [
-        i for i in items
-        if i.get("days_to_expiration") is not None and i["days_to_expiration"] <= 7
+        i for i in items if i.get("days_to_expiration") is not None and i["days_to_expiration"] <= 7
     ]
 
-    return templates.TemplateResponse("pantry.html", {
-        "request": request,
-        "active_page": "pantry",
-        "all_items": items,
-        "out_items": out_items,
-        "low_items": low_items,
-        "ok_items": ok_items,
-        "expiring_soon_count": len(expiring_soon),
-        "total_count": len(items),
-        "low_count": len(low_items),
-        "out_count": len(out_items),
-    })
+    return templates.TemplateResponse(
+        "pantry.html",
+        {
+            "request": request,
+            "active_page": "pantry",
+            "all_items": items,
+            "out_items": out_items,
+            "low_items": low_items,
+            "ok_items": ok_items,
+            "expiring_soon_count": len(expiring_soon),
+            "total_count": len(items),
+            "low_count": len(low_items),
+            "out_count": len(out_items),
+        },
+    )

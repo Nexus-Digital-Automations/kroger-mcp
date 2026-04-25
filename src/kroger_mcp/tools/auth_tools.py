@@ -8,7 +8,7 @@ import json
 import os
 import pathlib
 import tempfile
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
@@ -69,12 +69,12 @@ def register_tools(mcp):
                 "Other: get_profile|test|get_info"
             )
         ),
-        redirect_url: Optional[str] = Field(
+        redirect_url: str | None = Field(
             default=None,
             description="Full redirect URL from browser after authorization",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Authentication and user profile operations.
 
         Flow: auth(action='start') → open URL in browser → copy redirect URL →
@@ -89,9 +89,7 @@ def register_tools(mcp):
                 _pkce_params = generate_pkce_parameters()
 
                 # Generate a state parameter for CSRF protection
-                _auth_state = _pkce_params.get(
-                    "state", _pkce_params.get("code_verifier")[:16]
-                )
+                _auth_state = _pkce_params.get("state", _pkce_params.get("code_verifier")[:16])
 
                 # Persist to disk so state survives MCP server restarts
                 _save_auth_state(_pkce_params, _auth_state)
@@ -130,13 +128,13 @@ def register_tools(mcp):
                 return {
                     "auth_url": auth_url,
                     "instructions": (
-                        "1. Click this link to authorize: [🔗 Authorize Kroger Access]({auth_url})\n"
+                        f"1. Click this link to authorize: [🔗 Authorize Kroger Access]({auth_url})\n"
                         "   - Please present the authorization URL as a clickable markdown link\n"
                         "2. Log in to your Kroger account and authorize the application\n"
                         "3. After authorization, you'll be redirected to a callback URL\n"
                         "4. Copy the FULL redirect URL from your browser's address bar\n"
                         "5. Use auth(action='complete', redirect_url=...) to finish"
-                    ).format(auth_url=auth_url),
+                    ),
                 }
 
             case "complete":
@@ -316,9 +314,9 @@ def register_tools(mcp):
                         result["can_auto_refresh"] = has_refresh_token
 
                         if has_refresh_token:
-                            result["message"] += (
-                                ". Token can be automatically refreshed when it expires."
-                            )
+                            result[
+                                "message"
+                            ] += ". Token can be automatically refreshed when it expires."
                         else:
                             result["message"] += (
                                 ". No refresh token available - will need to "
@@ -383,9 +381,7 @@ def register_tools(mcp):
 
             case "force_reauth":
                 if ctx:
-                    await ctx.info(
-                        "Forcing re-authentication by clearing current token"
-                    )
+                    await ctx.info("Forcing re-authentication by clearing current token")
 
                 try:
                     invalidate_authenticated_client()
@@ -403,8 +399,7 @@ def register_tools(mcp):
                             "open your browser for re-authentication."
                         ),
                         "note": (
-                            "You will need to log in again when you next "
-                            "use cart-related tools."
+                            "You will need to log in again when you next " "use cart-related tools."
                         ),
                     }
 

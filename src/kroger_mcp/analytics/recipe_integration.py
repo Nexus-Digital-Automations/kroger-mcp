@@ -5,16 +5,15 @@ Matches recipe ingredients to pantry items and generates optimized shopping list
 that consider current inventory levels.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .database import get_db_connection, ensure_initialized
-from .pantry import get_pantry_status, get_pantry_item
+from .database import ensure_initialized, get_db_connection
+from .pantry import get_pantry_item, get_pantry_status
 
 
 def match_ingredient_to_pantry(
-    ingredient_name: str,
-    product_id: Optional[str] = None
-) -> Optional[Dict[str, Any]]:
+    ingredient_name: str, product_id: str | None = None
+) -> dict[str, Any] | None:
     """
     Find pantry item matching a recipe ingredient.
 
@@ -42,7 +41,7 @@ def match_ingredient_to_pantry(
     best_score = 0
 
     for item in pantry_items:
-        description = (item.get('description') or '').lower()
+        description = (item.get("description") or "").lower()
         if not description:
             continue
 
@@ -66,10 +65,8 @@ def match_ingredient_to_pantry(
 
 
 def check_recipe_pantry(
-    recipe_id: str,
-    scale: float = 1.0,
-    low_threshold: int = 30
-) -> Dict[str, Any]:
+    recipe_id: str, scale: float = 1.0, low_threshold: int = 30
+) -> dict[str, Any]:
     """
     Check pantry for recipe ingredients and categorize by availability.
 
@@ -90,71 +87,74 @@ def check_recipe_pantry(
     conn = get_db_connection()
     try:
         # Get recipe ingredients
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT ri.*, r.name as recipe_name, r.servings
             FROM recipe_ingredients ri
             JOIN recipes r ON ri.recipe_id = r.id
             WHERE ri.recipe_id = ?
-        """, (recipe_id,))
+        """,
+            (recipe_id,),
+        )
         ingredients = [dict(row) for row in cursor.fetchall()]
 
         if not ingredients:
             return {
-                'success': False,
-                'error': f"Recipe '{recipe_id}' not found or has no ingredients"
+                "success": False,
+                "error": f"Recipe '{recipe_id}' not found or has no ingredients",
             }
 
-        recipe_name = ingredients[0].get('recipe_name', recipe_id)
+        recipe_name = ingredients[0].get("recipe_name", recipe_id)
 
         result = {
-            'recipe_id': recipe_id,
-            'recipe_name': recipe_name,
-            'scale': scale,
-            'have_enough': [],
-            'low_but_usable': [],
-            'need_to_buy': [],
-            'unknown': []
+            "recipe_id": recipe_id,
+            "recipe_name": recipe_name,
+            "scale": scale,
+            "have_enough": [],
+            "low_but_usable": [],
+            "need_to_buy": [],
+            "unknown": [],
         }
 
         for ing in ingredients:
-            ing_name = ing.get('name', '')
-            product_id = ing.get('product_id')
-            is_optional = ing.get('is_optional', False)
+            ing_name = ing.get("name", "")
+            product_id = ing.get("product_id")
+            is_optional = ing.get("is_optional", False)
 
             # Try to find in pantry
             pantry_item = match_ingredient_to_pantry(ing_name, product_id)
 
             item_info = {
-                'ingredient': ing_name,
-                'quantity': ing.get('quantity'),
-                'unit': ing.get('unit'),
-                'product_id': product_id,
-                'is_optional': bool(is_optional)
+                "ingredient": ing_name,
+                "quantity": ing.get("quantity"),
+                "unit": ing.get("unit"),
+                "product_id": product_id,
+                "is_optional": bool(is_optional),
             }
 
             if pantry_item:
-                level = pantry_item.get('level_percent', 0)
-                item_info['pantry_level'] = level
-                item_info['pantry_description'] = pantry_item.get('description')
-                item_info['days_until_empty'] = pantry_item.get('days_until_empty')
+                level = pantry_item.get("level_percent", 0)
+                item_info["pantry_level"] = level
+                item_info["pantry_description"] = pantry_item.get("description")
+                item_info["days_until_empty"] = pantry_item.get("days_until_empty")
 
                 if level >= low_threshold:
-                    result['have_enough'].append(item_info)
+                    result["have_enough"].append(item_info)
                 elif level > 10:
-                    result['low_but_usable'].append(item_info)
+                    result["low_but_usable"].append(item_info)
                 else:
-                    result['need_to_buy'].append(item_info)
+                    result["need_to_buy"].append(item_info)
             else:
-                result['unknown'].append(item_info)
+                result["unknown"].append(item_info)
 
         # Summary
-        result['summary'] = {
-            'total_ingredients': len(ingredients),
-            'have_enough_count': len(result['have_enough']),
-            'low_count': len(result['low_but_usable']),
-            'need_count': len(result['need_to_buy']),
-            'unknown_count': len(result['unknown']),
-            'ready_to_cook': len(result['need_to_buy']) == 0 and len(result['unknown']) == 0
+        result["summary"] = {
+            "total_ingredients": len(ingredients),
+            "have_enough_count": len(result["have_enough"]),
+            "low_count": len(result["low_but_usable"]),
+            "need_count": len(result["need_to_buy"]),
+            "unknown_count": len(result["unknown"]),
+            "ready_to_cook": len(result["need_to_buy"]) == 0 and len(result["unknown"]) == 0,
         }
 
         return result
@@ -163,12 +163,12 @@ def check_recipe_pantry(
 
 
 def generate_shopping_list(
-    recipe_ids: List[str],
+    recipe_ids: list[str],
     combine_duplicates: bool = True,
     skip_in_pantry: bool = True,
     pantry_threshold: int = 30,
-    scale: float = 1.0
-) -> Dict[str, Any]:
+    scale: float = 1.0,
+) -> dict[str, Any]:
     """
     Generate optimized shopping list for multiple recipes.
 
@@ -191,26 +191,23 @@ def generate_shopping_list(
 
         # Gather ingredients from all recipes
         for recipe_id in recipe_ids:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT ri.*, r.name as recipe_name
                 FROM recipe_ingredients ri
                 JOIN recipes r ON ri.recipe_id = r.id
                 WHERE ri.recipe_id = ?
-            """, (recipe_id,))
+            """,
+                (recipe_id,),
+            )
 
             for row in cursor.fetchall():
                 ing = dict(row)
-                recipe_names[recipe_id] = ing.get('recipe_name', recipe_id)
-                all_ingredients.append({
-                    **ing,
-                    'from_recipe': recipe_id
-                })
+                recipe_names[recipe_id] = ing.get("recipe_name", recipe_id)
+                all_ingredients.append({**ing, "from_recipe": recipe_id})
 
         if not all_ingredients:
-            return {
-                'success': False,
-                'error': 'No ingredients found for specified recipes'
-            }
+            return {"success": False, "error": "No ingredients found for specified recipes"}
 
         # Group and optionally combine ingredients
         shopping_items = {}
@@ -218,21 +215,23 @@ def generate_shopping_list(
         skipped_items = []
 
         for ing in all_ingredients:
-            ing_name = ing.get('name', '').lower()
-            product_id = ing.get('product_id')
-            is_optional = ing.get('is_optional', False)
-            quantity = (ing.get('quantity') or 1) * scale
-            unit = ing.get('unit', '')
+            ing_name = ing.get("name", "").lower()
+            product_id = ing.get("product_id")
+            is_optional = ing.get("is_optional", False)
+            quantity = (ing.get("quantity") or 1) * scale
+            unit = ing.get("unit", "")
 
             # Check pantry if skip_in_pantry is enabled
             if skip_in_pantry:
                 pantry_item = match_ingredient_to_pantry(ing_name, product_id)
-                if pantry_item and pantry_item.get('level_percent', 0) >= pantry_threshold:
-                    skipped_items.append({
-                        'ingredient': ing.get('name'),
-                        'pantry_level': pantry_item.get('level_percent'),
-                        'from_recipe': recipe_names.get(ing.get('from_recipe'))
-                    })
+                if pantry_item and pantry_item.get("level_percent", 0) >= pantry_threshold:
+                    skipped_items.append(
+                        {
+                            "ingredient": ing.get("name"),
+                            "pantry_level": pantry_item.get("level_percent"),
+                            "from_recipe": recipe_names.get(ing.get("from_recipe")),
+                        }
+                    )
                     continue
 
             # Create key for combining
@@ -243,38 +242,37 @@ def generate_shopping_list(
             if combine_duplicates and key in target:
                 # Combine quantities if same unit
                 existing = target[key]
-                if existing.get('unit') == unit:
-                    existing['quantity'] = (existing.get('quantity') or 0) + quantity
-                    existing['from_recipes'].append(
-                        recipe_names.get(ing.get('from_recipe')))
+                if existing.get("unit") == unit:
+                    existing["quantity"] = (existing.get("quantity") or 0) + quantity
+                    existing["from_recipes"].append(recipe_names.get(ing.get("from_recipe")))
             else:
                 target[key] = {
-                    'ingredient': ing.get('name'),
-                    'quantity': quantity,
-                    'unit': unit,
-                    'product_id': product_id,
-                    'product_description': ing.get('product_description'),
-                    'from_recipes': [recipe_names.get(ing.get('from_recipe'))]
+                    "ingredient": ing.get("name"),
+                    "quantity": quantity,
+                    "unit": unit,
+                    "product_id": product_id,
+                    "product_description": ing.get("product_description"),
+                    "from_recipes": [recipe_names.get(ing.get("from_recipe"))],
                 }
 
         return {
-            'success': True,
-            'recipes': list(recipe_names.values()),
-            'scale': scale,
-            'to_buy': list(shopping_items.values()),
-            'optional': list(optional_items.values()),
-            'skipped_in_pantry': skipped_items,
-            'summary': {
-                'items_to_buy': len(shopping_items),
-                'optional_items': len(optional_items),
-                'skipped_from_pantry': len(skipped_items)
-            }
+            "success": True,
+            "recipes": list(recipe_names.values()),
+            "scale": scale,
+            "to_buy": list(shopping_items.values()),
+            "optional": list(optional_items.values()),
+            "skipped_in_pantry": skipped_items,
+            "summary": {
+                "items_to_buy": len(shopping_items),
+                "optional_items": len(optional_items),
+                "skipped_from_pantry": len(skipped_items),
+            },
         }
     finally:
         conn.close()
 
 
-def get_recipes_for_pantry() -> Dict[str, Any]:
+def get_recipes_for_pantry() -> dict[str, Any]:
     """
     Find recipes that can be made with current pantry inventory.
 
@@ -291,32 +289,31 @@ def get_recipes_for_pantry() -> Dict[str, Any]:
 
         results = []
         for recipe in recipes:
-            check = check_recipe_pantry(recipe['id'])
-            if check.get('summary'):
-                summary = check['summary']
-                feasibility = (
-                    summary['have_enough_count'] /
-                    max(1, summary['total_ingredients'])
+            check = check_recipe_pantry(recipe["id"])
+            if check.get("summary"):
+                summary = check["summary"]
+                feasibility = summary["have_enough_count"] / max(1, summary["total_ingredients"])
+                results.append(
+                    {
+                        "recipe_id": recipe["id"],
+                        "recipe_name": recipe["name"],
+                        "feasibility": round(feasibility, 2),
+                        "have_ingredients": summary["have_enough_count"],
+                        "need_ingredients": summary["need_count"] + summary["unknown_count"],
+                        "ready_to_cook": summary["ready_to_cook"],
+                    }
                 )
-                results.append({
-                    'recipe_id': recipe['id'],
-                    'recipe_name': recipe['name'],
-                    'feasibility': round(feasibility, 2),
-                    'have_ingredients': summary['have_enough_count'],
-                    'need_ingredients': summary['need_count'] + summary['unknown_count'],
-                    'ready_to_cook': summary['ready_to_cook']
-                })
 
         # Sort by feasibility (highest first)
-        results.sort(key=lambda r: r['feasibility'], reverse=True)
+        results.sort(key=lambda r: r["feasibility"], reverse=True)
 
         return {
-            'recipes': results,
-            'ready_to_cook': [r for r in results if r['ready_to_cook']],
-            'summary': {
-                'total_recipes': len(results),
-                'ready_count': len([r for r in results if r['ready_to_cook']])
-            }
+            "recipes": results,
+            "ready_to_cook": [r for r in results if r["ready_to_cook"]],
+            "summary": {
+                "total_recipes": len(results),
+                "ready_count": len([r for r in results if r["ready_to_cook"]]),
+            },
         }
     finally:
         conn.close()

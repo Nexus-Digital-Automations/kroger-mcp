@@ -1,22 +1,21 @@
 """Safety API endpoints — settings, approved products, and blocked products."""
-from typing import Optional
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from kroger_mcp.analytics.database import ensure_initialized
+from kroger_mcp.analytics.ingredients import get_active_ingredients, get_all_ingredients
 from kroger_mcp.analytics.safety import (
-    get_safety_settings,
-    update_safety_settings,
-    get_safe_products,
-    add_to_safe_list,
-    remove_from_safe_list,
-    get_blocked_products,
     add_to_blocked_list,
+    add_to_safe_list,
+    get_blocked_products,
+    get_safe_products,
+    get_safety_settings,
     remove_from_blocked_list,
+    remove_from_safe_list,
+    update_safety_settings,
 )
-from kroger_mcp.analytics.ingredients import get_all_ingredients, get_active_ingredients
 
 router = APIRouter()
 
@@ -25,27 +24,29 @@ router = APIRouter()
 # Request models
 # ---------------------------------------------------------------------------
 
+
 class SettingsRequest(BaseModel):
-    filtering_enabled: Optional[bool] = None
-    block_mode: Optional[str] = None
+    filtering_enabled: bool | None = None
+    block_mode: str | None = None
 
 
 class ApproveProductRequest(BaseModel):
     product_id: str
-    description: Optional[str] = None
-    brand: Optional[str] = None
-    reason: Optional[str] = None
+    description: str | None = None
+    brand: str | None = None
+    reason: str | None = None
 
 
 class BlockProductRequest(BaseModel):
     product_id: str
-    description: Optional[str] = None
-    reason: Optional[str] = None
+    description: str | None = None
+    reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
 # Settings endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/api/safety/settings")
 async def get_settings():
@@ -83,6 +84,7 @@ async def update_settings(body: SettingsRequest):
 # ---------------------------------------------------------------------------
 # Ingredients endpoint
 # ---------------------------------------------------------------------------
+
 
 @router.get("/api/safety/ingredients")
 async def list_ingredients():
@@ -127,6 +129,7 @@ async def list_ingredients():
 # ---------------------------------------------------------------------------
 # Safe products endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/api/safety/approved")
 async def list_approved():
@@ -178,6 +181,7 @@ async def unapprove_product(product_id: str):
 # ---------------------------------------------------------------------------
 # Blocked products endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/api/safety/blocked")
 async def list_blocked():

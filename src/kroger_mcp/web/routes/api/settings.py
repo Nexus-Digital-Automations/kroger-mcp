@@ -1,4 +1,5 @@
 """API routes for settings management."""
+
 import json
 import logging
 import pathlib
@@ -40,10 +41,11 @@ async def get_settings():
     """Return current app settings."""
     try:
         from kroger_mcp.tools.shared import (
-            get_preferred_location_id,
-            get_default_servings,
             get_authenticated_client,
+            get_default_servings,
+            get_preferred_location_id,
         )
+
         location_id = get_preferred_location_id() or ""
         servings = get_default_servings()
 
@@ -69,6 +71,7 @@ async def set_servings(body: ServingsBody):
     """Set the default number of servings per meal."""
     try:
         from kroger_mcp.tools.shared import set_default_servings
+
         set_default_servings(body.servings)
         return {"success": True, "servings": body.servings}
     except ValueError as exc:
@@ -82,6 +85,7 @@ async def set_location(body: LocationBody):
     """Set the preferred Kroger store location."""
     try:
         from kroger_mcp.tools.shared import set_preferred_location_id
+
         set_preferred_location_id(body.location_id)
         return {"success": True, "location_id": body.location_id}
     except Exception as exc:
@@ -93,6 +97,7 @@ async def search_locations(zip: str = Query(..., description="ZIP code to search
     """Search for nearby Kroger stores by ZIP code."""
     try:
         from kroger_mcp.tools.shared import get_client_credentials_client
+
         client = get_client_credentials_client()
         raw = client.location.search_locations(zip_code=zip, limit=5)
 
@@ -115,11 +120,13 @@ async def search_locations(zip: str = Query(..., description="ZIP code to search
                 addr_parts.append(address["zipCode"])
             address_str = ", ".join(addr_parts) if addr_parts else ""
 
-            locations.append({
-                "location_id": loc_id,
-                "name": name,
-                "address": address_str,
-            })
+            locations.append(
+                {
+                    "location_id": loc_id,
+                    "name": name,
+                    "address": address_str,
+                }
+            )
 
         return locations
     except Exception as exc:
@@ -131,6 +138,7 @@ async def get_product_sort():
     """Return saved product page sort preferences."""
     try:
         from kroger_mcp.tools.shared import get_product_sort_preferences
+
         return get_product_sort_preferences()
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
@@ -141,6 +149,7 @@ async def set_product_sort(body: SortPreferencesBody):
     """Save product page sort preferences."""
     try:
         from kroger_mcp.tools.shared import set_product_sort_preferences
+
         set_product_sort_preferences(body.search_sort_stack, body.deals_sort_stack)
         return {"success": True}
     except Exception as exc:
@@ -154,9 +163,9 @@ async def set_product_sort(body: SortPreferencesBody):
 async def get_auth_status():
     """Return detailed Kroger auth status and token info."""
     from kroger_mcp.tools.shared import (
+        get_authenticated_client,
         get_kroger_credentials,
         get_token_info,
-        get_authenticated_client,
     )
 
     creds = get_kroger_credentials()
@@ -201,13 +210,16 @@ async def start_oauth():
     """Start OAuth PKCE flow; returns auth URL for browser redirect."""
     from kroger_api import KrogerAPI
     from kroger_api.utils import generate_pkce_parameters
+
     from kroger_mcp.tools.shared import get_kroger_credentials
 
     creds = get_kroger_credentials()
     if not creds["client_id"] or not creds["client_secret"]:
         return JSONResponse(
             status_code=400,
-            content={"error": "Kroger credentials not configured. Open Advanced Settings to add your Client ID and Secret."},
+            content={
+                "error": "Kroger credentials not configured. Open Advanced Settings to add your Client ID and Secret."
+            },
         )
 
     redirect_uri = creds.get("redirect_uri") or "http://localhost:8000/callback"
@@ -232,11 +244,15 @@ async def start_oauth():
     )
 
     # Persist PKCE state for the callback
-    _WEB_OAUTH_STATE_FILE.write_text(json.dumps({
-        "pkce_params": pkce,
-        "state": state,
-        "redirect_uri": redirect_uri,
-    }))
+    _WEB_OAUTH_STATE_FILE.write_text(
+        json.dumps(
+            {
+                "pkce_params": pkce,
+                "state": state,
+                "redirect_uri": redirect_uri,
+            }
+        )
+    )
 
     return {"auth_url": auth_url}
 
@@ -245,6 +261,7 @@ async def start_oauth():
 async def disconnect_kroger():
     """Clear Kroger token and disconnect."""
     from kroger_mcp.tools.shared import delete_user_token
+
     try:
         delete_user_token()
         return {"success": True}
@@ -271,9 +288,9 @@ async def get_credentials():
 async def save_credentials(body: CredentialsBody):
     """Save Kroger API credentials to preferences."""
     from kroger_mcp.tools.shared import (
-        set_kroger_credentials,
         invalidate_authenticated_client,
         invalidate_client_credentials_client,
+        set_kroger_credentials,
     )
 
     set_kroger_credentials(

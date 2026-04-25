@@ -1,9 +1,12 @@
 """Shared utilities for API routes."""
+
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from kroger_mcp.tools.shared import (
     get_authenticated_client as _get_auth,
+)
+from kroger_mcp.tools.shared import (
     get_client_credentials_client as _get_pub,
 )
 
@@ -16,7 +19,7 @@ def get_kroger_client():
         raise HTTPException(
             status_code=401,
             detail=f"Authentication required: {str(e)}",
-        )
+        ) from e
 
 
 def get_public_client():
@@ -27,7 +30,7 @@ def get_public_client():
         raise HTTPException(
             status_code=503,
             detail=f"Kroger API unavailable: {str(e)}",
-        )
+        ) from e
 
 
 def error_response(message: str, status_code: int = 400):

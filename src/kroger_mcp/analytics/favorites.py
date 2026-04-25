@@ -7,18 +7,16 @@ integrating with the pantry system for smart reordering.
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .database import get_db_cursor, ensure_initialized
-
+from .database import ensure_initialized, get_db_cursor
 
 # ========== Helper Functions ==========
 
 
 def _calculate_reorder_status(
-    last_ordered_at: Optional[str],
-    reorder_weeks: Optional[int]
-) -> Dict[str, Any]:
+    last_ordered_at: str | None, reorder_weeks: int | None
+) -> dict[str, Any]:
     """
     Calculate the reorder status for a list based on schedule.
 
@@ -40,7 +38,7 @@ def _calculate_reorder_status(
             "next_due_date": None,
             "days_until_due": None,
             "status": "never_ordered",
-            "is_overdue": True
+            "is_overdue": True,
         }
 
     try:
@@ -57,7 +55,7 @@ def _calculate_reorder_status(
             "next_due_date": None,
             "days_until_due": None,
             "status": "never_ordered",
-            "is_overdue": True
+            "is_overdue": True,
         }
 
     next_due = last_order + timedelta(weeks=reorder_weeks)
@@ -82,7 +80,7 @@ def _calculate_reorder_status(
         "days_until_due": days_until_due,
         "days_overdue": abs(days_until_due) if days_until_due < 0 else 0,
         "status": status,
-        "is_overdue": is_overdue
+        "is_overdue": is_overdue,
     }
 
 
@@ -108,10 +106,10 @@ def get_all_favorite_product_ids() -> set:
 
 def create_list(
     name: str,
-    description: Optional[str] = None,
+    description: str | None = None,
     list_type: str = "custom",
-    reorder_weeks: Optional[int] = None
-) -> Dict[str, Any]:
+    reorder_weeks: int | None = None,
+) -> dict[str, Any]:
     """
     Create a new favorite list.
 
@@ -129,10 +127,7 @@ def create_list(
     # Validate reorder_weeks
     if reorder_weeks is not None:
         if not isinstance(reorder_weeks, int) or reorder_weeks < 1 or reorder_weeks > 52:
-            return {
-                "success": False,
-                "error": "reorder_weeks must be between 1 and 52"
-            }
+            return {"success": False, "error": "reorder_weeks must be between 1 and 52"}
 
     # Generate a URL-safe ID from the name
     list_id = f"{name.lower().replace(' ', '-')}-{uuid.uuid4().hex[:8]}"
@@ -144,7 +139,7 @@ def create_list(
                 INSERT INTO favorite_lists (id, name, description, list_type, reorder_weeks)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (list_id, name, description, list_type, reorder_weeks)
+                (list_id, name, description, list_type, reorder_weeks),
             )
 
             # Calculate initial reorder status
@@ -156,18 +151,15 @@ def create_list(
                 "name": name,
                 "list_type": list_type,
                 "reorder_weeks": reorder_weeks,
-                "reorder_status": reorder_status
+                "reorder_status": reorder_status,
             }
     except Exception as e:
         if "UNIQUE constraint" in str(e):
-            return {
-                "success": False,
-                "error": f"A list named '{name}' already exists"
-            }
+            return {"success": False, "error": f"A list named '{name}' already exists"}
         return {"success": False, "error": str(e)}
 
 
-def get_lists() -> List[Dict[str, Any]]:
+def get_lists() -> list[dict[str, Any]]:
     """
     Get all favorite lists with item counts and reorder status.
 
@@ -201,24 +193,23 @@ def get_lists() -> List[Dict[str, Any]]:
 
     results = []
     for row in rows:
-        reorder_status = _calculate_reorder_status(
-            row["last_ordered_at"],
-            row["reorder_weeks"]
-        )
+        reorder_status = _calculate_reorder_status(row["last_ordered_at"], row["reorder_weeks"])
 
-        results.append({
-            "id": row["id"],
-            "name": row["name"],
-            "description": row["description"],
-            "list_type": row["list_type"],
-            "item_count": row["item_count"],
-            "reorder_weeks": row["reorder_weeks"],
-            "last_ordered_at": row["last_ordered_at"],
-            "reorder_status": reorder_status,
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-            "is_default": row["id"] == "default"
-        })
+        results.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "description": row["description"],
+                "list_type": row["list_type"],
+                "item_count": row["item_count"],
+                "reorder_weeks": row["reorder_weeks"],
+                "last_ordered_at": row["last_ordered_at"],
+                "reorder_status": reorder_status,
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "is_default": row["id"] == "default",
+            }
+        )
 
     # Patch default list's item_count to reflect all unique products across all lists
     with get_db_cursor() as cursor:
@@ -232,7 +223,7 @@ def get_lists() -> List[Dict[str, Any]]:
     return results
 
 
-def get_list(list_id: str) -> Optional[Dict[str, Any]]:
+def get_list(list_id: str) -> dict[str, Any] | None:
     """
     Get a single list by ID.
 
@@ -262,17 +253,14 @@ def get_list(list_id: str) -> Optional[Dict[str, Any]]:
             WHERE fl.id = ?
             GROUP BY fl.id
             """,
-            (list_id,)
+            (list_id,),
         )
         row = cursor.fetchone()
 
     if not row:
         return None
 
-    reorder_status = _calculate_reorder_status(
-        row["last_ordered_at"],
-        row["reorder_weeks"]
-    )
+    reorder_status = _calculate_reorder_status(row["last_ordered_at"], row["reorder_weeks"])
 
     item_count = row["item_count"]
     if row["id"] == "default":
@@ -291,15 +279,13 @@ def get_list(list_id: str) -> Optional[Dict[str, Any]]:
         "reorder_status": reorder_status,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
-        "is_default": row["id"] == "default"
+        "is_default": row["id"] == "default",
     }
 
 
 def rename_list(
-    list_id: str,
-    new_name: Optional[str] = None,
-    new_description: Optional[str] = None
-) -> Dict[str, Any]:
+    list_id: str, new_name: str | None = None, new_description: str | None = None
+) -> dict[str, Any]:
     """
     Rename a list or update its description.
 
@@ -314,16 +300,10 @@ def rename_list(
     ensure_initialized()
 
     if list_id == "default":
-        return {
-            "success": False,
-            "error": "Cannot rename the default list"
-        }
+        return {"success": False, "error": "Cannot rename the default list"}
 
     if not new_name and new_description is None:
-        return {
-            "success": False,
-            "error": "Must provide new_name or new_description"
-        }
+        return {"success": False, "error": "Must provide new_name or new_description"}
 
     try:
         with get_db_cursor() as cursor:
@@ -348,26 +328,20 @@ def rename_list(
                 SET {', '.join(updates)}
                 WHERE id = ?
                 """,
-                params
+                params,
             )
 
             if cursor.rowcount == 0:
-                return {
-                    "success": False,
-                    "error": f"List '{list_id}' not found"
-                }
+                return {"success": False, "error": f"List '{list_id}' not found"}
 
             return {"success": True, "list_id": list_id}
     except Exception as e:
         if "UNIQUE constraint" in str(e):
-            return {
-                "success": False,
-                "error": f"A list named '{new_name}' already exists"
-            }
+            return {"success": False, "error": f"A list named '{new_name}' already exists"}
         return {"success": False, "error": str(e)}
 
 
-def delete_list(list_id: str) -> Dict[str, Any]:
+def delete_list(list_id: str) -> dict[str, Any]:
     """
     Delete a list and all its items.
 
@@ -380,16 +354,12 @@ def delete_list(list_id: str) -> Dict[str, Any]:
     ensure_initialized()
 
     if list_id == "default":
-        return {
-            "success": False,
-            "error": "Cannot delete the default list"
-        }
+        return {"success": False, "error": "Cannot delete the default list"}
 
     with get_db_cursor() as cursor:
         # Get item count before deletion
         cursor.execute(
-            "SELECT COUNT(*) as cnt FROM favorite_list_items WHERE list_id = ?",
-            (list_id,)
+            "SELECT COUNT(*) as cnt FROM favorite_list_items WHERE list_id = ?", (list_id,)
         )
         item_count = cursor.fetchone()["cnt"]
 
@@ -397,16 +367,9 @@ def delete_list(list_id: str) -> Dict[str, Any]:
         cursor.execute("DELETE FROM favorite_lists WHERE id = ?", (list_id,))
 
         if cursor.rowcount == 0:
-            return {
-                "success": False,
-                "error": f"List '{list_id}' not found"
-            }
+            return {"success": False, "error": f"List '{list_id}' not found"}
 
-        return {
-            "success": True,
-            "list_id": list_id,
-            "items_deleted": item_count
-        }
+        return {"success": True, "list_id": list_id, "items_deleted": item_count}
 
 
 # ========== Item Management ==========
@@ -416,14 +379,14 @@ def add_to_list(
     list_id: str,
     product_id: str,
     description: str,
-    brand: Optional[str] = None,
+    brand: str | None = None,
     default_quantity: int = 1,
     preferred_modality: str = "PICKUP",
-    notes: Optional[str] = None,
-    min_stock_percent: Optional[int] = None,
-    min_stock_quantity: Optional[int] = None,
-    current_stock_quantity: Optional[int] = None,
-) -> Dict[str, Any]:
+    notes: str | None = None,
+    min_stock_percent: int | None = None,
+    min_stock_quantity: int | None = None,
+    current_stock_quantity: int | None = None,
+) -> dict[str, Any]:
     """
     Add a product to a favorite list.
 
@@ -447,10 +410,7 @@ def add_to_list(
     # Verify list exists
     lst = get_list(list_id)
     if not lst:
-        return {
-            "success": False,
-            "error": f"List '{list_id}' not found"
-        }
+        return {"success": False, "error": f"List '{list_id}' not found"}
 
     try:
         with get_db_cursor() as cursor:
@@ -462,36 +422,42 @@ def add_to_list(
                  current_stock_quantity)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (list_id, product_id, description, brand, default_quantity,
-                 preferred_modality, notes, min_stock_percent, min_stock_quantity,
-                 current_stock_quantity)
+                (
+                    list_id,
+                    product_id,
+                    description,
+                    brand,
+                    default_quantity,
+                    preferred_modality,
+                    notes,
+                    min_stock_percent,
+                    min_stock_quantity,
+                    current_stock_quantity,
+                ),
             )
 
             # Update list's updated_at
             cursor.execute(
                 "UPDATE favorite_lists SET updated_at = ? WHERE id = ?",
-                (datetime.now().isoformat(), list_id)
+                (datetime.now().isoformat(), list_id),
             )
 
             return {
                 "success": True,
                 "list_id": list_id,
                 "product_id": product_id,
-                "description": description
+                "description": description,
             }
     except Exception as e:
         if "UNIQUE constraint" in str(e):
             return {
                 "success": False,
-                "error": f"Product '{product_id}' is already in list '{lst['name']}'"
+                "error": f"Product '{product_id}' is already in list '{lst['name']}'",
             }
         return {"success": False, "error": str(e)}
 
 
-def bulk_add_to_list(
-    list_id: str,
-    items: List[Dict[str, Any]]
-) -> Dict[str, Any]:
+def bulk_add_to_list(list_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Add multiple products to a favorite list in one operation.
 
@@ -513,10 +479,7 @@ def bulk_add_to_list(
     # Verify list exists
     lst = get_list(list_id)
     if not lst:
-        return {
-            "success": False,
-            "error": f"List '{list_id}' not found"
-        }
+        return {"success": False, "error": f"List '{list_id}' not found"}
 
     added = []
     failed = []
@@ -527,10 +490,12 @@ def bulk_add_to_list(
             description = item.get("description")
 
             if not product_id or not description:
-                failed.append({
-                    "product_id": product_id,
-                    "error": "Missing required field: product_id or description"
-                })
+                failed.append(
+                    {
+                        "product_id": product_id,
+                        "error": "Missing required field: product_id or description",
+                    }
+                )
                 continue
 
             try:
@@ -553,29 +518,20 @@ def bulk_add_to_list(
                         item.get("min_stock_percent"),
                         item.get("min_stock_quantity"),
                         item.get("current_stock_quantity"),
-                    )
+                    ),
                 )
-                added.append({
-                    "product_id": product_id,
-                    "description": description
-                })
+                added.append({"product_id": product_id, "description": description})
             except Exception as e:
                 if "UNIQUE constraint" in str(e):
-                    failed.append({
-                        "product_id": product_id,
-                        "error": "Already in list"
-                    })
+                    failed.append({"product_id": product_id, "error": "Already in list"})
                 else:
-                    failed.append({
-                        "product_id": product_id,
-                        "error": str(e)
-                    })
+                    failed.append({"product_id": product_id, "error": str(e)})
 
         # Update list's updated_at if any items were added
         if added:
             cursor.execute(
                 "UPDATE favorite_lists SET updated_at = ? WHERE id = ?",
-                (datetime.now().isoformat(), list_id)
+                (datetime.now().isoformat(), list_id),
             )
 
     return {
@@ -585,11 +541,11 @@ def bulk_add_to_list(
         "added": added,
         "failed": failed,
         "added_count": len(added),
-        "failed_count": len(failed)
+        "failed_count": len(failed),
     }
 
 
-def remove_from_list(list_id: str, product_id: str) -> Dict[str, Any]:
+def remove_from_list(list_id: str, product_id: str) -> dict[str, Any]:
     """
     Remove a product from a favorite list.
 
@@ -605,33 +561,27 @@ def remove_from_list(list_id: str, product_id: str) -> Dict[str, Any]:
     with get_db_cursor() as cursor:
         cursor.execute(
             "DELETE FROM favorite_list_items WHERE list_id = ? AND product_id = ?",
-            (list_id, product_id)
+            (list_id, product_id),
         )
 
         if cursor.rowcount == 0:
             return {
                 "success": False,
-                "error": f"Product '{product_id}' not found in list '{list_id}'"
+                "error": f"Product '{product_id}' not found in list '{list_id}'",
             }
 
         # Update list's updated_at
         cursor.execute(
             "UPDATE favorite_lists SET updated_at = ? WHERE id = ?",
-            (datetime.now().isoformat(), list_id)
+            (datetime.now().isoformat(), list_id),
         )
 
-        return {
-            "success": True,
-            "list_id": list_id,
-            "product_id": product_id
-        }
+        return {"success": True, "list_id": list_id, "product_id": product_id}
 
 
 def get_list_items(
-    list_id: str,
-    include_pantry_status: bool = True,
-    sort_by: str = "description"
-) -> Dict[str, Any]:
+    list_id: str, include_pantry_status: bool = True, sort_by: str = "description"
+) -> dict[str, Any]:
     """
     Get all items in a favorite list with optional pantry status.
 
@@ -648,23 +598,20 @@ def get_list_items(
     # Get list info
     lst = get_list(list_id)
     if not lst:
-        return {
-            "success": False,
-            "error": f"List '{list_id}' not found"
-        }
+        return {"success": False, "error": f"List '{list_id}' not found"}
 
     # Determine sort order
     sort_column = {
         "description": "fli.description",
         "times_ordered": "fli.times_ordered DESC",
-        "added_at": "fli.added_at DESC"
+        "added_at": "fli.added_at DESC",
     }.get(sort_by, "fli.description")
 
     # Aggregate sort uses aliases (GROUP BY query)
     agg_sort_column = {
         "description": "description",
         "times_ordered": "times_ordered DESC",
-        "added_at": "added_at DESC"
+        "added_at": "added_at DESC",
     }.get(sort_by, "description")
 
     IS_DEFAULT = list_id == "default"
@@ -739,7 +686,7 @@ def get_list_items(
                 WHERE fli.list_id = ?
                 ORDER BY {sort_column}
                 """,
-                (list_id,)
+                (list_id,),
             )
         else:
             cursor.execute(
@@ -760,7 +707,7 @@ def get_list_items(
                 WHERE fli.list_id = ?
                 ORDER BY {sort_column}
                 """,
-                (list_id,)
+                (list_id,),
             )
 
         rows = cursor.fetchall()
@@ -800,41 +747,28 @@ def get_list_items(
                     "level_percent": level,
                     "days_until_empty": days_until_empty,
                     "is_low": level < threshold,
-                    "needs_reorder": level < threshold
+                    "needs_reorder": level < threshold,
                 }
             else:
                 item["pantry_status"] = {
                     "tracked": False,
                     "level_percent": None,
-                    "needs_reorder": None
+                    "needs_reorder": None,
                 }
 
             # Compute per-item minimum stock status
-            below_min_percent = (
-                min_pct is not None and (level is None or level < min_pct)
-            )
-            below_min_quantity = (
-                min_qty is not None and (cur_qty is None or cur_qty < min_qty)
-            )
+            below_min_percent = min_pct is not None and (level is None or level < min_pct)
+            below_min_quantity = min_qty is not None and (cur_qty is None or cur_qty < min_qty)
             item["below_min_percent"] = below_min_percent
             item["below_min_quantity"] = below_min_quantity
             item["needs_restock"] = below_min_percent or below_min_quantity
 
         items.append(item)
 
-    return {
-        "success": True,
-        "list": lst,
-        "items": items,
-        "total_items": len(items)
-    }
+    return {"success": True, "list": lst, "items": items, "total_items": len(items)}
 
 
-def update_list_item(
-    list_id: str,
-    product_id: str,
-    **kwargs
-) -> Dict[str, Any]:
+def update_list_item(list_id: str, product_id: str, **kwargs) -> dict[str, Any]:
     """
     Update an item in a favorite list.
 
@@ -849,19 +783,20 @@ def update_list_item(
     ensure_initialized()
 
     allowed_fields = {
-        "default_quantity", "preferred_modality", "notes",
-        "min_stock_percent", "min_stock_quantity", "current_stock_quantity",
+        "default_quantity",
+        "preferred_modality",
+        "notes",
+        "min_stock_percent",
+        "min_stock_quantity",
+        "current_stock_quantity",
     }
     # Use `is not None` so 0 is a valid stock count but unprovided fields are skipped
     updates = {k: v for k, v in kwargs.items() if k in allowed_fields and v is not None}
 
     if not updates:
-        return {
-            "success": False,
-            "error": "No valid fields to update"
-        }
+        return {"success": False, "error": "No valid fields to update"}
 
-    set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
     params = list(updates.values()) + [list_id, product_id]
 
     with get_db_cursor() as cursor:
@@ -871,24 +806,24 @@ def update_list_item(
             SET {set_clause}
             WHERE list_id = ? AND product_id = ?
             """,
-            params
+            params,
         )
 
         if cursor.rowcount == 0:
             return {
                 "success": False,
-                "error": f"Product '{product_id}' not found in list '{list_id}'"
+                "error": f"Product '{product_id}' not found in list '{list_id}'",
             }
 
         return {
             "success": True,
             "list_id": list_id,
             "product_id": product_id,
-            "updated_fields": list(updates.keys())
+            "updated_fields": list(updates.keys()),
         }
 
 
-def increment_times_ordered(list_id: str, product_ids: List[str]) -> None:
+def increment_times_ordered(list_id: str, product_ids: list[str]) -> None:
     """
     Increment the times_ordered counter for products that were ordered.
 
@@ -909,7 +844,7 @@ def increment_times_ordered(list_id: str, product_ids: List[str]) -> None:
             SET times_ordered = times_ordered + 1
             WHERE list_id = ? AND product_id IN ({placeholders})
             """,
-            [list_id] + product_ids
+            [list_id] + product_ids,
         )
 
 
@@ -917,9 +852,8 @@ def increment_times_ordered(list_id: str, product_ids: List[str]) -> None:
 
 
 def get_items_needing_reorder(
-    list_id: str = "default",
-    pantry_threshold: int = 30
-) -> Dict[str, Any]:
+    list_id: str = "default", pantry_threshold: int = 30
+) -> dict[str, Any]:
     """
     Get items from a list that need reordering based on pantry levels.
 
@@ -934,10 +868,7 @@ def get_items_needing_reorder(
 
     lst = get_list(list_id)
     if not lst:
-        return {
-            "success": False,
-            "error": f"List '{list_id}' not found"
-        }
+        return {"success": False, "error": f"List '{list_id}' not found"}
 
     with get_db_cursor() as cursor:
         cursor.execute(
@@ -956,7 +887,7 @@ def get_items_needing_reorder(
               AND (pi.level_percent IS NULL OR pi.level_percent < ?)
             ORDER BY COALESCE(pi.level_percent, 0) ASC
             """,
-            (list_id, pantry_threshold)
+            (list_id, pantry_threshold),
         )
         rows = cursor.fetchall()
 
@@ -969,32 +900,34 @@ def get_items_needing_reorder(
         if level is not None and depletion > 0:
             days_until_empty = round(level / depletion, 1)
 
-        items.append({
-            "product_id": row["product_id"],
-            "description": row["description"],
-            "brand": row["brand"],
-            "default_quantity": row["default_quantity"],
-            "preferred_modality": row["preferred_modality"],
-            "pantry_level": level,
-            "days_until_empty": days_until_empty,
-            "in_pantry": level is not None
-        })
+        items.append(
+            {
+                "product_id": row["product_id"],
+                "description": row["description"],
+                "brand": row["brand"],
+                "default_quantity": row["default_quantity"],
+                "preferred_modality": row["preferred_modality"],
+                "pantry_level": level,
+                "days_until_empty": days_until_empty,
+                "in_pantry": level is not None,
+            }
+        )
 
     return {
         "success": True,
         "list": lst,
         "items_needing_reorder": items,
         "count": len(items),
-        "threshold_used": pantry_threshold
+        "threshold_used": pantry_threshold,
     }
 
 
 def suggest_for_list(
-    list_id: Optional[str] = None,
+    list_id: str | None = None,
     min_purchases: int = 3,
     min_frequency_score: float = 0.5,
-    limit: int = 10
-) -> Dict[str, Any]:
+    limit: int = 10,
+) -> dict[str, Any]:
     """
     Suggest products to add to favorites based on purchase history.
 
@@ -1017,7 +950,7 @@ def suggest_for_list(
                 SELECT DISTINCT product_id FROM favorite_list_items
                 WHERE list_id = ?
                 """,
-                (list_id,)
+                (list_id,),
             )
         else:
             cursor.execute("SELECT DISTINCT product_id FROM favorite_list_items")
@@ -1042,25 +975,28 @@ def suggest_for_list(
             ORDER BY ps.purchase_frequency_score DESC, ps.total_purchases DESC
             LIMIT ?
             """,
-            (min_purchases, min_frequency_score, limit * 3)  # Get extra to filter
+            (min_purchases, min_frequency_score, limit * 3),  # Get extra to filter
         )
         rows = cursor.fetchall()
 
     suggestions = []
     for row in rows:
         if row["product_id"] not in existing_products:
-            suggestions.append({
-                "product_id": row["product_id"],
-                "description": row["description"],
-                "brand": row["brand"],
-                "total_purchases": row["total_purchases"],
-                "frequency_score": round(row["purchase_frequency_score"], 2),
-                "avg_days_between": (
-                    round(row["avg_days_between_purchases"], 1)
-                    if row["avg_days_between_purchases"] else None
-                ),
-                "last_purchased": row["last_purchase_date"]
-            })
+            suggestions.append(
+                {
+                    "product_id": row["product_id"],
+                    "description": row["description"],
+                    "brand": row["brand"],
+                    "total_purchases": row["total_purchases"],
+                    "frequency_score": round(row["purchase_frequency_score"], 2),
+                    "avg_days_between": (
+                        round(row["avg_days_between_purchases"], 1)
+                        if row["avg_days_between_purchases"]
+                        else None
+                    ),
+                    "last_purchased": row["last_purchase_date"],
+                }
+            )
             if len(suggestions) >= limit:
                 break
 
@@ -1068,17 +1004,14 @@ def suggest_for_list(
         "success": True,
         "suggestions": suggestions,
         "count": len(suggestions),
-        "excluded_list": list_id
+        "excluded_list": list_id,
     }
 
 
 # ========== Reorder Schedule Management ==========
 
 
-def update_list_schedule(
-    list_id: str,
-    reorder_weeks: Optional[int]
-) -> Dict[str, Any]:
+def update_list_schedule(list_id: str, reorder_weeks: int | None) -> dict[str, Any]:
     """
     Update the reorder schedule for an existing list.
 
@@ -1092,32 +1025,23 @@ def update_list_schedule(
     ensure_initialized()
 
     if list_id == "default":
-        return {
-            "success": False,
-            "error": "Cannot modify schedule for the default list"
-        }
+        return {"success": False, "error": "Cannot modify schedule for the default list"}
 
     # Validate reorder_weeks
     if reorder_weeks is not None:
         if not isinstance(reorder_weeks, int) or reorder_weeks < 1 or reorder_weeks > 52:
             return {
                 "success": False,
-                "error": "reorder_weeks must be between 1 and 52, or None to disable"
+                "error": "reorder_weeks must be between 1 and 52, or None to disable",
             }
 
     with get_db_cursor() as cursor:
         # Check if list exists and get current last_ordered_at
-        cursor.execute(
-            "SELECT last_ordered_at FROM favorite_lists WHERE id = ?",
-            (list_id,)
-        )
+        cursor.execute("SELECT last_ordered_at FROM favorite_lists WHERE id = ?", (list_id,))
         row = cursor.fetchone()
 
         if not row:
-            return {
-                "success": False,
-                "error": f"List '{list_id}' not found"
-            }
+            return {"success": False, "error": f"List '{list_id}' not found"}
 
         last_ordered_at = row["last_ordered_at"]
 
@@ -1128,7 +1052,7 @@ def update_list_schedule(
             SET reorder_weeks = ?, updated_at = ?
             WHERE id = ?
             """,
-            (reorder_weeks, datetime.now().isoformat(), list_id)
+            (reorder_weeks, datetime.now().isoformat(), list_id),
         )
 
     # Calculate new reorder status
@@ -1138,11 +1062,11 @@ def update_list_schedule(
         "success": True,
         "list_id": list_id,
         "reorder_weeks": reorder_weeks,
-        "reorder_status": reorder_status
+        "reorder_status": reorder_status,
     }
 
 
-def get_low_stock_items(list_id: str) -> Dict[str, Any]:
+def get_low_stock_items(list_id: str) -> dict[str, Any]:
     """
     Return items from a favorites list that are below their user-defined minimum stock.
 
@@ -1179,7 +1103,7 @@ def get_low_stock_items(list_id: str) -> Dict[str, Any]:
               AND (fli.min_stock_percent IS NOT NULL OR fli.min_stock_quantity IS NOT NULL)
             ORDER BY fli.description
             """,
-            (list_id,)
+            (list_id,),
         )
         rows = cursor.fetchall()
 
@@ -1198,27 +1122,27 @@ def get_low_stock_items(list_id: str) -> Dict[str, Any]:
 
         reasons = []
         if below_min_percent:
-            reasons.append(
-                f"Pantry {level if level is not None else 0}% < minimum {min_pct}%"
-            )
+            reasons.append(f"Pantry {level if level is not None else 0}% < minimum {min_pct}%")
         if below_min_quantity:
             reasons.append(
                 f"Have {cur_qty if cur_qty is not None else 0} units, minimum is {min_qty}"
             )
 
-        low_stock.append({
-            "product_id": row["product_id"],
-            "description": row["description"],
-            "brand": row["brand"],
-            "default_quantity": row["default_quantity"],
-            "min_stock_percent": min_pct,
-            "pantry_level": level,
-            "min_stock_quantity": min_qty,
-            "current_stock_quantity": cur_qty,
-            "below_min_percent": below_min_percent,
-            "below_min_quantity": below_min_quantity,
-            "restock_reasons": reasons,
-        })
+        low_stock.append(
+            {
+                "product_id": row["product_id"],
+                "description": row["description"],
+                "brand": row["brand"],
+                "default_quantity": row["default_quantity"],
+                "min_stock_percent": min_pct,
+                "pantry_level": level,
+                "min_stock_quantity": min_qty,
+                "current_stock_quantity": cur_qty,
+                "below_min_percent": below_min_percent,
+                "below_min_quantity": below_min_quantity,
+                "restock_reasons": reasons,
+            }
+        )
 
     return {
         "success": True,
@@ -1229,7 +1153,7 @@ def get_low_stock_items(list_id: str) -> Dict[str, Any]:
     }
 
 
-def mark_list_ordered(list_id: str) -> Dict[str, Any]:
+def mark_list_ordered(list_id: str) -> dict[str, Any]:
     """
     Mark a list as ordered, updating the last_ordered_at timestamp.
 
@@ -1248,16 +1172,12 @@ def mark_list_ordered(list_id: str) -> Dict[str, Any]:
     with get_db_cursor() as cursor:
         # Get current reorder_weeks
         cursor.execute(
-            "SELECT reorder_weeks, last_ordered_at FROM favorite_lists WHERE id = ?",
-            (list_id,)
+            "SELECT reorder_weeks, last_ordered_at FROM favorite_lists WHERE id = ?", (list_id,)
         )
         row = cursor.fetchone()
 
         if not row:
-            return {
-                "success": False,
-                "error": f"List '{list_id}' not found"
-            }
+            return {"success": False, "error": f"List '{list_id}' not found"}
 
         reorder_weeks = row["reorder_weeks"]
         previous_ordered_at = row["last_ordered_at"]
@@ -1273,7 +1193,7 @@ def mark_list_ordered(list_id: str) -> Dict[str, Any]:
             SET last_ordered_at = ?, updated_at = ?
             WHERE id = ?
             """,
-            (now, now, list_id)
+            (now, now, list_id),
         )
 
     # Calculate new reorder status
@@ -1284,5 +1204,5 @@ def mark_list_ordered(list_id: str) -> Dict[str, Any]:
         "list_id": list_id,
         "ordered_at": now,
         "was_overdue": was_overdue,
-        "reorder_status": new_status
+        "reorder_status": new_status,
     }

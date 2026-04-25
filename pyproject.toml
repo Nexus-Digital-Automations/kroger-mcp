@@ -45,6 +45,7 @@ dev = [
     "pytest-asyncio",
     "ruff",
     "black",
+    "mypy",
 ]
 
 [project.scripts]
@@ -61,6 +62,61 @@ Kroger_Documentation = "https://developer.kroger.com/documentation/public/"
 
 [tool.pytest.ini_options]
 cache_dir = ".cache/pytest"
+testpaths = ["tests/unit", "tests"]
+
+# Ruff: linter + import sorter. Black handles formatting; ruff stays out of formatter conflicts.
+# Why select these rule families:
+#   E,F,W — core pyflakes/pycodestyle errors
+#   I     — import order (replaces isort)
+#   B     — bugbear (likely-bugs)
+#   UP    — pyupgrade (3.10+ syntax)
+#   SIM   — simplify (anti-patterns)
+# E501 (line length) ignored at file level — black enforces width; ruff would double-report.
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+    ".cache",
+    ".validation-artifacts",
+    ".playwright-mcp",
+    "python-scripts",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+# Suppression rationale (each entry must justify itself):
+#   E501   — line length is owned by black, not ruff
+#   B008   — function call in default arg is FastAPI/Pydantic idiom (Depends, Field)
+#   SIM105 — try/except/pass is being replaced with @handle_errors decorator in Phase 2;
+#            enabling now would force two passes of churn over the same lines.
+#   SIM102/103/108/116 — readability preferences (collapse nested if, ternary, dict-lookup
+#            for if-elif). Codebase consistently prefers explicit forms; not bug-class.
+ignore = ["E501", "B008", "SIM105", "SIM102", "SIM103", "SIM108", "SIM116"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B", "SIM", "UP"]
+"src/kroger_mcp/__init__.py" = ["F401"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+extend-exclude = '''
+/(
+    \.cache
+  | \.validation-artifacts
+  | \.playwright-mcp
+  | python-scripts
+)/
+'''
+
+# mypy starts non-strict — analytics/ has hundreds of latent typing errors that aren't this spec's
+# scope. Tighten in a later spec once the surface is clean. # @internal
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true
+exclude = ["python-scripts/", "tests/", "\\.cache/"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kroger_mcp"]

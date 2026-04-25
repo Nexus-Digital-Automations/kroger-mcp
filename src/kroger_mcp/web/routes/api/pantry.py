@@ -1,5 +1,4 @@
 """Pantry API endpoints — write operations for the pantry dashboard."""
-from typing import Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -19,6 +18,7 @@ router = APIRouter()
 # Request models
 # ---------------------------------------------------------------------------
 
+
 class UpdateLevelRequest(BaseModel):
     product_id: str
     level_percent: int = Field(..., ge=0, le=100)
@@ -26,7 +26,7 @@ class UpdateLevelRequest(BaseModel):
 
 class AddItemRequest(BaseModel):
     product_id: str
-    description: Optional[str] = None
+    description: str | None = None
     level_percent: int = Field(100, ge=0, le=100)
 
 
@@ -39,25 +39,26 @@ class RestockRequest(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post('/api/pantry/update')
+
+@router.post("/api/pantry/update")
 async def update_pantry_item_level(body: UpdateLevelRequest):
     """Update an existing pantry item's level percentage."""
     try:
         result = update_pantry_level(body.product_id, body.level_percent)
-        if not result.get('success'):
+        if not result.get("success"):
             return JSONResponse(
                 status_code=404,
-                content={'error': result.get('error', 'Item not found')},
+                content={"error": result.get("error", "Item not found")},
             )
         return JSONResponse(content=result)
     except Exception as e:
         return JSONResponse(
             status_code=500,
-            content={'error': f'Failed to update pantry level: {str(e)}'},
+            content={"error": f"Failed to update pantry level: {str(e)}"},
         )
 
 
-@router.post('/api/pantry/add')
+@router.post("/api/pantry/add")
 async def add_pantry_item(body: AddItemRequest):
     """Add a new item to pantry tracking (or update existing)."""
     try:
@@ -66,29 +67,32 @@ async def add_pantry_item(body: AddItemRequest):
             description=body.description,
             level=body.level_percent,
         )
-        if not result.get('success'):
+        if not result.get("success"):
             return JSONResponse(
                 status_code=400,
-                content={'error': result.get('error', 'Failed to add item')},
+                content={"error": result.get("error", "Failed to add item")},
             )
         return JSONResponse(content=result)
     except Exception as e:
         return JSONResponse(
             status_code=500,
-            content={'error': f'Failed to add pantry item: {str(e)}'},
+            content={"error": f"Failed to add pantry item: {str(e)}"},
         )
 
 
-@router.delete('/api/pantry')
+@router.delete("/api/pantry")
 async def clear_all_pantry_items(request: Request):
     """Remove all items from pantry tracking. Requires ?confirmed=true."""
     if request.query_params.get("confirmed", "").lower() != "true":
         return JSONResponse(
             status_code=400,
-            content={"error": "This will permanently delete all pantry items. Pass ?confirmed=true to proceed."},
+            content={
+                "error": "This will permanently delete all pantry items. Pass ?confirmed=true to proceed."
+            },
         )
     try:
-        from kroger_mcp.analytics.database import get_db_cursor, ensure_initialized
+        from kroger_mcp.analytics.database import ensure_initialized, get_db_cursor
+
         ensure_initialized()
         with get_db_cursor() as cursor:
             cursor.execute("DELETE FROM pantry_items")
@@ -97,41 +101,41 @@ async def clear_all_pantry_items(request: Request):
     except Exception as e:
         return JSONResponse(
             status_code=500,
-            content={'error': f'Failed to clear pantry: {str(e)}'},
+            content={"error": f"Failed to clear pantry: {str(e)}"},
         )
 
 
-@router.delete('/api/pantry/{product_id}')
+@router.delete("/api/pantry/{product_id}")
 async def delete_pantry_item(product_id: str):
     """Remove an item from pantry tracking."""
     try:
         result = remove_from_pantry(product_id)
-        if not result.get('success'):
+        if not result.get("success"):
             return JSONResponse(
                 status_code=404,
-                content={'error': result.get('error', 'Item not found')},
+                content={"error": result.get("error", "Item not found")},
             )
         return JSONResponse(content=result)
     except Exception as e:
         return JSONResponse(
             status_code=500,
-            content={'error': f'Failed to remove pantry item: {str(e)}'},
+            content={"error": f"Failed to remove pantry item: {str(e)}"},
         )
 
 
-@router.post('/api/pantry/restock')
+@router.post("/api/pantry/restock")
 async def restock_pantry_item(body: RestockRequest):
     """Restock a pantry item to the specified level (default 100%)."""
     try:
         result = restock_item(product_id=body.product_id, level=body.level)
-        if not result.get('success'):
+        if not result.get("success"):
             return JSONResponse(
                 status_code=400,
-                content={'error': result.get('error', 'Failed to restock item')},
+                content={"error": result.get("error", "Failed to restock item")},
             )
         return JSONResponse(content=result)
     except Exception as e:
         return JSONResponse(
             status_code=500,
-            content={'error': f'Failed to restock pantry item: {str(e)}'},
+            content={"error": f"Failed to restock pantry item: {str(e)}"},
         )

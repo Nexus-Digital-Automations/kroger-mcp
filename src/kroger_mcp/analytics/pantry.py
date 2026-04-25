@@ -9,90 +9,84 @@ Tracks estimated inventory levels using percentage-based tracking.
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .database import get_db_connection, ensure_initialized
-
+from .database import ensure_initialized, get_db_connection
 
 # Shelf life in days for common categories
 CATEGORY_SHELF_LIFE = {
-    'routine': {
+    "routine": {
         # IMPORTANT: More specific (longer) keywords must come FIRST
         # because matching uses simple substring search
-
         # Frozen Foods (3-6 months) - MUST BE FIRST due to keyword priority
-        'frozen vegetable': 240,
-        'frozen fruit': 240,
-        'frozen chicken': 180,
-        'frozen beef': 180,
-        'frozen pork': 180,
-        'frozen fish': 120,
-        'frozen seafood': 120,
-        'frozen pizza': 120,
-        'frozen meal': 90,
-        'frozen dinner': 90,
-        'ice cream': 60,
-        'frozen': 120,  # Generic frozen (after specific items)
-
+        "frozen vegetable": 240,
+        "frozen fruit": 240,
+        "frozen chicken": 180,
+        "frozen beef": 180,
+        "frozen pork": 180,
+        "frozen fish": 120,
+        "frozen seafood": 120,
+        "frozen pizza": 120,
+        "frozen meal": 90,
+        "frozen dinner": 90,
+        "ice cream": 60,
+        "frozen": 120,  # Generic frozen (after specific items)
         # Dairy & Refrigerated
-        'sour cream': 14,  # Must come before 'cream'
-        'milk': 7,
-        'dairy': 7,
-        'cheese': 14,
-        'yogurt': 14,
-        'eggs': 21,
-        'butter': 30,
-        'cream': 7,
-
+        "sour cream": 14,  # Must come before 'cream'
+        "milk": 7,
+        "dairy": 7,
+        "cheese": 14,
+        "yogurt": 14,
+        "eggs": 21,
+        "butter": 30,
+        "cream": 7,
         # Bakery
-        'bread': 5,
-        'bakery': 5,
-        'bagel': 5,
-        'roll': 5,
-        'tortilla': 7,
-
+        "bread": 5,
+        "bakery": 5,
+        "bagel": 5,
+        "roll": 5,
+        "tortilla": 7,
         # Fresh Meat & Seafood (Refrigerated)
-        'ground': 2,  # Ground meat is shorter shelf life
-        'deli': 5,
-        'meat': 3,
-        'poultry': 3,
-        'chicken': 3,
-        'beef': 3,
-        'pork': 3,
-        'seafood': 2,
-        'fish': 2,
-
+        "ground": 2,  # Ground meat is shorter shelf life
+        "deli": 5,
+        "meat": 3,
+        "poultry": 3,
+        "chicken": 3,
+        "beef": 3,
+        "pork": 3,
+        "seafood": 2,
+        "fish": 2,
         # Produce
-        'berries': 3,  # Must come before 'berry'
-        'berry': 3,
-        'lettuce': 5,
-        'greens': 5,
-        'salad': 5,
-        'apple': 14,
-        'orange': 14,
-        'banana': 5,
-        'vegetable': 7,  # Generic after specific
-        'fruit': 7,  # Generic after specific
-        'produce': 5,
+        "berries": 3,  # Must come before 'berry'
+        "berry": 3,
+        "lettuce": 5,
+        "greens": 5,
+        "salad": 5,
+        "apple": 14,
+        "orange": 14,
+        "banana": 5,
+        "vegetable": 7,  # Generic after specific
+        "fruit": 7,  # Generic after specific
+        "produce": 5,
     },
-    'regular': {
+    "regular": {
         # Longer shelf life perishables
-        'condiment': 90,
-        'juice': 14,
-        'refrigerated': 14,
-        'sauce': 60,
-        'ketchup': 180,
-        'mustard': 180,
-        'mayonnaise': 60,
+        "condiment": 90,
+        "juice": 14,
+        "refrigerated": 14,
+        "sauce": 60,
+        "ketchup": 180,
+        "mustard": 180,
+        "mayonnaise": 60,
     },
-    'treat': None,  # Seasonal items typically don't expire quickly
+    "treat": None,  # Seasonal items typically don't expire quickly
 }
 
 # Default fallback (no category match)
 DEFAULT_SHELF_LIFE = {
-    'routine': 7,    # Weekly items default to 7 days
-    'regular': 30,   # Monthly items default to 30 days
-    'treat': None    # Seasonal items no default
+    "routine": 7,  # Weekly items default to 7 days
+    "regular": 30,  # Monthly items default to 30 days
+    "treat": None,  # Seasonal items no default
 }
 
 
@@ -116,15 +110,18 @@ def calculate_depletion_rate(product_id: str) -> float:
 
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT avg_days_between_purchases
             FROM product_statistics
             WHERE product_id = ?
-        """, (product_id,))
+        """,
+            (product_id,),
+        )
         row = cursor.fetchone()
 
-        if row and row['avg_days_between_purchases']:
-            avg_days = row['avg_days_between_purchases']
+        if row and row["avg_days_between_purchases"]:
+            avg_days = row["avg_days_between_purchases"]
             if avg_days > 0:
                 return 100.0 / avg_days
 
@@ -133,7 +130,7 @@ def calculate_depletion_rate(product_id: str) -> float:
         conn.close()
 
 
-def get_shelf_life_days(category: str, description: str) -> Optional[int]:
+def get_shelf_life_days(category: str, description: str) -> int | None:
     """
     Determine shelf life days for a product based on category and keywords.
 
@@ -165,11 +162,7 @@ def get_shelf_life_days(category: str, description: str) -> Optional[int]:
     return DEFAULT_SHELF_LIFE.get(category)
 
 
-def calculate_expiration_date(
-    purchase_date: str,
-    category: str,
-    description: str
-) -> Optional[str]:
+def calculate_expiration_date(purchase_date: str, category: str, description: str) -> str | None:
     """
     Automatically calculate expiration date based on purchase date and category.
 
@@ -187,7 +180,7 @@ def calculate_expiration_date(
 
     try:
         # Handle both full ISO timestamps and date-only strings
-        if 'T' in purchase_date:
+        if "T" in purchase_date:
             purchase = datetime.fromisoformat(purchase_date).date()
         else:
             purchase = datetime.fromisoformat(purchase_date).date()
@@ -197,7 +190,7 @@ def calculate_expiration_date(
         return None
 
 
-def calculate_days_to_expiration(expiration_date: Optional[str]) -> Optional[int]:
+def calculate_days_to_expiration(expiration_date: str | None) -> int | None:
     """
     Calculate days until expiration from ISO date string.
 
@@ -220,7 +213,7 @@ def calculate_days_to_expiration(expiration_date: Optional[str]) -> Optional[int
         return None
 
 
-def get_expiration_status(days_to_expiration: Optional[int]) -> str:
+def get_expiration_status(days_to_expiration: int | None) -> str:
     """
     Map days to expiration into status categories.
 
@@ -231,25 +224,23 @@ def get_expiration_status(days_to_expiration: Optional[int]) -> str:
         Status string: 'expired', 'critical', 'warning', 'ok', 'fresh', or 'none'
     """
     if days_to_expiration is None:
-        return 'none'
+        return "none"
 
     if days_to_expiration < 0:
-        return 'expired'
+        return "expired"
     elif days_to_expiration <= 2:
-        return 'critical'
+        return "critical"
     elif days_to_expiration <= 6:
-        return 'warning'
+        return "warning"
     elif days_to_expiration <= 13:
-        return 'ok'
+        return "ok"
     else:
-        return 'fresh'
+        return "fresh"
 
 
 def restock_item(
-    product_id: str,
-    level: int = 100,
-    description: Optional[str] = None
-) -> Dict[str, Any]:
+    product_id: str, level: int = 100, description: str | None = None
+) -> dict[str, Any]:
     """
     Set item to restocked level (default 100%).
 
@@ -281,40 +272,38 @@ def restock_item(
         # Get description from products table if not provided
         if not description:
             cursor = conn.execute(
-                "SELECT description FROM products WHERE product_id = ?",
-                (product_id,)
+                "SELECT description FROM products WHERE product_id = ?", (product_id,)
             )
             row = cursor.fetchone()
-            description = row['description'] if row else None
+            description = row["description"] if row else None
 
         # Get category from product_statistics for expiration calculation
         cursor = conn.execute(
-            "SELECT detected_category FROM product_statistics WHERE product_id = ?",
-            (product_id,)
+            "SELECT detected_category FROM product_statistics WHERE product_id = ?", (product_id,)
         )
         row = cursor.fetchone()
-        category = row['detected_category'] if row else 'regular'
+        category = row["detected_category"] if row else "regular"
 
         # AUTO-CALCULATE EXPIRATION DATE (no user input needed!)
         purchase_date = datetime.now().isoformat()
-        expiration_date = calculate_expiration_date(
-            purchase_date,
-            category,
-            description or ''
-        )
+        expiration_date = calculate_expiration_date(purchase_date, category, description or "")
         days_to_exp = calculate_days_to_expiration(expiration_date)
 
         # Ensure product exists in products table (required for foreign key)
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO products (product_id, description, created_at, updated_at)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(product_id) DO UPDATE SET
                 description = COALESCE(excluded.description, products.description),
                 updated_at = excluded.updated_at
-        """, (product_id, description, now, now))
+        """,
+            (product_id, description, now, now),
+        )
 
         # Upsert pantry item WITH expiration tracking
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO pantry_items
             (product_id, description, level_percent, last_restocked_at,
              last_updated_at, daily_depletion_rate, expiration_date, days_to_expiration)
@@ -327,29 +316,36 @@ def restock_item(
                 expiration_date = excluded.expiration_date,
                 days_to_expiration = excluded.days_to_expiration,
                 description = COALESCE(excluded.description, description)
-        """, (product_id, description, level, now, now, depletion_rate,
-              expiration_date, days_to_exp))
+        """,
+            (
+                product_id,
+                description,
+                level,
+                now,
+                now,
+                depletion_rate,
+                expiration_date,
+                days_to_exp,
+            ),
+        )
         conn.commit()
 
         return {
-            'success': True,
-            'product_id': product_id,
-            'description': description,
-            'level_percent': level,
-            'daily_depletion_rate': round(depletion_rate, 2),
-            'restocked_at': now,
-            'expiration_date': expiration_date,
-            'days_to_expiration': days_to_exp,
-            'auto_calculated': expiration_date is not None
+            "success": True,
+            "product_id": product_id,
+            "description": description,
+            "level_percent": level,
+            "daily_depletion_rate": round(depletion_rate, 2),
+            "restocked_at": now,
+            "expiration_date": expiration_date,
+            "days_to_expiration": days_to_exp,
+            "auto_calculated": expiration_date is not None,
         }
     finally:
         conn.close()
 
 
-def update_pantry_level(
-    product_id: str,
-    level: int
-) -> Dict[str, Any]:
+def update_pantry_level(product_id: str, level: int) -> dict[str, Any]:
     """
     Manually set pantry level for an item.
 
@@ -373,54 +369,51 @@ def update_pantry_level(
     try:
         cursor = conn.execute(
             "SELECT id, last_restocked_at, level_percent FROM pantry_items WHERE product_id = ?",
-            (product_id,)
+            (product_id,),
         )
         row = cursor.fetchone()
         if not row:
             return {
-                'success': False,
-                'error': f"Item '{product_id}' not in pantry. Use add_to_pantry first."
+                "success": False,
+                "error": f"Item '{product_id}' not in pantry. Use add_to_pantry first.",
             }
 
-        previous_level = row['level_percent']
-        last_restocked = row['last_restocked_at']
+        previous_level = row["level_percent"]
+        last_restocked = row["last_restocked_at"]
 
         # Record depletion event when item marked as empty (level <= 5%)
         # This feeds back into consumption rate calculations
         depletion_recorded = False
         if level <= 5 and previous_level > 5 and last_restocked:
-            depletion_recorded = _record_depletion_event(
-                product_id, last_restocked, now_str
-            )
+            depletion_recorded = _record_depletion_event(product_id, last_restocked, now_str)
 
-        conn.execute("""
+        conn.execute(
+            """
             UPDATE pantry_items
             SET level_percent = ?, last_updated_at = ?
             WHERE product_id = ?
-        """, (level, now_str, product_id))
+        """,
+            (level, now_str, product_id),
+        )
         conn.commit()
 
         result = {
-            'success': True,
-            'product_id': product_id,
-            'level_percent': level,
-            'updated_at': now_str
+            "success": True,
+            "product_id": product_id,
+            "level_percent": level,
+            "updated_at": now_str,
         }
 
         if depletion_recorded:
-            result['depletion_recorded'] = True
-            result['message'] = 'Consumption data recorded for better predictions'
+            result["depletion_recorded"] = True
+            result["message"] = "Consumption data recorded for better predictions"
 
         return result
     finally:
         conn.close()
 
 
-def _record_depletion_event(
-    product_id: str,
-    last_restocked_at: str,
-    depleted_at: str
-) -> bool:
+def _record_depletion_event(product_id: str, last_restocked_at: str, depleted_at: str) -> bool:
     """
     Record a pantry depletion event for consumption analytics.
 
@@ -439,29 +432,32 @@ def _record_depletion_event(
         conn = get_db_connection()
         try:
             # Record as a special event type that gets included in consumption calc
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO purchase_events
                 (product_id, quantity, event_type, event_date, event_timestamp)
                 VALUES (?, 1, 'pantry_depleted', ?, ?)
-            """, (
-                product_id,
-                depleted_at[:10],  # Just the date part
-                depleted_at
-            ))
+            """,
+                (product_id, depleted_at[:10], depleted_at),  # Just the date part
+            )
             conn.commit()
 
             # Trigger stats recalculation to incorporate the new data point
             from .statistics import update_product_stats
+
             update_product_stats(product_id)
 
             # Update depletion rate based on new stats
             new_rate = calculate_depletion_rate(product_id)
             conn = get_db_connection()
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE pantry_items
                 SET daily_depletion_rate = ?
                 WHERE product_id = ?
-            """, (new_rate, product_id))
+            """,
+                (new_rate, product_id),
+            )
             conn.commit()
 
             return True
@@ -473,11 +469,11 @@ def _record_depletion_event(
 
 def add_to_pantry(
     product_id: str,
-    description: Optional[str] = None,
+    description: str | None = None,
     level: int = 100,
     low_threshold: int = 20,
-    auto_deplete: bool = True
-) -> Dict[str, Any]:
+    auto_deplete: bool = True,
+) -> dict[str, Any]:
     """
     Add an item to pantry tracking.
 
@@ -502,22 +498,25 @@ def add_to_pantry(
         # Get description from products table if not provided
         if not description:
             cursor = conn.execute(
-                "SELECT description FROM products WHERE product_id = ?",
-                (product_id,)
+                "SELECT description FROM products WHERE product_id = ?", (product_id,)
             )
             row = cursor.fetchone()
-            description = row['description'] if row else None
+            description = row["description"] if row else None
 
         # Ensure product exists in products table (required for foreign key)
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO products (product_id, description, created_at, updated_at)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(product_id) DO UPDATE SET
                 description = COALESCE(excluded.description, products.description),
                 updated_at = excluded.updated_at
-        """, (product_id, description, now, now))
+        """,
+            (product_id, description, now, now),
+        )
 
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO pantry_items
             (product_id, description, level_percent, last_restocked_at,
              last_updated_at, auto_deplete, daily_depletion_rate, low_threshold)
@@ -530,23 +529,33 @@ def add_to_pantry(
                 daily_depletion_rate = excluded.daily_depletion_rate,
                 low_threshold = excluded.low_threshold,
                 auto_deplete = excluded.auto_deplete
-        """, (product_id, description, level, now, now,
-              1 if auto_deplete else 0, depletion_rate, low_threshold))
+        """,
+            (
+                product_id,
+                description,
+                level,
+                now,
+                now,
+                1 if auto_deplete else 0,
+                depletion_rate,
+                low_threshold,
+            ),
+        )
         conn.commit()
 
         return {
-            'success': True,
-            'product_id': product_id,
-            'description': description,
-            'level_percent': level,
-            'low_threshold': low_threshold,
-            'auto_deplete': auto_deplete
+            "success": True,
+            "product_id": product_id,
+            "description": description,
+            "level_percent": level,
+            "low_threshold": low_threshold,
+            "auto_deplete": auto_deplete,
         }
     finally:
         conn.close()
 
 
-def remove_from_pantry(product_id: str) -> Dict[str, Any]:
+def remove_from_pantry(product_id: str) -> dict[str, Any]:
     """
     Remove an item from pantry tracking.
 
@@ -560,21 +569,18 @@ def remove_from_pantry(product_id: str) -> Dict[str, Any]:
 
     conn = get_db_connection()
     try:
-        cursor = conn.execute(
-            "DELETE FROM pantry_items WHERE product_id = ?",
-            (product_id,)
-        )
+        cursor = conn.execute("DELETE FROM pantry_items WHERE product_id = ?", (product_id,))
         conn.commit()
 
         if cursor.rowcount > 0:
-            return {'success': True, 'message': f"Removed '{product_id}' from pantry"}
+            return {"success": True, "message": f"Removed '{product_id}' from pantry"}
         else:
-            return {'success': False, 'error': f"Item '{product_id}' not found"}
+            return {"success": False, "error": f"Item '{product_id}' not found"}
     finally:
         conn.close()
 
 
-def get_pantry_status(apply_depletion: bool = True) -> List[Dict[str, Any]]:
+def get_pantry_status(apply_depletion: bool = True) -> list[dict[str, Any]]:
     """
     Get all pantry items with current estimated levels and expiration status.
 
@@ -595,75 +601,82 @@ def get_pantry_status(apply_depletion: bool = True) -> List[Dict[str, Any]]:
 
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT product_id, description, level_percent,
                    last_restocked_at, last_updated_at,
                    auto_deplete, daily_depletion_rate, low_threshold,
                    expiration_date, days_to_expiration
             FROM pantry_items
             ORDER BY level_percent ASC
-        """)
+        """
+        )
 
         items = []
         now = datetime.now()
 
         for row in cursor.fetchall():
             item = dict(row)
-            level = item['level_percent']
+            level = item["level_percent"]
 
             # Apply depletion if enabled
-            if apply_depletion and item['auto_deplete'] and item['daily_depletion_rate']:
-                last_updated = item['last_updated_at']
+            if apply_depletion and item["auto_deplete"] and item["daily_depletion_rate"]:
+                last_updated = item["last_updated_at"]
                 if last_updated:
                     try:
                         last_dt = datetime.fromisoformat(last_updated)
                         days_elapsed = (now - last_dt).total_seconds() / 86400
-                        depletion = days_elapsed * item['daily_depletion_rate']
+                        depletion = days_elapsed * item["daily_depletion_rate"]
                         level = max(0, level - depletion)
                     except (ValueError, TypeError):
                         pass
 
             # Calculate days until empty
             days_until_empty = None
-            if item['daily_depletion_rate'] and item['daily_depletion_rate'] > 0:
-                days_until_empty = round(level / item['daily_depletion_rate'], 1)
+            if item["daily_depletion_rate"] and item["daily_depletion_rate"] > 0:
+                days_until_empty = round(level / item["daily_depletion_rate"], 1)
 
             # Determine inventory status
             if level <= 0:
-                status = 'out'
-            elif level <= item['low_threshold']:
-                status = 'low'
+                status = "out"
+            elif level <= item["low_threshold"]:
+                status = "low"
             else:
-                status = 'ok'
+                status = "ok"
 
             # LAZY RECALCULATION: Always recalculate days_to_expiration for current date
-            exp_date = item['expiration_date']
+            exp_date = item["expiration_date"]
             days_to_exp = calculate_days_to_expiration(exp_date)
             exp_status = get_expiration_status(days_to_exp)
 
-            items.append({
-                'product_id': item['product_id'],
-                'description': item['description'],
-                'level_percent': round(level),
-                'status': status,
-                'days_until_empty': days_until_empty,
-                'last_restocked': item['last_restocked_at'],
-                'low_threshold': item['low_threshold'],
-                'auto_deplete': bool(item['auto_deplete']),
-                'daily_depletion_rate': round(item['daily_depletion_rate'], 2)
-                if item['daily_depletion_rate'] else 0,
-                # Expiration tracking (freshly calculated!)
-                'expiration_date': exp_date,
-                'days_to_expiration': days_to_exp,
-                'expiration_status': exp_status
-            })
+            items.append(
+                {
+                    "product_id": item["product_id"],
+                    "description": item["description"],
+                    "level_percent": round(level),
+                    "status": status,
+                    "days_until_empty": days_until_empty,
+                    "last_restocked": item["last_restocked_at"],
+                    "low_threshold": item["low_threshold"],
+                    "auto_deplete": bool(item["auto_deplete"]),
+                    "daily_depletion_rate": (
+                        round(item["daily_depletion_rate"], 2)
+                        if item["daily_depletion_rate"]
+                        else 0
+                    ),
+                    # Expiration tracking (freshly calculated!)
+                    "expiration_date": exp_date,
+                    "days_to_expiration": days_to_exp,
+                    "expiration_status": exp_status,
+                }
+            )
 
         return items
     finally:
         conn.close()
 
 
-def get_low_inventory_items(threshold: Optional[int] = None) -> List[Dict[str, Any]]:
+def get_low_inventory_items(threshold: int | None = None) -> list[dict[str, Any]]:
     """
     Get items below their low threshold.
 
@@ -677,14 +690,14 @@ def get_low_inventory_items(threshold: Optional[int] = None) -> List[Dict[str, A
 
     low_items = []
     for item in items:
-        check_threshold = threshold if threshold is not None else item['low_threshold']
-        if item['level_percent'] <= check_threshold:
+        check_threshold = threshold if threshold is not None else item["low_threshold"]
+        if item["level_percent"] <= check_threshold:
             low_items.append(item)
 
     return low_items
 
 
-def apply_daily_depletion() -> Dict[str, Any]:
+def apply_daily_depletion() -> dict[str, Any]:
     """
     Apply depletion to all pantry items based on their rates.
 
@@ -701,16 +714,18 @@ def apply_daily_depletion() -> Dict[str, Any]:
         now = datetime.now()
         now_str = now.isoformat()
 
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT product_id, level_percent, last_updated_at,
                    daily_depletion_rate
             FROM pantry_items
             WHERE auto_deplete = 1 AND daily_depletion_rate > 0
-        """)
+        """
+        )
 
         updated_count = 0
         for row in cursor.fetchall():
-            last_updated = row['last_updated_at']
+            last_updated = row["last_updated_at"]
             if not last_updated:
                 continue
 
@@ -721,30 +736,29 @@ def apply_daily_depletion() -> Dict[str, Any]:
                 if days_elapsed < 0.01:  # Skip if < ~15 minutes
                     continue
 
-                depletion = days_elapsed * row['daily_depletion_rate']
-                new_level = max(0, row['level_percent'] - depletion)
+                depletion = days_elapsed * row["daily_depletion_rate"]
+                new_level = max(0, row["level_percent"] - depletion)
 
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE pantry_items
                     SET level_percent = ?, last_updated_at = ?
                     WHERE product_id = ?
-                """, (round(new_level), now_str, row['product_id']))
+                """,
+                    (round(new_level), now_str, row["product_id"]),
+                )
                 updated_count += 1
             except (ValueError, TypeError):
                 continue
 
         conn.commit()
 
-        return {
-            'success': True,
-            'items_updated': updated_count,
-            'updated_at': now_str
-        }
+        return {"success": True, "items_updated": updated_count, "updated_at": now_str}
     finally:
         conn.close()
 
 
-def get_pantry_item(product_id: str) -> Optional[Dict[str, Any]]:
+def get_pantry_item(product_id: str) -> dict[str, Any] | None:
     """
     Get a single pantry item by product ID.
 
@@ -756,7 +770,7 @@ def get_pantry_item(product_id: str) -> Optional[Dict[str, Any]]:
     """
     items = get_pantry_status(apply_depletion=True)
     for item in items:
-        if item['product_id'] == product_id:
+        if item["product_id"] == product_id:
             return item
     return None
 
@@ -764,15 +778,15 @@ def get_pantry_item(product_id: str) -> Optional[Dict[str, Any]]:
 def consume_from_pantry(
     product_id: str,
     quantity: float = 0,
-    unit: str = 'each',
-    percent: Optional[float] = None,
-    source_type: str = '',
-    source_id: str = '',
-    source_description: str = ''
-) -> Dict[str, Any]:
+    unit: str = "each",
+    percent: float | None = None,
+    source_type: str = "",
+    source_id: str = "",
+    source_description: str = "",
+) -> dict[str, Any]:
     """
     Deduct from pantry inventory based on consumption.
-    
+
     Args:
         product_id: Product identifier
         quantity: Quantity consumed (if percent not provided)
@@ -781,60 +795,60 @@ def consume_from_pantry(
         source_type: Type of consumption source (e.g., 'meal', 'recipe')
         source_id: ID of the source
         source_description: Human-readable description of source
-        
+
     Returns:
         Dictionary with success status and details
     """
     ensure_initialized()
-    
+
     conn = get_db_connection()
     try:
         cursor = conn.execute(
             "SELECT level_percent, last_restocked_at, daily_depletion_rate FROM pantry_items WHERE product_id = ?",
-            (product_id,)
+            (product_id,),
         )
         row = cursor.fetchone()
         if not row:
-            return {'success': False, 'error': f"Item '{product_id}' not in pantry"}
-        
-        previous_level = row['level_percent']
-        last_restocked = row['last_restocked_at']
-        
+            return {"success": False, "error": f"Item '{product_id}' not in pantry"}
+
+        previous_level = row["level_percent"]
+        last_restocked = row["last_restocked_at"]
+
         if percent is not None:
             deduction = percent
         else:
             cursor = conn.execute(
                 "SELECT avg_days_between_purchases FROM product_statistics WHERE product_id = ?",
-                (product_id,)
+                (product_id,),
             )
             stats_row = cursor.fetchone()
-            avg_days = (stats_row['avg_days_between_purchases'] if stats_row else None) or 7
+            avg_days = (stats_row["avg_days_between_purchases"] if stats_row else None) or 7
             avg_days = max(avg_days, 7)
             deduction = min(quantity * (100 / avg_days), 50)
-        
+
         new_level = max(0, previous_level - deduction)
         new_level = min(100, new_level)
-        
+
         now_str = datetime.now().isoformat()
         conn.execute(
             "UPDATE pantry_items SET level_percent = ?, last_updated_at = ? WHERE product_id = ?",
-            (new_level, now_str, product_id)
+            (new_level, now_str, product_id),
         )
-        
+
         if new_level <= 5 and previous_level > 5 and last_restocked:
             _record_depletion_event(product_id, last_restocked, now_str)
-        
+
         conn.commit()
-        
+
         return {
-            'success': True,
-            'product_id': product_id,
-            'previous_level': previous_level,
-            'new_level': new_level,
-            'amount_deducted': deduction,
-            'remaining_display': f"{new_level:.1f}%",
-            'updated_at': now_str
+            "success": True,
+            "product_id": product_id,
+            "previous_level": previous_level,
+            "new_level": new_level,
+            "amount_deducted": deduction,
+            "remaining_display": f"{new_level:.1f}%",
+            "updated_at": now_str,
         }
-        
+
     finally:
         conn.close()

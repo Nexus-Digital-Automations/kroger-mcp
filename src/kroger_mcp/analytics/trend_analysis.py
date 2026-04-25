@@ -5,10 +5,9 @@ Provides trend detection, recency scoring, and enhanced confidence calculations.
 """
 
 from datetime import datetime
-from typing import List, Optional, Tuple
 
 
-def detect_trend(intervals: List[float], window: int = 5) -> Tuple[str, float]:
+def detect_trend(intervals: list[float], window: int = 5) -> tuple[str, float]:
     """
     Detect trend in purchase intervals using simple linear regression.
 
@@ -22,14 +21,14 @@ def detect_trend(intervals: List[float], window: int = 5) -> Tuple[str, float]:
         - strength: 0-1 indicating how strong the trend is
     """
     if len(intervals) < 3:
-        return ('stable', 0.0)
+        return ("stable", 0.0)
 
     # Use most recent intervals
     recent = intervals[-window:] if len(intervals) >= window else intervals
 
     n = len(recent)
     if n < 3:
-        return ('stable', 0.0)
+        return ("stable", 0.0)
 
     # Simple linear regression: y = mx + b
     # x = index (0, 1, 2, ...), y = interval
@@ -41,7 +40,7 @@ def detect_trend(intervals: List[float], window: int = 5) -> Tuple[str, float]:
     # Calculate slope
     denominator = n * sum_x2 - sum_x * sum_x
     if denominator == 0:
-        return ('stable', 0.0)
+        return ("stable", 0.0)
 
     slope = (n * sum_xy - sum_x * sum_y) / denominator
 
@@ -60,20 +59,20 @@ def detect_trend(intervals: List[float], window: int = 5) -> Tuple[str, float]:
 
     if normalized_slope > threshold:
         # Intervals increasing = buying less frequently
-        direction = 'decreasing'  # Consumption decreasing
+        direction = "decreasing"  # Consumption decreasing
         strength = min(1.0, abs(normalized_slope) / 0.3)
     elif normalized_slope < -threshold:
         # Intervals decreasing = buying more frequently
-        direction = 'increasing'  # Consumption increasing
+        direction = "increasing"  # Consumption increasing
         strength = min(1.0, abs(normalized_slope) / 0.3)
     else:
-        direction = 'stable'
+        direction = "stable"
         strength = 0.0
 
     return (direction, round(strength, 2))
 
 
-def calculate_recency_score(last_purchase_date: Optional[str]) -> float:
+def calculate_recency_score(last_purchase_date: str | None) -> float:
     """
     Calculate a recency score based on how recent the last purchase was.
 
@@ -89,11 +88,10 @@ def calculate_recency_score(last_purchase_date: Optional[str]) -> float:
         return 0.0
 
     try:
-        if 'T' in last_purchase_date:
-            last_date = datetime.fromisoformat(
-                last_purchase_date.replace('Z', '+00:00'))
+        if "T" in last_purchase_date:
+            last_date = datetime.fromisoformat(last_purchase_date.replace("Z", "+00:00"))
         else:
-            last_date = datetime.strptime(last_purchase_date, '%Y-%m-%d')
+            last_date = datetime.strptime(last_purchase_date, "%Y-%m-%d")
     except (ValueError, TypeError):
         return 0.0
 
@@ -108,7 +106,7 @@ def calculate_recency_score(last_purchase_date: Optional[str]) -> float:
         return 1.0 - (days_ago / 180)
 
 
-def calculate_quantity_consistency(quantities: List[int]) -> float:
+def calculate_quantity_consistency(quantities: list[int]) -> float:
     """
     Calculate how consistent purchase quantities are.
 
@@ -129,7 +127,7 @@ def calculate_quantity_consistency(quantities: List[int]) -> float:
 
     # Calculate coefficient of variation (std/mean)
     variance = sum((q - mean) ** 2 for q in quantities) / len(quantities)
-    std_dev = variance ** 0.5
+    std_dev = variance**0.5
 
     cv = std_dev / mean
 
@@ -145,7 +143,7 @@ def calculate_enhanced_confidence(
     interval_consistency: float,
     recency_score: float,
     quantity_consistency: float,
-    max_samples: int = 10
+    max_samples: int = 10,
 ) -> float:
     """
     Calculate enhanced confidence score using multiple factors.
@@ -164,27 +162,19 @@ def calculate_enhanced_confidence(
     data_confidence = min(1.0, sample_size / max_samples)
 
     # Weight factors
-    weights = {
-        'data': 0.35,
-        'interval': 0.30,
-        'recency': 0.20,
-        'quantity': 0.15
-    }
+    weights = {"data": 0.35, "interval": 0.30, "recency": 0.20, "quantity": 0.15}
 
     confidence = (
-        weights['data'] * data_confidence +
-        weights['interval'] * interval_consistency +
-        weights['recency'] * recency_score +
-        weights['quantity'] * quantity_consistency
+        weights["data"] * data_confidence
+        + weights["interval"] * interval_consistency
+        + weights["recency"] * recency_score
+        + weights["quantity"] * quantity_consistency
     )
 
     return round(min(1.0, max(0.0, confidence)), 2)
 
 
-def calculate_quantity_adjusted_rate(
-    intervals: List[float],
-    quantities: List[int]
-) -> Optional[float]:
+def calculate_quantity_adjusted_rate(intervals: list[float], quantities: list[int]) -> float | None:
     """
     Calculate days-per-unit consumption rate.
 
@@ -220,7 +210,7 @@ def predict_with_trend_adjustment(
     base_prediction_days: float,
     trend_direction: str,
     trend_strength: float,
-    adjustment_factor: float = 0.15
+    adjustment_factor: float = 0.15,
 ) -> float:
     """
     Adjust prediction based on detected trend.
@@ -234,12 +224,12 @@ def predict_with_trend_adjustment(
     Returns:
         Adjusted prediction in days
     """
-    if trend_direction == 'stable' or trend_strength < 0.2:
+    if trend_direction == "stable" or trend_strength < 0.2:
         return base_prediction_days
 
     max_adjustment = base_prediction_days * adjustment_factor * trend_strength
 
-    if trend_direction == 'increasing':
+    if trend_direction == "increasing":
         # Consuming faster, predict sooner
         return base_prediction_days - max_adjustment
     else:

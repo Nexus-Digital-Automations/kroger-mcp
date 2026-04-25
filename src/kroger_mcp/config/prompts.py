@@ -2,21 +2,20 @@
 MCP prompts for the Kroger MCP server
 """
 
-from typing import Optional
 from fastmcp import Context
 
 
 def register_prompts(mcp):
     """Register prompts with the FastMCP server"""
-    
+
     @mcp.prompt()
     async def grocery_list_store_path(grocery_list: str, ctx: Context = None) -> str:
         """
         Generate a prompt asking for the optimal path through a store based on a grocery list.
-        
+
         Args:
             grocery_list: A list of grocery items the user wants to purchase
-            
+
         Returns:
             A prompt asking for the optimal shopping path
         """
@@ -24,7 +23,7 @@ def register_prompts(mcp):
 
 {grocery_list}
 
-Can you help me find the most efficient path through the store? Please search for these products to determine their aisle locations, then arrange them in a logical shopping order. 
+Can you help me find the most efficient path through the store? Please search for these products to determine their aisle locations, then arrange them in a logical shopping order.
 
 If you can't find exact matches for items, please suggest similar products that are available.
 
@@ -35,15 +34,15 @@ IMPORTANT: Please only organize my shopping path - DO NOT add any items to my ca
     async def pharmacy_open_check(ctx: Context = None) -> str:
         """
         Generate a prompt asking whether a pharmacy at the preferred Kroger location is open.
-        
+
         Returns:
             A prompt asking about pharmacy status
         """
-        return """Can you tell me if the pharmacy at my preferred Kroger store is currently open? 
+        return """Can you tell me if the pharmacy at my preferred Kroger store is currently open?
 
 Please check the department information for the pharmacy department and let me know:
 1. If there is a pharmacy at my preferred store
-2. If it's currently open 
+2. If it's currently open
 3. What the hours are for today
 4. What services are available at this pharmacy
 
@@ -51,31 +50,33 @@ Please use the get_location_details tool to find this information for my preferr
 """
 
     @mcp.prompt()
-    async def set_preferred_store(zip_code: Optional[str] = None, ctx: Context = None) -> str:
+    async def set_preferred_store(zip_code: str | None = None, ctx: Context = None) -> str:
         """
         Generate a prompt to help the user set their preferred Kroger store.
-        
+
         Args:
             zip_code: Optional zip code to search near
-            
+
         Returns:
             A prompt asking for help setting a preferred store
         """
         zip_phrase = f" near zip code {zip_code}" if zip_code else ""
-        
+
         return f"""I'd like to set my preferred Kroger store{zip_phrase}. Can you help me with this process?
 
 Please:
 1. Search for nearby Kroger stores{zip_phrase}
 2. Show me a list of the closest options with their addresses
 3. Let me choose one from the list
-4. Set that as my preferred location 
+4. Set that as my preferred location
 
 For each store, please show the full address, distance, and any special features or departments.
 """
 
     @mcp.prompt()
-    async def add_recipe_to_cart(recipe_type: str = "classic apple pie", ctx: Context = None) -> str:
+    async def add_recipe_to_cart(
+        recipe_type: str = "classic apple pie", ctx: Context = None
+    ) -> str:
         """
         Generate a prompt to find a specific recipe and add ingredients to cart. (default: classic apple pie)
 
@@ -113,9 +114,7 @@ and getting my explicit "yes, add to cart" confirmation.
 
     @mcp.prompt()
     async def smart_shopping_list(
-        days_ahead: int = 7,
-        include_seasonal: bool = True,
-        ctx: Context = None
+        days_ahead: int = 7, include_seasonal: bool = True, ctx: Context = None
     ) -> str:
         """
         Generate a smart shopping list based on purchase history and predictions.
@@ -132,7 +131,8 @@ and getting my explicit "yes, add to cart" confirmation.
         """
         seasonal_text = (
             "Also check for any upcoming seasonal or holiday items I typically buy."
-            if include_seasonal else ""
+            if include_seasonal
+            else ""
         )
 
         return f"""Based on my purchase history and consumption patterns, please help me
@@ -200,10 +200,7 @@ Present this as a brief shopping intelligence report with actionable recommendat
 """
 
     @mcp.prompt()
-    async def order_saved_recipe(
-        recipe_name: str = "carbonara",
-        ctx: Context = None
-    ) -> str:
+    async def order_saved_recipe(recipe_name: str = "carbonara", ctx: Context = None) -> str:
         """
         Generate a prompt to order ingredients from a saved recipe with confirmation.
 

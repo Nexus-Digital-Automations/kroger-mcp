@@ -3,7 +3,7 @@ Favorite lists MCP tools for the Kroger MCP server.
 """
 
 import asyncio
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
@@ -38,108 +38,108 @@ def register_tools(mcp):
                 "Other actions: get_lists|get_items|add_item|remove_item|create_list|rename_list|delete_list|suggest|update_schedule"
             )
         ),
-        name: Optional[str] = Field(
+        name: str | None = Field(
             default=None,
             description="List name",
         ),
-        description: Optional[str] = Field(
+        description: str | None = Field(
             default=None,
             description="List description",
         ),
-        list_type: Optional[str] = Field(
+        list_type: str | None = Field(
             default="custom",
             description="custom|weekly|monthly|seasonal",
         ),
-        reorder_weeks: Optional[int] = Field(
+        reorder_weeks: int | None = Field(
             default=None,
             description="Reorder schedule in weeks 1-52",
         ),
-        list_id: Optional[str] = Field(
+        list_id: str | None = Field(
             default="default",
             description="List ID (defaults to 'default')",
         ),
-        new_name: Optional[str] = Field(
+        new_name: str | None = Field(
             default=None,
             description="New list name",
         ),
-        new_description: Optional[str] = Field(
+        new_description: str | None = Field(
             default=None,
             description="New list description",
         ),
-        product_id: Optional[str] = Field(
+        product_id: str | None = Field(
             default=None,
             description="Kroger product ID",
         ),
-        product_ids: Optional[List[str]] = Field(
+        product_ids: list[str] | None = Field(
             default=None,
             description="Batch remove: list of Kroger product IDs",
         ),
-        brand: Optional[str] = Field(
+        brand: str | None = Field(
             default=None,
             description="Product brand",
         ),
-        default_quantity: Optional[int] = Field(
+        default_quantity: int | None = Field(
             default=1,
             description="Default order quantity",
         ),
-        preferred_modality: Optional[str] = Field(
+        preferred_modality: str | None = Field(
             default="PICKUP",
             description="PICKUP or DELIVERY",
         ),
-        notes: Optional[str] = Field(
+        notes: str | None = Field(
             default=None,
             description="Item notes",
         ),
-        items: Optional[List[Dict[str, Any]]] = Field(
+        items: list[dict[str, Any]] | None = Field(
             default=None,
             description="Bulk add: [{product_id, description, brand, default_quantity, preferred_modality, notes, min_stock_percent, min_stock_quantity, current_stock_quantity}]",
         ),
-        min_stock_percent: Optional[int] = Field(
+        min_stock_percent: int | None = Field(
             default=None,
             description="Per-item reorder trigger: include in order if pantry < this % (None = use global threshold)",
         ),
-        min_stock_quantity: Optional[int] = Field(
+        min_stock_quantity: int | None = Field(
             default=None,
             description="Target on-hand unit count — reorder if current_stock_quantity < this",
         ),
-        current_stock_quantity: Optional[int] = Field(
+        current_stock_quantity: int | None = Field(
             default=None,
             description="Actual on-hand unit count (user-managed)",
         ),
-        include_pantry_status: Optional[bool] = Field(
+        include_pantry_status: bool | None = Field(
             default=True,
             description="Include pantry levels",
         ),
-        sort_by: Optional[str] = Field(
+        sort_by: str | None = Field(
             default="description",
             description="description|times_ordered|added_at",
         ),
-        skip_if_stocked: Optional[bool] = Field(
+        skip_if_stocked: bool | None = Field(
             default=True,
             description="Skip well-stocked items",
         ),
-        pantry_threshold: Optional[int] = Field(
+        pantry_threshold: int | None = Field(
             default=30,
             description="Skip if pantry level above this %",
         ),
-        modality: Optional[str] = Field(
+        modality: str | None = Field(
             default=None,
             description="PICKUP or DELIVERY override",
         ),
-        min_purchases: Optional[int] = Field(
+        min_purchases: int | None = Field(
             default=3,
             description="Min purchases to suggest",
         ),
-        min_frequency_score: Optional[float] = Field(
+        min_frequency_score: float | None = Field(
             default=0.5,
             description="Min frequency score 0-1",
         ),
-        limit: Optional[int] = Field(
+        limit: int | None = Field(
             default=10,
             description="Max suggestions to return",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Favorite list management operations.
 
         IMPORTANT — To add a favorites list to cart:
@@ -151,21 +151,64 @@ def register_tools(mcp):
         rename_list, delete_list, suggest, update_schedule
         """
         return await asyncio.to_thread(
-            _favorites_impl, action, name, description, list_type, reorder_weeks,
-            list_id, new_name, new_description, product_id, product_ids, brand,
-            default_quantity, preferred_modality, notes, items, min_stock_percent,
-            min_stock_quantity, current_stock_quantity, include_pantry_status,
-            sort_by, skip_if_stocked, pantry_threshold, modality, min_purchases,
-            min_frequency_score, limit, ctx,
+            _favorites_impl,
+            action,
+            name,
+            description,
+            list_type,
+            reorder_weeks,
+            list_id,
+            new_name,
+            new_description,
+            product_id,
+            product_ids,
+            brand,
+            default_quantity,
+            preferred_modality,
+            notes,
+            items,
+            min_stock_percent,
+            min_stock_quantity,
+            current_stock_quantity,
+            include_pantry_status,
+            sort_by,
+            skip_if_stocked,
+            pantry_threshold,
+            modality,
+            min_purchases,
+            min_frequency_score,
+            limit,
+            ctx,
         )
 
     def _favorites_impl(
-        action, name, description, list_type, reorder_weeks,
-        list_id, new_name, new_description, product_id, product_ids, brand,
-        default_quantity, preferred_modality, notes, items, min_stock_percent,
-        min_stock_quantity, current_stock_quantity, include_pantry_status,
-        sort_by, skip_if_stocked, pantry_threshold, modality, min_purchases,
-        min_frequency_score, limit, ctx,
+        action,
+        name,
+        description,
+        list_type,
+        reorder_weeks,
+        list_id,
+        new_name,
+        new_description,
+        product_id,
+        product_ids,
+        brand,
+        default_quantity,
+        preferred_modality,
+        notes,
+        items,
+        min_stock_percent,
+        min_stock_quantity,
+        current_stock_quantity,
+        include_pantry_status,
+        sort_by,
+        skip_if_stocked,
+        pantry_threshold,
+        modality,
+        min_purchases,
+        min_frequency_score,
+        limit,
+        ctx,
     ):
         match action:
             case "create_list":
@@ -246,7 +289,10 @@ def register_tools(mcp):
                 if len(ids) == 1:
                     return remove_from_list(list_id=list_id or "default", product_id=ids[0])
 
-                results = {pid: remove_from_list(list_id=list_id or "default", product_id=pid) for pid in ids}
+                results = {
+                    pid: remove_from_list(list_id=list_id or "default", product_id=pid)
+                    for pid in ids
+                }
                 removed = sum(1 for r in results.values() if r.get("success"))
                 return {
                     "success": True,
@@ -260,7 +306,9 @@ def register_tools(mcp):
 
                 return get_list_items(
                     list_id=list_id or "default",
-                    include_pantry_status=include_pantry_status if include_pantry_status is not None else True,
+                    include_pantry_status=(
+                        include_pantry_status if include_pantry_status is not None else True
+                    ),
                     sort_by=sort_by or "description",
                 )
 
@@ -354,8 +402,8 @@ def register_tools(mcp):
                     }
 
                 try:
-                    from .shared import get_authenticated_client
                     from .cart_tools import _add_item_to_local_cart
+                    from .shared import get_authenticated_client
 
                     client = get_authenticated_client()
 
@@ -404,9 +452,7 @@ def register_tools(mcp):
                         response["reorder_status"] = {
                             "was_overdue": order_result.get("was_overdue", False),
                             "ordered_at": order_result.get("ordered_at"),
-                            "next_due": order_result.get("reorder_status", {}).get(
-                                "next_due_date"
-                            ),
+                            "next_due": order_result.get("reorder_status", {}).get("next_due_date"),
                             "schedule_weeks": order_result.get("reorder_status", {}).get(
                                 "reorder_weeks"
                             ),
@@ -441,7 +487,9 @@ def register_tools(mcp):
                 return suggest_for_list(
                     list_id=list_id,
                     min_purchases=min_purchases or 3,
-                    min_frequency_score=min_frequency_score if min_frequency_score is not None else 0.5,
+                    min_frequency_score=(
+                        min_frequency_score if min_frequency_score is not None else 0.5
+                    ),
                     limit=limit or 10,
                 )
 

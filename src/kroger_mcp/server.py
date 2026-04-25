@@ -14,24 +14,11 @@ Environment Variables Required:
 
 import asyncio
 import sys
+
 from fastmcp import FastMCP
 
-# Import all tool modules
-from .tools import location_tools
-from .tools import product_tools
-from .tools import cart_tools
-from .tools import info_tools
-from .tools import auth_tools
-from .tools import prediction_tools
-from .tools import recipe_tools
-from .tools import reporting_tools
-from .tools import favorites_tools
-from .tools import meal_planner_tools
-from .tools import safety_tools
-from .tools import deal_tools
-from .tools import ingredient_management_tools
-from .tools import shopping_list_tools
-from .tools import notion_tools
+# Import database initializer — run at startup to avoid first-call migration hang
+from .analytics.database import ensure_initialized
 
 # Import prompts
 from .config import prompts
@@ -39,8 +26,24 @@ from .config import prompts
 # Import session state manager
 from .config.session_state import get_session_manager
 
-# Import database initializer — run at startup to avoid first-call migration hang
-from .analytics.database import ensure_initialized
+# Import all tool modules
+from .tools import (
+    auth_tools,
+    cart_tools,
+    deal_tools,
+    favorites_tools,
+    info_tools,
+    ingredient_management_tools,
+    location_tools,
+    meal_planner_tools,
+    notion_tools,
+    prediction_tools,
+    product_tools,
+    recipe_tools,
+    reporting_tools,
+    safety_tools,
+    shopping_list_tools,
+)
 
 
 async def _cleanup_stale_sessions():
@@ -223,7 +226,7 @@ def create_server() -> FastMCP:
         1. Add NOTION_API_KEY and NOTION_WORKSPACE_ID to your .env file
         2. Call notion(action='setup') to create the database
         3. All future recipe saves/updates/deletes auto-sync to Notion
-        """
+        """,
     )
 
     def _register(module, name):

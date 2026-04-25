@@ -17,8 +17,6 @@ All conversions normalize to a base unit per category:
   - count  -> each (dimensionless)
 """
 
-from typing import Optional, Tuple
-
 # ── Volume: base unit = fluid ounce ──────────────────────────────────────────
 VOLUME_TO_FL_OZ: dict[str, float] = {
     "tsp": 1 / 6,
@@ -32,7 +30,7 @@ VOLUME_TO_FL_OZ: dict[str, float] = {
     "fluid oz": 1.0,
     "fluid ounce": 1.0,
     "fluid ounces": 1.0,
-    "oz": 1.0,           # contextually treated as fl oz when paired with liquids
+    "oz": 1.0,  # contextually treated as fl oz when paired with liquids
     "ounce": 1.0,
     "ounces": 1.0,
     "cup": 8.0,
@@ -76,26 +74,47 @@ WEIGHT_TO_OZ: dict[str, float] = {
 
 # ── Count: base unit = 1 (each) ───────────────────────────────────────────────
 COUNT_UNITS: set[str] = {
-    "each", "ea",
-    "count", "ct",
-    "piece", "pieces",
-    "slice", "slices",
-    "can", "cans",
-    "package", "packages", "pkg",
-    "bag", "bags",
-    "box", "boxes",
-    "bunch", "bunches",
-    "clove", "cloves",
-    "head", "heads",
-    "stalk", "stalks",
-    "sprig", "sprigs",
-    "strip", "strips",
-    "sheet", "sheets",
-    "roll", "rolls",
-    "bottle", "bottles",
-    "jar", "jars",
-    "container", "containers",
-    "loaf", "loaves",
+    "each",
+    "ea",
+    "count",
+    "ct",
+    "piece",
+    "pieces",
+    "slice",
+    "slices",
+    "can",
+    "cans",
+    "package",
+    "packages",
+    "pkg",
+    "bag",
+    "bags",
+    "box",
+    "boxes",
+    "bunch",
+    "bunches",
+    "clove",
+    "cloves",
+    "head",
+    "heads",
+    "stalk",
+    "stalks",
+    "sprig",
+    "sprigs",
+    "strip",
+    "strips",
+    "sheet",
+    "sheets",
+    "roll",
+    "rolls",
+    "bottle",
+    "bottles",
+    "jar",
+    "jars",
+    "container",
+    "containers",
+    "loaf",
+    "loaves",
     "dozen",  # = 12 each
 }
 
@@ -110,7 +129,7 @@ def normalize_unit(unit: str) -> str:
     return unit.strip().lower() if unit else ""
 
 
-def get_unit_category(unit: str) -> Optional[str]:
+def get_unit_category(unit: str) -> str | None:
     """
     Classify a unit into 'volume', 'weight', 'count', or None if unknown.
 
@@ -133,7 +152,7 @@ def get_unit_category(unit: str) -> Optional[str]:
     return None
 
 
-def to_base_unit(quantity: float, unit: str) -> Tuple[Optional[float], Optional[str]]:
+def to_base_unit(quantity: float, unit: str) -> tuple[float | None, str | None]:
     """
     Convert a quantity to the canonical base unit for its category.
 
@@ -168,7 +187,7 @@ def convert(
     quantity: float,
     from_unit: str,
     to_unit: str,
-) -> Optional[float]:
+) -> float | None:
     """
     Convert a quantity from one unit to another.
 
@@ -233,7 +252,7 @@ def subtract_quantity(
     stock_unit: str,
     use_qty: float,
     use_unit: str,
-) -> Tuple[Optional[float], Optional[str]]:
+) -> tuple[float | None, str | None]:
     """
     Subtract a used amount from stock, handling unit conversion.
 
@@ -317,7 +336,7 @@ def format_quantity(quantity: float, unit: str) -> str:
     return f"{qty_str} {display_unit}"
 
 
-def infer_unit_from_description(description: str) -> Tuple[Optional[float], Optional[str]]:
+def infer_unit_from_description(description: str) -> tuple[float | None, str | None]:
     """
     Try to infer quantity and unit from a product description string.
 
@@ -338,7 +357,7 @@ def infer_unit_from_description(description: str) -> Tuple[Optional[float], Opti
     desc_lower = description.lower()
 
     # Pattern: number followed by unit
-    pattern = r'(\d+(?:\.\d+)?)\s*(gallon|gal|gallon|oz|ounce|lb|lbs|pound|kg|gram|g|count|ct|each|liter|l|ml|fl oz|cup|pint|quart)s?\b'
+    pattern = r"(\d+(?:\.\d+)?)\s*(gallon|gal|gallon|oz|ounce|lb|lbs|pound|kg|gram|g|count|ct|each|liter|l|ml|fl oz|cup|pint|quart)s?\b"
     matches = re.findall(pattern, desc_lower)
 
     if matches:

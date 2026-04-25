@@ -2,17 +2,17 @@
 Deal discovery and price tracking analytics.
 """
 
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
 import statistics
+from datetime import datetime, timedelta
+from typing import Any
 
-from .database import get_db_cursor, get_db_connection
+from .database import get_db_connection, get_db_cursor
 
 
 def record_price_observation(
     product_id: str,
-    regular_price: Optional[float],
-    sale_price: Optional[float],
+    regular_price: float | None,
+    sale_price: float | None,
     location_id: str,
     source: str = "search",
 ) -> None:
@@ -35,11 +35,7 @@ def record_price_observation(
         return
 
     # Calculate sale metrics
-    on_sale = (
-        sale_price is not None
-        and regular_price is not None
-        and sale_price < regular_price
-    )
+    on_sale = sale_price is not None and regular_price is not None and sale_price < regular_price
     savings_amount = (regular_price - sale_price) if on_sale else 0.0
     savings_percent = (
         (savings_amount / regular_price * 100)
@@ -122,8 +118,8 @@ def record_price_observation(
 
 
 def get_price_statistics(
-    product_id: str, days: int = 30, location_id: Optional[str] = None
-) -> Dict[str, Any]:
+    product_id: str, days: int = 30, location_id: str | None = None
+) -> dict[str, Any]:
     """
     Analyze price history for a product.
 
@@ -265,7 +261,7 @@ def get_price_statistics(
         conn.close()
 
 
-def calculate_cart_savings(cart_items: List[Dict]) -> Dict[str, Any]:
+def calculate_cart_savings(cart_items: list[dict]) -> dict[str, Any]:
     """
     Calculate total savings for cart items.
 
@@ -310,9 +306,7 @@ def calculate_cart_savings(cart_items: List[Dict]) -> Dict[str, Any]:
             items_regular += 1
 
     total_savings = total_regular - total_sale
-    savings_percent = (
-        (total_savings / total_regular * 100) if total_regular > 0 else 0.0
-    )
+    savings_percent = (total_savings / total_regular * 100) if total_regular > 0 else 0.0
 
     return {
         "total_regular_price": round(total_regular, 2),
@@ -326,9 +320,9 @@ def calculate_cart_savings(cart_items: List[Dict]) -> Dict[str, Any]:
 
 
 def score_deal_quality(
-    product: Dict[str, Any],
-    price_stats: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    product: dict[str, Any],
+    price_stats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Score how good a deal is based on multiple factors.
 

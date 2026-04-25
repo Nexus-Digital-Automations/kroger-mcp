@@ -1,5 +1,7 @@
 """Analytics & Reports page route."""
+
 from pathlib import Path
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -15,6 +17,7 @@ async def analytics_page(request: Request):
     report = {}
     try:
         from kroger_mcp.analytics.reporting import generate_spending_report
+
         report = generate_spending_report(days_back=30)
         # Normalise key name: function returns 'by_category', template expects
         # 'category_breakdown'
@@ -28,8 +31,11 @@ async def analytics_page(request: Request):
     except Exception:
         pass
 
-    return templates.TemplateResponse("analytics.html", {
-        "request": request,
-        "active_page": "analytics",
-        "initial_report": report,
-    })
+    return templates.TemplateResponse(
+        "analytics.html",
+        {
+            "request": request,
+            "active_page": "analytics",
+            "initial_report": report,
+        },
+    )

@@ -7,12 +7,11 @@ Falls back to SQLite (database.py) when DATABASE_URL is not set.
 
 import os
 from contextlib import contextmanager
-from typing import Optional
 
 _pool = None
 
 
-def get_database_url() -> Optional[str]:
+def get_database_url() -> str | None:
     """Get PostgreSQL connection URL from environment."""
     return os.environ.get("DATABASE_URL")
 

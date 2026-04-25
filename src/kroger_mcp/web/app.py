@@ -4,6 +4,7 @@ FastAPI web dashboard for Kroger MCP.
 Read-only dashboard for browsing recipes, meal plans, favorites, and pantry.
 All writes still happen through Claude/MCP.
 """
+
 # ruff: noqa: E402  -- env must be loaded before FastAPI imports
 
 import os
@@ -12,7 +13,9 @@ from pathlib import Path
 
 # Load .env from project root before any other imports that need env vars
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
+
 
 # Fall back to Claude Desktop config for Kroger credentials if not in env
 def _load_claude_desktop_env():
@@ -20,13 +23,13 @@ def _load_claude_desktop_env():
     if os.environ.get("KROGER_CLIENT_ID"):
         return
     config_path = (
-        Path.home()
-        / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
     )
     if not config_path.exists():
         return
     try:
         import json
+
         config = json.loads(config_path.read_text())
         for server in config.get("mcpServers", {}).values():
             env = server.get("env", {})
@@ -38,6 +41,7 @@ def _load_claude_desktop_env():
     except Exception:
         pass
 
+
 _load_claude_desktop_env()
 
 from fastapi import FastAPI
@@ -45,32 +49,32 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .routes import dashboard, favorites, meal_plan, pantry, recipes
-from .routes import products as products_page
-from .routes import shopping_list as shopping_list_page
-from .routes import deals as deals_page
-from .routes import safety as safety_page
-from .routes import ingredients as ingredients_page
-from .routes import predictions as predictions_page
 from .routes import analytics as analytics_page
+from .routes import auth as auth_routes
+from .routes import dashboard, favorites, meal_plan, pantry, recipes
+from .routes import deals as deals_page
+from .routes import ingredients as ingredients_page
 from .routes import meal_tracker as meal_tracker_page
+from .routes import predictions as predictions_page
+from .routes import products as products_page
+from .routes import safety as safety_page
 from .routes import settings as settings_page
-from .routes.api import cart as api_cart
-from .routes.api import pantry as api_pantry
-from .routes.api import products as api_products
-from .routes.api import shopping_list as api_shopping_list
-from .routes.api import deals as api_deals
-from .routes.api import safety as api_safety
-from .routes.api import ingredients as api_ingredients
-from .routes.api import predictions as api_predictions
+from .routes import shopping_list as shopping_list_page
 from .routes.api import analytics as api_analytics
-from .routes.api import settings as api_settings
+from .routes.api import cart as api_cart
+from .routes.api import chat as api_chat
+from .routes.api import deals as api_deals
 from .routes.api import favorites as api_favorites
-from .routes.api import recipes as api_recipes
+from .routes.api import ingredients as api_ingredients
 from .routes.api import meal_plan as api_meal_plan
 from .routes.api import meal_tracker as api_meal_tracker
-from .routes.api import chat as api_chat
-from .routes import auth as auth_routes
+from .routes.api import pantry as api_pantry
+from .routes.api import predictions as api_predictions
+from .routes.api import products as api_products
+from .routes.api import recipes as api_recipes
+from .routes.api import safety as api_safety
+from .routes.api import settings as api_settings
+from .routes.api import shopping_list as api_shopping_list
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -84,8 +88,10 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # Initialize auth tables (SQLite dev mode)
 try:
     from kroger_mcp.analytics.database import get_backend
+
     if get_backend() == "sqlite":
         from kroger_mcp.analytics.pg_database import initialize_sqlite_auth_tables
+
         initialize_sqlite_auth_tables()
 except Exception:
     pass
@@ -149,6 +155,7 @@ PORT = int(os.environ.get("WEB_PORT", 8000))
 
 def run():
     import uvicorn
+
     stop()
     print(f"Smart Shopper running at http://localhost:{PORT}")
     uvicorn.run("kroger_mcp.web.app:app", host="0.0.0.0", port=PORT, reload=False)
@@ -157,8 +164,9 @@ def run():
 def stop():
     """Kill any process running on the web port."""
     import subprocess
-    result = subprocess.run(['lsof', '-ti', f':{PORT}'], capture_output=True, text=True)
-    pids = [p.strip() for p in result.stdout.strip().split('\n') if p.strip()]
+
+    result = subprocess.run(["lsof", "-ti", f":{PORT}"], capture_output=True, text=True)
+    pids = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
     if not pids:
         print(f"No server found on port {PORT}")
         return

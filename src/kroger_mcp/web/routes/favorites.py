@@ -37,17 +37,22 @@ async def favorites_list(request: Request):
     annotated = []
     for lst in lists:
         label, color = _reorder_badge(lst.get("reorder_status", {}))
-        annotated.append({
-            **lst,
-            "badge_label": label,
-            "badge_color": color,
-        })
+        annotated.append(
+            {
+                **lst,
+                "badge_label": label,
+                "badge_color": color,
+            }
+        )
 
-    return templates.TemplateResponse("favorites.html", {
-        "request": request,
-        "active_page": "favorites",
-        "lists": annotated,
-    })
+    return templates.TemplateResponse(
+        "favorites.html",
+        {
+            "request": request,
+            "active_page": "favorites",
+            "lists": annotated,
+        },
+    )
 
 
 @router.get("/favorites/{list_id}", response_class=HTMLResponse)
@@ -77,13 +82,16 @@ async def favorites_detail(request: Request, list_id: str):
     reorder_status = lst.get("reorder_status", {})
     badge_label, badge_color = _reorder_badge(reorder_status)
 
-    return templates.TemplateResponse("favorites_detail.html", {
-        "request": request,
-        "active_page": "favorites",
-        "lst": lst,
-        "items": items,
-        "badge_label": badge_label,
-        "badge_color": badge_color,
-        "reorder_status": reorder_status,
-        **action_menu_context(),
-    })
+    return templates.TemplateResponse(
+        "favorites_detail.html",
+        {
+            "request": request,
+            "active_page": "favorites",
+            "lst": lst,
+            "items": items,
+            "badge_label": badge_label,
+            "badge_color": badge_color,
+            "reorder_status": reorder_status,
+            **action_menu_context(),
+        },
+    )

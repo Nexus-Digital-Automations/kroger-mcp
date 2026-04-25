@@ -1,31 +1,31 @@
 """API routes for favorites list write operations."""
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional
 
 router = APIRouter()
 
 
 class CreateListBody(BaseModel):
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     list_type: str = "custom"
-    reorder_weeks: Optional[int] = None
+    reorder_weeks: int | None = None
 
 
 class RenameListBody(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    reorder_weeks: Optional[int] = None
+    name: str | None = None
+    description: str | None = None
+    reorder_weeks: int | None = None
 
 
 class AddItemBody(BaseModel):
     product_id: str
     description: str
-    brand: Optional[str] = None
+    brand: str | None = None
     quantity: int = 1
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 @router.get("/api/favorites/lists")
@@ -33,11 +33,15 @@ async def get_favorites_lists():
     """Return all user-created favorites lists for UI dropdowns."""
     try:
         from kroger_mcp.analytics.favorites import get_lists
+
         lists = get_lists()
-        return JSONResponse(content=[
-            {"id": lst["id"], "name": lst["name"], "item_count": lst["item_count"]}
-            for lst in lists if not lst.get("is_default")
-        ])
+        return JSONResponse(
+            content=[
+                {"id": lst["id"], "name": lst["name"], "item_count": lst["item_count"]}
+                for lst in lists
+                if not lst.get("is_default")
+            ]
+        )
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
@@ -47,6 +51,7 @@ async def create_list(body: CreateListBody):
     """Create a new favorite list."""
     try:
         from kroger_mcp.analytics.favorites import create_list as _create_list
+
         result = _create_list(
             name=body.name,
             description=body.description,
@@ -68,6 +73,7 @@ async def delete_list(list_id: str):
     """Delete a favorite list and all its items."""
     try:
         from kroger_mcp.analytics.favorites import delete_list as _delete_list
+
         result = _delete_list(list_id=list_id)
         if not result.get("success"):
             return JSONResponse(status_code=400, content=result)
@@ -84,6 +90,7 @@ async def rename_list(list_id: str, body: RenameListBody):
 
         if body.name is not None or body.description is not None:
             from kroger_mcp.analytics.favorites import rename_list as _rename_list
+
             result = _rename_list(
                 list_id=list_id,
                 new_name=body.name,
@@ -94,6 +101,7 @@ async def rename_list(list_id: str, body: RenameListBody):
 
         if body.reorder_weeks is not None:
             from kroger_mcp.analytics.favorites import update_list_schedule
+
             # 0 means "disable schedule", positive int means set schedule
             weeks = None if body.reorder_weeks == 0 else body.reorder_weeks
             rw_result = update_list_schedule(list_id=list_id, reorder_weeks=weeks)
@@ -112,6 +120,7 @@ async def get_list_items(list_id: str):
     """Get items in a favorite list."""
     try:
         from kroger_mcp.analytics.favorites import get_list_items as _get_list_items
+
         result = _get_list_items(list_id=list_id)
         if not result.get("success"):
             return JSONResponse(status_code=404, content=result)
@@ -125,6 +134,7 @@ async def add_item(list_id: str, body: AddItemBody):
     """Add a product to a favorite list."""
     try:
         from kroger_mcp.analytics.favorites import add_to_list
+
         result = add_to_list(
             list_id=list_id,
             product_id=body.product_id,
@@ -145,6 +155,7 @@ async def remove_item(list_id: str, product_id: str):
     """Remove a product from a favorite list."""
     try:
         from kroger_mcp.analytics.favorites import remove_from_list
+
         result = remove_from_list(list_id=list_id, product_id=product_id)
         if not result.get("success"):
             return JSONResponse(status_code=404, content=result)
@@ -157,12 +168,13 @@ async def remove_item(list_id: str, product_id: str):
 async def add_list_to_shopping_list(list_id: str):
     """Add all items from a favorites list into the shopping list, skipping well-stocked items."""
     from datetime import datetime
+
     from kroger_mcp.analytics.favorites import get_list_items as _get_list_items
     from kroger_mcp.tools.shopping_list_tools import (
+        _consolidate_items,
+        _generate_list_item_id,
         _load_shopping_list,
         _save_shopping_list,
-        _generate_list_item_id,
-        _consolidate_items,
     )
 
     # Load list items
@@ -181,6 +193,7 @@ async def add_list_to_shopping_list(list_id: str):
     pantry_levels: dict = {}
     try:
         from kroger_mcp.analytics.pantry import get_pantry_status
+
         pantry_items = get_pantry_status(apply_depletion=True)
         pantry_levels = {p["product_id"]: p.get("level_percent", 0) for p in pantry_items}
     except Exception:
@@ -200,16 +213,18 @@ async def add_list_to_shopping_list(list_id: str):
         if level >= 30:
             items_skipped += 1
             continue
-        data["items"].append({
-            "id": _generate_list_item_id(),
-            "product_id": product_id,
-            "name": item.get("description", ""),
-            "quantity": item.get("default_quantity") or 1,
-            "unit": "",
-            "sources": [{"favorites_list_id": list_id, "favorites_list_name": list_name}],
-            "added_at": now,
-            "recipe_name": None,
-        })
+        data["items"].append(
+            {
+                "id": _generate_list_item_id(),
+                "product_id": product_id,
+                "name": item.get("description", ""),
+                "quantity": item.get("default_quantity") or 1,
+                "unit": "",
+                "sources": [{"favorites_list_id": list_id, "favorites_list_name": list_name}],
+                "added_at": now,
+                "recipe_name": None,
+            }
+        )
         items_added += 1
 
     data["items"] = _consolidate_items(data["items"])

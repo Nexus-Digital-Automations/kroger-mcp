@@ -22,12 +22,14 @@ def _get_pantry_alerts():
     ensure_initialized()
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT product_id, description, level_percent, low_threshold,
                    expiration_date, days_to_expiration
             FROM pantry_items
             ORDER BY level_percent ASC
-        """)
+        """
+        )
         items = []
         for row in cursor.fetchall():
             item = dict(row)
@@ -39,13 +41,15 @@ def _get_pantry_alerts():
             if days_to_exp is not None and days_to_exp <= 7:
                 is_expiring = True
             if is_low or is_expiring:
-                items.append({
-                    "description": item["description"] or item["product_id"],
-                    "level_percent": round(level),
-                    "is_low": is_low,
-                    "is_expiring": is_expiring,
-                    "days_to_expiration": days_to_exp,
-                })
+                items.append(
+                    {
+                        "description": item["description"] or item["product_id"],
+                        "level_percent": round(level),
+                        "is_low": is_low,
+                        "is_expiring": is_expiring,
+                        "days_to_expiration": days_to_exp,
+                    }
+                )
         return items
     finally:
         conn.close()
@@ -61,14 +65,17 @@ def _get_this_week_meals():
         monday = today - timedelta(days=today.weekday())
         sunday = monday + timedelta(days=6)
 
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT me.meal_date, me.meal_slot, me.recipe_id,
                    mp.name as plan_name
             FROM meal_entries me
             JOIN meal_plans mp ON me.plan_id = mp.id
             WHERE me.meal_date BETWEEN ? AND ?
             ORDER BY me.meal_date, me.meal_slot
-        """, (monday.isoformat(), sunday.isoformat()))
+        """,
+            (monday.isoformat(), sunday.isoformat()),
+        )
 
         rows = cursor.fetchall()
         # Resolve recipe names
@@ -77,11 +84,13 @@ def _get_this_week_meals():
 
         meals = []
         for row in rows:
-            meals.append({
-                "date": row["meal_date"],
-                "slot": row["meal_slot"],
-                "recipe_name": recipe_map.get(row["recipe_id"], row["recipe_id"]),
-            })
+            meals.append(
+                {
+                    "date": row["meal_date"],
+                    "slot": row["meal_slot"],
+                    "recipe_name": recipe_map.get(row["recipe_id"], row["recipe_id"]),
+                }
+            )
         return meals
     finally:
         conn.close()
@@ -105,12 +114,14 @@ def _get_overdue_favorites(lists):
         rs = lst.get("reorder_status", {})
         if rs.get("is_overdue") and rs.get("has_schedule"):
             days_overdue = rs.get("days_overdue", 0)
-            overdue.append({
-                "name": lst["name"],
-                "list_id": lst["id"],
-                "days_overdue": days_overdue,
-                "status": rs.get("status"),
-            })
+            overdue.append(
+                {
+                    "name": lst["name"],
+                    "list_id": lst["id"],
+                    "days_overdue": days_overdue,
+                    "status": rs.get("status"),
+                }
+            )
     return overdue
 
 
@@ -136,16 +147,19 @@ async def dashboard_page(request: Request):
             meals_by_date[date_str] = []
         meals_by_date[date_str].append(f"{meal['slot'].title()}: {meal['recipe_name']}")
 
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "active_page": "dashboard",
-        "recipe_count": len(recipes),
-        "pantry_alert_count": len(pantry_alerts),
-        "meal_plan_count": meal_plan_count,
-        "favorites_count": len(fav_lists),
-        "pantry_alerts": pantry_alerts[:10],
-        "week_days": week_days,
-        "meals_by_date": meals_by_date,
-        "today": today,
-        "overdue_favorites": overdue_favorites,
-    })
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "active_page": "dashboard",
+            "recipe_count": len(recipes),
+            "pantry_alert_count": len(pantry_alerts),
+            "meal_plan_count": meal_plan_count,
+            "favorites_count": len(fav_lists),
+            "pantry_alerts": pantry_alerts[:10],
+            "week_days": week_days,
+            "meals_by_date": meals_by_date,
+            "today": today,
+            "overdue_favorites": overdue_favorites,
+        },
+    )

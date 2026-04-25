@@ -1,4 +1,5 @@
 """Predictions API endpoints."""
+
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
@@ -30,6 +31,7 @@ async def get_predictions(days: int = Query(default=14, ge=1, le=365)):
     """Get repurchase predictions for the next N days."""
     try:
         from kroger_mcp.analytics.predictions import get_predictions_for_period
+
         raw = get_predictions_for_period(days_ahead=days)
         predictions = [_prediction_to_dict(p) for p in raw]
         return JSONResponse(content={"predictions": predictions, "count": len(predictions)})
@@ -45,6 +47,7 @@ async def get_smart_recommendations():
     """Get smart shopping recommendations (if available)."""
     try:
         from kroger_mcp.analytics.recommendations import get_comprehensive_recommendations
+
         result = get_comprehensive_recommendations()
         if isinstance(result, list):
             return JSONResponse(content={"recommendations": result})

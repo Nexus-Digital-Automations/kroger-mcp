@@ -29,30 +29,32 @@ import asyncio
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 
 class Severity(str, Enum):
     """Severity levels for flagged ingredients."""
+
     CRITICAL = "critical"  # Hard warnings - strongly recommend avoiding
-    WARNING = "warning"    # Soft warnings - moderate concern
-    WATCH = "watch"        # Informational - low concern
+    WARNING = "warning"  # Soft warnings - moderate concern
+    WATCH = "watch"  # Informational - low concern
 
 
 @dataclass
 class IngredientInfo:
     """Information about a flagged ingredient."""
-    key: str              # Unique identifier
-    name: str             # Display name
-    aliases: List[str]    # Alternative names/spellings
-    severity: Severity    # Severity level
-    reason: str           # Why it's flagged
-    category: str         # Category (preservative, sweetener, etc.)
-    exclude_patterns: Optional[List[str]] = None  # Patterns to exclude (e.g., "sugar free")
+
+    key: str  # Unique identifier
+    name: str  # Display name
+    aliases: list[str]  # Alternative names/spellings
+    severity: Severity  # Severity level
+    reason: str  # Why it's flagged
+    category: str  # Category (preservative, sweetener, etc.)
+    exclude_patterns: list[str] | None = None  # Patterns to exclude (e.g., "sugar free")
 
 
 # Comprehensive list of bad ingredients with severity levels
-BAD_INGREDIENTS: List[IngredientInfo] = [
+BAD_INGREDIENTS: list[IngredientInfo] = [
     # ==================== CRITICAL SEVERITY ====================
     # Preservatives linked to serious health concerns
     IngredientInfo(
@@ -95,7 +97,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Neurological and reproductive concerns",
         category="emulsifier",
     ),
-
     # Artificial sweeteners with significant concerns
     IngredientInfo(
         key="aspartame",
@@ -105,20 +106,21 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Neurological concerns, potential carcinogen (WHO)",
         category="artificial_sweetener",
     ),
-
     # Unhealthy fats
     IngredientInfo(
         key="trans_fat",
         name="Trans Fat / Partially Hydrogenated Oil",
         aliases=[
-            "partially hydrogenated", "PHO", "trans fat",
-            "partially hydrogenated oil", "hydrogenated vegetable oil"
+            "partially hydrogenated",
+            "PHO",
+            "trans fat",
+            "partially hydrogenated oil",
+            "hydrogenated vegetable oil",
         ],
         severity=Severity.CRITICAL,
         reason="Heart disease, stroke risk",
         category="fat",
     ),
-
     # High fructose corn syrup
     IngredientInfo(
         key="hfcs",
@@ -128,30 +130,44 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Linked to obesity, diabetes, metabolic syndrome",
         category="sweetener",
     ),
-
     # Hydrolyzed protein (contains free glutamate)
     IngredientInfo(
         key="hydrolyzed_protein",
         name="Hydrolyzed Protein",
         aliases=[
-            "hydrolyzed vegetable protein", "HVP",
-            "hydrolyzed soy protein", "hydrolyzed plant protein",
-            "hydrolyzed yeast", "protein hydrolysate",
-            "hydrolyzed wheat protein", "hydrolyzed corn protein"
+            "hydrolyzed vegetable protein",
+            "HVP",
+            "hydrolyzed soy protein",
+            "hydrolyzed plant protein",
+            "hydrolyzed yeast",
+            "protein hydrolysate",
+            "hydrolyzed wheat protein",
+            "hydrolyzed corn protein",
         ],
         severity=Severity.CRITICAL,
         reason="Contains free glutamate, excitotoxin, headaches",
         category="flavor_enhancer",
     ),
-
     # Sulfites
     IngredientInfo(
         key="sulfites",
         name="Sulfites",
         aliases=[
-            "sodium sulfite", "sodium bisulfite", "sodium metabisulfite",
-            "potassium bisulfite", "potassium metabisulfite", "sulfur dioxide",
-            "E220", "E221", "E222", "E223", "E224", "E225", "E226", "E227", "E228"
+            "sodium sulfite",
+            "sodium bisulfite",
+            "sodium metabisulfite",
+            "potassium bisulfite",
+            "potassium metabisulfite",
+            "sulfur dioxide",
+            "E220",
+            "E221",
+            "E222",
+            "E223",
+            "E224",
+            "E225",
+            "E226",
+            "E227",
+            "E228",
         ],
         severity=Severity.CRITICAL,
         reason="Severe allergic reactions, asthma trigger, banned on fresh produce",
@@ -181,7 +197,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Causes digestive issues, blocks vitamin absorption",
         category="fat_substitute",
     ),
-
     # ==================== WARNING SEVERITY ====================
     # Artificial colors
     IngredientInfo(
@@ -256,7 +271,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Limited use approved, potential carcinogen",
         category="artificial_color",
     ),
-
     # Other artificial sweeteners
     IngredientInfo(
         key="sucralose",
@@ -282,7 +296,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Historical cancer concerns",
         category="artificial_sweetener",
     ),
-
     # Preservatives (moderate concern)
     IngredientInfo(
         key="tbhq",
@@ -308,7 +321,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Potential DNA damage, allergic reactions",
         category="preservative",
     ),
-
     # Emulsifiers
     IngredientInfo(
         key="carrageenan",
@@ -326,7 +338,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Gut barrier disruption, inflammation",
         category="emulsifier",
     ),
-
     # Other additives
     IngredientInfo(
         key="azodicarbonamide",
@@ -352,7 +363,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Respiratory issues (popcorn lung)",
         category="flavoring",
     ),
-
     # Aluminum compounds
     IngredientInfo(
         key="sodium_aluminum_phosphate",
@@ -370,7 +380,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Aluminum accumulation, neurological concerns",
         category="leavening_agent",
     ),
-
     # Additional preservatives and additives
     IngredientInfo(
         key="calcium_disodium_edta",
@@ -396,14 +405,14 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Synthetic preservative, may cause headaches",
         category="preservative",
     ),
-
     # Dough conditioners and emulsifiers
     IngredientInfo(
         key="datem",
         name="DATEM",
         aliases=[
             "diacetyl tartaric acid esters of monoglycerides",
-            "E472e", "diacetyl tartaric acid ester"
+            "E472e",
+            "diacetyl tartaric acid ester",
         ],
         severity=Severity.WARNING,
         reason="Synthetic emulsifier, limited safety data",
@@ -417,7 +426,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Synthetic emulsifier, may cause digestive issues",
         category="emulsifier",
     ),
-
     # Anti-foaming and processing aids
     IngredientInfo(
         key="dimethylpolysiloxane",
@@ -427,7 +435,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Industrial chemical used as anti-foaming agent",
         category="processing_aid",
     ),
-
     # Artificial flavors
     IngredientInfo(
         key="artificial_flavor",
@@ -437,7 +444,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Synthetic chemicals, lack of transparency, potential allergens",
         category="flavoring",
     ),
-
     # Neotame (newer artificial sweetener)
     IngredientInfo(
         key="neotame",
@@ -447,7 +453,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Similar to aspartame but more potent, limited long-term data",
         category="artificial_sweetener",
     ),
-
     # Advantame
     IngredientInfo(
         key="advantame",
@@ -457,7 +462,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Derived from aspartame, extremely limited safety data",
         category="artificial_sweetener",
     ),
-
     # ==================== WATCH SEVERITY ====================
     IngredientInfo(
         key="natural_flavors",
@@ -499,7 +503,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Kidney concerns in excess",
         category="preservative",
     ),
-
     # Refined/processed ingredients
     IngredientInfo(
         key="maltodextrin",
@@ -534,14 +537,18 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Chemical bleaching agents, stripped nutrients",
         category="flour",
     ),
-
     # Thickeners and stabilizers
     IngredientInfo(
         key="cellulose",
         name="Cellulose",
         aliases=[
-            "powdered cellulose", "microcrystalline cellulose",
-            "cellulose gum", "cellulose gel", "E460", "E461", "E466"
+            "powdered cellulose",
+            "microcrystalline cellulose",
+            "cellulose gum",
+            "cellulose gel",
+            "E460",
+            "E461",
+            "E466",
         ],
         severity=Severity.WATCH,
         reason="Wood pulp filler, no nutritional value",
@@ -563,7 +570,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Processing aid, may affect nutrient absorption",
         category="processing_aid",
     ),
-
     # Soy derivatives
     IngredientInfo(
         key="soy_lecithin",
@@ -581,7 +587,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="Highly processed, may contain hexane residues",
         category="protein",
     ),
-
     # Gums (can cause digestive issues for sensitive individuals)
     IngredientInfo(
         key="xanthan_gum",
@@ -599,7 +604,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="May cause bloating and gas in sensitive individuals",
         category="thickener",
     ),
-
     # Palm oil
     IngredientInfo(
         key="palm_oil",
@@ -609,7 +613,6 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
         reason="High in saturated fat, environmental concerns",
         category="fat",
     ),
-
     # Dextrose and processed sugars
     IngredientInfo(
         key="dextrose",
@@ -622,7 +625,7 @@ BAD_INGREDIENTS: List[IngredientInfo] = [
 ]
 
 
-def _compile_ingredient_patterns() -> Dict[str, re.Pattern]:
+def _compile_ingredient_patterns() -> dict[str, re.Pattern]:
     """
     Pre-compile regex patterns for all ingredients.
 
@@ -637,7 +640,7 @@ def _compile_ingredient_patterns() -> Dict[str, re.Pattern]:
 
         # Build pattern with word boundaries
         escaped_terms = [re.escape(term) for term in all_terms]
-        base_pattern = r'\b(' + '|'.join(escaped_terms) + r')\b'
+        base_pattern = r"\b(" + "|".join(escaped_terms) + r")\b"
 
         # Note: exclude_patterns are checked separately in check_product_safety()
         # rather than being built into the regex pattern
@@ -654,6 +657,7 @@ _INGREDIENT_PATTERNS = _compile_ingredient_patterns()
 @dataclass
 class IngredientMatch:
     """A single matched bad ingredient."""
+
     ingredient_key: str
     ingredient_name: str
     severity: Severity
@@ -665,9 +669,10 @@ class IngredientMatch:
 @dataclass
 class PositiveAttribute:
     """A food quality attribute that positively scores a product."""
+
     key: str
     name: str
-    aliases: List[str]
+    aliases: list[str]
     bonus: int
     benefit: str
     category: str
@@ -676,6 +681,7 @@ class PositiveAttribute:
 @dataclass
 class AttributeMatch:
     """A matched positive food quality attribute."""
+
     attribute_key: str
     attribute_name: str
     bonus: int
@@ -684,7 +690,7 @@ class AttributeMatch:
 
 
 # Positive food quality attributes that improve safety score
-GOOD_ATTRIBUTES: List[PositiveAttribute] = [
+GOOD_ATTRIBUTES: list[PositiveAttribute] = [
     PositiveAttribute(
         key="organic",
         name="Organic",
@@ -705,9 +711,13 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="grass_fed",
         name="Grass-Fed / Pasture-Raised / Wild-Caught",
         aliases=[
-            "grass fed", "grassfed", "grass-fed",
-            "pasture raised", "pasture-raised",
-            "wild caught", "wild-caught",
+            "grass fed",
+            "grassfed",
+            "grass-fed",
+            "pasture raised",
+            "pasture-raised",
+            "wild caught",
+            "wild-caught",
         ],
         bonus=15,
         benefit="Better nutrient profile, higher omega-3s",
@@ -725,8 +735,12 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="hormone_free",
         name="Hormone-Free / Antibiotic-Free",
         aliases=[
-            "no hormones", "hormone free", "hormone-free",
-            "no antibiotics", "antibiotic free", "antibiotic-free",
+            "no hormones",
+            "hormone free",
+            "hormone-free",
+            "no antibiotics",
+            "antibiotic free",
+            "antibiotic-free",
             "raised without antibiotics",
         ],
         bonus=10,
@@ -745,8 +759,10 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="no_artificial",
         name="No Artificial Ingredients",
         aliases=[
-            "no artificial", "no artificial ingredients",
-            "no artificial colors", "no artificial flavors",
+            "no artificial",
+            "no artificial ingredients",
+            "no artificial colors",
+            "no artificial flavors",
             "no artificial preservatives",
         ],
         bonus=8,
@@ -757,8 +773,11 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="whole_grain",
         name="Whole Grain",
         aliases=[
-            "whole grain", "whole grains", "whole wheat",
-            "100% whole wheat", "100% whole grain",
+            "whole grain",
+            "whole grains",
+            "whole wheat",
+            "100% whole wheat",
+            "100% whole grain",
         ],
         bonus=15,
         benefit="Higher fiber, better blood sugar response",
@@ -768,9 +787,14 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="whole_food",
         name="Whole Food",
         aliases=[
-            "100% juice", "single ingredient", "nothing artificial",
-            "no added ingredients", "just fruit", "just vegetables",
-            "simple ingredients", "minimally processed",
+            "100% juice",
+            "single ingredient",
+            "nothing artificial",
+            "no added ingredients",
+            "just fruit",
+            "just vegetables",
+            "simple ingredients",
+            "minimally processed",
         ],
         bonus=12,
         benefit="Whole, minimally processed food with simple ingredients",
@@ -784,10 +808,22 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="healthy_fat_ingredient",
         name="Healthy Fat",
         aliases=[
-            "olive oil", "extra virgin olive oil", "avocado oil",
-            "avocado", "almond", "almonds", "walnut", "walnuts",
-            "cashew", "cashews", "flaxseed", "chia", "hemp seed",
-            "coconut oil", "sesame oil", "peanut butter",
+            "olive oil",
+            "extra virgin olive oil",
+            "avocado oil",
+            "avocado",
+            "almond",
+            "almonds",
+            "walnut",
+            "walnuts",
+            "cashew",
+            "cashews",
+            "flaxseed",
+            "chia",
+            "hemp seed",
+            "coconut oil",
+            "sesame oil",
+            "peanut butter",
         ],
         bonus=20,
         benefit="Heart-healthy fat source",
@@ -797,14 +833,40 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="produce_ingredient",
         name="Fresh Produce",
         aliases=[
-            "spinach", "kale", "broccoli", "carrot", "carrots",
-            "tomato", "tomatoes", "onion", "onions", "garlic",
-            "pepper", "peppers", "bell pepper", "lettuce", "cucumber",
-            "zucchini", "asparagus", "celery", "cauliflower",
-            "sweet potato", "sweet potatoes", "potato", "potatoes",
-            "mushroom", "mushrooms", "green beans", "peas",
-            "corn", "cabbage", "eggplant", "beets", "radish",
-            "brussels sprouts", "artichoke",
+            "spinach",
+            "kale",
+            "broccoli",
+            "carrot",
+            "carrots",
+            "tomato",
+            "tomatoes",
+            "onion",
+            "onions",
+            "garlic",
+            "pepper",
+            "peppers",
+            "bell pepper",
+            "lettuce",
+            "cucumber",
+            "zucchini",
+            "asparagus",
+            "celery",
+            "cauliflower",
+            "sweet potato",
+            "sweet potatoes",
+            "potato",
+            "potatoes",
+            "mushroom",
+            "mushrooms",
+            "green beans",
+            "peas",
+            "corn",
+            "cabbage",
+            "eggplant",
+            "beets",
+            "radish",
+            "brussels sprouts",
+            "artichoke",
         ],
         bonus=20,
         benefit="Nutrient-dense whole vegetable",
@@ -814,14 +876,48 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="fruit_ingredient",
         name="Fresh Fruit",
         aliases=[
-            "apple", "apples", "banana", "bananas", "berry", "berries",
-            "strawberry", "strawberries", "blueberry", "blueberries",
-            "raspberry", "raspberries", "blackberry", "blackberries",
-            "lemon", "lemons", "lime", "limes", "orange", "oranges",
-            "peach", "peaches", "pear", "pears", "mango", "mangoes",
-            "pineapple", "grape", "grapes", "watermelon", "cantaloupe",
-            "cherry", "cherries", "plum", "plums", "fig", "figs",
-            "pomegranate", "kiwi", "grapefruit", "cranberry", "cranberries",
+            "apple",
+            "apples",
+            "banana",
+            "bananas",
+            "berry",
+            "berries",
+            "strawberry",
+            "strawberries",
+            "blueberry",
+            "blueberries",
+            "raspberry",
+            "raspberries",
+            "blackberry",
+            "blackberries",
+            "lemon",
+            "lemons",
+            "lime",
+            "limes",
+            "orange",
+            "oranges",
+            "peach",
+            "peaches",
+            "pear",
+            "pears",
+            "mango",
+            "mangoes",
+            "pineapple",
+            "grape",
+            "grapes",
+            "watermelon",
+            "cantaloupe",
+            "cherry",
+            "cherries",
+            "plum",
+            "plums",
+            "fig",
+            "figs",
+            "pomegranate",
+            "kiwi",
+            "grapefruit",
+            "cranberry",
+            "cranberries",
         ],
         bonus=20,
         benefit="Nutrient-dense whole fruit",
@@ -831,13 +927,32 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="lean_protein_ingredient",
         name="Lean Protein",
         aliases=[
-            "chicken", "chicken breast", "chicken thigh",
-            "turkey", "ground turkey", "salmon", "tuna",
-            "shrimp", "cod", "tilapia", "halibut", "trout",
-            "egg", "eggs", "lentil", "lentils",
-            "chickpea", "chickpeas", "black bean", "black beans",
-            "kidney bean", "kidney beans", "tofu", "tempeh",
-            "pork tenderloin", "pork loin",
+            "chicken",
+            "chicken breast",
+            "chicken thigh",
+            "turkey",
+            "ground turkey",
+            "salmon",
+            "tuna",
+            "shrimp",
+            "cod",
+            "tilapia",
+            "halibut",
+            "trout",
+            "egg",
+            "eggs",
+            "lentil",
+            "lentils",
+            "chickpea",
+            "chickpeas",
+            "black bean",
+            "black beans",
+            "kidney bean",
+            "kidney beans",
+            "tofu",
+            "tempeh",
+            "pork tenderloin",
+            "pork loin",
         ],
         bonus=20,
         benefit="Quality protein source",
@@ -847,9 +962,17 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="whole_grain_ingredient",
         name="Whole Grain",
         aliases=[
-            "brown rice", "quinoa", "oats", "oatmeal",
-            "whole wheat", "farro", "barley", "bulgur",
-            "millet", "buckwheat", "wild rice",
+            "brown rice",
+            "quinoa",
+            "oats",
+            "oatmeal",
+            "whole wheat",
+            "farro",
+            "barley",
+            "bulgur",
+            "millet",
+            "buckwheat",
+            "wild rice",
         ],
         bonus=20,
         benefit="Whole grain with fiber and nutrients",
@@ -859,12 +982,32 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="herb_spice_ingredient",
         name="Herb or Spice",
         aliases=[
-            "basil", "oregano", "thyme", "rosemary", "cilantro",
-            "parsley", "mint", "dill", "cumin", "turmeric",
-            "ginger", "cinnamon", "paprika", "chili powder",
-            "cayenne", "coriander", "nutmeg", "cloves",
-            "bay leaf", "bay leaves", "sage", "tarragon",
-            "chives", "fennel", "cardamom", "saffron",
+            "basil",
+            "oregano",
+            "thyme",
+            "rosemary",
+            "cilantro",
+            "parsley",
+            "mint",
+            "dill",
+            "cumin",
+            "turmeric",
+            "ginger",
+            "cinnamon",
+            "paprika",
+            "chili powder",
+            "cayenne",
+            "coriander",
+            "nutmeg",
+            "cloves",
+            "bay leaf",
+            "bay leaves",
+            "sage",
+            "tarragon",
+            "chives",
+            "fennel",
+            "cardamom",
+            "saffron",
         ],
         bonus=20,
         benefit="Natural seasoning with health benefits",
@@ -874,10 +1017,21 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="dairy_ingredient",
         name="Natural Dairy",
         aliases=[
-            "milk", "butter", "cream", "heavy cream",
-            "yogurt", "greek yogurt", "sour cream",
-            "parmesan", "mozzarella", "cheddar", "cheese",
-            "cream cheese", "ricotta", "feta", "gouda",
+            "milk",
+            "butter",
+            "cream",
+            "heavy cream",
+            "yogurt",
+            "greek yogurt",
+            "sour cream",
+            "parmesan",
+            "mozzarella",
+            "cheddar",
+            "cheese",
+            "cream cheese",
+            "ricotta",
+            "feta",
+            "gouda",
         ],
         bonus=15,
         benefit="Natural dairy product",
@@ -887,10 +1041,22 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
         key="pantry_staple_ingredient",
         name="Pantry Staple",
         aliases=[
-            "flour", "sugar", "salt", "honey", "maple syrup",
-            "vinegar", "soy sauce", "rice", "pasta",
-            "bread", "tortilla", "stock", "broth",
-            "tomato paste", "tomato sauce", "coconut milk",
+            "flour",
+            "sugar",
+            "salt",
+            "honey",
+            "maple syrup",
+            "vinegar",
+            "soy sauce",
+            "rice",
+            "pasta",
+            "bread",
+            "tortilla",
+            "stock",
+            "broth",
+            "tomato paste",
+            "tomato sauce",
+            "coconut milk",
         ],
         bonus=10,
         benefit="Basic cooking staple",
@@ -899,51 +1065,57 @@ GOOD_ATTRIBUTES: List[PositiveAttribute] = [
 ]
 
 # Pre-compile positive attribute patterns
-_POSITIVE_PATTERNS: List[Dict] = []
+_POSITIVE_PATTERNS: list[dict] = []
 
-def _compile_positive_patterns() -> List[Dict]:
+
+def _compile_positive_patterns() -> list[dict]:
     compiled = []
     for attr in GOOD_ATTRIBUTES:
         all_terms = [attr.name.lower()] + [a.lower() for a in attr.aliases]
         for term in all_terms:
-            compiled.append({
-                "pattern": re.compile(r'\b' + re.escape(term) + r'\b', re.IGNORECASE),
-                "key": attr.key,
-                "name": attr.name,
-                "bonus": attr.bonus,
-                "benefit": attr.benefit,
-                "term": term,
-            })
+            compiled.append(
+                {
+                    "pattern": re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE),
+                    "key": attr.key,
+                    "name": attr.name,
+                    "bonus": attr.bonus,
+                    "benefit": attr.benefit,
+                    "term": term,
+                }
+            )
     return compiled
+
 
 _POSITIVE_PATTERNS = _compile_positive_patterns()
 
 
-def check_positive_attributes(text: str) -> List[AttributeMatch]:
+def check_positive_attributes(text: str) -> list[AttributeMatch]:
     """Check a product description for positive food quality attributes."""
     text_lower = text.lower()
-    matched: List[AttributeMatch] = []
+    matched: list[AttributeMatch] = []
     seen_keys: set = set()
 
     for entry in _POSITIVE_PATTERNS:
         if entry["key"] in seen_keys:
             continue
         if entry["pattern"].search(text_lower):
-            matched.append(AttributeMatch(
-                attribute_key=entry["key"],
-                attribute_name=entry["name"],
-                bonus=entry["bonus"],
-                benefit=entry["benefit"],
-                matched_text=entry["term"],
-            ))
+            matched.append(
+                AttributeMatch(
+                    attribute_key=entry["key"],
+                    attribute_name=entry["name"],
+                    bonus=entry["bonus"],
+                    benefit=entry["benefit"],
+                    matched_text=entry["term"],
+                )
+            )
             seen_keys.add(entry["key"])
 
     return matched
 
 
 def score_product(
-    positive_matches: List[AttributeMatch],
-    negative_matches: List[IngredientMatch],
+    positive_matches: list[AttributeMatch],
+    negative_matches: list[IngredientMatch],
 ) -> tuple:
     """Compute safety score (0-100) and grade (A-F) for a product."""
     score = 60  # base score
@@ -994,14 +1166,15 @@ def score_to_status(score: int) -> str:
 @dataclass
 class SafetyResult:
     """Result of checking a product for bad ingredients."""
+
     has_concerns: bool
-    highest_severity: Optional[Severity]
-    matches: List[IngredientMatch]
-    positive_attributes: List[AttributeMatch] = field(default_factory=list)
+    highest_severity: Severity | None
+    matches: list[IngredientMatch]
+    positive_attributes: list[AttributeMatch] = field(default_factory=list)
     score: int = 60
     grade: str = "C"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "has_concerns": self.has_concerns,
@@ -1032,9 +1205,9 @@ class SafetyResult:
 
 def check_product_safety(
     description: str,
-    brand: Optional[str] = None,
-    categories: Optional[List[str]] = None,
-    disabled_ingredients: Optional[set] = None,
+    brand: str | None = None,
+    categories: list[str] | None = None,
+    disabled_ingredients: set | None = None,
     force_refresh_patterns: bool = False,
 ) -> SafetyResult:
     """
@@ -1054,12 +1227,16 @@ def check_product_safety(
     """
     if not description:
         return SafetyResult(
-            has_concerns=False, highest_severity=None, matches=[],
-            positive_attributes=[], score=60, grade="C",
+            has_concerns=False,
+            highest_severity=None,
+            matches=[],
+            positive_attributes=[],
+            score=60,
+            grade="C",
         )
 
     text = description.lower()
-    matches: List[IngredientMatch] = []
+    matches: list[IngredientMatch] = []
     disabled = disabled_ingredients or set()
 
     # Get patterns (cached, includes custom ingredients)
@@ -1094,18 +1271,20 @@ def check_product_safety(
             severity_map = {
                 "critical": Severity.CRITICAL,
                 "warning": Severity.WARNING,
-                "watch": Severity.WATCH
+                "watch": Severity.WATCH,
             }
             severity = severity_map.get(pattern_info["severity"], Severity.WATCH)
 
-            matches.append(IngredientMatch(
-                ingredient_key=pattern_info["key"],
-                ingredient_name=pattern_info["name"],
-                severity=severity,
-                reason=pattern_info["reason"],
-                category=pattern_info["category"],
-                matched_text=match.group(0),
-            ))
+            matches.append(
+                IngredientMatch(
+                    ingredient_key=pattern_info["key"],
+                    ingredient_name=pattern_info["name"],
+                    severity=severity,
+                    reason=pattern_info["reason"],
+                    category=pattern_info["category"],
+                    matched_text=match.group(0),
+                )
+            )
 
     # Determine highest severity
     highest_severity = None
@@ -1129,7 +1308,7 @@ def check_product_safety(
     )
 
 
-def get_ingredient_by_key(key: str) -> Optional[IngredientInfo]:
+def get_ingredient_by_key(key: str) -> IngredientInfo | None:
     """Get ingredient info by its key."""
     for ing in BAD_INGREDIENTS:
         if ing.key == key:
@@ -1137,7 +1316,7 @@ def get_ingredient_by_key(key: str) -> Optional[IngredientInfo]:
     return None
 
 
-def get_all_ingredients() -> List[Dict[str, Any]]:
+def get_all_ingredients() -> list[dict[str, Any]]:
     """Get all bad ingredients as a list of dictionaries."""
     return [
         {
@@ -1152,7 +1331,7 @@ def get_all_ingredients() -> List[Dict[str, Any]]:
     ]
 
 
-def get_ingredients_by_severity(severity: Severity) -> List[Dict[str, Any]]:
+def get_ingredients_by_severity(severity: Severity) -> list[dict[str, Any]]:
     """Get ingredients filtered by severity level."""
     return [
         {
@@ -1168,7 +1347,7 @@ def get_ingredients_by_severity(severity: Severity) -> List[Dict[str, Any]]:
     ]
 
 
-def get_ingredients_by_category(category: str) -> List[Dict[str, Any]]:
+def get_ingredients_by_category(category: str) -> list[dict[str, Any]]:
     """Get ingredients filtered by category."""
     return [
         {
@@ -1184,7 +1363,7 @@ def get_ingredients_by_category(category: str) -> List[Dict[str, Any]]:
     ]
 
 
-def get_categories() -> List[str]:
+def get_categories() -> list[str]:
     """Get all unique ingredient categories."""
     return sorted(set(ing.category for ing in BAD_INGREDIENTS))
 
@@ -1197,7 +1376,7 @@ _pattern_cache_timestamp = None
 _CACHE_TTL = 300  # 5 minutes
 
 
-def get_active_ingredients(include_custom: bool = True) -> List[Dict[str, Any]]:
+def get_active_ingredients(include_custom: bool = True) -> list[dict[str, Any]]:
     """
     Get all active ingredients from hardcoded + custom + overrides.
 
@@ -1210,30 +1389,35 @@ def get_active_ingredients(include_custom: bool = True) -> List[Dict[str, Any]]:
 
     Returns unified list with all active ingredients.
     """
-    from kroger_mcp.analytics.database import get_db_connection
     import json
+
+    from kroger_mcp.analytics.database import get_db_connection
 
     # Start with system defaults
     ingredients = []
     for ing in BAD_INGREDIENTS:
-        ingredients.append({
-            "name": ing.name,
-            "severity": ing.severity.value,
-            "category": ing.category,
-            "reason": ing.reason,
-            "aliases": list(ing.aliases),
-            "source": "system",
-            "key": ing.key,
-        })
+        ingredients.append(
+            {
+                "name": ing.name,
+                "severity": ing.severity.value,
+                "category": ing.category,
+                "reason": ing.reason,
+                "aliases": list(ing.aliases),
+                "source": "system",
+                "key": ing.key,
+            }
+        )
 
     # Apply overrides to system ingredients
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT ingredient_name, override_severity, override_reason,
                    additional_aliases, is_hidden
             FROM ingredient_overrides
-        """)
+        """
+        )
         overrides = {row["ingredient_name"].lower(): row for row in cursor.fetchall()}
 
         # Filter out hidden ingredients and apply overrides
@@ -1261,11 +1445,13 @@ def get_active_ingredients(include_custom: bool = True) -> List[Dict[str, Any]]:
 
         # Add custom ingredients if requested
         if include_custom:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT ingredient_name, severity, category, reason, aliases
                 FROM custom_ingredients
                 WHERE is_active = 1
-            """)
+            """
+            )
 
             for row in cursor.fetchall():
                 aliases = []
@@ -1275,15 +1461,17 @@ def get_active_ingredients(include_custom: bool = True) -> List[Dict[str, Any]]:
                     except (json.JSONDecodeError, TypeError):
                         aliases = []
 
-                ingredients.append({
-                    "name": row["ingredient_name"],
-                    "severity": row["severity"],
-                    "category": row["category"] or "",
-                    "reason": row["reason"] or "",
-                    "aliases": aliases,
-                    "source": "custom",
-                    "key": f"custom_{row['ingredient_name'].lower().replace(' ', '_')}",
-                })
+                ingredients.append(
+                    {
+                        "name": row["ingredient_name"],
+                        "severity": row["severity"],
+                        "category": row["category"] or "",
+                        "reason": row["reason"] or "",
+                        "aliases": aliases,
+                        "source": "custom",
+                        "key": f"custom_{row['ingredient_name'].lower().replace(' ', '_')}",
+                    }
+                )
 
     finally:
         conn.close()
@@ -1291,7 +1479,7 @@ def get_active_ingredients(include_custom: bool = True) -> List[Dict[str, Any]]:
     return ingredients
 
 
-def get_compiled_patterns(force_refresh: bool = False) -> Dict[str, Any]:
+def get_compiled_patterns(force_refresh: bool = False) -> dict[str, Any]:
     """
     Get compiled regex patterns with caching.
 
@@ -1303,6 +1491,7 @@ def get_compiled_patterns(force_refresh: bool = False) -> Dict[str, Any]:
     # Check cache validity
     if not force_refresh and _pattern_cache is not None:
         from datetime import datetime
+
         if _pattern_cache_timestamp:
             cache_age = (datetime.now() - _pattern_cache_timestamp).total_seconds()
             if cache_age < _CACHE_TTL:
@@ -1318,20 +1507,22 @@ def get_compiled_patterns(force_refresh: bool = False) -> Dict[str, Any]:
         all_names = [ing["name"]] + ing["aliases"]
         for name in all_names:
             escaped = re.escape(name)
-            pattern = re.compile(r'\b' + escaped + r'\b', re.IGNORECASE)
-            patterns.append({
-                "pattern": pattern,
-                "severity": ing["severity"],
-                "name": ing["name"],
-                "reason": ing["reason"],
-                "category": ing["category"],
-                "key": ing.get("key", ing["name"].lower().replace(" ", "_"))
-            })
+            pattern = re.compile(r"\b" + escaped + r"\b", re.IGNORECASE)
+            patterns.append(
+                {
+                    "pattern": pattern,
+                    "severity": ing["severity"],
+                    "name": ing["name"],
+                    "reason": ing["reason"],
+                    "category": ing["category"],
+                    "key": ing.get("key", ing["name"].lower().replace(" ", "_")),
+                }
+            )
 
     _pattern_cache = {
         "patterns": patterns,
         "timestamp": datetime.now().isoformat(),
-        "ingredient_count": len(ingredients)
+        "ingredient_count": len(ingredients),
     }
     _pattern_cache_timestamp = datetime.now()
 
@@ -1343,11 +1534,12 @@ def get_compiled_patterns(force_refresh: bool = False) -> Dict[str, Any]:
 # blocking the event loop. Use these from async tool handlers instead of
 # the sync versions.
 
-async def get_active_ingredients_async(include_custom: bool = True) -> List[Dict[str, Any]]:
+
+async def get_active_ingredients_async(include_custom: bool = True) -> list[dict[str, Any]]:
     """Async wrapper for get_active_ingredients() — runs in thread pool."""
     return await asyncio.to_thread(get_active_ingredients, include_custom)
 
 
-async def get_compiled_patterns_async(force_refresh: bool = False) -> Dict[str, Any]:
+async def get_compiled_patterns_async(force_refresh: bool = False) -> dict[str, Any]:
     """Async wrapper for get_compiled_patterns() — runs in thread pool."""
     return await asyncio.to_thread(get_compiled_patterns, force_refresh)

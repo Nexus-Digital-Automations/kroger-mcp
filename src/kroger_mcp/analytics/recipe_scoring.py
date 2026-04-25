@@ -5,41 +5,115 @@ Provides heuristic-based health scoring using the ingredient safety system
 and DB-backed cost estimation using price_history data.
 """
 
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Healthy category keyword matching
 # ---------------------------------------------------------------------------
 
-HEALTHY_CATEGORIES: Dict[str, List[str]] = {
+HEALTHY_CATEGORIES: dict[str, list[str]] = {
     "produce": [
-        "vegetable", "spinach", "kale", "broccoli", "carrot", "tomato",
-        "onion", "garlic", "pepper", "lettuce", "cucumber", "zucchini",
-        "asparagus", "apple", "banana", "berry", "lemon", "lime",
-        "celery", "mushroom", "peas", "squash", "eggplant", "cabbage",
-        "bok choy", "sweet potato", "potato", "orange", "cranberr",
-        "mango", "pineapple", "grapefruit", "scallion",
+        "vegetable",
+        "spinach",
+        "kale",
+        "broccoli",
+        "carrot",
+        "tomato",
+        "onion",
+        "garlic",
+        "pepper",
+        "lettuce",
+        "cucumber",
+        "zucchini",
+        "asparagus",
+        "apple",
+        "banana",
+        "berry",
+        "lemon",
+        "lime",
+        "celery",
+        "mushroom",
+        "peas",
+        "squash",
+        "eggplant",
+        "cabbage",
+        "bok choy",
+        "sweet potato",
+        "potato",
+        "orange",
+        "cranberr",
+        "mango",
+        "pineapple",
+        "grapefruit",
+        "scallion",
     ],
     "lean_protein": [
-        "chicken", "turkey", "salmon", "tuna", "egg", "lentil",
-        "chickpea", "black bean", "kidney bean", "tofu", "tempeh",
-        "shrimp", "cod", "tilapia", "fish", "clam", "bean",
+        "chicken",
+        "turkey",
+        "salmon",
+        "tuna",
+        "egg",
+        "lentil",
+        "chickpea",
+        "black bean",
+        "kidney bean",
+        "tofu",
+        "tempeh",
+        "shrimp",
+        "cod",
+        "tilapia",
+        "fish",
+        "clam",
+        "bean",
     ],
     "whole_grain": [
-        "brown rice", "quinoa", "oats", "whole wheat", "whole grain",
-        "farro", "barley", "bulgur",
+        "brown rice",
+        "quinoa",
+        "oats",
+        "whole wheat",
+        "whole grain",
+        "farro",
+        "barley",
+        "bulgur",
     ],
     "healthy_fat": [
-        "olive oil", "avocado", "almond", "walnut", "cashew",
-        "flaxseed", "chia", "hemp seed", "pecan", "pine nut",
+        "olive oil",
+        "avocado",
+        "almond",
+        "walnut",
+        "cashew",
+        "flaxseed",
+        "chia",
+        "hemp seed",
+        "pecan",
+        "pine nut",
     ],
     "herbs_spices": [
-        "basil", "oregano", "thyme", "rosemary", "cilantro", "parsley",
-        "mint", "dill", "cumin", "turmeric", "ginger", "cinnamon",
-        "paprika", "cayenne", "sage", "bay leaf", "coriander",
-        "cardamom", "saffron", "nutmeg", "clove", "chive", "fennel",
-        "tarragon", "five-spice",
+        "basil",
+        "oregano",
+        "thyme",
+        "rosemary",
+        "cilantro",
+        "parsley",
+        "mint",
+        "dill",
+        "cumin",
+        "turmeric",
+        "ginger",
+        "cinnamon",
+        "paprika",
+        "cayenne",
+        "sage",
+        "bay leaf",
+        "coriander",
+        "cardamom",
+        "saffron",
+        "nutmeg",
+        "clove",
+        "chive",
+        "fennel",
+        "tarragon",
+        "five-spice",
     ],
 }
 
@@ -61,27 +135,51 @@ _PENALTY_PER_MATCH = {
 # Build-up scoring: ingredient-name signal keywords
 # ---------------------------------------------------------------------------
 
-WHOLE_FOOD_SIGNALS: List[str] = [
-    "fresh", "whole", "organic", "raw", "grass-fed", "grass fed",
-    "wild-caught", "wild caught", "bone-in", "skin-on",
+WHOLE_FOOD_SIGNALS: list[str] = [
+    "fresh",
+    "whole",
+    "organic",
+    "raw",
+    "grass-fed",
+    "grass fed",
+    "wild-caught",
+    "wild caught",
+    "bone-in",
+    "skin-on",
 ]
 
-PROCESSED_INDICATORS: List[str] = [
-    "cream of", "condensed", "pre-made", "pre-packaged",
-    "store-bought", "cooking spray", "liquid smoke", "instant",
+PROCESSED_INDICATORS: list[str] = [
+    "cream of",
+    "condensed",
+    "pre-made",
+    "pre-packaged",
+    "store-bought",
+    "cooking spray",
+    "liquid smoke",
+    "instant",
 ]
 
-CONVENIENCE_INDICATORS: List[str] = [
-    "rotisserie", "canned", "breadcrumbs", "panko",
-    "marinara sauce", "curry paste", "better than bouillon",
+CONVENIENCE_INDICATORS: list[str] = [
+    "rotisserie",
+    "canned",
+    "breadcrumbs",
+    "panko",
+    "marinara sauce",
+    "curry paste",
+    "better than bouillon",
 ]
 
-HEAVY_NEGATIVES: List[str] = [
-    "bacon", "sausage", "andouille",
+HEAVY_NEGATIVES: list[str] = [
+    "bacon",
+    "sausage",
+    "andouille",
 ]
 
-SUGAR_KEYWORDS: List[str] = [
-    "brown sugar", "powdered sugar", "corn syrup", "sugar",
+SUGAR_KEYWORDS: list[str] = [
+    "brown sugar",
+    "powdered sugar",
+    "corn syrup",
+    "sugar",
 ]
 
 
@@ -98,9 +196,9 @@ def _grade(score: int) -> str:
 
 
 def calculate_health_score(
-    recipe: Dict[str, Any],
+    recipe: dict[str, Any],
     names_only: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculate a health score (0-100) for a recipe using real ingredient data.
 
@@ -135,15 +233,12 @@ def calculate_health_score(
         }
 
     # Batch-load linked products from DB (includes cached ingredients_text)
-    product_info: Dict[str, Dict[str, str]] = {}
-    linked_ids = [
-        ing["product_id"]
-        for ing in ingredients
-        if ing.get("product_id")
-    ]
+    product_info: dict[str, dict[str, str]] = {}
+    linked_ids = [ing["product_id"] for ing in ingredients if ing.get("product_id")]
     if linked_ids:
         try:
             from .database import get_db_connection
+
             conn = get_db_connection()
             try:
                 placeholders = ",".join("?" * len(linked_ids))
@@ -174,8 +269,8 @@ def calculate_health_score(
     # Accumulate penalties and flags
     linked_count = 0
     usda_count = 0
-    severity_counts: Dict[str, int] = {"critical": 0, "warning": 0, "watch": 0}
-    flags: List[Dict[str, Any]] = []
+    severity_counts: dict[str, int] = {"critical": 0, "warning": 0, "watch": 0}
+    flags: list[dict[str, Any]] = []
 
     for ing in ingredients:
         pid = ing.get("product_id")
@@ -204,12 +299,14 @@ def calculate_health_score(
         for match in result.matches:
             sev = match.severity.value
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
-            flags.append({
-                "ingredient": ing_name,
-                "flag": match.ingredient_name,
-                "severity": sev,
-                "reason": match.reason,
-            })
+            flags.append(
+                {
+                    "ingredient": ing_name,
+                    "flag": match.ingredient_name,
+                    "severity": sev,
+                    "reason": match.reason,
+                }
+            )
 
     # Compute BAD_INGREDIENTS penalty (capped per severity)
     bad_ing_penalty = 0
@@ -221,32 +318,24 @@ def calculate_health_score(
     # --- Build-up scoring model ---
 
     # Collect all ingredient names (lowercase) for scanning
-    ing_names_lower = [
-        (ing.get("name") or "").lower() for ing in ingredients
-    ]
+    ing_names_lower = [(ing.get("name") or "").lower() for ing in ingredients]
     all_ing_text = " ".join(ing_names_lower)
 
     # 1. Category coverage: 7 pts per healthy category (max 35)
-    categories_detected: List[str] = []
+    categories_detected: list[str] = []
     for cat, keywords in HEALTHY_CATEGORIES.items():
         if any(kw in all_ing_text for kw in keywords):
             categories_detected.append(cat)
     cat_score = min(len(categories_detected) * 7, 35)
 
     # 2. Ingredient quality ratio: proportion matching healthy keywords (max 30)
-    all_keywords = [
-        kw for kws in HEALTHY_CATEGORIES.values() for kw in kws
-    ]
-    quality_hits = sum(
-        1 for name in ing_names_lower
-        if any(kw in name for kw in all_keywords)
-    )
+    all_keywords = [kw for kws in HEALTHY_CATEGORIES.values() for kw in kws]
+    quality_hits = sum(1 for name in ing_names_lower if any(kw in name for kw in all_keywords))
     quality_score = round((quality_hits / total) * 30) if total else 0
 
     # 3. Whole food signals: proportion with freshness markers (max 15)
     whole_hits = sum(
-        1 for name in ing_names_lower
-        if any(sig in name for sig in WHOLE_FOOD_SIGNALS)
+        1 for name in ing_names_lower if any(sig in name for sig in WHOLE_FOOD_SIGNALS)
     )
     whole_score = round((whole_hits / total) * 15) if total else 0
 
@@ -285,10 +374,7 @@ def calculate_health_score(
 
     base = 20
     bonus = cat_score + quality_score + whole_score
-    total_penalty = (
-        proc_penalty + conv_penalty + heavy_penalty
-        + sugar_penalty + bad_ing_penalty
-    )
+    total_penalty = proc_penalty + conv_penalty + heavy_penalty + sugar_penalty + bad_ing_penalty
     score = max(0, min(100, base + bonus - total_penalty))
 
     # Confidence based on how much real data we had
@@ -315,7 +401,7 @@ def calculate_health_score(
 
 
 def _fetch_missing_usda_data(
-    product_info: Dict[str, Dict[str, str]],
+    product_info: dict[str, dict[str, str]],
 ) -> None:
     """
     For products without cached ingredients_text, fetch from USDA
@@ -328,7 +414,7 @@ def _fetch_missing_usda_data(
     except ImportError:
         return
 
-    products_to_update: List[tuple] = []
+    products_to_update: list[tuple] = []
 
     for pid, info in product_info.items():
         if info["ingredients_text"]:
@@ -343,9 +429,7 @@ def _fetch_missing_usda_data(
 
         # Fall back to name search
         if not ingredients_text and info.get("description"):
-            ingredients_text = fetch_ingredients_by_name(
-                info["description"], info.get("brand", "")
-            )
+            ingredients_text = fetch_ingredients_by_name(info["description"], info.get("brand", ""))
 
         if ingredients_text:
             info["ingredients_text"] = ingredients_text
@@ -355,12 +439,12 @@ def _fetch_missing_usda_data(
     if products_to_update:
         try:
             from .database import get_db_connection
+
             conn = get_db_connection()
             try:
                 for ing_text, pid in products_to_update:
                     conn.execute(
-                        "UPDATE products SET ingredients_text = ? "
-                        "WHERE product_id = ?",
+                        "UPDATE products SET ingredients_text = ? " "WHERE product_id = ?",
                         (ing_text, pid),
                     )
                 conn.commit()
@@ -374,10 +458,11 @@ def _fetch_missing_usda_data(
 # Cost estimation (DB-only)
 # ---------------------------------------------------------------------------
 
+
 def estimate_recipe_cost(
-    recipe: Dict[str, Any],
-    location_id: Optional[str] = None,
-) -> Dict[str, Any]:
+    recipe: dict[str, Any],
+    location_id: str | None = None,
+) -> dict[str, Any]:
     """
     Estimate recipe cost using local price_history / products DB tables only.
 
@@ -385,6 +470,7 @@ def estimate_recipe_cost(
     """
     try:
         from .database import get_db_connection
+
         conn = get_db_connection()
     except Exception:
         return _empty_cost(recipe, "Database unavailable")
@@ -395,7 +481,7 @@ def estimate_recipe_cost(
         conn.close()
 
 
-def _empty_cost(recipe: Dict[str, Any], note: str) -> Dict[str, Any]:
+def _empty_cost(recipe: dict[str, Any], note: str) -> dict[str, Any]:
     servings = max(1, recipe.get("servings") or 1)
     return {
         "total_cost": None,
@@ -409,14 +495,14 @@ def _empty_cost(recipe: Dict[str, Any], note: str) -> Dict[str, Any]:
 
 
 def _estimate_cost_with_conn(
-    recipe: Dict[str, Any],
-    location_id: Optional[str],
+    recipe: dict[str, Any],
+    location_id: str | None,
     conn,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     ingredients = recipe.get("ingredients") or []
     servings = max(1, recipe.get("servings") or 1)
 
-    breakdown: List[Dict[str, Any]] = []
+    breakdown: list[dict[str, Any]] = []
     total_cost = 0.0
     priced_count = 0
 
@@ -424,7 +510,7 @@ def _estimate_cost_with_conn(
         ing_name = ing.get("name", "")
         pid = ing.get("product_id")
 
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "ingredient": ing_name,
             "product_id": pid,
             "matched_description": None,
@@ -485,7 +571,7 @@ def _estimate_cost_with_conn(
     }
 
 
-def _fetch_price_by_product_id(conn, product_id: str, location_id: Optional[str]):
+def _fetch_price_by_product_id(conn, product_id: str, location_id: str | None):
     """Fetch best price row from price_history for a known product_id."""
     try:
         row = conn.execute(
@@ -508,7 +594,7 @@ def _fetch_price_by_product_id(conn, product_id: str, location_id: Optional[str]
         return None
 
 
-def _fetch_price_by_name(conn, name: str, location_id: Optional[str]):
+def _fetch_price_by_name(conn, name: str, location_id: str | None):
     """Text-search products table joined with price_history."""
     try:
         row = conn.execute(
@@ -533,7 +619,7 @@ def _fetch_price_by_name(conn, name: str, location_id: Optional[str]):
 
 def _apply_price_row(
     row,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     source: str,
 ) -> tuple:
     """Apply a DB row to an entry dict, return (effective_price, updated_entry)."""
@@ -556,11 +642,12 @@ def _apply_price_row(
 # API-backed cost (for analyze action)
 # ---------------------------------------------------------------------------
 
+
 def estimate_recipe_cost_with_api(
-    recipe: Dict[str, Any],
-    location_id: Optional[str],
+    recipe: dict[str, Any],
+    location_id: str | None,
     client,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Same as estimate_recipe_cost but fills in unknown prices via Kroger API search.
 

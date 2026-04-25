@@ -7,7 +7,7 @@ to a Notion database with two-way sync support.
 
 import asyncio
 import os
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
@@ -24,23 +24,23 @@ from ..analytics.notion_sync import (
 from .recipe_tools import RECIPES_FILE
 
 
-def _get_api_key() -> Optional[str]:
+def _get_api_key() -> str | None:
     """Get the Notion API key from environment."""
     return os.getenv("NOTION_API_KEY")
 
 
-def _get_workspace_id() -> Optional[str]:
+def _get_workspace_id() -> str | None:
     """Get the Notion workspace ID from environment."""
     return os.getenv("NOTION_WORKSPACE_ID")
 
 
-def _load_all_recipes() -> List[Dict[str, Any]]:
+def _load_all_recipes() -> list[dict[str, Any]]:
     """Load all recipes from local JSON storage."""
     import json
 
     try:
         if os.path.exists(RECIPES_FILE):
-            with open(RECIPES_FILE, "r") as f:
+            with open(RECIPES_FILE) as f:
                 data = json.load(f)
                 return data.get("recipes", [])
     except Exception:
@@ -64,24 +64,24 @@ def register_tools(mcp):
         ] = Field(
             description="setup|sync_all|pull_changes|update_tags|bulk_tag|get_status|view_recipe"
         ),
-        recipe_id: Optional[str] = Field(
+        recipe_id: str | None = Field(
             default=None,
             description="Recipe ID",
         ),
-        recipe_ids: Optional[List[str]] = Field(
+        recipe_ids: list[str] | None = Field(
             default=None,
             description="List of recipe IDs",
         ),
-        tags: Optional[List[str]] = Field(
+        tags: list[str] | None = Field(
             default=None,
             description="Tag list to set on recipe",
         ),
-        tag: Optional[str] = Field(
+        tag: str | None = Field(
             default=None,
             description="Single tag to add",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Sync recipes to/from a Notion database.
 
@@ -100,7 +100,13 @@ def register_tools(mcp):
         - view_recipe: Get the Notion page URL for a specific recipe
         """
         return await asyncio.to_thread(
-            _notion_impl, action, recipe_id, recipe_ids, tags, tag, ctx,
+            _notion_impl,
+            action,
+            recipe_id,
+            recipe_ids,
+            tags,
+            tag,
+            ctx,
         )
 
     def _notion_impl(action, recipe_id, recipe_ids, tags, tag, ctx):
@@ -228,7 +234,7 @@ def register_tools(mcp):
                 recipes_file = RECIPES_FILE
                 applied = []
                 try:
-                    with open(recipes_file, "r") as f:
+                    with open(recipes_file) as f:
                         data = json.load(f)
 
                     recipe_map = {r["id"]: r for r in data.get("recipes", [])}
@@ -240,13 +246,16 @@ def register_tools(mcp):
                             recipe = recipe_map[rid]
                             for field, value in changes.items():
                                 recipe[field] = value
-                            applied.append({
-                                "recipe_id": rid,
-                                "name": recipe.get("name"),
-                                "fields_updated": list(changes.keys()),
-                            })
+                            applied.append(
+                                {
+                                    "recipe_id": rid,
+                                    "name": recipe.get("name"),
+                                    "fields_updated": list(changes.keys()),
+                                }
+                            )
 
                     from datetime import datetime
+
                     data["last_updated"] = datetime.now().isoformat()
                     with open(recipes_file, "w") as f:
                         json.dump(data, f, indent=2)
@@ -290,7 +299,7 @@ def register_tools(mcp):
                     return {
                         "success": False,
                         "error": f"Recipe '{recipe_id}' not found in Notion sync state. "
-                                 "It may not have been synced yet. Call notion(action='sync_all') first.",
+                        "It may not have been synced yet. Call notion(action='sync_all') first.",
                     }
 
                 # Also update local recipe
@@ -298,13 +307,14 @@ def register_tools(mcp):
 
                 recipes_file = RECIPES_FILE
                 try:
-                    with open(recipes_file, "r") as f:
+                    with open(recipes_file) as f:
                         data = json.load(f)
                     for r in data.get("recipes", []):
                         if r["id"] == recipe_id:
                             r["tags"] = tags
                             break
                     from datetime import datetime
+
                     data["last_updated"] = datetime.now().isoformat()
                     with open(recipes_file, "w") as f:
                         json.dump(data, f, indent=2)
@@ -358,7 +368,7 @@ def register_tools(mcp):
 
                 recipes_file = RECIPES_FILE
                 try:
-                    with open(recipes_file, "r") as f:
+                    with open(recipes_file) as f:
                         data = json.load(f)
                     for r in data.get("recipes", []):
                         if r["id"] in target_ids:
@@ -366,6 +376,7 @@ def register_tools(mcp):
                             if tag not in current_tags:
                                 r["tags"] = current_tags + [tag]
                     from datetime import datetime
+
                     data["last_updated"] = datetime.now().isoformat()
                     with open(recipes_file, "w") as f:
                         json.dump(data, f, indent=2)
@@ -404,9 +415,7 @@ def register_tools(mcp):
                 local_recipes = _load_all_recipes()
                 status["configured"] = True
                 status["total_local_recipes"] = len(local_recipes)
-                status["database_url"] = (
-                    f"https://notion.so/{database_id.replace('-', '')}"
-                )
+                status["database_url"] = f"https://notion.so/{database_id.replace('-', '')}"
                 return status
 
             case "view_recipe":

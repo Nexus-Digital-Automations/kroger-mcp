@@ -1,32 +1,32 @@
 """Products API endpoints — search and cart add."""
+
 import re
-from typing import Optional
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from kroger_mcp.tools.shared import (
-    get_client_credentials_client,
     get_authenticated_client,
+    get_client_credentials_client,
     get_preferred_location_id,
 )
 
 router = APIRouter()
 
 
-def _extract_product(item) -> Optional[dict]:
+def _extract_product(item) -> dict | None:
     """Normalise a Kroger API product object/dict into a flat dict."""
     try:
         # Handle both attribute-style and dict-style API responses
-        if hasattr(item, '__dict__') and not isinstance(item, dict):
+        if hasattr(item, "__dict__") and not isinstance(item, dict):
             item = vars(item)
 
-        pid = item.get('productId') or item.get('upc', '')
-        desc = item.get('description', '')
-        brand = item.get('brand', '')
+        pid = item.get("productId") or item.get("upc", "")
+        desc = item.get("description", "")
+        brand = item.get("brand", "")
 
-        items_data = item.get('items', [{}])
+        items_data = item.get("items", [{}])
         first_item = items_data[0] if items_data else {}
 
         if not isinstance(first_item, dict):
@@ -36,27 +36,19 @@ def _extract_product(item) -> Optional[dict]:
             except Exception:
                 first_item = {}
 
-        price_data = first_item.get('price', {})
+        price_data = first_item.get("price", {})
         if not isinstance(price_data, dict):
             try:
                 price_data = vars(price_data)
             except Exception:
                 price_data = {}
 
-        regular = price_data.get('regular')
-        promo = price_data.get('promo')
+        regular = price_data.get("regular")
+        promo = price_data.get("promo")
 
         # Treat promo as sale only when it is a positive number below regular
-        on_sale = (
-            promo is not None
-            and promo > 0
-            and (regular is None or promo < regular)
-        )
-        savings_pct = (
-            round((1 - promo / regular) * 100, 1)
-            if on_sale and regular and promo
-            else 0
-        )
+        on_sale = promo is not None and promo > 0 and (regular is None or promo < regular)
+        savings_pct = round((1 - promo / regular) * 100, 1) if on_sale and regular and promo else 0
 
         return {
             "product_id": pid,
@@ -71,11 +63,11 @@ def _extract_product(item) -> Optional[dict]:
         return None
 
 
-@router.get('/api/products/search')
+@router.get("/api/products/search")
 async def search_products(
-    q: str = '',
+    q: str = "",
     limit: int = 20,
-    category: str = '',
+    category: str = "",
 ):
     """Search Kroger products and return normalised JSON."""
     search_term = q.strip() or category.strip()
@@ -102,8 +94,8 @@ async def search_products(
         # Unwrap the result — search_products returns a dict with 'data' key
         raw_products = []
         if isinstance(result, dict):
-            raw_products = result.get('data', []) or []
-        elif hasattr(result, 'data'):
+            raw_products = result.get("data", []) or []
+        elif hasattr(result, "data"):
             raw_products = result.data or []
         elif isinstance(result, list):
             raw_products = result
@@ -111,22 +103,23 @@ async def search_products(
         products = []
         for item in raw_products:
             extracted = _extract_product(item)
-            if extracted and extracted.get('product_id'):
+            if extracted and extracted.get("product_id"):
                 products.append(extracted)
 
         # Record price observations in the background (best-effort)
         try:
-            from kroger_mcp.analytics.deals import record_price_observation
             from kroger_mcp.analytics.database import ensure_initialized
+            from kroger_mcp.analytics.deals import record_price_observation
+
             ensure_initialized()
             for p in products:
-                if p.get('product_id'):
+                if p.get("product_id"):
                     record_price_observation(
-                        product_id=p['product_id'],
-                        regular_price=p.get('regular_price'),
-                        sale_price=p.get('sale_price'),
+                        product_id=p["product_id"],
+                        regular_price=p.get("regular_price"),
+                        sale_price=p.get("sale_price"),
                         location_id=location_id,
-                        source='web_search',
+                        source="web_search",
                     )
         except Exception:
             pass
@@ -134,8 +127,9 @@ async def search_products(
         # Enrich with safety scores (best-effort)
         try:
             from kroger_mcp.analytics.safety import check_products_safety_batch
+
             statuses = check_products_safety_batch(products)
-            for product, status in zip(products, statuses):
+            for product, status in zip(products, statuses, strict=False):
                 d = status.to_dict()
                 product["safety_score"] = d.get("safety_score")
                 product["safety_grade"] = d.get("safety_grade")
@@ -161,20 +155,25 @@ class AddToCartBody(BaseModel):
     price: float = 0.0
 
 
-@router.post('/api/products/{product_id}/add-to-cart')
+@router.post("/api/products/{product_id}/add-to-cart")
 async def add_product_to_cart(product_id: str, body: AddToCartBody):
     """Add a single product to the Kroger cart and local cart tracking."""
     try:
         client = get_authenticated_client()
-        client.cart.add_to_cart(items=[{
-            "upc": product_id,
-            "quantity": body.quantity,
-            "modality": body.modality,
-        }])
+        client.cart.add_to_cart(
+            items=[
+                {
+                    "upc": product_id,
+                    "quantity": body.quantity,
+                    "modality": body.modality,
+                }
+            ]
+        )
 
         # Mirror in local cart tracking (best-effort)
         try:
             from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
+
             _add_item_to_local_cart(
                 product_id=product_id,
                 quantity=body.quantity,
@@ -187,12 +186,14 @@ async def add_product_to_cart(product_id: str, body: AddToCartBody):
         except Exception:
             pass
 
-        return JSONResponse(content={
-            "success": True,
-            "product_id": product_id,
-            "quantity": body.quantity,
-            "modality": body.modality,
-        })
+        return JSONResponse(
+            content={
+                "success": True,
+                "product_id": product_id,
+                "quantity": body.quantity,
+                "modality": body.modality,
+            }
+        )
 
     except Exception as e:
         err = str(e)

@@ -4,7 +4,7 @@ Ingredient management tools for dynamic ingredient filter customization.
 
 import asyncio
 import json
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
@@ -37,84 +37,84 @@ def register_tools(mcp):
                 "Other: edit_custom|remove_custom|list_custom|reset_to_default|get_info|import_list|export_list"
             )
         ),
-        ingredient_name: Optional[str] = Field(
+        ingredient_name: str | None = Field(
             default=None,
             description="Ingredient name",
         ),
-        severity: Optional[Literal["critical", "warning", "watch"]] = Field(
+        severity: Literal["critical", "warning", "watch"] | None = Field(
             default=None,
             description="critical|warning|watch",
         ),
-        category: Optional[str] = Field(
+        category: str | None = Field(
             default=None,
             description="Category e.g. preservative",
         ),
-        reason: Optional[str] = Field(
+        reason: str | None = Field(
             default=None,
             description="Why to avoid this ingredient",
         ),
-        aliases: Optional[List[str]] = Field(
+        aliases: list[str] | None = Field(
             default=None,
             description="Alternative names/spellings",
         ),
-        notes: Optional[str] = Field(
+        notes: str | None = Field(
             default=None,
             description="Personal notes",
         ),
-        batch_ingredients: Optional[List[Dict[str, Any]]] = Field(
+        batch_ingredients: list[dict[str, Any]] | None = Field(
             default=None,
             description="Batch: [{ingredient_name, severity, category, reason, aliases, notes}] max 20",
         ),
-        new_severity: Optional[Literal["critical", "warning", "watch"]] = Field(
+        new_severity: Literal["critical", "warning", "watch"] | None = Field(
             default=None,
             description="New severity",
         ),
-        new_reason: Optional[str] = Field(
+        new_reason: str | None = Field(
             default=None,
             description="New reason",
         ),
-        add_aliases: Optional[List[str]] = Field(
+        add_aliases: list[str] | None = Field(
             default=None,
             description="Additional aliases to add",
         ),
-        new_notes: Optional[str] = Field(
+        new_notes: str | None = Field(
             default=None,
             description="New notes",
         ),
-        permanent: Optional[bool] = Field(
+        permanent: bool | None = Field(
             default=False,
             description="Permanently delete vs soft-delete",
         ),
-        include_inactive: Optional[bool] = Field(
+        include_inactive: bool | None = Field(
             default=False,
             description="Include deactivated ingredients",
         ),
-        filter_severity: Optional[Literal["critical", "warning", "watch"]] = Field(
+        filter_severity: Literal["critical", "warning", "watch"] | None = Field(
             default=None,
             description="Filter by severity",
         ),
-        filter_category: Optional[str] = Field(
+        filter_category: str | None = Field(
             default=None,
             description="Filter by category",
         ),
-        hide: Optional[bool] = Field(
+        hide: bool | None = Field(
             default=False,
             description="Hide from active filter",
         ),
-        import_data: Optional[str] = Field(
+        import_data: str | None = Field(
             default=None,
             description="JSON string of ingredients to import",
         ),
-        merge_strategy: Optional[Literal["replace", "merge", "skip_existing"]] = Field(
+        merge_strategy: Literal["replace", "merge", "skip_existing"] | None = Field(
             default="merge",
             description="replace|merge|skip_existing",
         ),
-        include_system_overrides: Optional[bool] = Field(
+        include_system_overrides: bool | None = Field(
             default=True,
             description="Include system overrides in export",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Customize the ingredient safety filter.
 
         Two layers: system ingredients (62 built-in) and custom ingredients (yours).
@@ -127,17 +127,52 @@ def register_tools(mcp):
         import_list, export_list
         """
         return await asyncio.to_thread(
-            _ingredients_impl, action, ingredient_name, severity, category, reason,
-            aliases, notes, batch_ingredients, new_severity, new_reason, add_aliases,
-            new_notes, permanent, include_inactive, filter_severity, filter_category,
-            hide, import_data, merge_strategy, include_system_overrides, ctx,
+            _ingredients_impl,
+            action,
+            ingredient_name,
+            severity,
+            category,
+            reason,
+            aliases,
+            notes,
+            batch_ingredients,
+            new_severity,
+            new_reason,
+            add_aliases,
+            new_notes,
+            permanent,
+            include_inactive,
+            filter_severity,
+            filter_category,
+            hide,
+            import_data,
+            merge_strategy,
+            include_system_overrides,
+            ctx,
         )
 
     def _ingredients_impl(
-        action, ingredient_name, severity, category, reason,
-        aliases, notes, batch_ingredients, new_severity, new_reason, add_aliases,
-        new_notes, permanent, include_inactive, filter_severity, filter_category,
-        hide, import_data, merge_strategy, include_system_overrides, ctx,
+        action,
+        ingredient_name,
+        severity,
+        category,
+        reason,
+        aliases,
+        notes,
+        batch_ingredients,
+        new_severity,
+        new_reason,
+        add_aliases,
+        new_notes,
+        permanent,
+        include_inactive,
+        filter_severity,
+        filter_category,
+        hide,
+        import_data,
+        merge_strategy,
+        include_system_overrides,
+        ctx,
     ):
         match action:
             case "add_custom":
@@ -632,7 +667,8 @@ def register_tools(mcp):
                             result["has_override"] = True
                             result["current_settings"] = {
                                 "name": system_ing.name,
-                                "severity": override["override_severity"] or system_ing.severity.value,
+                                "severity": override["override_severity"]
+                                or system_ing.severity.value,
                                 "category": system_ing.category,
                                 "reason": override["override_reason"] or system_ing.reason,
                                 "aliases": list(system_ing.aliases)
@@ -662,9 +698,9 @@ def register_tools(mcp):
                                 "severity": custom["severity"],
                                 "category": custom["category"],
                                 "reason": custom["reason"],
-                                "aliases": json.loads(custom["aliases"])
-                                if custom["aliases"]
-                                else [],
+                                "aliases": (
+                                    json.loads(custom["aliases"]) if custom["aliases"] else []
+                                ),
                                 "is_active": bool(custom["is_active"]),
                                 "created_at": custom["created_at"],
                                 "modified_at": custom["modified_at"],
@@ -856,9 +892,7 @@ def register_tools(mcp):
                             if row["override_reason"]:
                                 override_data["new_reason"] = row["override_reason"]
                             if row["additional_aliases"]:
-                                override_data["add_aliases"] = json.loads(
-                                    row["additional_aliases"]
-                                )
+                                override_data["add_aliases"] = json.loads(row["additional_aliases"])
                             if row["is_hidden"]:
                                 override_data["hide"] = True
                             overrides.append(override_data)
@@ -908,9 +942,7 @@ def register_tools(mcp):
                     import re
 
                     matched_products = []
-                    pattern = re.compile(
-                        r"\b" + re.escape(ingredient_name) + r"\b", re.IGNORECASE
-                    )
+                    pattern = re.compile(r"\b" + re.escape(ingredient_name) + r"\b", re.IGNORECASE)
 
                     for product in products:
                         text = f"{product['description']} {product['brand'] or ''}".lower()
@@ -930,9 +962,7 @@ def register_tools(mcp):
                         "total_products_checked": len(products),
                         "would_flag_count": len(matched_products),
                         "percentage": (
-                            round(len(matched_products) / len(products) * 100, 1)
-                            if products
-                            else 0
+                            round(len(matched_products) / len(products) * 100, 1) if products else 0
                         ),
                         "sample_products": matched_products[:10],
                     }

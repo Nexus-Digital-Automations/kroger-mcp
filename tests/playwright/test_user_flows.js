@@ -333,7 +333,7 @@ async function flow5_mealPlanAssign() {
     const hasSuccess = success.includes('added') || assignStatus === 200;
     assert(hasSuccess, `Recipe assigned to meal slot (status ${assignStatus}, msg: "${success.slice(0,40)}")`);
   } else {
-    warn('All meal plan slots filled — cannot test assignment');
+    console.warn('All meal plan slots filled — cannot test assignment');
   }
 
   // Close panel

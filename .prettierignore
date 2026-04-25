@@ -1,0 +1,7 @@
+node_modules/
+.cache/
+.validation-artifacts/
+.playwright-mcp/
+.venv/
+src/kroger_mcp/web/templates/
+*.min.js

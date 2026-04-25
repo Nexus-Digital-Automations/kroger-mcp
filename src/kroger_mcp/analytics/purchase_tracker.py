@@ -4,15 +4,15 @@ Purchase event tracking - records cart additions and completed orders.
 
 import sqlite3
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .database import get_db_connection, ensure_initialized
+from .database import ensure_initialized, get_db_connection
 
 
 def _ensure_product_exists_conn(
     conn: sqlite3.Connection,
     product_id: str,
-    product_details: Optional[Dict[str, Any]] = None,
+    product_details: dict[str, Any] | None = None,
 ) -> None:
     """Ensure a product record exists using an existing connection (no commit)."""
     cursor = conn.execute(
@@ -38,10 +38,7 @@ def _ensure_product_exists_conn(
         )
 
 
-def ensure_product_exists(
-    product_id: str,
-    product_details: Optional[Dict[str, Any]] = None
-) -> None:
+def ensure_product_exists(product_id: str, product_details: dict[str, Any] | None = None) -> None:
     """
     Ensure a product record exists in the database.
 
@@ -53,25 +50,25 @@ def ensure_product_exists(
     conn = get_db_connection()
     try:
         # Check if product exists
-        cursor = conn.execute(
-            "SELECT id FROM products WHERE product_id = ?",
-            (product_id,)
-        )
+        cursor = conn.execute("SELECT id FROM products WHERE product_id = ?", (product_id,))
         if cursor.fetchone() is None:
             # Insert new product
             now = datetime.now().isoformat()
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO products
                 (product_id, upc, description, brand, first_purchased_at, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                product_id,
-                product_details.get('upc') if product_details else None,
-                product_details.get('description') if product_details else None,
-                product_details.get('brand') if product_details else None,
-                now,
-                now
-            ))
+            """,
+                (
+                    product_id,
+                    product_details.get("upc") if product_details else None,
+                    product_details.get("description") if product_details else None,
+                    product_details.get("brand") if product_details else None,
+                    now,
+                    now,
+                ),
+            )
             conn.commit()
     finally:
         conn.close()
@@ -81,8 +78,8 @@ def record_cart_add(
     product_id: str,
     quantity: int,
     modality: str,
-    product_details: Optional[Dict[str, Any]] = None,
-    price: Optional[float] = None
+    product_details: dict[str, Any] | None = None,
+    price: float | None = None,
 ) -> int:
     """
     Record a cart addition event.
@@ -105,28 +102,21 @@ def record_cart_add(
     conn = get_db_connection()
     try:
         now = datetime.now()
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             INSERT INTO purchase_events
             (product_id, quantity, event_type, modality, price, event_date, event_timestamp)
             VALUES (?, ?, 'cart_add', ?, ?, ?, ?)
-        """, (
-            product_id,
-            quantity,
-            modality,
-            price,
-            now.strftime('%Y-%m-%d'),
-            now.isoformat()
-        ))
+        """,
+            (product_id, quantity, modality, price, now.strftime("%Y-%m-%d"), now.isoformat()),
+        )
         conn.commit()
         return cursor.lastrowid
     finally:
         conn.close()
 
 
-def record_order(
-    cart_items: List[Dict[str, Any]],
-    order_notes: Optional[str] = None
-) -> int:
+def record_order(cart_items: list[dict[str, Any]], order_notes: str | None = None) -> int:
     """
     Record a completed order and link cart items to it.
 
@@ -147,43 +137,44 @@ def record_order(
 
         # Calculate totals
         item_count = len(cart_items)
-        total_quantity = sum(item.get('quantity', 1) for item in cart_items)
+        total_quantity = sum(item.get("quantity", 1) for item in cart_items)
 
         # Create order record
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             INSERT INTO orders (placed_at, item_count, total_quantity, notes)
             VALUES (?, ?, ?, ?)
-        """, (
-            now.isoformat(),
-            item_count,
-            total_quantity,
-            order_notes
-        ))
+        """,
+            (now.isoformat(), item_count, total_quantity, order_notes),
+        )
         order_id = cursor.lastrowid
 
         # Record purchase events for each item
         for item in cart_items:
-            product_id = item.get('product_id')
-            quantity = item.get('quantity', 1)
-            modality = item.get('modality', 'PICKUP')
+            product_id = item.get("product_id")
+            quantity = item.get("quantity", 1)
+            modality = item.get("modality", "PICKUP")
 
             # Ensure product exists using the same connection to avoid DB lock
             _ensure_product_exists_conn(conn, product_id, item)
 
             # Insert purchase event
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO purchase_events
                 (product_id, quantity, event_type, modality, event_date,
                  event_timestamp, order_id)
                 VALUES (?, ?, 'order_placed', ?, ?, ?, ?)
-            """, (
-                product_id,
-                quantity,
-                modality,
-                now.strftime('%Y-%m-%d'),
-                now.isoformat(),
-                order_id
-            ))
+            """,
+                (
+                    product_id,
+                    quantity,
+                    modality,
+                    now.strftime("%Y-%m-%d"),
+                    now.isoformat(),
+                    order_id,
+                ),
+            )
 
         conn.commit()
 
@@ -195,7 +186,7 @@ def record_order(
         conn.close()
 
 
-def _restock_pantry_items(cart_items: List[Dict[str, Any]]) -> None:
+def _restock_pantry_items(cart_items: list[dict[str, Any]]) -> None:
     """
     Restock pantry items for products in the order.
 
@@ -205,13 +196,13 @@ def _restock_pantry_items(cart_items: List[Dict[str, Any]]) -> None:
         cart_items: List of cart items from the order
     """
     try:
-        from .pantry import restock_item, get_pantry_item, add_to_pantry
+        from .pantry import add_to_pantry, get_pantry_item, restock_item
 
         for item in cart_items:
-            product_id = item.get('product_id')
+            product_id = item.get("product_id")
             if not product_id:
                 continue
-            description = item.get('description')
+            description = item.get("description")
             pantry_item = get_pantry_item(product_id)
             if pantry_item:
                 restock_item(product_id, level=100, description=description)
@@ -220,14 +211,13 @@ def _restock_pantry_items(cart_items: List[Dict[str, Any]]) -> None:
                 add_to_pantry(product_id=product_id, description=description, level=100)
     except Exception as e:
         import traceback
+
         print(f"Warning: Could not restock pantry items: {e}\n{traceback.format_exc()}")
 
 
 def get_purchase_events(
-    product_id: str,
-    event_type: Optional[str] = None,
-    limit: int = 100
-) -> List[Dict[str, Any]]:
+    product_id: str, event_type: str | None = None, limit: int = 100
+) -> list[dict[str, Any]]:
     """
     Get purchase events for a product.
 
@@ -262,7 +252,7 @@ def get_purchase_events(
         conn.close()
 
 
-def get_order_history(limit: int = 50) -> List[Dict[str, Any]]:
+def get_order_history(limit: int = 50) -> list[dict[str, Any]]:
     """
     Get order history.
 
@@ -277,29 +267,35 @@ def get_order_history(limit: int = 50) -> List[Dict[str, Any]]:
     conn = get_db_connection()
     try:
         # Get orders
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT * FROM orders
             ORDER BY placed_at DESC
             LIMIT ?
-        """, (limit,))
+        """,
+            (limit,),
+        )
         orders = [dict(row) for row in cursor.fetchall()]
 
         # Get items for each order
         for order in orders:
-            items_cursor = conn.execute("""
+            items_cursor = conn.execute(
+                """
                 SELECT pe.*, p.description, p.brand
                 FROM purchase_events pe
                 LEFT JOIN products p ON pe.product_id = p.product_id
                 WHERE pe.order_id = ?
-            """, (order['id'],))
-            order['items'] = [dict(row) for row in items_cursor.fetchall()]
+            """,
+                (order["id"],),
+            )
+            order["items"] = [dict(row) for row in items_cursor.fetchall()]
 
         return orders
     finally:
         conn.close()
 
 
-def get_all_products() -> List[Dict[str, Any]]:
+def get_all_products() -> list[dict[str, Any]]:
     """
     Get all tracked products.
 

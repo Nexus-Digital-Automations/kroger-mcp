@@ -10,19 +10,17 @@ Integrates all available data sources for intelligent shopping suggestions:
 - Seasonal patterns (timing optimization)
 """
 
-from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
 import statistics
+from datetime import datetime
+from typing import Any
 
-from .database import get_db_connection, ensure_initialized
-from .predictions import predict_repurchase_date
-from .favorites import get_all_favorite_product_ids
+from .database import ensure_initialized, get_db_connection
 from .deals import get_price_statistics
+from .favorites import get_all_favorite_product_ids
+from .predictions import predict_repurchase_date
 
 
-def calculate_recommendation_score(
-    product_data: Dict[str, Any]
-) -> Tuple[int, Dict[str, Any]]:
+def calculate_recommendation_score(product_data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """
     Calculate comprehensive recommendation score from multiple factors.
 
@@ -65,18 +63,13 @@ def calculate_recommendation_score(
         Tuple of (total_score: int, factors: Dict) where score is 0-100
     """
     score = 0
-    factors = {
-        "urgency": {},
-        "deals": {},
-        "relevance": {},
-        "timing": {}
-    }
+    factors = {"urgency": {}, "deals": {}, "relevance": {}, "timing": {}}
 
     # 1. URGENCY FACTORS (0-55 points max, expiration + pantry can stack)
     urgency_score = 0
 
     # EXPIRATION URGENCY (0-50 points, takes precedence)
-    days_to_exp = product_data.get('days_to_expiration')
+    days_to_exp = product_data.get("days_to_expiration")
     if days_to_exp is not None:
         if days_to_exp < 0:
             urgency_score += 50
@@ -95,7 +88,7 @@ def calculate_recommendation_score(
         factors["urgency"]["days_to_expiration"] = days_to_exp
 
     # PANTRY URGENCY (0-40 points, can stack with expiration)
-    pantry_level = product_data.get('pantry_level')
+    pantry_level = product_data.get("pantry_level")
     if pantry_level is not None:
         if pantry_level <= 10:
             urgency_score += 40
@@ -110,7 +103,7 @@ def calculate_recommendation_score(
         factors["urgency"]["pantry_level"] = pantry_level
 
     # Overdue repurchase urgency
-    days_until = product_data.get('days_until_purchase')
+    days_until = product_data.get("days_until_purchase")
     if days_until is not None and days_until < 0:
         overdue_days = abs(days_until)
         overdue_points = min(overdue_days, 15)  # Cap at 15 points
@@ -123,8 +116,8 @@ def calculate_recommendation_score(
 
     # 2. DEAL QUALITY (0-25 points)
     deal_score = 0
-    savings_percent = product_data.get('savings_percent', 0)
-    on_sale = product_data.get('on_sale', False)
+    savings_percent = product_data.get("savings_percent", 0)
+    on_sale = product_data.get("on_sale", False)
 
     if on_sale and savings_percent > 0:
         if savings_percent >= 40:
@@ -144,8 +137,8 @@ def calculate_recommendation_score(
         factors["deals"]["on_sale"] = True
 
     # Best price bonus
-    current_price = product_data.get('current_price')
-    avg_price_30d = product_data.get('avg_price_30d')
+    current_price = product_data.get("current_price")
+    avg_price_30d = product_data.get("avg_price_30d")
 
     if current_price and avg_price_30d and current_price <= avg_price_30d * 1.05:
         deal_score += 10
@@ -159,12 +152,12 @@ def calculate_recommendation_score(
     relevance_score = 0
 
     # In favorites
-    if product_data.get('in_favorites', False):
+    if product_data.get("in_favorites", False):
         relevance_score += 10
         factors["relevance"]["in_favorites"] = True
 
     # Purchase frequency
-    frequency_score = product_data.get('purchase_frequency_score', 0)
+    frequency_score = product_data.get("purchase_frequency_score", 0)
     if frequency_score >= 0.8:
         relevance_score += 10
         factors["relevance"]["frequency_level"] = "very_high"
@@ -176,7 +169,7 @@ def calculate_recommendation_score(
         factors["relevance"]["purchase_frequency_score"] = frequency_score
 
     # Recently purchased
-    last_purchase_days = product_data.get('last_purchase_days_ago')
+    last_purchase_days = product_data.get("last_purchase_days_ago")
     if last_purchase_days is not None and last_purchase_days <= 30:
         relevance_score += 5
         factors["relevance"]["recently_purchased"] = True
@@ -199,7 +192,7 @@ def calculate_recommendation_score(
         factors["timing"]["days_until_purchase"] = days_until
 
     # Seasonal bonus (placeholder for future implementation)
-    if product_data.get('is_seasonal', False):
+    if product_data.get("is_seasonal", False):
         timing_score += 5
         factors["timing"]["seasonal"] = True
 
@@ -242,8 +235,8 @@ def get_comprehensive_recommendations(
     include_favorites_only: bool = False,
     min_score: int = 20,
     max_results: int = 50,
-    location_id: Optional[str] = None
-) -> Dict[str, Any]:
+    location_id: str | None = None,
+) -> dict[str, Any]:
     """
     Generate comprehensive shopping recommendations.
 
@@ -300,7 +293,7 @@ def get_comprehensive_recommendations(
 
         # Apply favorites filter if requested
         if include_favorites_only and favorite_ids:
-            placeholders = ','.join('?' * len(favorite_ids))
+            placeholders = ",".join("?" * len(favorite_ids))
             query += f" AND ps.product_id IN ({placeholders})"
             params = list(favorite_ids)
         else:
@@ -312,63 +305,66 @@ def get_comprehensive_recommendations(
         recommendations = []
 
         for row in rows:
-            product_id = row['product_id']
+            product_id = row["product_id"]
 
             # Build product data dict
             product_data = {
-                'product_id': product_id,
-                'description': row['description'],
-                'brand': row['brand'],
-                'total_purchases': row['total_purchases'],
-                'avg_days_between': row['avg_days_between_purchases'],
-                'last_purchase_date': row['last_purchase_date'],
-                'category': row['detected_category'],
-                'purchase_frequency_score': row['purchase_frequency_score'] or 0,
-                'pantry_level': row['pantry_level'],
-                'in_favorites': product_id in favorite_ids
+                "product_id": product_id,
+                "description": row["description"],
+                "brand": row["brand"],
+                "total_purchases": row["total_purchases"],
+                "avg_days_between": row["avg_days_between_purchases"],
+                "last_purchase_date": row["last_purchase_date"],
+                "category": row["detected_category"],
+                "purchase_frequency_score": row["purchase_frequency_score"] or 0,
+                "pantry_level": row["pantry_level"],
+                "in_favorites": product_id in favorite_ids,
             }
 
             # Add expiration data with fresh calculation
             from .pantry import calculate_days_to_expiration
-            exp_date = row['expiration_date']
+
+            exp_date = row["expiration_date"]
             days_to_exp = calculate_days_to_expiration(exp_date)  # Recalc fresh
-            product_data['expiration_date'] = exp_date
-            product_data['days_to_expiration'] = days_to_exp
+            product_data["expiration_date"] = exp_date
+            product_data["days_to_expiration"] = days_to_exp
 
             # Calculate last purchase days ago
-            if row['last_purchase_date']:
+            if row["last_purchase_date"]:
                 try:
-                    last_purchase = datetime.fromisoformat(row['last_purchase_date'])
+                    last_purchase = datetime.fromisoformat(row["last_purchase_date"])
                     days_ago = (datetime.now() - last_purchase).days
-                    product_data['last_purchase_days_ago'] = days_ago
+                    product_data["last_purchase_days_ago"] = days_ago
                 except (ValueError, TypeError):
-                    product_data['last_purchase_days_ago'] = None
+                    product_data["last_purchase_days_ago"] = None
 
             # Get purchase prediction
             if include_predictions:
                 stats = {
-                    'product_id': product_id,
-                    'description': row['description'],
-                    'total_purchases': row['total_purchases'],
-                    'avg_days_between_purchases': row['avg_days_between_purchases'],
-                    'last_purchase_date': row['last_purchase_date'],
-                    'category_type': row['detected_category']
+                    "product_id": product_id,
+                    "description": row["description"],
+                    "total_purchases": row["total_purchases"],
+                    "avg_days_between_purchases": row["avg_days_between_purchases"],
+                    "last_purchase_date": row["last_purchase_date"],
+                    "category_type": row["detected_category"],
                 }
                 prediction = predict_repurchase_date(product_id, stats)
-                product_data['predicted_date'] = prediction.predicted_date.isoformat() if prediction.predicted_date else None
-                product_data['days_until_purchase'] = prediction.days_until
-                product_data['prediction_confidence'] = prediction.confidence
+                product_data["predicted_date"] = (
+                    prediction.predicted_date.isoformat() if prediction.predicted_date else None
+                )
+                product_data["days_until_purchase"] = prediction.days_until
+                product_data["prediction_confidence"] = prediction.confidence
 
             # Get price/deal data
             if include_deals:
                 price_stats = get_price_statistics(product_id, location_id)
                 if price_stats:
-                    product_data['current_price'] = price_stats.get('current_price')
-                    product_data['on_sale'] = price_stats.get('on_sale', False)
-                    product_data['savings_percent'] = price_stats.get('savings_percent', 0)
-                    product_data['savings_amount'] = price_stats.get('savings_amount', 0)
-                    product_data['avg_price_30d'] = price_stats.get('avg_price_30d')
-                    product_data['min_price_30d'] = price_stats.get('min_price_30d')
+                    product_data["current_price"] = price_stats.get("current_price")
+                    product_data["on_sale"] = price_stats.get("on_sale", False)
+                    product_data["savings_percent"] = price_stats.get("savings_percent", 0)
+                    product_data["savings_amount"] = price_stats.get("savings_amount", 0)
+                    product_data["avg_price_30d"] = price_stats.get("avg_price_30d")
+                    product_data["min_price_30d"] = price_stats.get("min_price_30d")
 
             # Calculate recommendation score
             score, factors = calculate_recommendation_score(product_data)
@@ -378,133 +374,133 @@ def get_comprehensive_recommendations(
                 continue
 
             # Filter by pantry urgency if requested
-            if include_low_pantry and not product_data.get('pantry_level'):
+            if include_low_pantry and not product_data.get("pantry_level"):
                 # If we want low pantry items but this isn't tracked, skip
                 if not include_deals and not include_predictions:
                     continue
 
             # Build recommendation item
             recommendation = {
-                'product_id': product_id,
-                'description': row['description'],
-                'brand': row['brand'],
-                'score': score,
-                'priority_tier': get_priority_tier(score),
-                'reason_summary': _build_reason_summary(factors, product_data),
-                'urgency_factors': factors['urgency'],
-                'deal_factors': factors['deals'],
-                'relevance_factors': factors['relevance'],
-                'timing_factors': factors['timing'],
-                'pantry_status': None,
-                'purchase_stats': {
-                    'total_purchases': row['total_purchases'],
-                    'avg_days_between': row['avg_days_between_purchases'],
-                    'last_purchased': row['last_purchase_date']
-                }
+                "product_id": product_id,
+                "description": row["description"],
+                "brand": row["brand"],
+                "score": score,
+                "priority_tier": get_priority_tier(score),
+                "reason_summary": _build_reason_summary(factors, product_data),
+                "urgency_factors": factors["urgency"],
+                "deal_factors": factors["deals"],
+                "relevance_factors": factors["relevance"],
+                "timing_factors": factors["timing"],
+                "pantry_status": None,
+                "purchase_stats": {
+                    "total_purchases": row["total_purchases"],
+                    "avg_days_between": row["avg_days_between_purchases"],
+                    "last_purchased": row["last_purchase_date"],
+                },
             }
 
             # Add pantry details if tracked
-            if product_data.get('pantry_level') is not None:
-                level = product_data['pantry_level']
+            if product_data.get("pantry_level") is not None:
+                level = product_data["pantry_level"]
                 # Calculate status based on level
                 if level <= 10:
-                    status = 'critical'
+                    status = "critical"
                 elif level <= 25:
-                    status = 'low'
+                    status = "low"
                 elif level <= 50:
-                    status = 'medium'
+                    status = "medium"
                 else:
-                    status = 'ok'
+                    status = "ok"
 
-                recommendation['pantry_status'] = {
-                    'tracked': True,
-                    'level_percent': level,
-                    'status': status,
-                    'daily_depletion_rate': row['daily_depletion_rate']
+                recommendation["pantry_status"] = {
+                    "tracked": True,
+                    "level_percent": level,
+                    "status": status,
+                    "daily_depletion_rate": row["daily_depletion_rate"],
                 }
 
             # Add price details if available
-            if include_deals and product_data.get('current_price'):
-                recommendation['deal_factors']['current_price'] = product_data['current_price']
-                recommendation['deal_factors']['avg_price_30d'] = product_data.get('avg_price_30d')
+            if include_deals and product_data.get("current_price"):
+                recommendation["deal_factors"]["current_price"] = product_data["current_price"]
+                recommendation["deal_factors"]["avg_price_30d"] = product_data.get("avg_price_30d")
 
             # Add prediction details if available
-            if include_predictions and product_data.get('predicted_date'):
-                recommendation['timing_factors']['predicted_date'] = product_data['predicted_date']
+            if include_predictions and product_data.get("predicted_date"):
+                recommendation["timing_factors"]["predicted_date"] = product_data["predicted_date"]
 
             recommendations.append(recommendation)
 
         # Sort by score (descending)
-        recommendations.sort(key=lambda x: x['score'], reverse=True)
+        recommendations.sort(key=lambda x: x["score"], reverse=True)
 
         # Limit results
         recommendations = recommendations[:max_results]
 
         # Group by priority tier
         grouped = {
-            'urgent_needs': [],
-            'high_value_deals': [],
-            'good_timing': [],
-            'nice_to_have': []
+            "urgent_needs": [],
+            "high_value_deals": [],
+            "good_timing": [],
+            "nice_to_have": [],
         }
 
         for rec in recommendations:
-            tier = rec['priority_tier']
-            if tier == 'urgent':
-                grouped['urgent_needs'].append(rec)
-            elif tier == 'high_value':
-                grouped['high_value_deals'].append(rec)
-            elif tier == 'good_timing':
-                grouped['good_timing'].append(rec)
-            elif tier == 'nice_to_have':
-                grouped['nice_to_have'].append(rec)
+            tier = rec["priority_tier"]
+            if tier == "urgent":
+                grouped["urgent_needs"].append(rec)
+            elif tier == "high_value":
+                grouped["high_value_deals"].append(rec)
+            elif tier == "good_timing":
+                grouped["good_timing"].append(rec)
+            elif tier == "nice_to_have":
+                grouped["nice_to_have"].append(rec)
 
         # Calculate summary statistics
         total_savings = sum(
-            rec.get('deal_factors', {}).get('savings_amount', 0)
-            for rec in recommendations
+            rec.get("deal_factors", {}).get("savings_amount", 0) for rec in recommendations
         )
 
         items_on_sale = sum(
-            1 for rec in recommendations
-            if rec.get('deal_factors', {}).get('on_sale', False)
+            1 for rec in recommendations if rec.get("deal_factors", {}).get("on_sale", False)
         )
 
         items_in_favorites = sum(
-            1 for rec in recommendations
-            if rec.get('relevance_factors', {}).get('in_favorites', False)
+            1
+            for rec in recommendations
+            if rec.get("relevance_factors", {}).get("in_favorites", False)
         )
 
         items_low_pantry = sum(
-            1 for rec in recommendations
-            if rec.get('pantry_status', {}) and rec['pantry_status'].get('level_percent', 100) <= 25
+            1
+            for rec in recommendations
+            if rec.get("pantry_status", {}) and rec["pantry_status"].get("level_percent", 100) <= 25
         )
 
         summary = {
-            'total_recommendations': len(recommendations),
-            'urgent_needs_count': len(grouped['urgent_needs']),
-            'high_value_deals_count': len(grouped['high_value_deals']),
-            'good_timing_count': len(grouped['good_timing']),
-            'nice_to_have_count': len(grouped['nice_to_have']),
-            'avg_score': round(statistics.mean([r['score'] for r in recommendations])) if recommendations else 0,
-            'highest_score': max([r['score'] for r in recommendations]) if recommendations else 0,
-            'estimated_total_savings': round(total_savings, 2),
-            'items_on_sale': items_on_sale,
-            'items_in_favorites': items_in_favorites,
-            'items_low_pantry': items_low_pantry
+            "total_recommendations": len(recommendations),
+            "urgent_needs_count": len(grouped["urgent_needs"]),
+            "high_value_deals_count": len(grouped["high_value_deals"]),
+            "good_timing_count": len(grouped["good_timing"]),
+            "nice_to_have_count": len(grouped["nice_to_have"]),
+            "avg_score": (
+                round(statistics.mean([r["score"] for r in recommendations]))
+                if recommendations
+                else 0
+            ),
+            "highest_score": max([r["score"] for r in recommendations]) if recommendations else 0,
+            "estimated_total_savings": round(total_savings, 2),
+            "items_on_sale": items_on_sale,
+            "items_in_favorites": items_in_favorites,
+            "items_low_pantry": items_low_pantry,
         }
 
-        return {
-            'success': True,
-            **grouped,
-            'summary': summary
-        }
+        return {"success": True, **grouped, "summary": summary}
 
     finally:
         conn.close()
 
 
-def _build_reason_summary(factors: Dict[str, Any], product_data: Dict[str, Any]) -> str:
+def _build_reason_summary(factors: dict[str, Any], product_data: dict[str, Any]) -> str:
     """
     Build a human-readable summary of why this product is recommended.
 
@@ -518,52 +514,52 @@ def _build_reason_summary(factors: Dict[str, Any], product_data: Dict[str, Any])
     reasons = []
 
     # Urgency reasons - EXPIRATION takes precedence
-    urgency = factors.get('urgency', {})
+    urgency = factors.get("urgency", {})
 
     # Expiration urgency (show first if present)
-    exp_urgency = urgency.get('expiration_urgency')
-    if exp_urgency == 'expired':
-        days = urgency.get('days_past_expiration', 0)
+    exp_urgency = urgency.get("expiration_urgency")
+    if exp_urgency == "expired":
+        days = urgency.get("days_past_expiration", 0)
         reasons.append(f"EXPIRED {days} days ago")
-    elif exp_urgency == 'critical':
-        days = product_data.get('days_to_expiration', 0)
+    elif exp_urgency == "critical":
+        days = product_data.get("days_to_expiration", 0)
         reasons.append(f"Expires in {days} days")
-    elif exp_urgency in ['warning', 'soon']:
-        days = product_data.get('days_to_expiration', 0)
+    elif exp_urgency in ["warning", "soon"]:
+        days = product_data.get("days_to_expiration", 0)
         reasons.append(f"Expiring soon ({days} days)")
 
     # Pantry urgency
-    if urgency.get('pantry_urgency') == 'critical':
-        level = product_data.get('pantry_level', 0)
+    if urgency.get("pantry_urgency") == "critical":
+        level = product_data.get("pantry_level", 0)
         reasons.append(f"Critical pantry level ({level}%)")
-    elif urgency.get('pantry_urgency') in ['high', 'medium']:
-        level = product_data.get('pantry_level', 0)
+    elif urgency.get("pantry_urgency") in ["high", "medium"]:
+        level = product_data.get("pantry_level", 0)
         reasons.append(f"Low pantry ({level}%)")
 
-    if urgency.get('overdue_days'):
-        days = urgency['overdue_days']
+    if urgency.get("overdue_days"):
+        days = urgency["overdue_days"]
         reasons.append(f"Overdue by {days} days")
 
     # Deal reasons
-    deals = factors.get('deals', {})
-    if deals.get('on_sale'):
-        savings = product_data.get('savings_percent', 0)
+    deals = factors.get("deals", {})
+    if deals.get("on_sale"):
+        savings = product_data.get("savings_percent", 0)
         reasons.append(f"{round(savings)}% off")
 
-    if deals.get('at_best_price'):
+    if deals.get("at_best_price"):
         reasons.append("Best price")
 
     # Relevance reasons
-    relevance = factors.get('relevance', {})
-    if relevance.get('in_favorites'):
+    relevance = factors.get("relevance", {})
+    if relevance.get("in_favorites"):
         reasons.append("In favorites")
 
-    if relevance.get('frequency_level') == 'very_high':
+    if relevance.get("frequency_level") == "very_high":
         reasons.append("Frequently purchased")
 
     # Timing reasons
-    timing = factors.get('timing', {})
-    if timing.get('window') == 'optimal':
+    timing = factors.get("timing", {})
+    if timing.get("window") == "optimal":
         reasons.append("Optimal timing")
 
     return " + ".join(reasons) if reasons else "Recommended"

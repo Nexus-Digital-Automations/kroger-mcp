@@ -1,16 +1,16 @@
 """Deals API endpoints — find sales, manage watchlist, price history."""
+
 import asyncio
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from kroger_mcp.analytics.database import (
+    ensure_initialized,
     get_db_connection,
     get_db_cursor,
-    ensure_initialized,
 )
 from kroger_mcp.tools.shared import (
     get_client_credentials_client,
@@ -24,17 +24,18 @@ router = APIRouter()
 # Internal helper — same logic as products.py but import-safe
 # ---------------------------------------------------------------------------
 
-def _extract_deal_product(item) -> Optional[dict]:
+
+def _extract_deal_product(item) -> dict | None:
     """Extract and normalise a product item from the Kroger API response."""
     try:
-        if hasattr(item, '__dict__') and not isinstance(item, dict):
+        if hasattr(item, "__dict__") and not isinstance(item, dict):
             item = vars(item)
 
-        pid = item.get('productId') or item.get('upc', '')
-        desc = item.get('description', '')
-        brand = item.get('brand', '')
+        pid = item.get("productId") or item.get("upc", "")
+        desc = item.get("description", "")
+        brand = item.get("brand", "")
 
-        items_data = item.get('items', [{}])
+        items_data = item.get("items", [{}])
         first_item = items_data[0] if items_data else {}
         if not isinstance(first_item, dict):
             try:
@@ -42,26 +43,18 @@ def _extract_deal_product(item) -> Optional[dict]:
             except Exception:
                 first_item = {}
 
-        price_data = first_item.get('price', {})
+        price_data = first_item.get("price", {})
         if not isinstance(price_data, dict):
             try:
                 price_data = vars(price_data)
             except Exception:
                 price_data = {}
 
-        regular = price_data.get('regular')
-        promo = price_data.get('promo')
+        regular = price_data.get("regular")
+        promo = price_data.get("promo")
 
-        on_sale = (
-            promo is not None
-            and promo > 0
-            and (regular is None or promo < regular)
-        )
-        savings_pct = (
-            round((1 - promo / regular) * 100, 1)
-            if on_sale and regular and promo
-            else 0
-        )
+        on_sale = promo is not None and promo > 0 and (regular is None or promo < regular)
+        savings_pct = round((1 - promo / regular) * 100, 1) if on_sale and regular and promo else 0
 
         return {
             "product_id": pid,
@@ -81,12 +74,20 @@ def _extract_deal_product(item) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 _AUTO_CATEGORIES = [
-    'produce', 'meat', 'seafood', 'dairy', 'frozen',
-    'snacks', 'beverages', 'bread', 'pantry', 'deli',
+    "produce",
+    "meat",
+    "seafood",
+    "dairy",
+    "frozen",
+    "snacks",
+    "beverages",
+    "bread",
+    "pantry",
+    "deli",
 ]
 
 
-@router.get('/api/deals/auto')
+@router.get("/api/deals/auto")
 async def auto_deals(min_savings: float = 5):
     """Scan multiple grocery categories in parallel and return top deals."""
     try:
@@ -104,8 +105,8 @@ async def auto_deals(min_savings: float = 5):
                 limit=50,
             )
             if isinstance(result, dict):
-                return result.get('data', []) or []
-            if hasattr(result, 'data'):
+                return result.get("data", []) or []
+            if hasattr(result, "data"):
                 return result.data or []
             if isinstance(result, list):
                 return result
@@ -121,25 +122,26 @@ async def auto_deals(min_savings: float = 5):
             extracted = _extract_deal_product(item)
             if (
                 extracted
-                and extracted.get('product_id')
-                and extracted.get('on_sale')
-                and extracted.get('savings_percent', 0) >= min_savings
-                and extracted['product_id'] not in seen
+                and extracted.get("product_id")
+                and extracted.get("on_sale")
+                and extracted.get("savings_percent", 0) >= min_savings
+                and extracted["product_id"] not in seen
             ):
-                seen[extracted['product_id']] = extracted
+                seen[extracted["product_id"]] = extracted
 
-    deals = sorted(seen.values(), key=lambda x: x.get('savings_percent', 0), reverse=True)
+    deals = sorted(seen.values(), key=lambda x: x.get("savings_percent", 0), reverse=True)
 
     try:
         ensure_initialized()
         from kroger_mcp.analytics.deals import record_price_observation
+
         for p in deals[:100]:
             record_price_observation(
-                product_id=p['product_id'],
-                regular_price=p.get('regular_price'),
-                sale_price=p.get('sale_price'),
+                product_id=p["product_id"],
+                regular_price=p.get("regular_price"),
+                sale_price=p.get("sale_price"),
                 location_id=location_id,
-                source='web_auto',
+                source="web_auto",
             )
     except Exception:
         pass
@@ -147,8 +149,9 @@ async def auto_deals(min_savings: float = 5):
     # Enrich with safety scores (best-effort)
     try:
         from kroger_mcp.analytics.safety import check_products_safety_batch
+
         statuses = check_products_safety_batch(deals)
-        for deal, status in zip(deals, statuses):
+        for deal, status in zip(deals, statuses, strict=False):
             d = status.to_dict()
             deal["safety_score"] = d.get("safety_score")
             deal["safety_grade"] = d.get("safety_grade")
@@ -165,10 +168,11 @@ async def auto_deals(min_savings: float = 5):
 # GET /api/deals/find
 # ---------------------------------------------------------------------------
 
-@router.get('/api/deals/find')
+
+@router.get("/api/deals/find")
 async def find_deals(
-    q: str = '',
-    category: str = '',
+    q: str = "",
+    category: str = "",
     min_savings: float = 10,
 ):
     """Search for products currently on sale, filtered by minimum savings %."""
@@ -188,8 +192,8 @@ async def find_deals(
             limit=50,
         )
         if isinstance(result, dict):
-            raw_products = result.get('data', []) or []
-        elif hasattr(result, 'data'):
+            raw_products = result.get("data", []) or []
+        elif hasattr(result, "data"):
             raw_products = result.data or []
         elif isinstance(result, list):
             raw_products = result
@@ -199,24 +203,26 @@ async def find_deals(
         raw_products = []
 
     deals = [
-        p for item in raw_products
+        p
+        for item in raw_products
         if (p := _extract_deal_product(item))
-        and p.get('product_id')
-        and p.get('on_sale')
-        and p.get('savings_percent', 0) >= min_savings
+        and p.get("product_id")
+        and p.get("on_sale")
+        and p.get("savings_percent", 0) >= min_savings
     ]
 
     # Record price observations (best-effort)
     try:
         ensure_initialized()
         from kroger_mcp.analytics.deals import record_price_observation
+
         for p in deals:
             record_price_observation(
-                product_id=p['product_id'],
-                regular_price=p.get('regular_price'),
-                sale_price=p.get('sale_price'),
+                product_id=p["product_id"],
+                regular_price=p.get("regular_price"),
+                sale_price=p.get("sale_price"),
                 location_id=location_id,
-                source='web_deals',
+                source="web_deals",
             )
     except Exception:
         pass
@@ -224,8 +230,9 @@ async def find_deals(
     # Enrich with safety scores (best-effort)
     try:
         from kroger_mcp.analytics.safety import check_products_safety_batch
+
         statuses = check_products_safety_batch(deals)
-        for deal, status in zip(deals, statuses):
+        for deal, status in zip(deals, statuses, strict=False):
             d = status.to_dict()
             deal["safety_score"] = d.get("safety_score")
             deal["safety_grade"] = d.get("safety_grade")
@@ -242,15 +249,14 @@ async def find_deals(
 # GET /api/deals/watchlist
 # ---------------------------------------------------------------------------
 
-@router.get('/api/deals/watchlist')
+
+@router.get("/api/deals/watchlist")
 async def get_watchlist():
     """Return the full deal watchlist from the database."""
     try:
         ensure_initialized()
         conn = get_db_connection()
-        cursor = conn.execute(
-            "SELECT * FROM deal_watchlist ORDER BY added_at DESC"
-        )
+        cursor = conn.execute("SELECT * FROM deal_watchlist ORDER BY added_at DESC")
         rows = [dict(row) for row in cursor.fetchall()]
         conn.close()
         return JSONResponse(content=rows)
@@ -265,13 +271,14 @@ async def get_watchlist():
 # POST /api/deals/watchlist
 # ---------------------------------------------------------------------------
 
+
 class WatchlistAddBody(BaseModel):
     product_id: str
     description: str = ""
-    target_price: Optional[float] = None
+    target_price: float | None = None
 
 
-@router.post('/api/deals/watchlist')
+@router.post("/api/deals/watchlist")
 async def add_to_watchlist(body: WatchlistAddBody):
     """Add a product to the deal watchlist."""
     try:
@@ -294,10 +301,12 @@ async def add_to_watchlist(body: WatchlistAddBody):
                 """,
                 (body.product_id, body.description, body.target_price, now),
             )
-        return JSONResponse(content={
-            "success": True,
-            "product_id": body.product_id,
-        })
+        return JSONResponse(
+            content={
+                "success": True,
+                "product_id": body.product_id,
+            }
+        )
     except Exception as e:
         return JSONResponse(
             status_code=500,
@@ -309,7 +318,8 @@ async def add_to_watchlist(body: WatchlistAddBody):
 # DELETE /api/deals/watchlist/{product_id}
 # ---------------------------------------------------------------------------
 
-@router.delete('/api/deals/watchlist/{product_id}')
+
+@router.delete("/api/deals/watchlist/{product_id}")
 async def remove_from_watchlist(product_id: str):
     """Remove a product from the deal watchlist."""
     try:
@@ -331,12 +341,14 @@ async def remove_from_watchlist(product_id: str):
 # GET /api/deals/price-history/{product_id}
 # ---------------------------------------------------------------------------
 
-@router.get('/api/deals/price-history/{product_id}')
+
+@router.get("/api/deals/price-history/{product_id}")
 async def get_price_history(product_id: str, days: int = 30):
     """Return price statistics and history for a given product."""
     try:
         ensure_initialized()
         from kroger_mcp.analytics.deals import get_price_statistics
+
         location_id = get_preferred_location_id() or "03400014"
         stats = get_price_statistics(
             product_id=product_id,
@@ -360,11 +372,13 @@ async def get_price_history(product_id: str, days: int = 30):
         observations = [dict(row) for row in cursor.fetchall()]
         conn.close()
 
-        return JSONResponse(content={
-            "product_id": product_id,
-            "statistics": stats,
-            "observations": observations,
-        })
+        return JSONResponse(
+            content={
+                "product_id": product_id,
+                "statistics": stats,
+                "observations": observations,
+            }
+        )
 
     except Exception as e:
         return JSONResponse(

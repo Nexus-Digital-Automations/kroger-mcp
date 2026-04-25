@@ -4,18 +4,17 @@ Deal discovery and price tracking tools for Kroger MCP server.
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
 
-from .shared import get_client_credentials_client, get_preferred_location_id
+from ..analytics.database import get_db_connection, get_db_cursor
 from ..analytics.deals import get_price_statistics, score_deal_quality
-from ..analytics.database import get_db_cursor, get_db_connection
 from ..analytics.favorites import get_all_favorite_product_ids
 from ..analytics.pantry import get_low_inventory_items
 from ..analytics.statistics import get_recent_purchases
-
+from .shared import get_client_credentials_client, get_preferred_location_id
 
 # Category search mappings
 CATEGORY_SEARCHES = {
@@ -47,76 +46,76 @@ def register_tools(mcp):
                 "get_price_history|get_latest_scan"
             )
         ),
-        search_term: Optional[str] = Field(
+        search_term: str | None = Field(
             default=None,
             description="Search term e.g. milk",
         ),
-        category: Optional[str] = Field(
+        category: str | None = Field(
             default=None,
             description="dairy|meat|produce|bakery|frozen|beverages",
         ),
-        min_savings_percent: Optional[float] = Field(
+        min_savings_percent: float | None = Field(
             default=10.0,
             description="Minimum discount percentage",
         ),
-        sort_by: Optional[str] = Field(
+        sort_by: str | None = Field(
             default="savings_percent",
             description="savings_percent|savings_amount|price",
         ),
-        limit: Optional[int] = Field(
+        limit: int | None = Field(
             default=20,
             description="Max deals to return",
         ),
-        location_id: Optional[str] = Field(
+        location_id: str | None = Field(
             default=None,
             description="Store location ID",
         ),
-        product_id: Optional[str] = Field(
+        product_id: str | None = Field(
             default=None,
             description="Product ID",
         ),
-        product_ids: Optional[List[str]] = Field(
+        product_ids: list[str] | None = Field(
             default=None,
             description="Product IDs for batch watchlist add (max 30)",
         ),
-        description: Optional[str] = Field(
+        description: str | None = Field(
             default=None,
             description="Product description",
         ),
-        target_price: Optional[float] = Field(
+        target_price: float | None = Field(
             default=None,
             description="Alert price target",
         ),
-        priority: Optional[int] = Field(
+        priority: int | None = Field(
             default=1,
             description="1=low|2=medium|3=high",
         ),
-        days: Optional[int] = Field(
+        days: int | None = Field(
             default=30,
             description="Days of price history",
         ),
-        include_favorites: Optional[bool] = Field(
+        include_favorites: bool | None = Field(
             default=True,
             description="Include favorites in scan",
         ),
-        include_pantry: Optional[bool] = Field(
+        include_pantry: bool | None = Field(
             default=True,
             description="Include pantry items in scan",
         ),
-        include_recent_purchases: Optional[bool] = Field(
+        include_recent_purchases: bool | None = Field(
             default=True,
             description="Include recent purchases in scan",
         ),
-        max_items: Optional[int] = Field(
+        max_items: int | None = Field(
             default=50,
             description="Max items to scan",
         ),
-        mark_as_viewed: Optional[bool] = Field(
+        mark_as_viewed: bool | None = Field(
             default=False,
             description="Mark results as viewed",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Deal discovery and price tracking.
 
         find — search for current deals by term or category.
@@ -126,17 +125,48 @@ def register_tools(mcp):
         get_latest_scan — view results from last automated background scan.
         """
         return await asyncio.to_thread(
-            _deals_impl, action, search_term, category, min_savings_percent,
-            sort_by, limit, location_id, product_id, product_ids, description,
-            target_price, priority, days, include_favorites, include_pantry,
-            include_recent_purchases, max_items, mark_as_viewed, ctx,
+            _deals_impl,
+            action,
+            search_term,
+            category,
+            min_savings_percent,
+            sort_by,
+            limit,
+            location_id,
+            product_id,
+            product_ids,
+            description,
+            target_price,
+            priority,
+            days,
+            include_favorites,
+            include_pantry,
+            include_recent_purchases,
+            max_items,
+            mark_as_viewed,
+            ctx,
         )
 
     def _deals_impl(
-        action, search_term, category, min_savings_percent,
-        sort_by, limit, location_id, product_id, product_ids, description,
-        target_price, priority, days, include_favorites, include_pantry,
-        include_recent_purchases, max_items, mark_as_viewed, ctx,
+        action,
+        search_term,
+        category,
+        min_savings_percent,
+        sort_by,
+        limit,
+        location_id,
+        product_id,
+        product_ids,
+        description,
+        target_price,
+        priority,
+        days,
+        include_favorites,
+        include_pantry,
+        include_recent_purchases,
+        max_items,
+        mark_as_viewed,
+        ctx,
     ):
         match action:
             case "find":
@@ -219,9 +249,9 @@ def register_tools(mcp):
                                 "savings_percent": round(savings_percent, 1),
                                 "is_favorite": product.get("product_id") in favorite_ids,
                                 "is_in_pantry": product.get("product_id") in pantry_items,
-                                "pantry_level": pantry_items.get(
-                                    product.get("product_id"), {}
-                                ).get("level_percent", 100),
+                                "pantry_level": pantry_items.get(product.get("product_id"), {}).get(
+                                    "level_percent", 100
+                                ),
                             }
 
                             try:
@@ -232,9 +262,7 @@ def register_tools(mcp):
                                 )
                                 if price_stats.get("has_data"):
                                     deal["price_trend"] = price_stats.get("recommendation")
-                                    deal["recommendation"] = price_stats.get(
-                                        "recommendation_text"
-                                    )
+                                    deal["recommendation"] = price_stats.get("recommendation_text")
                             except Exception:
                                 price_stats = None
 
@@ -335,9 +363,9 @@ def register_tools(mcp):
                                     if product_response and "data" in product_response:
                                         product_data = product_response.get("data", {})
                                         pricing = product_data.get("pricing", {})
-                                        current_price = pricing.get(
-                                            "sale_price"
-                                        ) or pricing.get("regular_price")
+                                        current_price = pricing.get("sale_price") or pricing.get(
+                                            "regular_price"
+                                        )
                                         current_on_sale = pricing.get("on_sale", False)
                                         if not prod_description:
                                             prod_description = product_data.get("description")
@@ -466,9 +494,7 @@ def register_tools(mcp):
                             product_id=product_id, location_id=loc_id
                         )
                         if product_response and "data" in product_response:
-                            prod_description = product_response.get("data", {}).get(
-                                "description"
-                            )
+                            prod_description = product_response.get("data", {}).get("description")
                 except Exception:
                     pass
 
@@ -625,14 +651,13 @@ def register_tools(mcp):
                             "savings_percent": round(
                                 (
                                     (
-                                        pricing.get("regular_price")
-                                        - pricing.get("sale_price")
+                                        (pricing.get("regular_price") - pricing.get("sale_price"))
+                                        / pricing.get("regular_price")
+                                        * 100
                                     )
-                                    / pricing.get("regular_price")
-                                    * 100
-                                )
-                                if pricing.get("regular_price") and pricing.get("sale_price")
-                                else 0,
+                                    if pricing.get("regular_price") and pricing.get("sale_price")
+                                    else 0
+                                ),
                                 1,
                             ),
                             "source": item["source"],

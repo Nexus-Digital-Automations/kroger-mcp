@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -25,20 +24,24 @@ def _get_all_plans(include_templates: bool = False):
     conn = get_db_connection()
     try:
         if include_templates:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, name, description, start_date, end_date,
                        plan_type, is_template, times_ordered, last_ordered_at
                 FROM meal_plans
                 ORDER BY is_template ASC, start_date DESC
-            """)
+            """
+            )
         else:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, name, description, start_date, end_date,
                        plan_type, is_template, times_ordered, last_ordered_at
                 FROM meal_plans
                 WHERE is_template = 0
                 ORDER BY start_date DESC
-            """)
+            """
+            )
         return [dict(r) for r in cursor.fetchall()]
     finally:
         conn.close()
@@ -48,12 +51,15 @@ def _get_plan_entries(plan_id: str):
     ensure_initialized()
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT recipe_id, meal_date, meal_slot, cooked_at
             FROM meal_entries
             WHERE plan_id = ?
             ORDER BY meal_date, meal_slot
-        """, (plan_id,))
+        """,
+            (plan_id,),
+        )
         return [dict(r) for r in cursor.fetchall()]
     finally:
         conn.close()
@@ -91,20 +97,22 @@ def _build_calendar(plan, entries, recipe_map, week_offset: int = 0):
         for day in week_dates:
             date_str = day.isoformat()
             entry = entry_map.get((date_str, slot))
-            row["cells"].append({
-                "date": day,
-                "date_str": date_str,
-                "recipe_name": entry["recipe_name"] if entry else None,
-                "recipe_id": entry["recipe_id"] if entry else None,
-                "cooked_at": entry["cooked_at"] if entry else None,
-            })
+            row["cells"].append(
+                {
+                    "date": day,
+                    "date_str": date_str,
+                    "recipe_name": entry["recipe_name"] if entry else None,
+                    "recipe_id": entry["recipe_id"] if entry else None,
+                    "cooked_at": entry["cooked_at"] if entry else None,
+                }
+            )
         calendar.append(row)
 
     return calendar, week_dates, (view_monday, view_sunday)
 
 
 @router.get("/meal-plan", response_class=HTMLResponse)
-async def meal_plan_page(request: Request, plan_id: Optional[str] = None, week: Optional[int] = None):
+async def meal_plan_page(request: Request, plan_id: str | None = None, week: int | None = None):
     plans = _get_all_plans(include_templates=False)
     all_plans_with_templates = _get_all_plans(include_templates=True)
     templates_list = [p for p in all_plans_with_templates if p.get("is_template")]
@@ -159,20 +167,23 @@ async def meal_plan_page(request: Request, plan_id: Optional[str] = None, week: 
     today = datetime.now().date()
     recipes = recipe_data.get("recipes", [])
 
-    return templates.TemplateResponse("meal_plan.html", {
-        "request": request,
-        "active_page": "meal_plan",
-        "plans": plans,
-        "templates_list": templates_list,
-        "active_plan": active_plan,
-        "calendar": calendar,
-        "week_dates": week_dates,
-        "today": today,
-        "week_offset": week_offset,
-        "total_meals": total_meals,
-        "unique_recipe_count": len(unique_recipes),
-        "cooked_count": cooked_count,
-        "summary": summary,
-        "slots": SLOTS,
-        "recipes": recipes,
-    })
+    return templates.TemplateResponse(
+        "meal_plan.html",
+        {
+            "request": request,
+            "active_page": "meal_plan",
+            "plans": plans,
+            "templates_list": templates_list,
+            "active_plan": active_plan,
+            "calendar": calendar,
+            "week_dates": week_dates,
+            "today": today,
+            "week_offset": week_offset,
+            "total_meals": total_meals,
+            "unique_recipe_count": len(unique_recipes),
+            "cooked_count": cooked_count,
+            "summary": summary,
+            "slots": SLOTS,
+            "recipes": recipes,
+        },
+    )

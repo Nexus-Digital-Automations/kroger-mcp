@@ -1,17 +1,17 @@
 """Shopping list API endpoints."""
+
 import asyncio
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from kroger_mcp.tools.shopping_list_tools import (
+    _consolidate_items,
+    _generate_list_item_id,
     _load_shopping_list,
     _save_shopping_list,
-    _generate_list_item_id,
-    _consolidate_items,
 )
 
 router = APIRouter()
@@ -21,7 +21,8 @@ router = APIRouter()
 # GET /api/shopping-list
 # ---------------------------------------------------------------------------
 
-@router.get('/api/shopping-list')
+
+@router.get("/api/shopping-list")
 async def get_shopping_list():
     """Return the current shopping list JSON."""
     try:
@@ -38,12 +39,13 @@ async def get_shopping_list():
 # POST /api/shopping-list/add-recipe
 # ---------------------------------------------------------------------------
 
+
 class AddRecipeBody(BaseModel):
     recipe_id: str
-    servings_override: Optional[int] = None
+    servings_override: int | None = None
 
 
-@router.post('/api/shopping-list/add-recipe')
+@router.post("/api/shopping-list/add-recipe")
 async def add_recipe_to_list(body: AddRecipeBody):
     """
     Add a recipe's ingredients to the shopping list, scaled to the requested
@@ -70,8 +72,9 @@ async def add_recipe_to_list(body: AddRecipeBody):
         pantry_context: dict = {}
         try:
             from kroger_mcp.analytics.pantry import get_pantry_status
+
             for item in get_pantry_status(apply_depletion=True):
-                pantry_context[item['product_id']] = item.get("level_percent", 0)
+                pantry_context[item["product_id"]] = item.get("level_percent", 0)
         except Exception:
             pass
 
@@ -87,7 +90,7 @@ async def add_recipe_to_list(body: AddRecipeBody):
             is_override = ing.get("override", False)
 
             try:
-                qty_num = float(qty) if qty not in (None, '', 0) else 1.0
+                qty_num = float(qty) if qty not in (None, "", 0) else 1.0
             except (ValueError, TypeError):
                 qty_num = 1.0
             raw_scaled = qty_num * scale_factor
@@ -106,26 +109,30 @@ async def add_recipe_to_list(body: AddRecipeBody):
 
             if is_override:
                 override_reason = ing.get("override_reason", "Not from Kroger")
-                data["items"].append({
-                    "id": _generate_list_item_id(),
-                    "product_id": None,
-                    "ingredient_name": name,
-                    # Web-facing alias so the template can use item.name
-                    "name": name,
-                    "quantity": scaled_qty,
-                    "unit": unit,
-                    "sources": [{
-                        "recipe_id": body.recipe_id,
+                data["items"].append(
+                    {
+                        "id": _generate_list_item_id(),
+                        "product_id": None,
+                        "ingredient_name": name,
+                        # Web-facing alias so the template can use item.name
+                        "name": name,
+                        "quantity": scaled_qty,
+                        "unit": unit,
+                        "sources": [
+                            {
+                                "recipe_id": body.recipe_id,
+                                "recipe_name": recipe.get("name"),
+                                "servings_used": servings,
+                                "original_quantity": qty,
+                                "scaled_quantity": scaled_qty,
+                            }
+                        ],
+                        "added_at": datetime.now().isoformat(),
+                        "notes": f"Manual: {override_reason}",
+                        "manual_purchase": True,
                         "recipe_name": recipe.get("name"),
-                        "servings_used": servings,
-                        "original_quantity": qty,
-                        "scaled_quantity": scaled_qty,
-                    }],
-                    "added_at": datetime.now().isoformat(),
-                    "notes": f"Manual: {override_reason}",
-                    "manual_purchase": True,
-                    "recipe_name": recipe.get("name"),
-                })
+                    }
+                )
                 items_added += 1
                 continue
 
@@ -134,41 +141,51 @@ async def add_recipe_to_list(body: AddRecipeBody):
                 items_skipped += 1
                 continue
 
-            data["items"].append({
-                "id": _generate_list_item_id(),
-                "product_id": product_id,
-                "ingredient_name": name,
-                "name": name,
-                "quantity": scaled_qty,
-                "unit": unit,
-                "sources": [{
-                    "recipe_id": body.recipe_id,
+            data["items"].append(
+                {
+                    "id": _generate_list_item_id(),
+                    "product_id": product_id,
+                    "ingredient_name": name,
+                    "name": name,
+                    "quantity": scaled_qty,
+                    "unit": unit,
+                    "sources": [
+                        {
+                            "recipe_id": body.recipe_id,
+                            "recipe_name": recipe.get("name"),
+                            "servings_used": servings,
+                            "original_quantity": qty,
+                            "scaled_quantity": scaled_qty,
+                        }
+                    ],
+                    "added_at": datetime.now().isoformat(),
+                    "notes": None,
                     "recipe_name": recipe.get("name"),
-                    "servings_used": servings,
-                    "original_quantity": qty,
-                    "scaled_quantity": scaled_qty,
-                }],
-                "added_at": datetime.now().isoformat(),
-                "notes": None,
-                "recipe_name": recipe.get("name"),
-            })
+                }
+            )
             items_added += 1
 
         data["items"] = _consolidate_items(data["items"])
         _save_shopping_list(data)
 
-        return JSONResponse(content={
-            "success": True,
-            "recipe_name": recipe.get("name"),
-            "items_added": items_added,
-            "items_skipped": items_skipped,
-            "total_items": len(data["items"]),
-            "message": (
-                f"Added {items_added} ingredients from '{recipe.get('name')}' "
-                f"(scaled to {servings} servings)"
-                + (f". {items_skipped} item(s) skipped (well-stocked pantry)." if items_skipped else "")
-            ),
-        })
+        return JSONResponse(
+            content={
+                "success": True,
+                "recipe_name": recipe.get("name"),
+                "items_added": items_added,
+                "items_skipped": items_skipped,
+                "total_items": len(data["items"]),
+                "message": (
+                    f"Added {items_added} ingredients from '{recipe.get('name')}' "
+                    f"(scaled to {servings} servings)"
+                    + (
+                        f". {items_skipped} item(s) skipped (well-stocked pantry)."
+                        if items_skipped
+                        else ""
+                    )
+                ),
+            }
+        )
 
     except Exception as e:
         return JSONResponse(
@@ -183,7 +200,8 @@ async def add_recipe_to_list(body: AddRecipeBody):
 # path as an item_id match.
 # ---------------------------------------------------------------------------
 
-@router.delete('/api/shopping-list')
+
+@router.delete("/api/shopping-list")
 async def clear_shopping_list():
     """Remove all items from the shopping list."""
     try:
@@ -203,14 +221,16 @@ async def clear_shopping_list():
 # DELETE /api/shopping-list/{item_id}
 # ---------------------------------------------------------------------------
 
-@router.delete('/api/shopping-list/{item_id}')
+
+@router.delete("/api/shopping-list/{item_id}")
 async def remove_shopping_list_item(item_id: str):
     """Remove a single item from the shopping list by its id."""
     try:
         data = _load_shopping_list()
         original_count = len(data["items"])
         data["items"] = [
-            item for item in data["items"]
+            item
+            for item in data["items"]
             if item.get("id") != item_id and item.get("product_id") != item_id
         ]
         removed = original_count - len(data["items"])
@@ -220,11 +240,13 @@ async def remove_shopping_list_item(item_id: str):
                 content={"error": f"Item '{item_id}' not found"},
             )
         _save_shopping_list(data)
-        return JSONResponse(content={
-            "success": True,
-            "removed": item_id,
-            "remaining": len(data["items"]),
-        })
+        return JSONResponse(
+            content={
+                "success": True,
+                "removed": item_id,
+                "remaining": len(data["items"]),
+            }
+        )
     except Exception as e:
         return JSONResponse(
             status_code=500,
@@ -236,12 +258,13 @@ async def remove_shopping_list_item(item_id: str):
 # PATCH /api/shopping-list/{item_id}
 # ---------------------------------------------------------------------------
 
+
 class UpdateItemBody(BaseModel):
-    quantity: Optional[float] = None
-    notes: Optional[str] = None
+    quantity: float | None = None
+    notes: str | None = None
 
 
-@router.patch('/api/shopping-list/{item_id}')
+@router.patch("/api/shopping-list/{item_id}")
 async def update_shopping_list_item(item_id: str, body: UpdateItemBody):
     """Update quantity or notes for a shopping list item."""
     try:
@@ -277,12 +300,13 @@ async def update_shopping_list_item(item_id: str, body: UpdateItemBody):
 # POST /api/shopping-list/add-to-cart
 # ---------------------------------------------------------------------------
 
+
 class AddToCartBody(BaseModel):
     confirm: bool = False
     modality: str = "PICKUP"
 
 
-@router.post('/api/shopping-list/add-to-cart')
+@router.post("/api/shopping-list/add-to-cart")
 async def shopping_list_to_cart(body: AddToCartBody):
     """
     confirm=False → return preview of items to be added.
@@ -293,18 +317,21 @@ async def shopping_list_to_cart(body: AddToCartBody):
         items = data.get("items", [])
 
         if not items:
-            return JSONResponse(content={
-                "success": True,
-                "message": "Shopping list is empty",
-                "items": [],
-            })
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": "Shopping list is empty",
+                    "items": [],
+                }
+            )
 
         # Optional pantry context
         pantry_context: dict = {}
         try:
             from kroger_mcp.analytics.pantry import get_pantry_status
+
             for pi in get_pantry_status(apply_depletion=True):
-                pantry_context[pi['product_id']] = pi.get("level_percent", 0)
+                pantry_context[pi["product_id"]] = pi.get("level_percent", 0)
         except Exception:
             pass
 
@@ -317,64 +344,79 @@ async def shopping_list_to_cart(body: AddToCartBody):
             name = item.get("name") or item.get("ingredient_name") or product_id
 
             if item.get("manual_purchase"):
-                items_manual.append({
-                    "product_id": None,
-                    "name": name,
-                    "quantity": item.get("quantity", 1),
-                    "unit": item.get("unit", ""),
-                    "notes": item.get("notes", "Manual purchase required"),
-                })
+                items_manual.append(
+                    {
+                        "product_id": None,
+                        "name": name,
+                        "quantity": item.get("quantity", 1),
+                        "unit": item.get("unit", ""),
+                        "notes": item.get("notes", "Manual purchase required"),
+                    }
+                )
                 continue
 
             if not product_id:
-                items_to_skip.append({
-                    "name": name,
-                    "reason": "No product ID — search for product first",
-                })
+                items_to_skip.append(
+                    {
+                        "name": name,
+                        "reason": "No product ID — search for product first",
+                    }
+                )
                 continue
 
             pantry_level = pantry_context.get(product_id)
             if pantry_level is not None and pantry_level >= 30:
-                items_to_skip.append({
-                    "product_id": product_id,
-                    "name": name,
-                    "reason": f"Pantry at {pantry_level}%",
-                })
+                items_to_skip.append(
+                    {
+                        "product_id": product_id,
+                        "name": name,
+                        "reason": f"Pantry at {pantry_level}%",
+                    }
+                )
             else:
-                items_to_add.append({
-                    "product_id": product_id,
-                    "name": name,
-                    "quantity": max(1, round(item.get("quantity", 1))),
-                    "recipe_name": item.get("recipe_name") or (
-                        item.get("sources", [{}])[0].get("recipe_name") if item.get("sources") else None
-                    ),
-                })
+                items_to_add.append(
+                    {
+                        "product_id": product_id,
+                        "name": name,
+                        "quantity": max(1, round(item.get("quantity", 1))),
+                        "recipe_name": item.get("recipe_name")
+                        or (
+                            item.get("sources", [{}])[0].get("recipe_name")
+                            if item.get("sources")
+                            else None
+                        ),
+                    }
+                )
 
         # Preview mode
         if not body.confirm:
-            return JSONResponse(content={
-                "success": True,
-                "confirmation_required": True,
-                "items": items_to_add,
-                "items_to_skip": items_to_skip,
-                "manual_purchase": items_manual,
-                "summary": {
-                    "to_add": len(items_to_add),
-                    "to_skip": len(items_to_skip),
-                    "manual": len(items_manual),
-                },
-            })
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "confirmation_required": True,
+                    "items": items_to_add,
+                    "items_to_skip": items_to_skip,
+                    "manual_purchase": items_manual,
+                    "summary": {
+                        "to_add": len(items_to_add),
+                        "to_skip": len(items_to_skip),
+                        "manual": len(items_manual),
+                    },
+                }
+            )
 
         # Confirm mode — add to Kroger cart
         if not items_to_add:
-            return JSONResponse(content={
-                "success": True,
-                "message": "No purchasable items (all stocked or missing product IDs)",
-                "items_added": 0,
-            })
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": "No purchasable items (all stocked or missing product IDs)",
+                    "items_added": 0,
+                }
+            )
 
-        from kroger_mcp.tools.shared import get_authenticated_client
         from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
+        from kroger_mcp.tools.shared import get_authenticated_client
 
         client = await asyncio.to_thread(get_authenticated_client)
         api_items = [
@@ -396,7 +438,7 @@ async def shopping_list_to_cart(body: AddToCartBody):
             if is_400 and len(api_items) > 1:
                 # Retry each item individually
                 added_items = []
-                for api_item, orig_item in zip(api_items, items_to_add):
+                for api_item, orig_item in zip(api_items, items_to_add, strict=False):
                     try:
                         await asyncio.to_thread(client.cart.add_to_cart, [api_item])
                         added_items.append(orig_item)
@@ -419,7 +461,8 @@ async def shopping_list_to_cart(body: AddToCartBody):
 
         # Clear successfully-added items from the list; keep manual and failed items
         data["items"] = [
-            item for item in data["items"]
+            item
+            for item in data["items"]
             if item.get("manual_purchase")
             or not item.get("product_id")
             or item.get("product_id") not in added_ids

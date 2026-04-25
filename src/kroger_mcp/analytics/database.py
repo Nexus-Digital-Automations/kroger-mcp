@@ -16,6 +16,7 @@ def get_backend() -> str:
     """Return 'postgresql' if DATABASE_URL is set, else 'sqlite'."""
     return "postgresql" if os.environ.get("DATABASE_URL") else "sqlite"
 
+
 # Database file location (data directory)
 # Create data directory if it doesn't exist
 _DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
@@ -74,7 +75,8 @@ def initialize_database() -> None:
     """
     conn = get_db_connection()
     try:
-        conn.executescript("""
+        conn.executescript(
+            """
             -- Products with category tracking
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -472,7 +474,8 @@ def initialize_database() -> None:
                 ON meal_log_items(meal_log_id);
             CREATE INDEX IF NOT EXISTS idx_meal_log_items_product
                 ON meal_log_items(product_id);
-        """)
+        """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -501,7 +504,7 @@ def _migrate_giant_favorites() -> None:
             FROM favorite_list_items
             WHERE list_id = ?
             """,
-            (giant_id,)
+            (giant_id,),
         )
 
         cursor.execute("DELETE FROM favorite_lists WHERE id = ?", (giant_id,))
@@ -524,7 +527,8 @@ def ensure_initialized() -> None:
     run_schema_migrations()
 
     # Check if migration is needed
-    from .migration import needs_migration, migrate_json_to_sqlite
+    from .migration import migrate_json_to_sqlite, needs_migration
+
     if needs_migration():
         migrate_json_to_sqlite()
 
@@ -559,16 +563,30 @@ def get_table_counts() -> dict:
     conn = get_db_connection()
     try:
         counts = {}
-        for table in ['products', 'purchase_events', 'orders',
-                      'product_statistics', 'seasonal_patterns',
-                      'recipes', 'recipe_ingredients', 'pantry_items',
-                      'favorite_lists', 'favorite_list_items',
-                      'meal_plans', 'meal_entries',
-                      'safe_products', 'blocked_products',
-                      'ingredient_preferences', 'safety_settings',
-                      'price_history', 'deal_watchlist',
-                      'whole_foods_catalog', 'deal_scan_results',
-                      'meal_log', 'meal_log_items']:
+        for table in [
+            "products",
+            "purchase_events",
+            "orders",
+            "product_statistics",
+            "seasonal_patterns",
+            "recipes",
+            "recipe_ingredients",
+            "pantry_items",
+            "favorite_lists",
+            "favorite_list_items",
+            "meal_plans",
+            "meal_entries",
+            "safe_products",
+            "blocked_products",
+            "ingredient_preferences",
+            "safety_settings",
+            "price_history",
+            "deal_watchlist",
+            "whole_foods_catalog",
+            "deal_scan_results",
+            "meal_log",
+            "meal_log_items",
+        ]:
             cursor = conn.execute(f"SELECT COUNT(*) FROM {table}")
             counts[table] = cursor.fetchone()[0]
         return counts
@@ -600,9 +618,7 @@ def run_schema_migrations() -> None:
 
         for col_name, col_def in new_columns:
             if col_name not in existing_columns:
-                conn.execute(
-                    f"ALTER TABLE product_statistics ADD COLUMN {col_name} {col_def}"
-                )
+                conn.execute(f"ALTER TABLE product_statistics ADD COLUMN {col_name} {col_def}")
 
         # Migrate favorite_lists table - add reorder schedule columns
         cursor = conn.execute("PRAGMA table_info(favorite_lists)")
@@ -615,9 +631,7 @@ def run_schema_migrations() -> None:
 
         for col_name, col_def in favorite_lists_new_columns:
             if col_name not in favorite_lists_columns:
-                conn.execute(
-                    f"ALTER TABLE favorite_lists ADD COLUMN {col_name} {col_def}"
-                )
+                conn.execute(f"ALTER TABLE favorite_lists ADD COLUMN {col_name} {col_def}")
 
         # Migrate pantry_items table - add expiration tracking
         cursor = conn.execute("PRAGMA table_info(pantry_items)")
@@ -630,9 +644,7 @@ def run_schema_migrations() -> None:
 
         for col_name, col_def in pantry_items_new_columns:
             if col_name not in pantry_items_columns:
-                conn.execute(
-                    f"ALTER TABLE pantry_items ADD COLUMN {col_name} {col_def}"
-                )
+                conn.execute(f"ALTER TABLE pantry_items ADD COLUMN {col_name} {col_def}")
 
         # Migrate favorite_list_items table - add minimum stock tracking
         cursor = conn.execute("PRAGMA table_info(favorite_list_items)")
@@ -646,9 +658,7 @@ def run_schema_migrations() -> None:
 
         for col_name, col_def in fli_new_columns:
             if col_name not in fli_columns:
-                conn.execute(
-                    f"ALTER TABLE favorite_list_items ADD COLUMN {col_name} {col_def}"
-                )
+                conn.execute(f"ALTER TABLE favorite_list_items ADD COLUMN {col_name} {col_def}")
 
         # Migrate meal_entries table - add cooking/deduction tracking
         cursor = conn.execute("PRAGMA table_info(meal_entries)")
@@ -661,18 +671,14 @@ def run_schema_migrations() -> None:
 
         for col_name, col_def in meal_entries_new_columns:
             if col_name not in meal_entries_columns:
-                conn.execute(
-                    f"ALTER TABLE meal_entries ADD COLUMN {col_name} {col_def}"
-                )
+                conn.execute(f"ALTER TABLE meal_entries ADD COLUMN {col_name} {col_def}")
 
         # Migrate products table - add USDA ingredient text cache
         cursor = conn.execute("PRAGMA table_info(products)")
         products_columns = {row[1] for row in cursor.fetchall()}
 
         if "ingredients_text" not in products_columns:
-            conn.execute(
-                "ALTER TABLE products ADD COLUMN ingredients_text TEXT"
-            )
+            conn.execute("ALTER TABLE products ADD COLUMN ingredients_text TEXT")
 
         conn.commit()
     except Exception:

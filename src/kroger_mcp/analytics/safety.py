@@ -11,44 +11,47 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Any, List, Optional, Set
+from typing import Any
 
-from .database import get_db_cursor, ensure_initialized
+from .database import ensure_initialized, get_db_cursor
 from .ingredients import (
-    check_product_safety,
     SafetyResult,
+    check_product_safety,
 )
 
 
 class SafetyStatus(str, Enum):
     """Overall safety status for a product."""
-    SAFE = "safe"              # On safe list (explicitly approved)
-    EXCELLENT = "excellent"    # Score 90-100: premium quality markers
-    GOOD = "good"              # Score 75-89: clean product with bonuses
+
+    SAFE = "safe"  # On safe list (explicitly approved)
+    EXCELLENT = "excellent"  # Score 90-100: premium quality markers
+    GOOD = "good"  # Score 75-89: clean product with bonuses
     ACCEPTABLE = "acceptable"  # Score 60-74: no concerns detected
-    POOR = "poor"              # Score 45-59: watch-level concerns
-    AVOID = "avoid"            # Score 0-44: critical/warning ingredients
-    BLOCKED = "blocked"        # On blocked list (explicitly blocked)
+    POOR = "poor"  # Score 45-59: watch-level concerns
+    AVOID = "avoid"  # Score 0-44: critical/warning ingredients
+    BLOCKED = "blocked"  # On blocked list (explicitly blocked)
 
 
 class BlockMode(str, Enum):
     """How to handle flagged products."""
-    SOFT = "soft"          # Warn but allow with confirmation
-    HARD = "hard"          # Hide from search, block cart additions
+
+    SOFT = "soft"  # Warn but allow with confirmation
+    HARD = "hard"  # Hide from search, block cart additions
     WARN_ONLY = "warn_only"  # Just show warnings, no blocking
 
 
 @dataclass
 class ProductSafetyStatus:
     """Complete safety status for a product."""
+
     product_id: str
     status: SafetyStatus
     is_safe_listed: bool
     is_blocked: bool
-    blocked_reason: Optional[str]
-    safety_result: Optional[SafetyResult]
+    blocked_reason: str | None
+    safety_result: SafetyResult | None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
             "product_id": self.product_id,
@@ -74,7 +77,8 @@ class ProductSafetyStatus:
 
 # ============== Settings Management ==============
 
-def get_safety_settings() -> Dict[str, Any]:
+
+def get_safety_settings() -> dict[str, Any]:
     """Get current safety filter settings."""
     ensure_initialized()
 
@@ -99,9 +103,9 @@ def get_safety_settings() -> Dict[str, Any]:
 
 
 def update_safety_settings(
-    filtering_enabled: Optional[bool] = None,
-    block_mode: Optional[str] = None,
-) -> Dict[str, Any]:
+    filtering_enabled: bool | None = None,
+    block_mode: str | None = None,
+) -> dict[str, Any]:
     """Update safety filter settings."""
     ensure_initialized()
 
@@ -115,8 +119,7 @@ def update_safety_settings(
                 VALUES ('filtering_enabled', ?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
                 """,
-                ("1" if filtering_enabled else "0", now,
-                 "1" if filtering_enabled else "0", now)
+                ("1" if filtering_enabled else "0", now, "1" if filtering_enabled else "0", now),
             )
 
         if block_mode is not None:
@@ -129,7 +132,7 @@ def update_safety_settings(
                 VALUES ('block_mode', ?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
                 """,
-                (block_mode, now, block_mode, now)
+                (block_mode, now, block_mode, now),
             )
 
     return get_safety_settings()
@@ -137,19 +140,17 @@ def update_safety_settings(
 
 # ============== Safe Products Management ==============
 
+
 def is_product_safe_listed(product_id: str) -> bool:
     """Check if a product is on the safe list."""
     ensure_initialized()
 
     with get_db_cursor() as cursor:
-        cursor.execute(
-            "SELECT 1 FROM safe_products WHERE product_id = ?",
-            (product_id,)
-        )
+        cursor.execute("SELECT 1 FROM safe_products WHERE product_id = ?", (product_id,))
         return cursor.fetchone() is not None
 
 
-def get_all_safe_product_ids() -> Set[str]:
+def get_all_safe_product_ids() -> set[str]:
     """Get all safe-listed product IDs for fast lookup."""
     ensure_initialized()
 
@@ -160,10 +161,10 @@ def get_all_safe_product_ids() -> Set[str]:
 
 def add_to_safe_list(
     product_id: str,
-    description: Optional[str] = None,
-    brand: Optional[str] = None,
-    reason: Optional[str] = None,
-) -> Dict[str, Any]:
+    description: str | None = None,
+    brand: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
     """Add a product to the safe list."""
     ensure_initialized()
 
@@ -178,48 +179,41 @@ def add_to_safe_list(
                 added_reason = COALESCE(?, added_reason),
                 added_at = CURRENT_TIMESTAMP
             """,
-            (product_id, description, brand, reason,
-             description, brand, reason)
+            (product_id, description, brand, reason, description, brand, reason),
         )
 
         # Also remove from blocked list if present
-        cursor.execute(
-            "DELETE FROM blocked_products WHERE product_id = ?",
-            (product_id,)
-        )
+        cursor.execute("DELETE FROM blocked_products WHERE product_id = ?", (product_id,))
 
     return {
         "success": True,
         "product_id": product_id,
-        "message": f"Product {product_id} added to safe list"
+        "message": f"Product {product_id} added to safe list",
     }
 
 
-def remove_from_safe_list(product_id: str) -> Dict[str, Any]:
+def remove_from_safe_list(product_id: str) -> dict[str, Any]:
     """Remove a product from the safe list."""
     ensure_initialized()
 
     with get_db_cursor() as cursor:
-        cursor.execute(
-            "DELETE FROM safe_products WHERE product_id = ?",
-            (product_id,)
-        )
+        cursor.execute("DELETE FROM safe_products WHERE product_id = ?", (product_id,))
         deleted = cursor.rowcount
 
     if deleted:
         return {
             "success": True,
             "product_id": product_id,
-            "message": f"Product {product_id} removed from safe list"
+            "message": f"Product {product_id} removed from safe list",
         }
     return {
         "success": False,
         "product_id": product_id,
-        "message": f"Product {product_id} was not on safe list"
+        "message": f"Product {product_id} was not on safe list",
     }
 
 
-def get_safe_products() -> List[Dict[str, Any]]:
+def get_safe_products() -> list[dict[str, Any]]:
     """Get all products on the safe list."""
     ensure_initialized()
 
@@ -236,14 +230,14 @@ def get_safe_products() -> List[Dict[str, Any]]:
 
 # ============== Blocked Products Management ==============
 
-def is_product_blocked(product_id: str) -> tuple[bool, Optional[str]]:
+
+def is_product_blocked(product_id: str) -> tuple[bool, str | None]:
     """Check if a product is on the blocked list."""
     ensure_initialized()
 
     with get_db_cursor() as cursor:
         cursor.execute(
-            "SELECT blocked_reason FROM blocked_products WHERE product_id = ?",
-            (product_id,)
+            "SELECT blocked_reason FROM blocked_products WHERE product_id = ?", (product_id,)
         )
         row = cursor.fetchone()
         if row:
@@ -251,7 +245,7 @@ def is_product_blocked(product_id: str) -> tuple[bool, Optional[str]]:
         return False, None
 
 
-def get_all_blocked_product_ids() -> Set[str]:
+def get_all_blocked_product_ids() -> set[str]:
     """Get all blocked product IDs for fast lookup."""
     ensure_initialized()
 
@@ -262,10 +256,10 @@ def get_all_blocked_product_ids() -> Set[str]:
 
 def add_to_blocked_list(
     product_id: str,
-    description: Optional[str] = None,
-    reason: Optional[str] = None,
+    description: str | None = None,
+    reason: str | None = None,
     auto_blocked: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Add a product to the blocked list."""
     ensure_initialized()
 
@@ -279,48 +273,41 @@ def add_to_blocked_list(
                 blocked_reason = COALESCE(?, blocked_reason),
                 blocked_at = CURRENT_TIMESTAMP
             """,
-            (product_id, description, reason, 1 if auto_blocked else 0,
-             description, reason)
+            (product_id, description, reason, 1 if auto_blocked else 0, description, reason),
         )
 
         # Also remove from safe list if present
-        cursor.execute(
-            "DELETE FROM safe_products WHERE product_id = ?",
-            (product_id,)
-        )
+        cursor.execute("DELETE FROM safe_products WHERE product_id = ?", (product_id,))
 
     return {
         "success": True,
         "product_id": product_id,
-        "message": f"Product {product_id} added to blocked list"
+        "message": f"Product {product_id} added to blocked list",
     }
 
 
-def remove_from_blocked_list(product_id: str) -> Dict[str, Any]:
+def remove_from_blocked_list(product_id: str) -> dict[str, Any]:
     """Remove a product from the blocked list."""
     ensure_initialized()
 
     with get_db_cursor() as cursor:
-        cursor.execute(
-            "DELETE FROM blocked_products WHERE product_id = ?",
-            (product_id,)
-        )
+        cursor.execute("DELETE FROM blocked_products WHERE product_id = ?", (product_id,))
         deleted = cursor.rowcount
 
     if deleted:
         return {
             "success": True,
             "product_id": product_id,
-            "message": f"Product {product_id} removed from blocked list"
+            "message": f"Product {product_id} removed from blocked list",
         }
     return {
         "success": False,
         "product_id": product_id,
-        "message": f"Product {product_id} was not on blocked list"
+        "message": f"Product {product_id} was not on blocked list",
     }
 
 
-def get_blocked_products() -> List[Dict[str, Any]]:
+def get_blocked_products() -> list[dict[str, Any]]:
     """Get all products on the blocked list."""
     ensure_initialized()
 
@@ -337,18 +324,17 @@ def get_blocked_products() -> List[Dict[str, Any]]:
 
 # ============== Ingredient Preferences ==============
 
-def get_disabled_ingredients() -> Set[str]:
+
+def get_disabled_ingredients() -> set[str]:
     """Get set of ingredient keys that the user has disabled."""
     ensure_initialized()
 
     with get_db_cursor() as cursor:
-        cursor.execute(
-            "SELECT ingredient_key FROM ingredient_preferences WHERE enabled = 0"
-        )
+        cursor.execute("SELECT ingredient_key FROM ingredient_preferences WHERE enabled = 0")
         return {row["ingredient_key"] for row in cursor.fetchall()}
 
 
-def toggle_ingredient(ingredient_key: str, enabled: bool) -> Dict[str, Any]:
+def toggle_ingredient(ingredient_key: str, enabled: bool) -> dict[str, Any]:
     """Enable or disable checking for a specific ingredient."""
     ensure_initialized()
 
@@ -361,7 +347,7 @@ def toggle_ingredient(ingredient_key: str, enabled: bool) -> Dict[str, Any]:
                 enabled = ?,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (ingredient_key, 1 if enabled else 0, 1 if enabled else 0)
+            (ingredient_key, 1 if enabled else 0, 1 if enabled else 0),
         )
 
     return {
@@ -371,7 +357,7 @@ def toggle_ingredient(ingredient_key: str, enabled: bool) -> Dict[str, Any]:
     }
 
 
-def get_ingredient_preferences() -> List[Dict[str, Any]]:
+def get_ingredient_preferences() -> list[dict[str, Any]]:
     """Get all ingredient preferences."""
     ensure_initialized()
 
@@ -386,7 +372,7 @@ def get_ingredient_preferences() -> List[Dict[str, Any]]:
         return [dict(row) for row in cursor.fetchall()]
 
 
-def reset_ingredient_preferences() -> Dict[str, Any]:
+def reset_ingredient_preferences() -> dict[str, Any]:
     """Reset all ingredient preferences to defaults (all enabled)."""
     ensure_initialized()
 
@@ -394,19 +380,17 @@ def reset_ingredient_preferences() -> Dict[str, Any]:
         cursor.execute("DELETE FROM ingredient_preferences")
         deleted = cursor.rowcount
 
-    return {
-        "success": True,
-        "message": f"Reset {deleted} ingredient preferences to defaults"
-    }
+    return {"success": True, "message": f"Reset {deleted} ingredient preferences to defaults"}
 
 
 # ============== Product Safety Checking ==============
 
+
 def get_product_safety_status(
     product_id: str,
     description: str,
-    brand: Optional[str] = None,
-    categories: Optional[List[str]] = None,
+    brand: str | None = None,
+    categories: list[str] | None = None,
 ) -> ProductSafetyStatus:
     """
     Get the complete safety status for a product.
@@ -485,8 +469,8 @@ def get_product_safety_status(
 
 
 def check_products_safety_batch(
-    products: List[Dict[str, Any]],
-) -> List[ProductSafetyStatus]:
+    products: list[dict[str, Any]],
+) -> list[ProductSafetyStatus]:
     """
     Check safety status for multiple products efficiently.
 
@@ -504,12 +488,10 @@ def check_products_safety_batch(
     disabled = get_disabled_ingredients()
 
     # Get blocked reasons
-    blocked_reasons: Dict[str, str] = {}
+    blocked_reasons: dict[str, str] = {}
     if blocked_ids:
         with get_db_cursor() as cursor:
-            cursor.execute(
-                "SELECT product_id, blocked_reason FROM blocked_products"
-            )
+            cursor.execute("SELECT product_id, blocked_reason FROM blocked_products")
             for row in cursor.fetchall():
                 blocked_reasons[row["product_id"]] = row["blocked_reason"]
 
@@ -521,26 +503,30 @@ def check_products_safety_batch(
 
         # Check safe list
         if product_id in safe_ids:
-            results.append(ProductSafetyStatus(
-                product_id=product_id,
-                status=SafetyStatus.SAFE,
-                is_safe_listed=True,
-                is_blocked=False,
-                blocked_reason=None,
-                safety_result=None,
-            ))
+            results.append(
+                ProductSafetyStatus(
+                    product_id=product_id,
+                    status=SafetyStatus.SAFE,
+                    is_safe_listed=True,
+                    is_blocked=False,
+                    blocked_reason=None,
+                    safety_result=None,
+                )
+            )
             continue
 
         # Check blocked list
         if product_id in blocked_ids:
-            results.append(ProductSafetyStatus(
-                product_id=product_id,
-                status=SafetyStatus.BLOCKED,
-                is_safe_listed=False,
-                is_blocked=True,
-                blocked_reason=blocked_reasons.get(product_id),
-                safety_result=None,
-            ))
+            results.append(
+                ProductSafetyStatus(
+                    product_id=product_id,
+                    status=SafetyStatus.BLOCKED,
+                    is_safe_listed=False,
+                    is_blocked=True,
+                    blocked_reason=blocked_reasons.get(product_id),
+                    safety_result=None,
+                )
+            )
             continue
 
         # Check ingredients
@@ -563,14 +549,16 @@ def check_products_safety_batch(
         else:
             status = SafetyStatus.AVOID
 
-        results.append(ProductSafetyStatus(
-            product_id=product_id,
-            status=status,
-            is_safe_listed=False,
-            is_blocked=False,
-            blocked_reason=None,
-            safety_result=safety_result,
-        ))
+        results.append(
+            ProductSafetyStatus(
+                product_id=product_id,
+                status=status,
+                is_safe_listed=False,
+                is_blocked=False,
+                blocked_reason=None,
+                safety_result=safety_result,
+            )
+        )
 
     return results
 
@@ -591,9 +579,10 @@ def get_block_mode() -> BlockMode:
 # ==================== ASYNC WRAPPERS ====================
 # Use these from async tool handlers to avoid blocking the event loop.
 
+
 async def check_products_safety_batch_async(
-    products: List[Dict[str, Any]],
-) -> List[ProductSafetyStatus]:
+    products: list[dict[str, Any]],
+) -> list[ProductSafetyStatus]:
     """Async wrapper for check_products_safety_batch() — runs in thread pool."""
     return await asyncio.to_thread(check_products_safety_batch, products)
 
@@ -601,8 +590,8 @@ async def check_products_safety_batch_async(
 async def get_product_safety_status_async(
     product_id: str,
     description: str,
-    brand: Optional[str] = None,
-    categories: Optional[List[str]] = None,
+    brand: str | None = None,
+    categories: list[str] | None = None,
 ) -> ProductSafetyStatus:
     """Async wrapper for get_product_safety_status() — runs in thread pool."""
     return await asyncio.to_thread(

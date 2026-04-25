@@ -9,42 +9,42 @@ to buy holiday items 1-3 days BEFORE the actual holiday.
 import statistics as stats
 from collections import defaultdict
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .database import get_db_connection, ensure_initialized
+from .database import ensure_initialized, get_db_connection
 
 # Built-in holiday patterns with shopping lead times
 HOLIDAY_PATTERNS = {
-    'thanksgiving': {
-        'months': [10, 11],
-        'peak_weeks': [45, 46, 47],
-        'keywords': ['turkey', 'stuffing', 'cranberry', 'pie', 'gravy'],
-        'days_before': 2  # Shop 2 days before Thanksgiving
+    "thanksgiving": {
+        "months": [10, 11],
+        "peak_weeks": [45, 46, 47],
+        "keywords": ["turkey", "stuffing", "cranberry", "pie", "gravy"],
+        "days_before": 2,  # Shop 2 days before Thanksgiving
     },
-    'christmas': {
-        'months': [11, 12],
-        'peak_weeks': [49, 50, 51, 52],
-        'keywords': ['ham', 'eggnog', 'candy cane', 'gingerbread', 'fruitcake'],
-        'days_before': 3  # Shop 3 days before (avoid Christmas Eve rush)
+    "christmas": {
+        "months": [11, 12],
+        "peak_weeks": [49, 50, 51, 52],
+        "keywords": ["ham", "eggnog", "candy cane", "gingerbread", "fruitcake"],
+        "days_before": 3,  # Shop 3 days before (avoid Christmas Eve rush)
     },
-    'halloween': {
-        'months': [9, 10],
-        'peak_weeks': [40, 41, 42, 43, 44],
-        'keywords': ['candy', 'pumpkin', 'chocolate'],
-        'days_before': 2  # Shop 2 days before Halloween
+    "halloween": {
+        "months": [9, 10],
+        "peak_weeks": [40, 41, 42, 43, 44],
+        "keywords": ["candy", "pumpkin", "chocolate"],
+        "days_before": 2,  # Shop 2 days before Halloween
     },
-    'easter': {
-        'months': [3, 4],
-        'peak_weeks': [12, 13, 14, 15, 16],
-        'keywords': ['ham', 'egg', 'chocolate', 'lamb'],
-        'days_before': 2  # Shop 2 days before Easter
+    "easter": {
+        "months": [3, 4],
+        "peak_weeks": [12, 13, 14, 15, 16],
+        "keywords": ["ham", "egg", "chocolate", "lamb"],
+        "days_before": 2,  # Shop 2 days before Easter
     },
-    'july_4th': {
-        'months': [6, 7],
-        'peak_weeks': [26, 27],
-        'keywords': ['hotdog', 'hamburger', 'bun', 'chips', 'watermelon'],
-        'days_before': 2  # Shop 2 days before July 4th
-    }
+    "july_4th": {
+        "months": [6, 7],
+        "peak_weeks": [26, 27],
+        "keywords": ["hotdog", "hamburger", "bun", "chips", "watermelon"],
+        "days_before": 2,  # Shop 2 days before July 4th
+    },
 }
 
 
@@ -71,7 +71,7 @@ def _calculate_easter(year: int) -> date:
     return date(year, month, day)
 
 
-def get_holiday_date(holiday: str, year: int) -> Optional[date]:
+def get_holiday_date(holiday: str, year: int) -> date | None:
     """
     Calculate the actual date of a holiday for a given year.
 
@@ -82,7 +82,7 @@ def get_holiday_date(holiday: str, year: int) -> Optional[date]:
     Returns:
         The date of the holiday, or None if unknown
     """
-    if holiday == 'thanksgiving':
+    if holiday == "thanksgiving":
         # 4th Thursday of November
         nov_1 = date(year, 11, 1)
         # Find first Thursday (weekday 3)
@@ -90,18 +90,18 @@ def get_holiday_date(holiday: str, year: int) -> Optional[date]:
         first_thursday = nov_1 + timedelta(days=days_until_thursday)
         # 4th Thursday is 3 weeks after the first
         return first_thursday + timedelta(weeks=3)
-    elif holiday == 'christmas':
+    elif holiday == "christmas":
         return date(year, 12, 25)
-    elif holiday == 'halloween':
+    elif holiday == "halloween":
         return date(year, 10, 31)
-    elif holiday == 'easter':
+    elif holiday == "easter":
         return _calculate_easter(year)
-    elif holiday == 'july_4th':
+    elif holiday == "july_4th":
         return date(year, 7, 4)
     return None
 
 
-def get_upcoming_holidays(days_ahead: int = 30) -> List[Dict[str, Any]]:
+def get_upcoming_holidays(days_ahead: int = 30) -> list[dict[str, Any]]:
     """
     Get upcoming holidays with their shopping dates.
 
@@ -115,7 +115,7 @@ def get_upcoming_holidays(days_ahead: int = 30) -> List[Dict[str, Any]]:
     upcoming = []
 
     for holiday, patterns in HOLIDAY_PATTERNS.items():
-        days_before = patterns.get('days_before', 2)
+        days_before = patterns.get("days_before", 2)
 
         # Check current year and next year
         for year in [today.year, today.year + 1]:
@@ -130,31 +130,31 @@ def get_upcoming_holidays(days_ahead: int = 30) -> List[Dict[str, Any]]:
             if 0 <= days_until_shopping <= days_ahead:
                 # Determine urgency
                 if days_until_shopping <= 0:
-                    urgency = 'critical'
+                    urgency = "critical"
                 elif days_until_shopping <= 2:
-                    urgency = 'high'
+                    urgency = "high"
                 elif days_until_shopping <= 5:
-                    urgency = 'medium'
+                    urgency = "medium"
                 else:
-                    urgency = 'low'
+                    urgency = "low"
 
-                upcoming.append({
-                    'holiday': holiday,
-                    'holiday_date': holiday_date.isoformat(),
-                    'shop_by_date': shop_by_date.isoformat(),
-                    'days_until_shopping': days_until_shopping,
-                    'days_until_holiday': (holiday_date - today).days,
-                    'urgency': urgency,
-                    'keywords': patterns['keywords']
-                })
+                upcoming.append(
+                    {
+                        "holiday": holiday,
+                        "holiday_date": holiday_date.isoformat(),
+                        "shop_by_date": shop_by_date.isoformat(),
+                        "days_until_shopping": days_until_shopping,
+                        "days_until_holiday": (holiday_date - today).days,
+                        "urgency": urgency,
+                        "keywords": patterns["keywords"],
+                    }
+                )
 
     # Sort by days until shopping (most urgent first)
-    return sorted(upcoming, key=lambda x: x['days_until_shopping'])
+    return sorted(upcoming, key=lambda x: x["days_until_shopping"])
 
 
-def calculate_seasonality_score(
-    purchase_events: List[Dict[str, Any]]
-) -> float:
+def calculate_seasonality_score(purchase_events: list[dict[str, Any]]) -> float:
     """
     Calculate how seasonal a product is.
 
@@ -171,16 +171,15 @@ def calculate_seasonality_score(
         return 0.0
 
     # Count purchases by month
-    monthly_counts: Dict[int, int] = defaultdict(int)
+    monthly_counts: dict[int, int] = defaultdict(int)
     for event in purchase_events:
-        date_str = event.get('event_date', '')
+        date_str = event.get("event_date", "")
         if date_str:
             try:
-                if 'T' in date_str:
-                    date = datetime.fromisoformat(
-                        date_str.replace('Z', '+00:00'))
+                if "T" in date_str:
+                    date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 else:
-                    date = datetime.strptime(date_str, '%Y-%m-%d')
+                    date = datetime.strptime(date_str, "%Y-%m-%d")
                 monthly_counts[date.month] += 1
             except (ValueError, TypeError):
                 continue
@@ -200,10 +199,7 @@ def calculate_seasonality_score(
     return min(1.0, cv / 2.0)
 
 
-def detect_holiday_association(
-    product_id: str,
-    description: Optional[str] = None
-) -> Optional[str]:
+def detect_holiday_association(product_id: str, description: str | None = None) -> str | None:
     """
     Detect if a product is associated with a specific holiday.
 
@@ -219,17 +215,20 @@ def detect_holiday_association(
     # Get purchase events for this product
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT event_date FROM purchase_events
             WHERE product_id = ? AND event_type = 'order_placed'
-        """, (product_id,))
+        """,
+            (product_id,),
+        )
         events = [dict(row) for row in cursor.fetchall()]
 
         # Check description for holiday keywords
         if description:
             desc_lower = description.lower()
             for holiday, patterns in HOLIDAY_PATTERNS.items():
-                if any(kw in desc_lower for kw in patterns['keywords']):
+                if any(kw in desc_lower for kw in patterns["keywords"]):
                     return holiday
 
         # Check purchase patterns
@@ -237,12 +236,12 @@ def detect_holiday_association(
             return None
 
         # Count purchases by month
-        monthly_counts: Dict[int, int] = defaultdict(int)
+        monthly_counts: dict[int, int] = defaultdict(int)
         for event in events:
-            date_str = event.get('event_date', '')
+            date_str = event.get("event_date", "")
             if date_str:
                 try:
-                    date = datetime.strptime(date_str[:10], '%Y-%m-%d')
+                    date = datetime.strptime(date_str[:10], "%Y-%m-%d")
                     monthly_counts[date.month] += 1
                 except (ValueError, TypeError):
                     continue
@@ -253,9 +252,7 @@ def detect_holiday_association(
 
         # Check if 80%+ purchases are in holiday months
         for holiday, patterns in HOLIDAY_PATTERNS.items():
-            holiday_count = sum(
-                monthly_counts.get(m, 0) for m in patterns['months']
-            )
+            holiday_count = sum(monthly_counts.get(m, 0) for m in patterns["months"])
             if holiday_count / total >= 0.8:
                 return holiday
 
@@ -264,7 +261,7 @@ def detect_holiday_association(
         conn.close()
 
 
-def update_seasonal_patterns(product_id: str) -> Dict[str, Any]:
+def update_seasonal_patterns(product_id: str) -> dict[str, Any]:
     """
     Update seasonal pattern data for a product.
 
@@ -279,44 +276,43 @@ def update_seasonal_patterns(product_id: str) -> Dict[str, Any]:
     conn = get_db_connection()
     try:
         # Get purchase events
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT event_date, quantity FROM purchase_events
             WHERE product_id = ? AND event_type = 'order_placed'
-        """, (product_id,))
+        """,
+            (product_id,),
+        )
         events = [dict(row) for row in cursor.fetchall()]
 
         if not events:
-            return {'product_id': product_id, 'patterns': []}
+            return {"product_id": product_id, "patterns": []}
 
         # Aggregate by month
-        monthly_data: Dict[int, Dict] = defaultdict(
-            lambda: {'count': 0, 'quantity': 0}
-        )
+        monthly_data: dict[int, dict] = defaultdict(lambda: {"count": 0, "quantity": 0})
 
         for event in events:
-            date_str = event.get('event_date', '')
+            date_str = event.get("event_date", "")
             if date_str:
                 try:
-                    date = datetime.strptime(date_str[:10], '%Y-%m-%d')
-                    monthly_data[date.month]['count'] += 1
-                    monthly_data[date.month]['quantity'] += event.get(
-                        'quantity', 1)
+                    date = datetime.strptime(date_str[:10], "%Y-%m-%d")
+                    monthly_data[date.month]["count"] += 1
+                    monthly_data[date.month]["quantity"] += event.get("quantity", 1)
                 except (ValueError, TypeError):
                     continue
 
         # Find peak periods
-        counts = [monthly_data[m]['count'] for m in range(1, 13)]
+        counts = [monthly_data[m]["count"] for m in range(1, 13)]
         if counts:
             mean_count = stats.mean(counts)
             std_count = stats.stdev(counts) if len(counts) > 1 else 0
 
         # Get product description for keyword matching
         desc_cursor = conn.execute(
-            "SELECT description FROM products WHERE product_id = ?",
-            (product_id,)
+            "SELECT description FROM products WHERE product_id = ?", (product_id,)
         )
         desc_row = desc_cursor.fetchone()
-        description = desc_row['description'] if desc_row else None
+        description = desc_row["description"] if desc_row else None
 
         # Detect holiday association
         holiday = detect_holiday_association(product_id, description)
@@ -325,12 +321,12 @@ def update_seasonal_patterns(product_id: str) -> Dict[str, Any]:
         patterns = []
         for month in range(1, 13):
             data = monthly_data[month]
-            is_peak = data['count'] > (mean_count + std_count) if counts else False
-            avg_qty = (data['quantity'] / data['count']
-                       if data['count'] > 0 else 0)
+            is_peak = data["count"] > (mean_count + std_count) if counts else False
+            avg_qty = data["quantity"] / data["count"] if data["count"] > 0 else 0
 
             # Upsert pattern
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO seasonal_patterns
                 (product_id, month, purchase_count, avg_quantity, is_peak_period,
                  holiday_association)
@@ -340,36 +336,34 @@ def update_seasonal_patterns(product_id: str) -> Dict[str, Any]:
                     avg_quantity = excluded.avg_quantity,
                     is_peak_period = excluded.is_peak_period,
                     holiday_association = excluded.holiday_association
-            """, (
-                product_id,
-                month,
-                data['count'],
-                avg_qty,
-                1 if is_peak else 0,
-                holiday if is_peak else None
-            ))
+            """,
+                (
+                    product_id,
+                    month,
+                    data["count"],
+                    avg_qty,
+                    1 if is_peak else 0,
+                    holiday if is_peak else None,
+                ),
+            )
 
-            patterns.append({
-                'month': month,
-                'count': data['count'],
-                'avg_quantity': avg_qty,
-                'is_peak': is_peak
-            })
+            patterns.append(
+                {
+                    "month": month,
+                    "count": data["count"],
+                    "avg_quantity": avg_qty,
+                    "is_peak": is_peak,
+                }
+            )
 
         conn.commit()
 
-        return {
-            'product_id': product_id,
-            'holiday_association': holiday,
-            'patterns': patterns
-        }
+        return {"product_id": product_id, "holiday_association": holiday, "patterns": patterns}
     finally:
         conn.close()
 
 
-def get_upcoming_seasonal_items(
-    days_ahead: int = 30
-) -> List[Dict[str, Any]]:
+def get_upcoming_seasonal_items(days_ahead: int = 30) -> list[dict[str, Any]]:
     """
     Get items associated with upcoming holidays/seasons.
 
@@ -390,7 +384,7 @@ def get_upcoming_seasonal_items(
     # Build a map of holiday -> shopping info
     holiday_info = {}
     for h in upcoming_holidays:
-        holiday_info[h['holiday']] = h
+        holiday_info[h["holiday"]] = h
 
     # Get months in range for database query
     now = datetime.now()
@@ -404,8 +398,9 @@ def get_upcoming_seasonal_items(
     conn = get_db_connection()
     try:
         # Find products with peak periods in target months
-        placeholders = ','.join('?' * len(target_months))
-        cursor = conn.execute(f"""
+        placeholders = ",".join("?" * len(target_months))
+        cursor = conn.execute(
+            f"""
             SELECT DISTINCT sp.product_id, sp.holiday_association,
                    sp.month, sp.avg_quantity,
                    p.description, p.brand
@@ -414,50 +409,54 @@ def get_upcoming_seasonal_items(
             WHERE sp.is_peak_period = 1
               AND sp.month IN ({placeholders})
             ORDER BY sp.month, p.description
-        """, list(target_months))
+        """,
+            list(target_months),
+        )
 
         items = []
         for row in cursor.fetchall():
-            holiday = row['holiday_association']
+            holiday = row["holiday_association"]
             item = {
-                'product_id': row['product_id'],
-                'description': row['description'],
-                'brand': row['brand'],
-                'holiday': holiday,
-                'peak_month': row['month'],
-                'typical_quantity': row['avg_quantity']
+                "product_id": row["product_id"],
+                "description": row["description"],
+                "brand": row["brand"],
+                "holiday": holiday,
+                "peak_month": row["month"],
+                "typical_quantity": row["avg_quantity"],
             }
 
             # Add shopping date info if this is an upcoming holiday
             if holiday and holiday in holiday_info:
                 info = holiday_info[holiday]
-                item['holiday_date'] = info['holiday_date']
-                item['shop_by_date'] = info['shop_by_date']
-                item['days_until_shopping'] = info['days_until_shopping']
-                item['days_until_holiday'] = info['days_until_holiday']
-                item['urgency'] = info['urgency']
+                item["holiday_date"] = info["holiday_date"]
+                item["shop_by_date"] = info["shop_by_date"]
+                item["days_until_shopping"] = info["days_until_shopping"]
+                item["days_until_holiday"] = info["days_until_holiday"]
+                item["urgency"] = info["urgency"]
             else:
                 # No specific holiday, use month-based estimate
-                item['holiday_date'] = None
-                item['shop_by_date'] = None
-                item['days_until_shopping'] = None
-                item['urgency'] = 'low'
+                item["holiday_date"] = None
+                item["shop_by_date"] = None
+                item["days_until_shopping"] = None
+                item["urgency"] = "low"
 
             items.append(item)
 
         # Sort by urgency (most urgent first)
-        urgency_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
-        items.sort(key=lambda x: (
-            urgency_order.get(x.get('urgency', 'low'), 4),
-            x.get('days_until_shopping') or 999
-        ))
+        urgency_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        items.sort(
+            key=lambda x: (
+                urgency_order.get(x.get("urgency", "low"), 4),
+                x.get("days_until_shopping") or 999,
+            )
+        )
 
         return items
     finally:
         conn.close()
 
 
-def get_holiday_items(holiday: str) -> List[Dict[str, Any]]:
+def get_holiday_items(holiday: str) -> list[dict[str, Any]]:
     """
     Get all items associated with a specific holiday.
 
@@ -471,14 +470,17 @@ def get_holiday_items(holiday: str) -> List[Dict[str, Any]]:
 
     conn = get_db_connection()
     try:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             SELECT DISTINCT sp.product_id, sp.avg_quantity,
                    p.description, p.brand
             FROM seasonal_patterns sp
             JOIN products p ON sp.product_id = p.product_id
             WHERE sp.holiday_association = ?
             ORDER BY p.description
-        """, (holiday,))
+        """,
+            (holiday,),
+        )
 
         return [dict(row) for row in cursor.fetchall()]
     finally:

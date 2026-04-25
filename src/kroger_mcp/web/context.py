@@ -22,10 +22,11 @@ analytics.meal_planning.list_plans_for_api.
 # Alpine store depend on. Changing keys requires coordinated updates in
 # templates/_macros/action_menu.html and static/js/action_menu.js.
 """
-from typing import Any, Dict, List
+
+from typing import Any
 
 
-def action_menu_context() -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+def action_menu_context() -> dict[str, dict[str, list[dict[str, Any]]]]:
     """
     Build the target-entity bundle for action-menu submenus.
 
@@ -61,13 +62,14 @@ def action_menu_context() -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
     }
 
 
-def _load_favorites_lists() -> List[Dict[str, Any]]:
+def _load_favorites_lists() -> list[dict[str, Any]]:
     # Counterpart: see routes/api/favorites.py::get_favorites_lists —
     # identical filter (exclude is_default) so the menu choices match the
     # dedicated API endpoint the host Alpine components refetch after
     # creating a new list.
     try:
         from kroger_mcp.analytics.favorites import get_lists
+
         return [
             {"id": lst["id"], "name": lst["name"]}
             for lst in get_lists()
@@ -78,9 +80,10 @@ def _load_favorites_lists() -> List[Dict[str, Any]]:
         return []
 
 
-def _load_recipe_choices() -> List[Dict[str, Any]]:
+def _load_recipe_choices() -> list[dict[str, Any]]:
     try:
         from kroger_mcp.tools.recipe_tools import _load_recipes
+
         return [
             {"id": r["id"], "name": r.get("name") or r["id"]}
             for r in _load_recipes().get("recipes", [])
@@ -91,9 +94,10 @@ def _load_recipe_choices() -> List[Dict[str, Any]]:
         return []
 
 
-def _load_meal_plan_choices() -> List[Dict[str, Any]]:
+def _load_meal_plan_choices() -> list[dict[str, Any]]:
     try:
         from kroger_mcp.analytics.meal_planning import list_plans_for_api
+
         outcome = list_plans_for_api(include_templates=False, limit=50)
         plans = outcome.get("plans", []) if outcome.get("success") else []
         return [

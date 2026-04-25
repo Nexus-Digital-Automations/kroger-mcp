@@ -1,7 +1,7 @@
 """Ingredients API endpoints — custom ingredient management."""
+
 import json
 from datetime import datetime
-from typing import List, Optional
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -17,24 +17,26 @@ router = APIRouter()
 # Request models
 # ---------------------------------------------------------------------------
 
+
 class CustomIngredientRequest(BaseModel):
     name: str
     severity: str = "warning"
-    category: Optional[str] = None
-    reason: Optional[str] = None
-    aliases: Optional[List[str]] = None
+    category: str | None = None
+    reason: str | None = None
+    aliases: list[str] | None = None
 
 
 class UpdateIngredientRequest(BaseModel):
-    severity: Optional[str] = None
-    category: Optional[str] = None
-    reason: Optional[str] = None
-    aliases: Optional[List[str]] = None
+    severity: str | None = None
+    category: str | None = None
+    reason: str | None = None
+    aliases: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
 # Custom ingredients endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/api/ingredients/custom")
 async def list_custom():
@@ -101,6 +103,7 @@ async def add_custom(body: CustomIngredientRequest):
         # Invalidate pattern cache so next safety check picks up the new ingredient
         try:
             from kroger_mcp.analytics.ingredients import get_compiled_patterns
+
             get_compiled_patterns(force_refresh=True)
         except Exception:
             pass
@@ -161,6 +164,7 @@ async def update_custom(name: str, body: UpdateIngredientRequest):
 
         try:
             from kroger_mcp.analytics.ingredients import get_compiled_patterns
+
             get_compiled_patterns(force_refresh=True)
         except Exception:
             pass
@@ -189,6 +193,7 @@ async def remove_custom(name: str):
 
         try:
             from kroger_mcp.analytics.ingredients import get_compiled_patterns
+
             get_compiled_patterns(force_refresh=True)
         except Exception:
             pass
@@ -209,6 +214,7 @@ async def remove_custom(name: str):
 # ---------------------------------------------------------------------------
 # All ingredients endpoint
 # ---------------------------------------------------------------------------
+
 
 @router.get("/api/ingredients/all")
 async def list_all():

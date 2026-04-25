@@ -1,4 +1,5 @@
 """API routes for analytics and reports."""
+
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
@@ -21,6 +22,7 @@ async def get_spending_report(days: int = Query(default=30, ge=1, le=365)):
     """Generate a spending / purchase analytics report."""
     try:
         from kroger_mcp.analytics.reporting import generate_spending_report
+
         report = generate_spending_report(days_back=days)
         # Normalise key so the frontend always sees 'category_breakdown'
         if "by_category" in report and "category_breakdown" not in report:
@@ -38,6 +40,7 @@ async def get_patterns_report(days: int = Query(default=30, ge=1, le=365)):
     """Generate a shopping-behaviour patterns report."""
     try:
         from kroger_mcp.analytics.reporting import generate_patterns_report
+
         report = generate_patterns_report(days_back=days)
         return _serializable(report)
     except ImportError:
@@ -50,12 +53,12 @@ async def get_patterns_report(days: int = Query(default=30, ge=1, le=365)):
 
     # Fallback: return basic purchase-event data
     try:
-        from kroger_mcp.analytics.database import get_db_connection, ensure_initialized
         from datetime import datetime, timedelta
+
+        from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
+
         ensure_initialized()
-        start_date = (
-            datetime.now() - timedelta(days=days)
-        ).strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         conn = get_db_connection()
         try:
             cursor = conn.execute(
@@ -85,6 +88,7 @@ async def get_pantry_report():
     """Return a pantry-level report."""
     try:
         from kroger_mcp.analytics.reporting import generate_pantry_report
+
         report = generate_pantry_report()
         return _serializable(report)
     except (ImportError, AttributeError):
@@ -98,6 +102,7 @@ async def get_pantry_report():
     # Fallback: call pantry status directly
     try:
         from kroger_mcp.analytics.pantry import get_pantry_status
+
         report = get_pantry_status()
         return _serializable(report)
     except Exception as exc:
@@ -113,8 +118,8 @@ async def get_cookable_recipes():
     Return recipes that can be (fully or mostly) cooked from current pantry stock.
     """
     try:
-        from kroger_mcp.tools.recipe_tools import _load_recipes
         from kroger_mcp.analytics.pantry import get_pantry_status
+        from kroger_mcp.tools.recipe_tools import _load_recipes
 
         data = _load_recipes()
         recipes = data.get("recipes", [])
@@ -135,25 +140,23 @@ async def get_cookable_recipes():
             total = len(ingredients)
             # Only count ingredients that are linked to a Kroger product
             linked = [
-                ing for ing in ingredients
-                if ing.get("product_id") and not ing.get("override")
+                ing for ing in ingredients if ing.get("product_id") and not ing.get("override")
             ]
             if not linked:
                 continue
-            available = sum(
-                1 for ing in linked
-                if ing.get("product_id") in stocked_ids
-            )
+            available = sum(1 for ing in linked if ing.get("product_id") in stocked_ids)
             pct = round(available / len(linked) * 100) if linked else 0
             if pct >= 50:
-                results.append({
-                    "id": recipe.get("id"),
-                    "name": recipe.get("name"),
-                    "cookable_percent": pct,
-                    "available_ingredients": available,
-                    "total_linked_ingredients": len(linked),
-                    "total_ingredients": total,
-                })
+                results.append(
+                    {
+                        "id": recipe.get("id"),
+                        "name": recipe.get("name"),
+                        "cookable_percent": pct,
+                        "available_ingredients": available,
+                        "total_linked_ingredients": len(linked),
+                        "total_ingredients": total,
+                    }
+                )
 
         results.sort(key=lambda r: r["cookable_percent"], reverse=True)
         return {"recipes": results, "count": len(results)}
@@ -173,6 +176,7 @@ async def export_all_data():
         # Recipes
         try:
             from kroger_mcp.tools.recipe_tools import _load_recipes
+
             payload["recipes"] = _load_recipes()
         except Exception:
             payload["recipes"] = {}
@@ -180,6 +184,7 @@ async def export_all_data():
         # Pantry
         try:
             from kroger_mcp.analytics.pantry import get_pantry_status
+
             payload["pantry"] = get_pantry_status()
         except Exception:
             payload["pantry"] = {}
@@ -187,6 +192,7 @@ async def export_all_data():
         # Cart
         try:
             from kroger_mcp.tools.cart_tools import _load_cart_data
+
             payload["cart"] = _load_cart_data()
         except Exception:
             payload["cart"] = {}
@@ -196,6 +202,7 @@ async def export_all_data():
             import json as _json
             import os
             from pathlib import Path
+
             sl_file = str(
                 Path(__file__).parent.parent.parent.parent.parent.parent
                 / "kroger_shopping_list.json"

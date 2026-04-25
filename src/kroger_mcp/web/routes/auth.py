@@ -12,9 +12,7 @@ from kroger_mcp.auth.sessions import create_session, delete_session
 
 router = APIRouter()
 
-templates = Jinja2Templates(
-    directory=str(__file__).rsplit("/routes", 1)[0] + "/templates"
-)
+templates = Jinja2Templates(directory=str(__file__).rsplit("/routes", 1)[0] + "/templates")
 
 
 def _get_user_by_email(email: str) -> dict | None:
@@ -50,9 +48,7 @@ def _get_user_by_email(email: str) -> dict | None:
 
         conn = get_db_connection()
         try:
-            conn.row_factory = lambda c, r: {
-                col[0]: r[i] for i, col in enumerate(c.description)
-            }
+            conn.row_factory = lambda c, r: {col[0]: r[i] for i, col in enumerate(c.description)}
             cur = conn.execute(
                 "SELECT id, email, password_hash, display_name, kroger_profile_id "
                 "FROM users WHERE email = ? AND is_active = 1",
@@ -71,7 +67,7 @@ def _create_user(email: str, display_name: str, password: str) -> str:
     user_id = str(uuid.uuid4())
 
     if get_backend() == "postgresql":
-        from kroger_mcp.analytics.pg_database import get_pg_connection, _get_pool
+        from kroger_mcp.analytics.pg_database import _get_pool, get_pg_connection
 
         conn = get_pg_connection()
         try:
@@ -90,8 +86,7 @@ def _create_user(email: str, display_name: str, password: str) -> str:
         conn = get_db_connection()
         try:
             conn.execute(
-                "INSERT INTO users (id, email, password_hash, display_name) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO users (id, email, password_hash, display_name) " "VALUES (?, ?, ?, ?)",
                 (user_id, email, pw_hash, display_name),
             )
             conn.commit()
@@ -128,7 +123,11 @@ async def login_submit(request: Request):
     if not email or not password:
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "active_page": "login", "error": "Email and password are required."},
+            {
+                "request": request,
+                "active_page": "login",
+                "error": "Email and password are required.",
+            },
             status_code=400,
         )
 

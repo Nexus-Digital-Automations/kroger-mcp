@@ -4,7 +4,7 @@ Chain, department, and utility information tools for Kroger MCP server.
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
@@ -35,20 +35,20 @@ def register_tools(mcp):
                 "Other: list_chains|get_chain|check_chain|list_departments|get_department|check_department|get_datetime|get_servings"
             )
         ),
-        chain_name: Optional[str] = Field(
+        chain_name: str | None = Field(
             default=None,
             description="Chain name",
         ),
-        department_id: Optional[str] = Field(
+        department_id: str | None = Field(
             default=None,
             description="Department ID",
         ),
-        servings: Optional[int] = Field(
+        servings: int | None = Field(
             default=None,
             description="Number of servings 1-20",
         ),
         ctx: Context = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Store info and user preferences.
 
         Store data: list_chains, get_chain, check_chain, list_departments, get_department, check_department.
@@ -56,7 +56,12 @@ def register_tools(mcp):
         Utility: get_datetime.
         """
         return await asyncio.to_thread(
-            _info_impl, action, chain_name, department_id, servings, ctx,
+            _info_impl,
+            action,
+            chain_name,
+            department_id,
+            servings,
+            ctx,
         )
 
     def _info_impl(action, chain_name, department_id, servings, ctx):
@@ -254,6 +259,7 @@ def register_tools(mcp):
             case "get_servings":
                 try:
                     from .shared import get_default_servings as _get_default_servings
+
                     svc = _get_default_servings()
                     return {
                         "success": True,
@@ -263,8 +269,8 @@ def register_tools(mcp):
                             "recipe_creation": f"New recipes default to {svc} servings",
                             "shopping_list": f"Shopping list scales to {svc} servings",
                             "meal_planning": f"Meal assignments default to {svc} servings",
-                            "can_override": "You can override this per-recipe or per-meal"
-                        }
+                            "can_override": "You can override this per-recipe or per-meal",
+                        },
                     }
                 except Exception as e:
                     return {"success": False, "error": f"Failed to get default servings: {str(e)}"}
@@ -277,8 +283,11 @@ def register_tools(mcp):
                 try:
                     from .shared import (
                         get_default_servings as _get_default_servings,
+                    )
+                    from .shared import (
                         set_default_servings as _set_default_servings,
                     )
+
                     old = _get_default_servings()
                     _set_default_servings(servings)
                     return {
@@ -289,20 +298,22 @@ def register_tools(mcp):
                         "note": (
                             "This will affect new recipes and shopping list scaling. "
                             "Existing recipes retain their servings."
-                        )
+                        ),
                     }
                 except Exception as e:
                     return {"success": False, "error": f"Failed to set default servings: {str(e)}"}
 
             case "get_preferences":
                 try:
-                    from .shared import get_preferred_location_id, get_default_servings as _get_default_servings
+                    from .shared import get_default_servings as _get_default_servings
+                    from .shared import get_preferred_location_id
+
                     return {
                         "success": True,
                         "profile": {
                             "preferred_location_id": get_preferred_location_id(),
-                            "default_servings_per_meal": _get_default_servings()
-                        }
+                            "default_servings_per_meal": _get_default_servings(),
+                        },
                     }
                 except Exception as e:
                     return {"success": False, "error": f"Failed to get preferences: {str(e)}"}

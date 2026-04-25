@@ -1,4 +1,5 @@
 """Deals page route — redirects to Products page (deals mode is merged there)."""
+
 from fastapi import APIRouter
 from fastapi.responses import RedirectResponse
 

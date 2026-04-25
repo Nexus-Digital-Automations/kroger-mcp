@@ -9,22 +9,21 @@ Tracks individual consumption events with pantry integration:
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .database import get_db_connection, ensure_initialized
+from .database import ensure_initialized, get_db_connection
 from .pantry import consume_from_pantry, get_pantry_item, get_pantry_status, update_pantry_level
 
-
-VALID_MEAL_TYPES = {'breakfast', 'lunch', 'dinner', 'snack'}
+VALID_MEAL_TYPES = {"breakfast", "lunch", "dinner", "snack"}
 
 
 def log_meal(
     meal_type: str,
-    items: List[Dict[str, Any]],
-    description: Optional[str] = None,
-    recipe_id: Optional[str] = None,
-    notes: Optional[str] = None,
-) -> Dict[str, Any]:
+    items: list[dict[str, Any]],
+    description: str | None = None,
+    recipe_id: str | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
     """
     Log a meal and deduct from pantry.
 
@@ -43,12 +42,12 @@ def log_meal(
 
     if meal_type not in VALID_MEAL_TYPES:
         return {
-            'success': False,
-            'error': f"Invalid meal_type '{meal_type}'. Must be one of: {', '.join(sorted(VALID_MEAL_TYPES))}",
+            "success": False,
+            "error": f"Invalid meal_type '{meal_type}'. Must be one of: {', '.join(sorted(VALID_MEAL_TYPES))}",
         }
 
     if not items:
-        return {'success': False, 'error': 'At least one item is required'}
+        return {"success": False, "error": "At least one item is required"}
 
     now = datetime.now().isoformat()
     pantry_updates = []
@@ -65,36 +64,40 @@ def log_meal(
         log_id = cursor.lastrowid
 
         for item in items:
-            product_id = item.get('product_id')
+            product_id = item.get("product_id")
             if not product_id:
                 continue
 
-            item_desc = item.get('description', '')
-            qty_pct = float(item.get('quantity_percent', 10))
+            item_desc = item.get("description", "")
+            qty_pct = float(item.get("quantity_percent", 10))
             qty_pct = max(0, min(100, qty_pct))
 
             # Get current pantry level before deduction
             pantry_item = get_pantry_item(product_id)
-            previous_level = pantry_item['level_percent'] if pantry_item else None
+            previous_level = pantry_item["level_percent"] if pantry_item else None
 
             # Deduct from pantry
             deducted = False
             if pantry_item and qty_pct > 0:
                 result = consume_from_pantry(product_id=product_id, percent=qty_pct)
-                if result.get('success'):
+                if result.get("success"):
                     deducted = True
-                    pantry_updates.append({
-                        'product_id': product_id,
-                        'description': item_desc or pantry_item.get('description', ''),
-                        'previous_level': result['previous_level'],
-                        'new_level': result['new_level'],
-                        'amount_deducted': result['amount_deducted'],
-                    })
+                    pantry_updates.append(
+                        {
+                            "product_id": product_id,
+                            "description": item_desc or pantry_item.get("description", ""),
+                            "previous_level": result["previous_level"],
+                            "new_level": result["new_level"],
+                            "amount_deducted": result["amount_deducted"],
+                        }
+                    )
                 else:
-                    errors.append({
-                        'product_id': product_id,
-                        'error': result.get('error', 'Unknown error'),
-                    })
+                    errors.append(
+                        {
+                            "product_id": product_id,
+                            "error": result.get("error", "Unknown error"),
+                        }
+                    )
 
             # Insert meal log item
             conn.execute(
@@ -107,26 +110,26 @@ def log_meal(
         conn.commit()
 
         return {
-            'success': True,
-            'log_id': log_id,
-            'meal_type': meal_type,
-            'logged_at': now,
-            'items_logged': len(items),
-            'pantry_updates': pantry_updates,
-            'errors': errors,
+            "success": True,
+            "log_id": log_id,
+            "meal_type": meal_type,
+            "logged_at": now,
+            "items_logged": len(items),
+            "pantry_updates": pantry_updates,
+            "errors": errors,
         }
 
     except Exception as e:
         conn.rollback()
-        return {'success': False, 'error': f'Failed to log meal: {str(e)}'}
+        return {"success": False, "error": f"Failed to log meal: {str(e)}"}
     finally:
         conn.close()
 
 
 def get_meal_log(
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-) -> Dict[str, Any]:
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
     """
     Retrieve meal log entries with items, filtered by date range.
 
@@ -165,48 +168,48 @@ def get_meal_log(
             items_cursor = conn.execute(
                 """SELECT product_id, description, quantity_percent, previous_level, pantry_deducted
                    FROM meal_log_items WHERE meal_log_id = ?""",
-                (log['id'],),
+                (log["id"],),
             )
-            log['items'] = [dict(r) for r in items_cursor.fetchall()]
+            log["items"] = [dict(r) for r in items_cursor.fetchall()]
 
-        return {'success': True, 'entries': logs}
+        return {"success": True, "entries": logs}
 
     except Exception as e:
-        return {'success': False, 'error': str(e), 'entries': []}
+        return {"success": False, "error": str(e), "entries": []}
     finally:
         conn.close()
 
 
-def get_today_meals() -> Dict[str, Any]:
+def get_today_meals() -> dict[str, Any]:
     """
     Get today's meal log with summary statistics.
 
     Returns:
         Dict with meals list and stats
     """
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = datetime.now().strftime("%Y-%m-%d")
     result = get_meal_log(date_from=today, date_to=today)
 
-    meals = result.get('entries', [])
-    items_consumed = sum(len(m.get('items', [])) for m in meals)
+    meals = result.get("entries", [])
+    items_consumed = sum(len(m.get("items", [])) for m in meals)
 
     # Count items currently low in pantry
     pantry_items = get_pantry_status(apply_depletion=True)
-    low_items = sum(1 for i in pantry_items if i.get('status') == 'low' or i.get('status') == 'out')
+    low_items = sum(1 for i in pantry_items if i.get("status") == "low" or i.get("status") == "out")
 
     return {
-        'success': True,
-        'date': today,
-        'meals': meals,
-        'stats': {
-            'meals_count': len(meals),
-            'items_consumed': items_consumed,
-            'low_items': low_items,
+        "success": True,
+        "date": today,
+        "meals": meals,
+        "stats": {
+            "meals_count": len(meals),
+            "items_consumed": items_consumed,
+            "low_items": low_items,
         },
     }
 
 
-def delete_meal_log(log_id: int) -> Dict[str, Any]:
+def delete_meal_log(log_id: int) -> dict[str, Any]:
     """
     Delete a meal log entry and restore pantry levels.
 
@@ -223,7 +226,7 @@ def delete_meal_log(log_id: int) -> Dict[str, Any]:
         # Check if the log exists
         cursor = conn.execute("SELECT id FROM meal_log WHERE id = ?", (log_id,))
         if not cursor.fetchone():
-            return {'success': False, 'error': f'Meal log {log_id} not found'}
+            return {"success": False, "error": f"Meal log {log_id} not found"}
 
         # Get items to restore
         items_cursor = conn.execute(
@@ -235,27 +238,29 @@ def delete_meal_log(log_id: int) -> Dict[str, Any]:
 
         restored = []
         for item in items:
-            if item['pantry_deducted'] and item['previous_level'] is not None:
+            if item["pantry_deducted"] and item["previous_level"] is not None:
                 # Restore to previous level
-                result = update_pantry_level(item['product_id'], int(item['previous_level']))
-                if result.get('success'):
-                    restored.append({
-                        'product_id': item['product_id'],
-                        'restored_to': item['previous_level'],
-                    })
+                result = update_pantry_level(item["product_id"], int(item["previous_level"]))
+                if result.get("success"):
+                    restored.append(
+                        {
+                            "product_id": item["product_id"],
+                            "restored_to": item["previous_level"],
+                        }
+                    )
 
         # Delete the log entry (CASCADE deletes items)
         conn.execute("DELETE FROM meal_log WHERE id = ?", (log_id,))
         conn.commit()
 
         return {
-            'success': True,
-            'deleted_log_id': log_id,
-            'restored_items': restored,
+            "success": True,
+            "deleted_log_id": log_id,
+            "restored_items": restored,
         }
 
     except Exception as e:
         conn.rollback()
-        return {'success': False, 'error': f'Failed to delete meal log: {str(e)}'}
+        return {"success": False, "error": f"Failed to delete meal log: {str(e)}"}
     finally:
         conn.close()
