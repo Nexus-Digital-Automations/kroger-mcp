@@ -1,6 +1,7 @@
 """Cart API endpoints."""
 
 import asyncio
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter
@@ -16,6 +17,8 @@ from kroger_mcp.tools.cart_tools import (
     _save_order_history,
 )
 from kroger_mcp.tools.shared import get_authenticated_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -165,13 +168,13 @@ async def mark_order_placed():
             kroger_cart_updated = True
         except Exception as kroger_err:
             kroger_warning = str(kroger_err)
-            print(f"Warning: could not push to Kroger cart API: {kroger_err}")
+            logger.warning('Could not push to Kroger cart API: %s', kroger_err)
 
         # Record the order in purchase analytics
         try:
             record_order(current_cart)
         except Exception as record_err:
-            print(f"Warning: could not record order analytics: {record_err}")
+            logger.warning('Could not record order analytics: %s', record_err)
 
         # Save to local order history
         try:
@@ -186,7 +189,7 @@ async def mark_order_placed():
             )
             _save_order_history(history)
         except Exception as hist_err:
-            print(f"Warning: could not save order history: {hist_err}")
+            logger.warning('Could not save order history: %s', hist_err)
 
         # Restock pantry
         try:

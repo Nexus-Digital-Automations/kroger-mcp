@@ -2,11 +2,14 @@
 Purchase event tracking - records cart additions and completed orders.
 """
 
+import logging
 import sqlite3
 from datetime import datetime
 from typing import Any
 
 from .database import ensure_initialized, get_db_connection
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_product_exists_conn(
@@ -210,9 +213,7 @@ def _restock_pantry_items(cart_items: list[dict[str, Any]]) -> None:
                 # Not yet tracked — add to pantry at 100%
                 add_to_pantry(product_id=product_id, description=description, level=100)
     except Exception as e:
-        import traceback
-
-        print(f"Warning: Could not restock pantry items: {e}\n{traceback.format_exc()}")
+        logger.warning('Could not restock pantry items: %s', e, exc_info=True)
 
 
 def get_purchase_events(

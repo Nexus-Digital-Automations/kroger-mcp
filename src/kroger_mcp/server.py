@@ -13,7 +13,7 @@ Environment Variables Required:
 """
 
 import asyncio
-import sys
+import logging
 
 from fastmcp import FastMCP
 
@@ -45,6 +45,7 @@ from .tools import (
     shopping_list_tools,
 )
 
+logger = logging.getLogger(__name__)
 
 async def _cleanup_stale_sessions():
     """Background task to cleanup stale sessions."""
@@ -233,7 +234,7 @@ def create_server() -> FastMCP:
         try:
             module.register_tools(mcp)
         except Exception as e:
-            print(f"[kroger-mcp] WARNING: Failed to register {name}: {e}", file=sys.stderr)
+            logger.error("Failed to register %s: %s", name, e)
 
     # Register all tools from the modules
     _register(location_tools, "location_tools")
@@ -256,7 +257,7 @@ def create_server() -> FastMCP:
     try:
         prompts.register_prompts(mcp)
     except Exception as e:
-        print(f"[kroger-mcp] WARNING: Failed to register prompts: {e}", file=sys.stderr)
+        logger.error("Failed to register prompts: %s", e)
 
     return mcp
 

@@ -23,6 +23,8 @@ from kroger_api.kroger_api import KrogerAPI
 from kroger_api.token_storage import load_token
 from kroger_api.utils.env import get_zip_code, load_and_validate_env
 
+from ._storage import JsonStore
+
 # Load environment variables
 load_dotenv()
 
@@ -146,24 +148,15 @@ def invalidate_client_credentials_client():
     _client_credentials_client = None
 
 
+_preferences_store = JsonStore(PREFERENCES_FILE, default=lambda: {"preferred_location_id": None})
+
+
 def _load_preferences() -> dict:
-    """Load preferences from file"""
-    try:
-        if os.path.exists(PREFERENCES_FILE):
-            with open(PREFERENCES_FILE) as f:
-                return json.load(f)
-    except Exception as e:
-        print(f"Warning: Could not load preferences: {e}")
-    return {"preferred_location_id": None}
+    return _preferences_store.load()
 
 
 def _save_preferences(preferences: dict) -> None:
-    """Save preferences to file"""
-    try:
-        with open(PREFERENCES_FILE, "w") as f:
-            json.dump(preferences, f, indent=2)
-    except Exception as e:
-        print(f"Warning: Could not save preferences: {e}")
+    _preferences_store.save(preferences)
 
 
 def get_preferred_location_id() -> str | None:

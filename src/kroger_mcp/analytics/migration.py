@@ -6,11 +6,14 @@ new SQLite-based analytics database.
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 from typing import Any
 
 from .database import get_db_connection, initialize_database
+
+logger = logging.getLogger(__name__)
 
 # File paths (same as cart_tools.py)
 CART_FILE = "kroger_cart.json"
@@ -112,7 +115,7 @@ def migrate_json_to_sqlite() -> dict[str, Any]:
                         migrated["items"] += 1
 
             except (OSError, json.JSONDecodeError) as e:
-                print(f"Warning: Could not read order history: {e}")
+                logger.warning('Could not read order history: %s', e)
 
         # Migrate current cart (as cart_add events)
         if os.path.exists(CART_FILE):
@@ -152,7 +155,7 @@ def migrate_json_to_sqlite() -> dict[str, Any]:
                     )
 
             except (OSError, json.JSONDecodeError) as e:
-                print(f"Warning: Could not read cart data: {e}")
+                logger.warning('Could not read cart data: %s', e)
 
         conn.commit()
 
@@ -218,13 +221,13 @@ def _update_migrated_stats(product_ids: list) -> None:
             update_product_stats(product_id)
             update_seasonal_patterns(product_id)
         except Exception as e:
-            print(f"Warning: Could not update stats for {product_id}: {e}")
+            logger.warning('Could not update stats for %s: %s', product_id, e)
 
     # Run auto-categorization
     try:
         auto_categorize_all()
     except Exception as e:
-        print(f"Warning: Could not auto-categorize: {e}")
+        logger.warning('Could not auto-categorize: %s', e)
 
 
 def get_migration_status() -> dict[str, Any]:

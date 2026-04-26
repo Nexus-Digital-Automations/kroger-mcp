@@ -23,7 +23,10 @@ analytics.meal_planning.list_plans_for_api.
 # templates/_macros/action_menu.html and static/js/action_menu.js.
 """
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def action_menu_context() -> dict[str, dict[str, list[dict[str, Any]]]]:
@@ -76,7 +79,7 @@ def _load_favorites_lists() -> list[dict[str, Any]]:
             if not lst.get("is_default")
         ]
     except Exception as exc:
-        print(f"[action_menu_context] favorites lists unavailable: {exc}")
+        logger.warning("action_menu_context: favorites lists unavailable: %s", exc)
         return []
 
 
@@ -90,7 +93,7 @@ def _load_recipe_choices() -> list[dict[str, Any]]:
             if r.get("id")
         ]
     except Exception as exc:
-        print(f"[action_menu_context] recipes unavailable: {exc}")
+        logger.warning("action_menu_context: recipes unavailable: %s", exc)
         return []
 
 
@@ -109,5 +112,5 @@ def _load_meal_plan_choices() -> list[dict[str, Any]]:
             for p in plans
         ]
     except Exception as exc:
-        print(f"[action_menu_context] meal plans unavailable: {exc}")
+        logger.warning("action_menu_context: meal plans unavailable: %s", exc)
         return []

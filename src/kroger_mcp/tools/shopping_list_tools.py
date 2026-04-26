@@ -9,8 +9,7 @@ Provides intermediate storage between recipes and cart:
 """
 
 import asyncio
-import json
-import os
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -19,30 +18,29 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ._storage import JsonStore
+
+logger = logging.getLogger(__name__)
+
 # Shopping list storage file
 _BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
 SHOPPING_LIST_FILE = str(_BASE_DIR / "kroger_shopping_list.json")
 
+_shopping_list_store = JsonStore(
+    SHOPPING_LIST_FILE, default=lambda: {"items": [], "last_updated": None}
+)
+
 
 def _load_shopping_list() -> dict[str, Any]:
-    """Load shopping list from JSON file."""
-    try:
-        if os.path.exists(SHOPPING_LIST_FILE):
-            with open(SHOPPING_LIST_FILE) as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {"items": [], "last_updated": None}
+    return _shopping_list_store.load()
 
 
 def _save_shopping_list(data: dict[str, Any]) -> None:
-    """Save shopping list to JSON file."""
+    data["last_updated"] = datetime.now().isoformat()
     try:
-        data["last_updated"] = datetime.now().isoformat()
-        with open(SHOPPING_LIST_FILE, "w") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"Warning: Could not save shopping list: {e}")
+        _shopping_list_store.save(data)
+    except OSError as exc:
+        logger.warning("Could not save shopping list: %s", exc)
 
 
 def _generate_list_item_id() -> str:

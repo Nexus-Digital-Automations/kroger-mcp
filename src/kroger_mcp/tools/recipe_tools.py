@@ -8,7 +8,7 @@ Provides tools for:
 """
 
 import asyncio
-import json
+import logging
 import os
 import uuid
 from datetime import datetime
@@ -18,11 +18,16 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ._storage import JsonStore
 from .shared import get_authenticated_client
+
+logger = logging.getLogger(__name__)
 
 # Recipe storage file
 _BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
 RECIPES_FILE = str(_BASE_DIR / "kroger_recipes.json")
+
+_recipes_store = JsonStore(RECIPES_FILE, default=lambda: {"recipes": [], "last_updated": None})
 
 
 def _trigger_notion_sync(op: str, data) -> None:
@@ -50,14 +55,7 @@ def _trigger_notion_sync(op: str, data) -> None:
 
 
 def _load_recipes() -> dict[str, Any]:
-    """Load recipes from JSON file."""
-    try:
-        if os.path.exists(RECIPES_FILE):
-            with open(RECIPES_FILE) as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {"recipes": [], "last_updated": None}
+    return _recipes_store.load()
 
 
 def _normalize_ingredients(ingredients: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -70,13 +68,11 @@ def _normalize_ingredients(ingredients: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _save_recipes(data: dict[str, Any]) -> None:
-    """Save recipes to JSON file."""
+    data["last_updated"] = datetime.now().isoformat()
     try:
-        data["last_updated"] = datetime.now().isoformat()
-        with open(RECIPES_FILE, "w") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"Warning: Could not save recipes: {e}")
+        _recipes_store.save(data)
+    except OSError as exc:
+        logger.warning("Could not save recipes: %s", exc)
 
 
 def _find_recipe(recipe_id: str) -> dict[str, Any] | None:

@@ -3,8 +3,7 @@ Cart tracking and management functionality
 """
 
 import asyncio
-import json
-import os
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -20,12 +19,21 @@ from ..analytics.safety import (
     get_disabled_ingredients,
     is_filtering_enabled,
 )
+from ._storage import JsonStore
 from .shared import get_authenticated_client, get_preferred_location_id
+
+logger = logging.getLogger(__name__)
 
 # Cart storage file
 _BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
 CART_FILE = str(_BASE_DIR / "kroger_cart.json")
 ORDER_HISTORY_FILE = str(_BASE_DIR / "kroger_order_history.json")
+
+_cart_store = JsonStore(
+    CART_FILE,
+    default=lambda: {"current_cart": [], "last_updated": None, "preferred_location_id": None},
+)
+_order_history_store: JsonStore = JsonStore(ORDER_HISTORY_FILE, default=list)
 
 
 def _get_session_id(ctx) -> str:
@@ -36,43 +44,25 @@ def _get_session_id(ctx) -> str:
 
 
 def _load_cart_data() -> dict[str, Any]:
-    """Load cart data from file"""
-    try:
-        if os.path.exists(CART_FILE):
-            with open(CART_FILE) as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {"current_cart": [], "last_updated": None, "preferred_location_id": None}
+    return _cart_store.load()
 
 
 def _save_cart_data(cart_data: dict[str, Any]) -> None:
-    """Save cart data to file"""
     try:
-        with open(CART_FILE, "w") as f:
-            json.dump(cart_data, f, indent=2)
-    except Exception as e:
-        print(f"Warning: Could not save cart data: {e}")
+        _cart_store.save(cart_data)
+    except OSError as exc:
+        logger.warning("Could not save cart data: %s", exc)
 
 
 def _load_order_history() -> list[dict[str, Any]]:
-    """Load order history from file"""
-    try:
-        if os.path.exists(ORDER_HISTORY_FILE):
-            with open(ORDER_HISTORY_FILE) as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return []
+    return _order_history_store.load()
 
 
 def _save_order_history(history: list[dict[str, Any]]) -> None:
-    """Save order history to file"""
     try:
-        with open(ORDER_HISTORY_FILE, "w") as f:
-            json.dump(history, f, indent=2)
-    except Exception as e:
-        print(f"Warning: Could not save order history: {e}")
+        _order_history_store.save(history)
+    except OSError as exc:
+        logger.warning("Could not save order history: %s", exc)
 
 
 def _add_item_to_local_cart(
@@ -115,7 +105,7 @@ def _add_item_to_local_cart(
 
         record_cart_add(product_id, quantity, modality, product_details)
     except Exception as e:
-        print(f"Warning: Could not record analytics: {e}")
+        logger.warning("Could not record analytics: %s", e)
 
     if product_details:
         try:
@@ -138,7 +128,7 @@ def _add_item_to_local_cart(
         description = (product_details or {}).get("description") or None
         add_to_pantry(product_id=product_id, description=description)
     except Exception as e:
-        print(f"Warning: Could not add product {product_id} to pantry: {e}")
+        logger.warning("Could not add product %s to pantry: %s", product_id, e)
 
 
 def register_tools(mcp):
@@ -634,7 +624,7 @@ def register_tools(mcp):
                         pids_in_order = [item.get("product_id") for item in current_cart]
                         update_all_product_stats(pids_in_order)
                     except Exception as e:
-                        print(f"Warning: Could not record analytics: {e}")
+                        logger.warning("Could not record analytics: %s", e)
 
                     # Restock pantry for all placed items
                     pantry_restocked = 0
@@ -648,9 +638,9 @@ def register_tools(mcp):
                                     restock_item(product_id=pid, level=100)
                                     pantry_restocked += 1
                                 except Exception as pe:
-                                    print(f"Warning: Could not restock pantry for {pid}: {pe}")
+                                    logger.warning("Could not restock pantry for %s: %s", pid, pe)
                     except Exception as e:
-                        print(f"Warning: Could not import pantry module: {e}")
+                        logger.warning("Could not import pantry module: %s", e)
 
                     cart_data["current_cart"] = []
                     cart_data["last_updated"] = datetime.now().isoformat()

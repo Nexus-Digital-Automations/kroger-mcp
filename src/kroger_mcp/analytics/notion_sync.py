@@ -7,11 +7,14 @@ failures never block recipe operations.
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+logger = logging.getLogger(__name__)
 
 # Sync state file — maps recipe_id → notion_page_id
 NOTION_SYNC_FILE = "kroger_notion_sync.json"
@@ -49,7 +52,7 @@ def _save_sync_state(state: dict[str, Any]) -> None:
         with open(NOTION_SYNC_FILE, "w") as f:
             json.dump(state, f, indent=2)
     except Exception as e:
-        print(f"Warning: Could not save Notion sync state: {e}")
+        logger.warning('Could not save Notion sync state: %s', e)
 
 
 # ---------------------------------------------------------------------------
