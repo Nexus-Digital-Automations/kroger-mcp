@@ -366,7 +366,7 @@
     </div>
 
     <!-- Nav -->
-    <nav class="flex-1 px-2 py-2 overflow-y-auto">
+    <nav class="flex-1 px-2 py-2 overflow-y-auto" aria-label="Main navigation">
 
       <a href="/dashboard" class="sidebar-link {% if active_page == 'dashboard' %}active{% endif %}">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -453,7 +453,9 @@
   </aside>
 
   <!-- Main -->
-  <main class="ml-56 flex-1 min-h-screen flex flex-col">
+  <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-green-800 focus:px-4 focus:py-2 focus:rounded focus:shadow-lg">Skip to main content</a>
+
+  <main id="main-content" class="ml-56 flex-1 min-h-screen flex flex-col">
     <header class="ss-header flex-shrink-0">
       <h1 class="ss-page-title">{% block heading %}{% endblock %}</h1>
     </header>
