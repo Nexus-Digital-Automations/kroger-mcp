@@ -81,16 +81,24 @@
         class="flex-shrink-0 px-4 py-2 text-sm font-medium text-emerald-600 border border-emerald-300 rounded-lg hover:bg-emerald-50 transition-colors">
         + Meal Plan
       </button>
-      <a href="#ingredients-card"
-        onclick="document.getElementById('ingredients-card')?.scrollIntoView({behavior:'smooth',block:'start'}); return false;"
-        style="display:inline-flex; align-items:center; gap:0.375rem; padding:0.5rem 1.125rem; background:var(--green); color:white; font-size:0.875rem; font-weight:500; border-radius:0.5rem; text-decoration:none; flex-shrink:0; transition:background 0.15s; font-family:'DM Sans',sans-serif;"
-        onmouseenter="this.style.background='oklch(42% 0.14 148)'"
-        onmouseleave="this.style.background='var(--green)'">
-        <svg style="width:0.875rem;height:0.875rem;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <button type="button" x-data
+        @click="$store.addRecipe.submit('{{ recipe.id }}')"
+        :disabled="$store.addRecipe.submitting"
+        :style="`display:inline-flex; align-items:center; gap:0.375rem; padding:0.5rem 1.125rem; background:${$store.addRecipe.errMsg ? 'oklch(45% 0.18 25)' : 'var(--green)'}; color:white; font-size:0.875rem; font-weight:500; border-radius:0.5rem; border:none; flex-shrink:0; transition:background 0.15s; font-family:'DM Sans',sans-serif; cursor:${$store.addRecipe.submitting ? 'wait' : 'pointer'}; opacity:${$store.addRecipe.submitting ? 0.75 : 1};`"
+        @mouseenter="if(!$store.addRecipe.submitting && !$store.addRecipe.errMsg) $el.style.background='oklch(42% 0.14 148)'"
+        @mouseleave="if(!$store.addRecipe.submitting && !$store.addRecipe.errMsg) $el.style.background='var(--green)'">
+        <svg x-show="!$store.addRecipe.submitting" style="width:0.875rem;height:0.875rem;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
         </svg>
-        Add to List
-      </a>
+        <svg x-show="$store.addRecipe.submitting" x-cloak class="animate-spin" style="width:0.875rem;height:0.875rem;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M20 9A8 8 0 006.34 6.34M4 15a8 8 0 0013.66 2.66"/>
+        </svg>
+        <span x-show="!$store.addRecipe.submitting && !$store.addRecipe.success && !$store.addRecipe.errMsg">Add to List</span>
+        <span x-show="$store.addRecipe.submitting" x-cloak>Adding…</span>
+        <span x-show="$store.addRecipe.success" x-cloak
+          x-text="'Added · ' + $store.addRecipe.addedCount + ' item' + ($store.addRecipe.addedCount === 1 ? '' : 's')"></span>
+        <span x-show="$store.addRecipe.errMsg" x-cloak x-text="'Failed — ' + $store.addRecipe.errMsg"></span>
+      </button>
     </div>
   </div>
 
@@ -174,14 +182,51 @@
   <!-- Ingredients -->
   <script>
   document.addEventListener('alpine:init', () => {
+    // Cross-component state for the header "Add to List" button.
+    // The button lives in the recipe-header card (outside the ingredients
+    // panel) but the active servings count is owned by the panel's stepper.
+    // The store is the bridge: ingredientPanel.init() pushes servings here
+    // on every change, the header button reads it on submit.
+    // Counterpart: see header button in this template + ingredientPanel.init().
+    Alpine.store('addRecipe', {
+      servings: 0,
+      submitting: false,
+      success: false,
+      addedCount: 0,
+      errMsg: '',
+
+      async submit(recipeId) {
+        if (this.submitting) return;
+        this.submitting = true;
+        this.success = false;
+        this.errMsg = '';
+        try {
+          const body = { recipe_id: recipeId };
+          if (this.servings > 0) body.servings_override = this.servings;
+          const d = await window.api.post('/api/shopping-list/add-recipe', body);
+          this.addedCount = (d && d.items_added) || 0;
+          this.success = true;
+          setTimeout(() => { this.success = false; }, 3000);
+        } catch (e) {
+          this.errMsg = (e && e.message) || 'Failed to add';
+          setTimeout(() => { this.errMsg = ''; }, 5000);
+        }
+        this.submitting = false;
+      }
+    });
+
     Alpine.data('ingredientPanel', () => ({
       ingView: 'usage',
       ings: {{ ingredients | tojson }},
       baseServings: {{ recipe.servings or 4 }},
       servings: {{ recipe.servings or 4 }},
-      adding: false,
-      addDone: false,
-      addErr: '',
+
+      init() {
+        // Mirror servings into the shared store so the header button
+        // submits the value the user currently sees on the stepper.
+        this.$watch('servings', v => Alpine.store('addRecipe').servings = v);
+        Alpine.store('addRecipe').servings = this.servings;
+      },
       gradeColor(g) {
         const m = {
           A: {bg:'oklch(91% 0.1 145)',  text:'oklch(30% 0.14 145)'},
@@ -244,30 +289,6 @@
         return this.catOrder.filter(k => map[k]).map(k => ({ header: this.catLabels[k], key: k, items: map[k] }));
       },
 
-      async addToShoppingList() {
-        const rdEl = document.getElementById('recipe-init-data');
-        const recipeId = rdEl ? JSON.parse(rdEl.textContent).id : '';
-        this.adding = true; this.addDone = false; this.addErr = '';
-        try {
-          const r = await fetch('/api/shopping-list/add-recipe', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({recipe_id: recipeId, servings_override: this.servings})
-          });
-          const d = await r.json();
-          if (r.ok) {
-            this.addDone = true;
-            setTimeout(() => this.addDone = false, 4000);
-          } else {
-            this.addErr = d.error || 'Failed to add';
-            setTimeout(() => this.addErr = '', 5000);
-          }
-        } catch(e) {
-          this.addErr = 'Network error';
-          setTimeout(() => this.addErr = '', 5000);
-        }
-        this.adding = false;
-      }
     }));
   });
   </script>
