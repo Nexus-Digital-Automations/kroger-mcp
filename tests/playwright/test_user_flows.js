@@ -106,9 +106,10 @@ async function flow1_addRecipeToListFromCard() {
   const recipeName = await firstCard.locator('h3').textContent();
   console.log(`     Recipe: "${recipeName.trim()}"`);
 
-  // Click "+ List" on first card
-  const listBtn = firstCard.locator('button:has-text("List")');
-  assert(await listBtn.count() > 0, 'Card has "+ List" button');
+  // Open the card's unified action menu, then click the "Add to Shopping List" item.
+  // Counterpart: templates/_macros/action_menu.html owns the trigger + menuitem markup.
+  const trigger = firstCard.locator('.action-menu-trigger');
+  assert(await trigger.count() > 0, 'Card has action menu trigger');
 
   // Track API response
   let apiStatus = 0;
@@ -120,14 +121,15 @@ async function flow1_addRecipeToListFromCard() {
     }
   });
 
-  await listBtn.click();
+  await trigger.click();
+  const addItem = firstCard.locator('[role="menuitem"]:has-text("Add to Shopping List")');
+  await addItem.waitFor({ state: 'visible', timeout: 5000 });
+  await addItem.click();
   await page.waitForTimeout(1500);
   await ss('flow1_after_click');
 
   assert(apiStatus === 200, `API returned 200 (got ${apiStatus})`);
-
-  const btnText = (await listBtn.textContent()).trim();
-  assert(btnText.includes('Added'), `Button shows "Added" feedback (got: "${btnText.slice(0,30)}")`);
+  assert((apiBody.items_added || 0) > 0, `API reports items_added > 0 (got ${apiBody.items_added})`);
 
   // Now navigate to shopping list and verify items exist
   await goto('/shopping-list');
@@ -172,9 +174,11 @@ async function flow2_addRecipeToListFromDetail() {
   const recipeName = await page.locator('h2').first().textContent();
   console.log(`     Recipe: "${recipeName.trim()}"`);
 
-  // Header "Add to List" anchor should still exist
-  const headerBtn = page.locator('a:has-text("Add to List")');
-  assert(await headerBtn.count() > 0, 'Header "Add to List" anchor present');
+  // Header "Add to List" is now an action button (was a scroll-anchor in the
+  // pre-fix version). It POSTs to /api/shopping-list/add-recipe via the
+  // shared Alpine.store('addRecipe').
+  const headerBtn = page.locator('button:has-text("Add to List")');
+  assert(await headerBtn.count() > 0, 'Header "Add to List" action button present');
 
   // Footer button should be removed
   const footerBtn = page.locator('#ingredients-card button:has-text("Add to Shopping List")');
@@ -291,13 +295,23 @@ async function flow5_mealPlanAssign() {
   await goto('/recipes');
   await page.waitForTimeout(800);
 
-  // Click "+ Meal Plan" on first card
-  const mealBtn = page.locator('button:has-text("Meal Plan")').first();
-  await mealBtn.click();
-  await page.waitForTimeout(1000);
-  await ss('flow5_panel_open');
+  // Open the first card's action menu, then click "Add to Meal Plan".
+  // Counterpart: templates/_macros/action_menu.html owns the menuitem markup.
+  // Why dispatchEvent rather than .click(): under Playwright's real-mouse hit
+  // testing, the click on a menuitem races with the @click.outside listener
+  // that closes the menu, and the dispatch chain
+  // (act → action-menu:meal-plan-add → open-meal-panel → mealPlanPanel.open)
+  // doesn't always complete. A scripted click bypasses the hit-test race.
+  const firstCard = page.locator('[x-data="recipesGrid"] .relative.flex.flex-col').first();
+  await firstCard.locator('.action-menu-trigger').click();
+  const mealItem = firstCard.locator('[role="menuitem"]:has-text("Add to Meal Plan")');
+  await mealItem.waitFor({ state: 'visible', timeout: 5000 });
+  await mealItem.dispatchEvent('click');
 
-  const panel = page.locator('.fixed.inset-y-0.right-0');
+  // The panel uses x-show + x-transition (~200ms). Wait for paint.
+  const panel = page.locator('div[x-data="mealPlanPanel"] .fixed.inset-y-0.right-0');
+  await panel.waitFor({ state: 'visible', timeout: 5000 });
+  await ss('flow5_panel_open');
   assert(await panel.isVisible(), 'Meal plan panel opens');
 
   // Check if plans exist
