@@ -200,8 +200,8 @@ async function testRecipeDetail() {
   // + Meal Plan button
   assert(await page.locator('button:has-text("Meal Plan")').count() > 0, '"+ Meal Plan" button present');
 
-  // Add to List scroll anchor
-  assert(await page.locator('a:has-text("Add to List")').count() > 0, '"Add to List" anchor present');
+  // Add to List action button (replaced the old scroll-anchor; now POSTs to shopping list)
+  assert(await page.locator('button:has-text("Add to List")').count() > 0, '"Add to List" action button present');
 
   // Ingredients card
   const ingCard = page.locator('#ingredients-card');
