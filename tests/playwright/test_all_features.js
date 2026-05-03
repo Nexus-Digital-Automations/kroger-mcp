@@ -266,9 +266,56 @@ async function testShoppingList() {
   // "Send to Kroger Cart" button is wired in the header action group
   // when items > 0; modal opens on click and POSTs to
   // /api/shopping-list/add-to-cart with confirm:false then confirm:true.
-  const sendToCartBtn = await page.locator('button:has-text("Send to Kroger Cart")').count();
-  if (items > 0) assert(sendToCartBtn > 0, '"Send to Kroger Cart" button present (list has items)');
-  else assert(sendToCartBtn === 0, '"Send to Kroger Cart" button hidden (empty list)');
+  const sendToCartBtn = page.locator('button:has-text("Send to Kroger Cart")');
+  if (items > 0) {
+    assert(await sendToCartBtn.count() > 0, '"Send to Kroger Cart" button present (list has items)');
+
+    // Activation test: open modal, assert preview structure, toggle
+    // modality re-fires the request, then Cancel — does NOT confirm,
+    // because confirm posts items to the real Kroger cart.
+    let previewHits = 0;
+    let lastBody = null;
+    const onReq = req => {
+      if (req.url().includes('/api/shopping-list/add-to-cart') && req.method() === 'POST') {
+        previewHits++;
+        try { lastBody = JSON.parse(req.postData()); } catch { /* ignore */ }
+      }
+    };
+    page.on('request', onReq);
+
+    await sendToCartBtn.first().click();
+    const modalTitle = page.locator('h3:has-text("Send to Kroger Cart")');
+    await modalTitle.waitFor({ state: 'visible', timeout: 5000 });
+    assert(await modalTitle.isVisible(), 'Send-to-Cart modal opens with title');
+    // Wait for preview POST to complete
+    await page.waitForFunction(() => {
+      const el = document.querySelector('[x-data*="shoppingListData"]');
+      return el && el._x_dataStack[0].previewLoading === false && el._x_dataStack[0].previewData;
+    }, { timeout: 5000 });
+    assert(previewHits === 1, `Preview POST fired exactly once (got ${previewHits})`);
+    assert(lastBody && lastBody.confirm === false && lastBody.modality === 'PICKUP',
+      `Preview body has confirm:false, modality:PICKUP (got ${JSON.stringify(lastBody)})`);
+
+    const willAddSection = page.locator('text=/Will add \\(/');
+    assert(await willAddSection.count() > 0, 'Modal renders "Will add" section');
+
+    // Toggle to Delivery — should re-fire preview with new modality
+    previewHits = 0;
+    await page.locator('button:has-text("Delivery")').first().click();
+    await page.waitForTimeout(800);
+    assert(previewHits === 1, `Modality toggle re-fires preview (got ${previewHits})`);
+    assert(lastBody && lastBody.modality === 'DELIVERY',
+      `Toggle sent modality:DELIVERY (got ${lastBody && lastBody.modality})`);
+
+    // Cancel — close modal without sending
+    await page.locator('button:has-text("Cancel")').first().click();
+    await page.waitForTimeout(300);
+    assert(!(await modalTitle.isVisible()), 'Cancel closes the modal');
+
+    page.off('request', onReq);
+  } else {
+    assert(await sendToCartBtn.count() === 0, '"Send to Kroger Cart" button hidden (empty list)');
+  }
 
   // Trash icon and Clear List button present
   const clearListBtn = await page.locator('button:has-text("Clear List")').count();
