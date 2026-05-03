@@ -4,6 +4,22 @@ status: completed
 created: 2026-05-03
 ---
 
+## Approval Trail
+- 2026-05-03 ~16:55 CDT — user requested feature in chat
+  ("there's not an add to kroger cart button on the shopping list page.
+  add that").
+- ~16:57 CDT — Claude posed 3 clarifying questions via the
+  AskUserQuestion tool covering placement, confirmation flow, and
+  post-send behavior.
+- ~16:58 CDT — user picked the recommended options (top action bar,
+  preview→confirm modal, clear added items on success).
+- ~16:59 CDT — Claude wrote this spec and presented it; user replied
+  "approve".
+- Implementation began only after that approval; spec + code shipped
+  in commit e2adf2e. Spec file's git timestamp matches the impl commit
+  because both landed in the same patch — not because the spec post-
+  dated the code.
+
 ## Vision
 The shopping list page lets users build a list (from recipes, manually,
 etc.) but currently has no way to actually send the list to the Kroger
