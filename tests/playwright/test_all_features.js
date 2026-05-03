@@ -263,11 +263,12 @@ async function testShoppingList() {
   if (items > 0) assert(true, `Shopping list has ${items} item rows`);
   else warn('Shopping list may be empty');
 
-  // Cart section removed — assert it is absent
-  const krogerCartHeading = await page.locator('h2:has-text("Kroger Cart")').count();
-  assert(krogerCartHeading === 0, 'Kroger Cart section is absent');
-  const sendToCartBtn = await page.locator('button:has-text("Send to Cart")').count();
-  assert(sendToCartBtn === 0, '"Send to Cart" button is absent');
+  // "Send to Kroger Cart" button is wired in the header action group
+  // when items > 0; modal opens on click and POSTs to
+  // /api/shopping-list/add-to-cart with confirm:false then confirm:true.
+  const sendToCartBtn = await page.locator('button:has-text("Send to Kroger Cart")').count();
+  if (items > 0) assert(sendToCartBtn > 0, '"Send to Kroger Cart" button present (list has items)');
+  else assert(sendToCartBtn === 0, '"Send to Kroger Cart" button hidden (empty list)');
 
   // Trash icon and Clear List button present
   const clearListBtn = await page.locator('button:has-text("Clear List")').count();
