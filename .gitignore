@@ -58,6 +58,10 @@ tests/playwright/screenshots/
 .claude-session.pid
 .claude/
 
+# macOS finder metadata
+.DS_Store
+**/.DS_Store
+
 # Validation artifacts (ephemeral test output)
 .validation-artifacts/
 
