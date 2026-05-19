@@ -54,6 +54,10 @@ tests/playwright/screenshots/
 # Playwright MCP runtime artifacts
 .playwright-mcp/
 
+# Claude Code session artifacts (per-session pid + tooling data)
+.claude-session.pid
+.claude/
+
 # Validation artifacts (ephemeral test output)
 .validation-artifacts/
 
