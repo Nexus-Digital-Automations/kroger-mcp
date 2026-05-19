@@ -304,6 +304,9 @@ async def update_shopping_list_item(item_id: str, body: UpdateItemBody):
 class AddToCartBody(BaseModel):
     confirm: bool = False
     modality: str = "PICKUP"
+    # Product IDs from the modal's Spices section the user ticked. None on the
+    # initial preview round-trip; populated by the client on confirm.
+    included_spice_ids: list[str] | None = None
 
 
 @router.post("/api/shopping-list/add-to-cart")
@@ -311,8 +314,16 @@ async def shopping_list_to_cart(body: AddToCartBody):
     """
     confirm=False → return preview of items to be added.
     confirm=True  → add items to Kroger cart, update local tracking, clear list.
+
+    Items classified as spices (see analytics.ingredients.is_spice) are split
+    into their own preview bucket so the modal can present them as opt-in
+    checkboxes. Only spices whose product_id appears in
+    ``body.included_spice_ids`` are promoted into the actual cart submission.
     """
     try:
+        from kroger_mcp.analytics.ingredients import is_spice
+        from kroger_mcp.tools.shared import get_include_spices_by_default
+
         data = _load_shopping_list()
         items = data.get("items", [])
 
@@ -335,9 +346,12 @@ async def shopping_list_to_cart(body: AddToCartBody):
         except Exception:
             pass
 
+        spice_default_included = get_include_spices_by_default()
+
         items_to_add = []
         items_to_skip = []
         items_manual = []
+        items_spices = []
 
         for item in items:
             product_id = item.get("product_id")
@@ -373,20 +387,26 @@ async def shopping_list_to_cart(body: AddToCartBody):
                         "reason": f"Pantry at {pantry_level}%",
                     }
                 )
-            else:
-                items_to_add.append(
-                    {
-                        "product_id": product_id,
-                        "name": name,
-                        "quantity": max(1, round(item.get("quantity", 1))),
-                        "recipe_name": item.get("recipe_name")
-                        or (
-                            item.get("sources", [{}])[0].get("recipe_name")
-                            if item.get("sources")
-                            else None
-                        ),
-                    }
+                continue
+
+            normalized_entry = {
+                "product_id": product_id,
+                "name": name,
+                "quantity": max(1, round(item.get("quantity", 1))),
+                "recipe_name": item.get("recipe_name")
+                or (
+                    item.get("sources", [{}])[0].get("recipe_name")
+                    if item.get("sources")
+                    else None
+                ),
+            }
+
+            if is_spice(name):
+                items_spices.append(
+                    {**normalized_entry, "default_included": spice_default_included}
                 )
+            else:
+                items_to_add.append(normalized_entry)
 
         # Preview mode
         if not body.confirm:
@@ -397,13 +417,30 @@ async def shopping_list_to_cart(body: AddToCartBody):
                     "items": items_to_add,
                     "items_to_skip": items_to_skip,
                     "manual_purchase": items_manual,
+                    "spices": items_spices,
                     "summary": {
                         "to_add": len(items_to_add),
                         "to_skip": len(items_to_skip),
                         "manual": len(items_manual),
+                        "spices": len(items_spices),
+                        "spice_default_included": spice_default_included,
                     },
                 }
             )
+
+        # Promote any spices the user explicitly ticked into the cart batch.
+        spice_id_set = set(body.included_spice_ids or [])
+        if spice_id_set:
+            for spice in items_spices:
+                if spice["product_id"] in spice_id_set:
+                    items_to_add.append(
+                        {
+                            "product_id": spice["product_id"],
+                            "name": spice["name"],
+                            "quantity": spice["quantity"],
+                            "recipe_name": spice.get("recipe_name"),
+                        }
+                    )
 
         # Confirm mode — add to Kroger cart
         if not items_to_add:

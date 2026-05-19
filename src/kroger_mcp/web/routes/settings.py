@@ -9,7 +9,10 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from kroger_mcp.tools.shared import get_default_servings, get_preferred_location_id
+from kroger_mcp.tools.shared import (
+    get_default_servings,
+    get_preferred_location_id,
+)
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -25,8 +28,11 @@ async def settings_page(
     oauth: str | None = Query(default=None),
     detail: str | None = Query(default=None),
 ):
+    from kroger_mcp.tools.shared import get_include_spices_by_default
+
     location_id = get_preferred_location_id() or ""
     servings = get_default_servings()
+    include_spices_by_default = get_include_spices_by_default()
 
     # Check auth status
     auth_status = "not_configured"
@@ -48,6 +54,7 @@ async def settings_page(
             "active_page": "settings",
             "location_id": location_id,
             "servings": servings,
+            "include_spices_by_default": include_spices_by_default,
             "auth_status": auth_status,
             "oauth_result": oauth or "",
             "oauth_detail": detail or "",

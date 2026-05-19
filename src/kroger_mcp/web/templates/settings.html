@@ -6,6 +6,7 @@
 <div x-data="{
   locationId: '{{ location_id }}',
   servings: {{ servings }},
+  includeSpicesByDefault: {{ 'true' if include_spices_by_default else 'false' }},
   locationSearch: '',
   locationResults: [],
   searching: false,
@@ -122,6 +123,15 @@
     });
     this.msg.servings = r.ok ? 'Saved!' : 'Error saving';
     setTimeout(() => { delete this.msg.servings; this.msg = {...this.msg}; }, 3000);
+  },
+  async saveIncludeSpicesByDefault() {
+    const r = await fetch('/api/settings/include-spices-by-default', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({include: this.includeSpicesByDefault})
+    });
+    this.msg.spices = r.ok ? 'Saved!' : 'Error saving';
+    setTimeout(() => { delete this.msg.spices; this.msg = {...this.msg}; }, 3000);
   },
   async searchLocations() {
     if (!this.locationSearch) return;
@@ -298,7 +308,23 @@
       <span>Advanced Settings</span>
     </button>
 
-    <div x-show="advancedOpen" x-transition class="mt-4 space-y-3">
+    <div x-show="advancedOpen" x-transition class="mt-4 space-y-4">
+      <!-- Spices in cart preview -->
+      <div>
+        <label class="flex items-center gap-2" style="font-size: 0.875rem; color: var(--text-2); cursor: pointer;">
+          <input type="checkbox" x-model="includeSpicesByDefault"
+            @change="saveIncludeSpicesByDefault()"/>
+          <span>Include spices by default when sending to Kroger cart</span>
+          <span x-show="msg.spices" style="font-size: 0.75rem; color: var(--success); margin-left: 0.5rem;" x-text="msg.spices"></span>
+        </label>
+        <p style="font-size: 0.75rem; color: var(--text-3); margin: 0.25rem 0 0 1.5rem;">
+          When off, spices appear unchecked in the cart preview and stay on your list
+          until you tick them.
+        </p>
+      </div>
+
+      <hr style="border-color: var(--border);"/>
+
       <p style="font-size: 0.75rem; color: var(--text-3);">
         Configure your Kroger API credentials. Get them from
         <a href="https://developer.kroger.com/" target="_blank" rel="noopener"

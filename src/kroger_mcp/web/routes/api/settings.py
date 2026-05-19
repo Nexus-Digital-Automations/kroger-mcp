@@ -21,6 +21,10 @@ class ServingsBody(BaseModel):
     servings: int
 
 
+class IncludeSpicesBody(BaseModel):
+    include: bool
+
+
 class LocationBody(BaseModel):
     location_id: str
 
@@ -43,11 +47,13 @@ async def get_settings():
         from kroger_mcp.tools.shared import (
             get_authenticated_client,
             get_default_servings,
+            get_include_spices_by_default,
             get_preferred_location_id,
         )
 
         location_id = get_preferred_location_id() or ""
         servings = get_default_servings()
+        include_spices_by_default = get_include_spices_by_default()
 
         auth_status = "not_configured"
         try:
@@ -60,6 +66,7 @@ async def get_settings():
         return {
             "location_id": location_id,
             "servings": servings,
+            "include_spices_by_default": include_spices_by_default,
             "auth_status": auth_status,
         }
     except Exception as exc:
@@ -76,6 +83,23 @@ async def set_servings(body: ServingsBody):
         return {"success": True, "servings": body.servings}
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/include-spices-by-default")
+async def set_include_spices(body: IncludeSpicesBody):
+    """Persist the 'Include spices by default' Advanced-Settings toggle.
+
+    When True, the Send-to-Kroger-Cart preview pre-checks every spice; when
+    False (default) spices appear unchecked and stay on the shopping list
+    until the user explicitly opts them in.
+    """
+    try:
+        from kroger_mcp.tools.shared import set_include_spices_by_default
+
+        set_include_spices_by_default(body.include)
+        return {"success": True, "include_spices_by_default": body.include}
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 

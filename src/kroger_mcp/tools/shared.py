@@ -238,6 +238,22 @@ def set_default_servings(servings: int) -> None:
     _save_preferences(preferences)
 
 
+def get_include_spices_by_default() -> bool:
+    """Whether the Send-to-Kroger-Cart preview should pre-check spice items.
+
+    Defaults to False — spices appear in the preview but stay unchecked until
+    the user explicitly opts them in, keeping pantry seasonings off the cart.
+    """
+    return bool(_load_preferences().get("include_spices_by_default", False))
+
+
+def set_include_spices_by_default(value: bool) -> None:
+    """Persist the 'include spices by default' Advanced-Settings toggle."""
+    preferences = _load_preferences()
+    preferences["include_spices_by_default"] = bool(value)
+    _save_preferences(preferences)
+
+
 def get_kroger_credentials() -> dict:
     """Get Kroger API credentials: preferences first, then env vars."""
     preferences = _load_preferences()

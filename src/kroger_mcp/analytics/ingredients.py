@@ -1089,6 +1089,57 @@ def _compile_positive_patterns() -> list[dict]:
 _POSITIVE_PATTERNS = _compile_positive_patterns()
 
 
+# Pantry-staple seasonings worth treating as spices for cart gating.
+# Standalone "pepper" is intentionally excluded — it collides with "bell pepper",
+# "red pepper", and other produce. Only multi-word forms that unambiguously name
+# the spice are included.
+_SPICE_EXTRA_ALIASES: frozenset[str] = frozenset(
+    {
+        "salt",
+        "black pepper",
+        "white pepper",
+        "ground pepper",
+        "peppercorn",
+        "peppercorns",
+        "red pepper flakes",
+        "crushed red pepper",
+        "soy sauce",
+        "vinegar",
+    }
+)
+
+
+def _build_spice_pattern() -> re.Pattern:
+    terms: set[str] = set()
+    for attr in GOOD_ATTRIBUTES:
+        if attr.key == "herb_spice_ingredient":
+            terms.update(a.lower() for a in attr.aliases)
+    terms.update(_SPICE_EXTRA_ALIASES)
+    # Longest-first ordering ensures multi-word phrases win over substrings.
+    ordered = sorted(terms, key=len, reverse=True)
+    return re.compile(
+        r"\b(?:" + "|".join(re.escape(t) for t in ordered) + r")\b",
+        re.IGNORECASE,
+    )
+
+
+_SPICE_PATTERN: re.Pattern = _build_spice_pattern()
+
+
+def is_spice(name: str | None) -> bool:
+    """Return True when `name` reads as a herb, spice, or seasoning.
+
+    Backed by the alias list already declared in GOOD_ATTRIBUTES so the source
+    of truth stays single. Parenthetical notes (e.g. "(optional)") are stripped
+    before matching. Word boundaries prevent false positives like "salted
+    butter" matching "salt".
+    """
+    if not name:
+        return False
+    cleaned = re.sub(r"\([^)]*\)", " ", name).lower()
+    return bool(_SPICE_PATTERN.search(cleaned))
+
+
 def check_positive_attributes(text: str) -> list[AttributeMatch]:
     """Check a product description for positive food quality attributes."""
     text_lower = text.lower()

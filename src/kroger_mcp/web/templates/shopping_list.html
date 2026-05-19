@@ -19,6 +19,26 @@ function shoppingListData() {
     previewData: null,            // server response from confirm:false
     modality: 'PICKUP',           // 'PICKUP' | 'DELIVERY'
     sendBusy: false,
+    // { product_id: bool } — repopulated each time the preview loads. Default
+    // pulled from previewData.summary.spice_default_included so the Advanced
+    // setting flips the initial checkbox state without touching the server.
+    spiceChecked: {},
+
+    // Count of spices the user has ticked. Used in the Send button label.
+    get checkedSpiceCount() {
+      return Object.values(this.spiceChecked).filter(Boolean).length;
+    },
+
+    get sendTotalCount() {
+      return (this.previewData?.summary?.to_add ?? 0) + this.checkedSpiceCount;
+    },
+
+    toggleSpice(productId) {
+      this.spiceChecked = {
+        ...this.spiceChecked,
+        [productId]: !this.spiceChecked[productId],
+      };
+    },
 
     async reload() {
       const r = await fetch('/api/shopping-list');
@@ -74,10 +94,15 @@ function shoppingListData() {
       this.previewOpen = true;
       this.previewLoading = true;
       this.previewData = null;
+      this.spiceChecked = {};
       try {
         this.previewData = await window.api.post(
           '/api/shopping-list/add-to-cart',
           {confirm: false, modality: this.modality}
+        );
+        const defaultChecked = !!this.previewData?.summary?.spice_default_included;
+        this.spiceChecked = Object.fromEntries(
+          (this.previewData?.spices || []).map(s => [s.product_id, defaultChecked])
         );
       } catch (e) {
         this.previewOpen = false;
@@ -90,22 +115,31 @@ function shoppingListData() {
       if (this.sendBusy) return;
       this.previewOpen = false;
       this.previewData = null;
+      this.spiceChecked = {};
     },
 
     // Confirm step: actually add items to the Kroger cart.
     async confirmSendToCart() {
       if (this.sendBusy) return;
       this.sendBusy = true;
+      const includedSpiceIds = Object.entries(this.spiceChecked)
+        .filter(([, on]) => on)
+        .map(([id]) => id);
       try {
         const result = await window.api.post(
           '/api/shopping-list/add-to-cart',
-          {confirm: true, modality: this.modality}
+          {
+            confirm: true,
+            modality: this.modality,
+            included_spice_ids: includedSpiceIds,
+          }
         );
         const parts = [result.message || `Sent ${result.items_added || 0} items to Kroger cart.`];
         if (result.warning) parts.push(result.warning);
         this._showSuccess(parts.join(' '));
         this.previewOpen = false;
         this.previewData = null;
+        this.spiceChecked = {};
         await this.reload();
       } catch (e) {
         this._showError(e);
@@ -319,6 +353,35 @@ function shoppingListData() {
               </div>
             </template>
 
+            <!-- Spices (optional) — unchecked by default; toggle the
+                 Advanced Settings "Include spices by default" preference to
+                 invert. Unchecked spices stay on the shopping list. -->
+            <template x-if="(previewData.spices || []).length > 0">
+              <div class="mb-4">
+                <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+                  Spices, optional (<span x-text="checkedSpiceCount"></span> /
+                  <span x-text="previewData.summary?.spices ?? 0"></span>)
+                </div>
+                <p class="text-xs text-gray-400 mb-2">
+                  Unchecked spices stay on your shopping list for next time.
+                </p>
+                <ul class="text-sm text-gray-700 space-y-1">
+                  <template x-for="it in previewData.spices" :key="it.product_id">
+                    <li class="flex items-center justify-between gap-2">
+                      <label class="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                        <input type="checkbox"
+                          :checked="!!spiceChecked[it.product_id]"
+                          @change="toggleSpice(it.product_id)"
+                          class="flex-shrink-0"/>
+                        <span class="truncate" x-text="it.name"></span>
+                      </label>
+                      <span class="text-gray-500 text-xs flex-shrink-0" x-text="'×' + it.quantity"></span>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+
             <!-- Manual purchase -->
             <template x-if="(previewData.manual_purchase || []).length > 0">
               <div class="mb-2">
@@ -346,9 +409,9 @@ function shoppingListData() {
           Cancel
         </button>
         <button @click="confirmSendToCart()"
-          :disabled="sendBusy || previewLoading || !previewData || (previewData.summary?.to_add ?? 0) === 0"
+          :disabled="sendBusy || previewLoading || !previewData || sendTotalCount === 0"
           class="ss-btn-primary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
-          <span x-show="!sendBusy" x-text="'Send ' + (previewData?.summary?.to_add ?? 0) + ' items'"></span>
+          <span x-show="!sendBusy" x-text="'Send ' + sendTotalCount + ' items'"></span>
           <span x-show="sendBusy" x-cloak>Sending…</span>
         </button>
       </div>
