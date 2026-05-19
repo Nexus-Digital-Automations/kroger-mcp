@@ -1,9 +1,12 @@
 {% extends "base.html" %}
+{% from "_macros/recipe_add_modal.html" import recipe_add_modal %}
 
 {% block title %}{{ recipe.name }} — Smart Shopper{% endblock %}
 {% block heading %}Recipe{% endblock %}
 
 {% block content %}
+
+{{ recipe_add_modal() }}
 
 <!-- Back link -->
 <a href="/recipes" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 mb-6 transition-colors">
@@ -82,22 +85,19 @@
         + Meal Plan
       </button>
       <button type="button" x-data
-        @click="$store.addRecipe.submit('{{ recipe.id }}')"
-        :disabled="$store.addRecipe.submitting"
-        :style="`display:inline-flex; align-items:center; gap:0.375rem; padding:0.5rem 1.125rem; background:${$store.addRecipe.errMsg ? 'oklch(45% 0.18 25)' : 'var(--green)'}; color:white; font-size:0.875rem; font-weight:500; border-radius:0.5rem; border:none; flex-shrink:0; transition:background 0.15s; font-family:'DM Sans',sans-serif; cursor:${$store.addRecipe.submitting ? 'wait' : 'pointer'}; opacity:${$store.addRecipe.submitting ? 0.75 : 1};`"
-        @mouseenter="if(!$store.addRecipe.submitting && !$store.addRecipe.errMsg) $el.style.background='oklch(42% 0.14 148)'"
-        @mouseleave="if(!$store.addRecipe.submitting && !$store.addRecipe.errMsg) $el.style.background='var(--green)'">
-        <svg x-show="!$store.addRecipe.submitting" style="width:0.875rem;height:0.875rem;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        @click="$store.recipePreview.openModal('{{ recipe.id }}', $store.recipeServings.value)"
+        :disabled="$store.recipePreview.loading || $store.recipePreview.submitting"
+        :style="`display:inline-flex; align-items:center; gap:0.375rem; padding:0.5rem 1.125rem; background:var(--green); color:white; font-size:0.875rem; font-weight:500; border-radius:0.5rem; border:none; flex-shrink:0; transition:background 0.15s; font-family:'DM Sans',sans-serif; cursor:${$store.recipePreview.loading ? 'wait' : 'pointer'}; opacity:${$store.recipePreview.loading ? 0.75 : 1};`"
+        @mouseenter="if(!$store.recipePreview.loading) $el.style.background='oklch(42% 0.14 148)'"
+        @mouseleave="if(!$store.recipePreview.loading) $el.style.background='var(--green)'">
+        <svg x-show="!$store.recipePreview.loading" style="width:0.875rem;height:0.875rem;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
         </svg>
-        <svg x-show="$store.addRecipe.submitting" x-cloak class="animate-spin" style="width:0.875rem;height:0.875rem;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg x-show="$store.recipePreview.loading" x-cloak class="animate-spin" style="width:0.875rem;height:0.875rem;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M20 9A8 8 0 006.34 6.34M4 15a8 8 0 0013.66 2.66"/>
         </svg>
-        <span x-show="!$store.addRecipe.submitting && !$store.addRecipe.success && !$store.addRecipe.errMsg">Add to List</span>
-        <span x-show="$store.addRecipe.submitting" x-cloak>Adding…</span>
-        <span x-show="$store.addRecipe.success" x-cloak
-          x-text="'Added · ' + $store.addRecipe.addedCount + ' item' + ($store.addRecipe.addedCount === 1 ? '' : 's')"></span>
-        <span x-show="$store.addRecipe.errMsg" x-cloak x-text="'Failed — ' + $store.addRecipe.errMsg"></span>
+        <span x-show="!$store.recipePreview.loading">Add to List</span>
+        <span x-show="$store.recipePreview.loading" x-cloak>Loading…</span>
       </button>
     </div>
   </div>
@@ -182,38 +182,11 @@
   <!-- Ingredients -->
   <script>
   document.addEventListener('alpine:init', () => {
-    // Cross-component state for the header "Add to List" button.
-    // The button lives in the recipe-header card (outside the ingredients
-    // panel) but the active servings count is owned by the panel's stepper.
-    // The store is the bridge: ingredientPanel.init() pushes servings here
-    // on every change, the header button reads it on submit.
-    // Counterpart: see header button in this template + ingredientPanel.init().
-    Alpine.store('addRecipe', {
-      servings: 0,
-      submitting: false,
-      success: false,
-      addedCount: 0,
-      errMsg: '',
-
-      async submit(recipeId) {
-        if (this.submitting) return;
-        this.submitting = true;
-        this.success = false;
-        this.errMsg = '';
-        try {
-          const body = { recipe_id: recipeId };
-          if (this.servings > 0) body.servings_override = this.servings;
-          const d = await window.api.post('/api/shopping-list/add-recipe', body);
-          this.addedCount = (d && d.items_added) || 0;
-          this.success = true;
-          setTimeout(() => { this.success = false; }, 3000);
-        } catch (e) {
-          this.errMsg = (e && e.message) || 'Failed to add';
-          setTimeout(() => { this.errMsg = ''; }, 5000);
-        }
-        this.submitting = false;
-      }
-    });
+    // Bridge: the header "Add to List" button lives outside the ingredients
+    // panel that owns the servings stepper. This store carries the live
+    // servings count across so the preview modal opens with the user's
+    // current scaling. ingredientPanel.init() writes on every change.
+    Alpine.store('recipeServings', { value: 0 });
 
     Alpine.data('ingredientPanel', () => ({
       ingView: 'usage',
@@ -223,9 +196,9 @@
 
       init() {
         // Mirror servings into the shared store so the header button
-        // submits the value the user currently sees on the stepper.
-        this.$watch('servings', v => Alpine.store('addRecipe').servings = v);
-        Alpine.store('addRecipe').servings = this.servings;
+        // opens the preview at the value the user currently sees on the stepper.
+        this.$watch('servings', v => Alpine.store('recipeServings').value = v);
+        Alpine.store('recipeServings').value = this.servings;
       },
       gradeColor(g) {
         const m = {

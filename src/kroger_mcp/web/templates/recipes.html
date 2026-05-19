@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros/action_menu.html" import action_menu %}
+{% from "_macros/recipe_add_modal.html" import recipe_add_modal %}
 
 {% block title %}Recipes — Smart Shopper{% endblock %}
 {% block heading %}Recipes{% endblock %}
@@ -535,15 +536,11 @@ document.addEventListener('alpine:init', () => {
     },
 
     // Counterpart: templates/_macros/action_menu.html dispatches
-    // action-menu:shopping-add for recipe cards. Reuses the same POST the
-    // previous inline "Add to List" button used.
-    async menuAddRecipeToList(recipe) {
-      const r = await fetch('/api/shopping-list/add-recipe', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({recipe_id: recipe.id}),
-      });
-      if (!r.ok) alert('Failed to add recipe to shopping list');
+    // action-menu:shopping-add for recipe cards. Opens the shared
+    // recipe-preview modal so the user can edit checkboxes + quantities
+    // before committing — same flow as the recipe-detail header button.
+    menuAddRecipeToList(recipe) {
+      Alpine.store('recipePreview').openModal(recipe.id, 0);
     },
   }));
 
@@ -603,5 +600,7 @@ document.addEventListener('alpine:init', () => {
   }));
 });
 </script>
+
+{{ recipe_add_modal() }}
 
 {% endblock %}
