@@ -3,11 +3,12 @@ Tests for the comprehensive recommendation engine.
 """
 
 import pytest
+
 from kroger_mcp.analytics.recommendations import (
+    _build_reason_summary,
     calculate_recommendation_score,
-    get_priority_tier,
     get_comprehensive_recommendations,
-    _build_reason_summary
+    get_priority_tier,
 )
 
 

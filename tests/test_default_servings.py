@@ -2,14 +2,12 @@
 Unit tests for default servings preference functionality.
 """
 
-import pytest
-import os
 import json
-from kroger_mcp.tools.shared import (
-    get_default_servings,
-    set_default_servings,
-    PREFERENCES_FILE
-)
+import os
+
+import pytest
+
+from kroger_mcp.tools.shared import PREFERENCES_FILE, get_default_servings, set_default_servings
 
 
 @pytest.fixture(autouse=True)

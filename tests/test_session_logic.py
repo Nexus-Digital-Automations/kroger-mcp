@@ -3,6 +3,7 @@ Unit tests for session requirement logic (without full imports).
 """
 
 import pytest
+
 from kroger_mcp.config.session_state import get_session_manager
 
 

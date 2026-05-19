@@ -5,16 +5,16 @@ Tests the _add_item_to_local_cart function that contains the auto-pantry logic.
 """
 
 import json
-import sys
 import os
 import sqlite3
+import sys
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from kroger_mcp.tools.cart_tools import _add_item_to_local_cart, CART_FILE, ORDER_HISTORY_FILE
-from kroger_mcp.analytics.pantry import get_pantry_status
 from kroger_mcp.analytics.database import ensure_initialized
+from kroger_mcp.analytics.pantry import get_pantry_status
+from kroger_mcp.tools.cart_tools import CART_FILE, ORDER_HISTORY_FILE, _add_item_to_local_cart
 
 _TEST_PRODUCT_IDS = ["TEST_PRODUCT_AUTO_001", "TEST_PRODUCT_DUPLICATE"]
 
@@ -235,8 +235,9 @@ def test_code_has_exception_handling():
     print("TEST: Exception Handling Verification")
     print("=" * 60)
 
-    from kroger_mcp.tools import cart_tools
     import inspect
+
+    from kroger_mcp.tools import cart_tools
 
     source = inspect.getsource(cart_tools._add_item_to_local_cart)
 

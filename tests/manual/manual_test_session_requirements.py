@@ -9,6 +9,7 @@ This script demonstrates the session requirement enforcement:
 """
 
 import asyncio
+
 from src.kroger_mcp.session_state import get_session_manager
 
 

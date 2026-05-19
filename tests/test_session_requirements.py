@@ -3,6 +3,7 @@ Integration tests for session-based tool requirements.
 """
 
 import pytest
+
 from kroger_mcp.config.session_state import get_session_manager
 
 
@@ -34,8 +35,9 @@ def reset_session_state():
 @pytest.mark.asyncio
 async def test_add_to_cart_blocks_without_attention():
     """Test that add_to_cart blocks if attention not called."""
-    from kroger_mcp.tools.cart_tools import register_tools
     from fastmcp import FastMCP
+
+    from kroger_mcp.tools.cart_tools import register_tools
 
     # Create a minimal MCP instance
     mcp = FastMCP("test")

@@ -5,27 +5,28 @@ Tests automatic expiration calculation, manual overrides,
 and integration with pantry inventory system.
 """
 
-import pytest
-from datetime import datetime, timedelta
 import os
 import sys
+from datetime import datetime, timedelta
+
+import pytest
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kroger_mcp.analytics.database import (
-    get_db_connection,
     ensure_initialized,
-    reset_initialization
+    get_db_connection,
+    reset_initialization,
 )
 from kroger_mcp.analytics.pantry import (
-    get_shelf_life_days,
-    calculate_expiration_date,
+    add_to_pantry,
     calculate_days_to_expiration,
+    calculate_expiration_date,
     get_expiration_status,
-    restock_item,
     get_pantry_status,
-    add_to_pantry
+    get_shelf_life_days,
+    restock_item,
 )
 
 
