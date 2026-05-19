@@ -158,14 +158,23 @@ def run():
 
     stop()
     print(f"Smart Shopper running at http://localhost:{PORT}")
-    uvicorn.run("kroger_mcp.web.app:app", host="0.0.0.0", port=PORT, reload=False)
+    # 0.0.0.0 bind is intentional — this is a local dev/single-user tool meant
+    # to be reachable from any interface on the host (e.g. companion phone on
+    # the LAN). bandit B104 flagged.
+    uvicorn.run(
+        "kroger_mcp.web.app:app", host="0.0.0.0", port=PORT, reload=False  # nosec B104
+    )
 
 
 def stop():
     """Kill any process running on the web port."""
-    import subprocess
+    import subprocess  # nosec B404 - static `lsof` invocation, no shell, no user input
 
-    result = subprocess.run(["lsof", "-ti", f":{PORT}"], capture_output=True, text=True)
+    # `lsof -ti :{PORT}` — args are a static list; PORT is an integer parsed
+    # from env at import time. No shell, no user-controlled input.
+    result = subprocess.run(  # nosec B603 B607
+        ["lsof", "-ti", f":{PORT}"], capture_output=True, text=True
+    )
     pids = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
     if not pids:
         print(f"No server found on port {PORT}")

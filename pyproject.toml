@@ -64,6 +64,28 @@ Kroger_Documentation = "https://developer.kroger.com/documentation/public/"
 cache_dir = ".cache/pytest"
 testpaths = ["tests/unit", "tests"]
 
+# Bandit security scanner config.
+# `exclude_dirs` skips test trees entirely — pytest is built on `assert`, so
+# B101 (assert_used) findings in tests/ are noise rather than security risk.
+# `skips` removes globally:
+#   B101 — assert_used; only meaningful in tests (already excluded) and
+#          intentional in a few prod assert-as-invariant call sites.
+#   B110 — try/except/pass; widely used here as a best-effort guard around
+#          optional pantry/analytics/notion lookups where failure must not
+#          break the parent request. Real silent-error bugs are caught in
+#          review, not by this heuristic.
+#   B608 — hardcoded_sql_expressions. Every SQL site in this repo uses the
+#          parameterised pattern: f-strings interpolate ONLY structural
+#          fragments built from internal constants (column names from a
+#          static map, ',' .join('?'*n) placeholders sized by a Python
+#          collection length, module-level SQL constants like
+#          _SLOT_ORDER_SQL). Values are always bound via `?` placeholders.
+#          Code review enforces this — any new f-string SQL that interpolates
+#          a value (not a structural fragment) must be rejected.
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "venv"]
+skips = ["B101", "B110", "B608"]
+
 # Ruff: linter + import sorter. Black handles formatting; ruff stays out of formatter conflicts.
 # Why select these rule families:
 #   E,F,W — core pyflakes/pycodestyle errors

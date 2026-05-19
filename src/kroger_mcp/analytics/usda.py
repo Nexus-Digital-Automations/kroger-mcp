@@ -63,7 +63,9 @@ def _fdc_request(
 
     req = Request(url, data=data, headers=headers, method=method)
     try:
-        with urlopen(req, timeout=15) as resp:
+        # URL is built from FDC_API_BASE (const https://) + internal endpoint
+        # path. bandit B310's SSRF concern (file://, ftp://) does not apply.
+        with urlopen(req, timeout=15) as resp:  # nosec B310
             return json.loads(resp.read().decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError):
         return {}

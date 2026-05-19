@@ -87,7 +87,10 @@ def _notion_request(
     data = json.dumps(body).encode("utf-8") if body else None
     req = Request(url, data=data, headers=headers, method=method)
     try:
-        with urlopen(req, timeout=15) as resp:
+        # URL is f"{NOTION_API_BASE}{path}" — NOTION_API_BASE is a const
+        # https:// URL, `path` is built from internal route literals. bandit
+        # B310's SSRF concern (file://, ftp://) does not apply.
+        with urlopen(req, timeout=15) as resp:  # nosec B310
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
         error_body = e.read().decode("utf-8")

@@ -7,9 +7,9 @@ Scans watchlist and whole foods catalog for current deals.
 Writes results to database for MCP server to read.
 """
 
+import logging
 import os
 import sys
-import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -18,7 +18,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 from kroger_api import KrogerAPI  # noqa: E402
-from kroger_mcp.analytics.database import get_db_connection, ensure_initialized  # noqa: E402
+
+from kroger_mcp.analytics.database import ensure_initialized, get_db_connection  # noqa: E402
 from kroger_mcp.analytics.deals import record_price_observation  # noqa: E402
 
 # Setup logging
@@ -216,14 +217,18 @@ def save_scan_results(deals: list):
 
 def send_notification(deal_count: int):
     """Send macOS notification"""
-    import subprocess
+    # `osascript` is invoked with a fully-internal AppleScript string built
+    # from one integer (deal_count). No shell, no user-controlled input —
+    # bandit B404/B603/B607 are heuristic flags on the subprocess import and
+    # PATH-relative binary, both intentional here.
+    import subprocess  # nosec B404
 
     title = "Kroger Deals Found!"
     message = f"{deal_count} items on sale this week"
 
     script = f'display notification "{message}" with title "{title}"'
     try:
-        subprocess.run(["osascript", "-e", script], check=False)
+        subprocess.run(["osascript", "-e", script], check=False)  # nosec B603 B607
         logging.info("Notification sent")
     except Exception as e:
         logging.warning(f"Failed to send notification: {e}")

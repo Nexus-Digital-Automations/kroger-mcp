@@ -52,8 +52,9 @@ def get_client_credentials_client() -> KrogerAPI:
         load_and_validate_env(["KROGER_CLIENT_ID", "KROGER_CLIENT_SECRET"])
         _client_credentials_client = KrogerAPI()
 
-        # Try to load existing token first
-        token_file = ".kroger_token_client_product.compact.json"
+        # Try to load existing token first.
+        # bandit B105 flags the variable name; this is a filename, not a credential.
+        token_file = ".kroger_token_client_product.compact.json"  # nosec B105
         token_info = load_token(token_file)
 
         if token_info:
@@ -97,8 +98,9 @@ def get_authenticated_client() -> KrogerAPI:
     try:
         load_and_validate_env(["KROGER_CLIENT_ID", "KROGER_CLIENT_SECRET", "KROGER_REDIRECT_URI"])
 
-        # Try to load existing user token first
-        token_file = ".kroger_token_user.json"
+        # Try to load existing user token first.
+        # bandit B105 flags the variable name; this is a filename, not a credential.
+        token_file = ".kroger_token_user.json"  # nosec B105
         token_info = load_token(token_file)
 
         if token_info:
