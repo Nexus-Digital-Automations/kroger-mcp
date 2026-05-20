@@ -265,5 +265,6 @@ async def recipe_detail(request: Request, recipe_id: str):
             "ingredients": ingredients,
             "instruction_groups": instruction_groups,
             "health_data": health_data,
+            **action_menu_context(),
         },
     )
