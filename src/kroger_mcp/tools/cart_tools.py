@@ -458,7 +458,10 @@ def register_tools(mcp):
 
                     for item in added_items:
                         _add_item_to_local_cart(
-                            item["product_id"], item["quantity"], item["modality"]
+                            item["product_id"],
+                            item["quantity"],
+                            item["modality"],
+                            product_details={"description": item.get("description")},
                         )
 
                     if ctx:
