@@ -60,10 +60,8 @@ async def safety_page(request: Request):
     except Exception:
         pass
 
-    return templates.TemplateResponse(
-        "safety.html",
+    return templates.TemplateResponse(request, "safety.html",
         {
-            "request": request,
             "active_page": "safety",
             "settings": settings,
             "safe_count": safe_count,

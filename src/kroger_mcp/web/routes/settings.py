@@ -47,10 +47,8 @@ async def settings_page(
         else:
             auth_status = "not_configured"
 
-    return templates.TemplateResponse(
-        "settings.html",
+    return templates.TemplateResponse(request, "settings.html",
         {
-            "request": request,
             "active_page": "settings",
             "location_id": location_id,
             "servings": servings,

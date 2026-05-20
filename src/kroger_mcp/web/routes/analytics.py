@@ -31,10 +31,8 @@ async def analytics_page(request: Request):
     except Exception:
         pass
 
-    return templates.TemplateResponse(
-        "analytics.html",
+    return templates.TemplateResponse(request, "analytics.html",
         {
-            "request": request,
             "active_page": "analytics",
             "initial_report": report,
         },

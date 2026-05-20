@@ -20,10 +20,8 @@ async def meal_tracker_page(request: Request):
     pantry_items = get_pantry_status(apply_depletion=True)
     today_data = get_today_meals()
 
-    return templates.TemplateResponse(
-        "meal_tracker.html",
+    return templates.TemplateResponse(request, "meal_tracker.html",
         {
-            "request": request,
             "active_page": "meal_tracker",
             "pantry_items": pantry_items,
             "today_meals": today_data.get("meals", []),

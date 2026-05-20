@@ -149,10 +149,8 @@ async def recipes_list(request: Request):
         ]
     )
 
-    return templates.TemplateResponse(
-        "recipes.html",
+    return templates.TemplateResponse(request, "recipes.html",
         {
-            "request": request,
             "active_page": "recipes",
             "recipes": recipes,
             "all_tags": all_tags,
@@ -260,10 +258,8 @@ async def recipe_detail(request: Request, recipe_id: str):
                     ing["category"] = cat
                     break
 
-    return templates.TemplateResponse(
-        "recipe_detail.html",
+    return templates.TemplateResponse(request, "recipe_detail.html",
         {
-            "request": request,
             "active_page": "recipes",
             "recipe": recipe,
             "ingredients": ingredients,

@@ -28,10 +28,8 @@ async def shopping_list_page(request: Request):
     recipes = recipe_data.get("recipes", [])
     items = sl_data.get("items", [])
     servings = get_default_servings()
-    return templates.TemplateResponse(
-        "shopping_list.html",
+    return templates.TemplateResponse(request, "shopping_list.html",
         {
-            "request": request,
             "active_page": "shopping_list",
             "items": items,
             "recipes": recipes,

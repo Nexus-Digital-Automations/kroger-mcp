@@ -41,10 +41,8 @@ async def products_page(request: Request):
 
     sort_prefs = get_product_sort_preferences()
 
-    return templates.TemplateResponse(
-        "products.html",
+    return templates.TemplateResponse(request, "products.html",
         {
-            "request": request,
             "active_page": "products",
             "location_id": location_id,
             "watchlist": watchlist,

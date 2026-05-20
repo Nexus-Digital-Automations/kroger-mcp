@@ -45,10 +45,8 @@ async def favorites_list(request: Request):
             }
         )
 
-    return templates.TemplateResponse(
-        "favorites.html",
+    return templates.TemplateResponse(request, "favorites.html",
         {
-            "request": request,
             "active_page": "favorites",
             "lists": annotated,
         },
@@ -82,10 +80,8 @@ async def favorites_detail(request: Request, list_id: str):
     reorder_status = lst.get("reorder_status", {})
     badge_label, badge_color = _reorder_badge(reorder_status)
 
-    return templates.TemplateResponse(
-        "favorites_detail.html",
+    return templates.TemplateResponse(request, "favorites_detail.html",
         {
-            "request": request,
             "active_page": "favorites",
             "lst": lst,
             "items": items,

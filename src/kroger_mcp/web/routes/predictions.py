@@ -43,10 +43,8 @@ async def predictions_page(request: Request):
     except Exception:
         pass
 
-    return templates.TemplateResponse(
-        "predictions.html",
+    return templates.TemplateResponse(request, "predictions.html",
         {
-            "request": request,
             "active_page": "predictions",
             "predictions": predictions,
             "prediction_count": len(predictions),

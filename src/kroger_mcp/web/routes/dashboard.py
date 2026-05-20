@@ -147,10 +147,8 @@ async def dashboard_page(request: Request):
             meals_by_date[date_str] = []
         meals_by_date[date_str].append(f"{meal['slot'].title()}: {meal['recipe_name']}")
 
-    return templates.TemplateResponse(
-        "dashboard.html",
+    return templates.TemplateResponse(request, "dashboard.html",
         {
-            "request": request,
             "active_page": "dashboard",
             "recipe_count": len(recipes),
             "pantry_alert_count": len(pantry_alerts),
