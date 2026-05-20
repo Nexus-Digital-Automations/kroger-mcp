@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros/action_menu.html" import action_menu %}
 {% from "_macros/recipe_add_modal.html" import recipe_add_modal %}
+{% from "_macros/sort_rank.html" import sort_rank %}
 
 {% block title %}Recipes — Smart Shopper{% endblock %}
 {% block heading %}Recipes{% endblock %}
@@ -79,117 +80,7 @@
       </div>
       {% endif %}
 
-      <!-- Sort dropdown -->
-      <div class="relative" @click.away="sortDropdownOpen = false">
-        <button @click="sortDropdownOpen = !sortDropdownOpen"
-          :style="sortStack.length > 0 ? 'border-color:var(--green); color:var(--green); background:var(--green-light);' : 'border-color:var(--border); color:var(--text-2); background:var(--surface);'"
-          class="ss-input flex items-center gap-2 px-3 transition-colors" style="padding-top:0.45rem; padding-bottom:0.45rem;">
-          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6h18M7 12h10M11 18h2"/>
-          </svg>
-          <span>Sort</span>
-          <span x-show="sortStack.length > 0"
-            style="background:var(--green); color:white; border-radius:99px; font-size:0.6rem; font-weight:700; padding:0.1rem 0.35rem; line-height:1.4;"
-            x-text="sortStack.length"></span>
-          <svg class="w-3.5 h-3.5 flex-shrink-0 transition-transform" :class="sortDropdownOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-          </svg>
-        </button>
-        <div x-show="sortDropdownOpen" x-cloak
-          x-transition:enter="transition ease-out duration-150"
-          x-transition:enter-start="opacity-0 -translate-y-1"
-          x-transition:enter-end="opacity-100 translate-y-0"
-          x-transition:leave="transition ease-in duration-100"
-          x-transition:leave-start="opacity-100 translate-y-0"
-          x-transition:leave-end="opacity-0 -translate-y-1"
-          style="position:absolute; top:calc(100% + 6px); left:0; background:var(--surface); border-radius:0.75rem; border:1px solid var(--border); box-shadow:0 8px 32px oklch(18% 0.025 80 / 0.12), 0 2px 8px oklch(18% 0.025 80 / 0.06); min-width:195px; z-index:30; overflow:hidden;">
-          <div style="padding:0.375rem 0.5rem;">
-            <template x-for="opt in sortOptions" :key="opt.v">
-              <button @click="toggleSort(opt.v)"
-                :style="sortStack.includes(opt.v) ? 'background:var(--green-light); color:var(--green); font-weight:600;' : 'color:var(--text-1);'"
-                style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.4rem 0.625rem; font-size:0.8125rem; border-radius:0.375rem; cursor:pointer; border:none; text-align:left; font-family:inherit; transition:background 0.1s;"
-                onmouseenter="if(!this.style.background){this.style.background='oklch(96% 0.01 80)';}"
-                onmouseleave="if(this.style.background==='oklch(96% 0.01 80)'){this.style.background='';}">
-                <span x-text="opt.l"></span>
-                <svg x-show="sortStack.includes(opt.v)" style="width:0.75rem; height:0.75rem; flex-shrink:0; color:var(--green);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-                </svg>
-              </button>
-            </template>
-          </div>
-        </div>
-      </div>
-
-      <!-- Active sort chips (draggable, ranked) -->
-      <div x-show="sortStack.length > 0" x-cloak
-        x-transition:enter="transition ease-out duration-150"
-        x-transition:enter-start="opacity-0"
-        x-transition:enter-end="opacity-100"
-        x-transition:leave="transition ease-in duration-100"
-        x-transition:leave-start="opacity-100"
-        x-transition:leave-end="opacity-0"
-        style="display:flex; align-items:center; gap:0.375rem; flex-wrap:wrap; flex-basis:100%; min-width:0;">
-        <template x-for="(key, idx) in sortStack" :key="key">
-          <div
-            draggable="true"
-            @dragstart="sortDragStart(key)"
-            @dragover.prevent="sortDragOver(key)"
-            @drop.prevent="sortDrop()"
-            @dragend="sortDragEnd()"
-            :style="{
-              opacity: _dragKey === key ? '0.4' : '1',
-              outline: _dragOverKey === key ? '2px solid var(--green)' : 'none',
-              outlineOffset: '2px',
-              background: idx === 0 ? 'var(--green)' : 'var(--green-light)',
-              color: idx === 0 ? 'white' : 'var(--green)',
-              borderRadius: '99px',
-              padding: idx === 0 ? '0.3rem 0.6rem' : '0.25rem 0.5rem',
-              fontSize: idx === 0 ? '0.8125rem' : '0.75rem',
-              fontWeight: idx === 0 ? '600' : '500',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.3rem',
-              cursor: 'grab',
-              userSelect: 'none',
-              transition: 'opacity 0.15s',
-              boxShadow: idx === 0 ? '0 1px 4px oklch(18% 0.025 80 / 0.12)' : 'none',
-            }">
-            <!-- Rank badge -->
-            <span :style="{
-              background: idx === 0 ? 'oklch(38% 0.14 148)' : 'var(--green)',
-              color: 'white',
-              borderRadius: '99px',
-              fontSize: '0.5625rem',
-              fontWeight: '700',
-              padding: '0.05rem 0.3rem',
-              lineHeight: '1.5',
-              flexShrink: '0',
-            }" x-text="(idx + 1) + '.'"></span>
-            <!-- Label -->
-            <span x-text="sortKeyLabel(key)" style="white-space:nowrap;"></span>
-            <!-- Grip handle -->
-            <svg style="width:0.625rem; height:0.625rem; opacity:0.45; flex-shrink:0;" fill="currentColor" viewBox="0 0 20 20">
-              <circle cx="7" cy="4" r="1.2"/><circle cx="13" cy="4" r="1.2"/><circle cx="7" cy="10" r="1.2"/><circle cx="13" cy="10" r="1.2"/><circle cx="7" cy="16" r="1.2"/><circle cx="13" cy="16" r="1.2"/>
-            </svg>
-            <!-- Remove -->
-            <button @click.stop="removeSort(key)"
-              style="background:none; border:none; cursor:pointer; display:flex; align-items:center; padding:0; opacity:0.5; transition:opacity 0.1s; color:inherit;"
-              @mouseenter="$el.style.opacity='1'"
-              @mouseleave="$el.style.opacity='0.5'"
-              title="Remove">
-              <svg style="width:0.625rem; height:0.625rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-        </template>
-        <button @click="sortStack = []"
-          style="font-size:0.6875rem; color:var(--text-3); cursor:pointer; padding:0.2rem 0.375rem; border-radius:0.25rem; background:none; border:none; transition:color 0.12s, background 0.12s;"
-          @mouseenter="$el.style.color='var(--text-1)'; $el.style.background='oklch(93% 0.015 80)';"
-          @mouseleave="$el.style.color='var(--text-3)'; $el.style.background='';">
-          Clear
-        </button>
-      </div>
+      {{ sort_rank() }}
 
     </div>
   </div>
@@ -410,27 +301,45 @@
 
 <script>
 document.addEventListener('alpine:init', () => {
+  /* Comparators return ASC-direction results; sortRunner flips sign for desc.
+     Nulls are forced to the bottom (a==null sorts higher index than b!=null). */
+  const recipeCmp = {
+    name:         (a, b) => a.name.localeCompare(b.name),
+    most_ordered: (a, b) => (a.times_ordered || 0) - (b.times_ordered || 0),
+    health:       (a, b) => {
+      if (a.health_score == null && b.health_score == null) return 0;
+      if (a.health_score == null) return 1;
+      if (b.health_score == null) return -1;
+      return a.health_score - b.health_score;
+    },
+    cost:         (a, b) => {
+      if (a.cost == null && b.cost == null) return 0;
+      if (a.cost == null) return 1;
+      if (b.cost == null) return -1;
+      return a.cost - b.cost;
+    },
+    ing_count:    (a, b) => (a.ing_count || 0) - (b.ing_count || 0),
+  };
+
   Alpine.data('recipesGrid', () => ({
+    ...window.sortRank({
+      storageKey: 'sortRank:recipes',
+      options: [
+        {v:'name',         l:'Name'},
+        {v:'most_ordered', l:'Most Ordered', defaultDir:'desc'},
+        {v:'health',       l:'Health',       defaultDir:'desc'},
+        {v:'cost',         l:'Cost'},
+        {v:'ing_count',    l:'Ingredient Count'},
+      ],
+      compareFns: recipeCmp,
+      fallback: [{v:'name', dir:'asc'}],
+    }),
     search: '',
     activeTags: [],
-    sortStack: [],
     tagOpen: false,
-    sortDropdownOpen: false,
-    _dragKey: null,
-    _dragOverKey: null,
     recipes: {{ recipes_json | safe }},
 
-    sortOptions: [
-      {v:'name_asc',     l:'Name A\u2013Z'},
-      {v:'name_desc',    l:'Name Z\u2013A'},
-      {v:'most_ordered', l:'Most Ordered'},
-      {v:'health_desc',  l:'Healthiest First'},
-      {v:'health_asc',   l:'Least Healthy First'},
-      {v:'cost_asc',     l:'Cost \u2191 (Low\u2192High)'},
-      {v:'cost_desc',    l:'Cost \u2193 (High\u2192Low)'},
-      {v:'fewest_ing',   l:'Fewest Ingredients'},
-      {v:'most_ing',     l:'Most Ingredients'},
-    ],
+    init() { this._loadSortRank(); },
 
     gradeColor(g) {
       const m = {
@@ -443,80 +352,13 @@ document.addEventListener('alpine:init', () => {
       return m[g] || m.C;
     },
 
-    compareBy(key, a, b) {
-      switch (key) {
-        case 'name_asc':     return a.name.localeCompare(b.name);
-        case 'name_desc':    return b.name.localeCompare(a.name);
-        case 'most_ordered': return (b.times_ordered||0) - (a.times_ordered||0);
-        case 'health_desc':
-          if (a.health_score==null && b.health_score==null) return 0;
-          if (a.health_score==null) return 1;
-          if (b.health_score==null) return -1;
-          return b.health_score - a.health_score;
-        case 'health_asc':
-          if (a.health_score==null && b.health_score==null) return 0;
-          if (a.health_score==null) return 1;
-          if (b.health_score==null) return -1;
-          return a.health_score - b.health_score;
-        case 'cost_asc':
-          if (a.cost==null && b.cost==null) return 0;
-          if (a.cost==null) return 1;
-          if (b.cost==null) return -1;
-          return a.cost - b.cost;
-        case 'cost_desc':
-          if (a.cost==null && b.cost==null) return 0;
-          if (a.cost==null) return 1;
-          if (b.cost==null) return -1;
-          return b.cost - a.cost;
-        case 'fewest_ing':   return (a.ing_count||0) - (b.ing_count||0);
-        case 'most_ing':     return (b.ing_count||0) - (a.ing_count||0);
-        default: return 0;
-      }
-    },
-
-    toggleSort(key) {
-      const idx = this.sortStack.indexOf(key);
-      if (idx >= 0) this.sortStack.splice(idx, 1);
-      else this.sortStack.push(key);
-    },
-    sortDragStart(key) { this._dragKey = key; },
-    sortDragOver(key)  { if (key !== this._dragKey) this._dragOverKey = key; },
-    sortDrop() {
-      const from = this._dragKey, to = this._dragOverKey;
-      if (!from || !to || from === to) return;
-      const fi = this.sortStack.indexOf(from), ti = this.sortStack.indexOf(to);
-      if (fi < 0 || ti < 0) return;
-      const s = [...this.sortStack]; s.splice(fi, 1); s.splice(ti, 0, from);
-      this.sortStack = s;
-    },
-    sortDragEnd() { this._dragKey = null; this._dragOverKey = null; },
-    removeSort(key) {
-      this.sortStack = this.sortStack.filter(k => k !== key);
-    },
-    sortKeyLabel(key) {
-      const opt = this.sortOptions.find(o => o.v === key);
-      return opt ? opt.l : key;
-    },
-    ordinal(n) {
-      const s = ['th','st','nd','rd'];
-      const v = n % 100;
-      return n + (s[(v - 20) % 10] || s[v] || s[0]);
-    },
-
     get filtered() {
-      let list = this.recipes.filter(r => {
+      const list = this.recipes.filter(r => {
         const nameMatch = !this.search || r.name.toLowerCase().includes(this.search.toLowerCase());
         const tagMatch = this.activeTags.length === 0 || this.activeTags.every(t => r.tags.includes(t));
         return nameMatch && tagMatch;
       });
-      const stack = this.sortStack.length > 0 ? this.sortStack : ['name_asc'];
-      return [...list].sort((a, b) => {
-        for (const key of stack) {
-          const r = this.compareBy(key, a, b);
-          if (r !== 0) return r;
-        }
-        return 0;
-      });
+      return this.sortRunner(list);
     },
 
     toggleTag(tag) {

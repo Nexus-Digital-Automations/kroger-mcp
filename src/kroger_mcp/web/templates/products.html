@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros/action_menu.html" import action_menu %}
+{% from "_macros/sort_rank.html" import sort_rank %}
 {% block title %}Products — Smart Shopper{% endblock %}
 {% block heading %}Products{% endblock %}
 {% block content %}
@@ -17,29 +18,12 @@ function productsPageData() {
     products: [],
     loading: false,
     error: '',
-    searchSortStack: {{ sort_prefs.search_sort_stack | tojson }},
 
     // deals state
     deals: [],
     dealsLoading: false,
     dealsError: '',
     minSavings: 5,
-    sortStack: {{ sort_prefs.deals_sort_stack | tojson }},
-    searchSortOptions: [
-      {v:'favorites', l:'Favorites'},
-      {v:'health',    l:'Healthiest'},
-      {v:'price',     l:'Price ↑'},
-    ],
-    dealsSortOptions: [
-      {v:'percent',   l:'% Saved'},
-      {v:'dollar',    l:'$ Saved'},
-      {v:'health',    l:'Healthiest'},
-      {v:'favorites', l:'Favorites'},
-    ],
-    sortDropdownOpen: false,
-    searchSortDropdownOpen: false,
-    _dragKey: null,
-    _dragOverKey: null,
     showWatchlist: false,
     watchlist: {{ watchlist | tojson }},
     newWatch: { product_id: '', description: '', target_price: '' },
@@ -62,90 +46,6 @@ function productsPageData() {
       return m[g] || m.C;
     },
 
-    // sort helpers
-    compareBy(key, a, b) {
-      switch (key) {
-        case 'percent': return (b.savings_percent||0) - (a.savings_percent||0);
-        case 'dollar':
-          return ((b.regular_price||0)-(b.sale_price||b.regular_price||0))
-               - ((a.regular_price||0)-(a.sale_price||a.regular_price||0));
-        case 'health': return (b.safety_score||0) - (a.safety_score||0);
-        case 'price':
-          return ((a.sale_price||a.regular_price||0) - (b.sale_price||b.regular_price||0));
-        case 'favorites':
-          return (this.favoriteIds.has(a.product_id)?0:1) - (this.favoriteIds.has(b.product_id)?0:1);
-        default: return 0;
-      }
-    },
-    toggleSort(key) {
-      const idx = this.sortStack.indexOf(key);
-      if (idx >= 0) this.sortStack.splice(idx, 1);
-      else this.sortStack.push(key);
-      this.saveSortPrefs();
-    },
-    toggleSearchSort(key) {
-      const idx = this.searchSortStack.indexOf(key);
-      if (idx >= 0) this.searchSortStack.splice(idx, 1);
-      else this.searchSortStack.push(key);
-      this.saveSortPrefs();
-    },
-    saveSortPrefs() {
-      clearTimeout(this._sortSaveTimer);
-      this._sortSaveTimer = setTimeout(() => {
-        fetch('/api/settings/product-sort', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            search_sort_stack: this.searchSortStack,
-            deals_sort_stack: this.sortStack,
-          })
-        });
-      }, 500);
-    },
-
-    _doSortDrop(stackProp) {
-      const from = this._dragKey, to = this._dragOverKey;
-      if (!from || !to || from === to) return;
-      const arr = [...this[stackProp]];
-      const fi = arr.indexOf(from), ti = arr.indexOf(to);
-      if (fi < 0 || ti < 0) return;
-      arr.splice(fi, 1); arr.splice(ti, 0, from);
-      this[stackProp] = arr;
-      this.saveSortPrefs();
-    },
-    sortDragStart(key)      { this._dragKey = key; },
-    sortDragOver(key)       { if (key !== this._dragKey) this._dragOverKey = key; },
-    sortDrop(stackProp)     { this._doSortDrop(stackProp); },
-    sortDragEnd()           { this._dragKey = null; this._dragOverKey = null; },
-    searchSortKeyLabel(key) { const o = this.searchSortOptions.find(x => x.v === key); return o ? o.l : key; },
-    dealsSortKeyLabel(key)  { const o = this.dealsSortOptions.find(x => x.v === key); return o ? o.l : key; },
-
-    // computed
-    get sortedDeals() {
-      const arr = [...this.deals];
-      const stack = this.sortStack.length > 0 ? this.sortStack : ['percent'];
-      arr.sort((a, b) => {
-        for (const key of stack) {
-          const r = this.compareBy(key, a, b);
-          if (r !== 0) return r;
-        }
-        return 0;
-      });
-      return arr;
-    },
-    get sortedProducts() {
-      const arr = [...this.products];
-      const stack = this.searchSortStack;
-      if (stack.length === 0) return arr;
-      arr.sort((a, b) => {
-        for (const key of stack) {
-          const r = this.compareBy(key, a, b);
-          if (r !== 0) return r;
-        }
-        return 0;
-      });
-      return arr;
-    },
     get favoritesInResults() {
       return this.products.filter(p => this.favoriteIds.has(p.product_id)).length;
     },
@@ -329,6 +229,57 @@ function productsPageData() {
     },
   };
 }
+
+/* Shared ASC comparators for both search and deals sort VMs. ctx.$root is the
+   parent productsPageData scope; using its favoriteIds keeps the source of
+   truth on the parent so cart/favorite mutations stay reactive everywhere. */
+const productCmp = {
+  percent: (a, b) => (a.savings_percent || 0) - (b.savings_percent || 0),
+  dollar: (a, b) => {
+    const sa = (a.regular_price || 0) - (a.sale_price || a.regular_price || 0);
+    const sb = (b.regular_price || 0) - (b.sale_price || b.regular_price || 0);
+    return sa - sb;
+  },
+  health: (a, b) => (a.safety_score || 0) - (b.safety_score || 0),
+  price: (a, b) => (a.sale_price || a.regular_price || 0) - (b.sale_price || b.regular_price || 0),
+  favorites: (a, b, ctx) => {
+    const fids = ctx.$root.favoriteIds;
+    return (fids.has(a.product_id) ? 0 : 1) - (fids.has(b.product_id) ? 0 : 1);
+  },
+};
+
+function searchSortVM() {
+  return {
+    ...window.sortRank({
+      storageKey: 'sortRank:products.search',
+      options: [
+        {v:'favorites', l:'Favorites',  noDir:true},
+        {v:'health',    l:'Health',     defaultDir:'desc'},
+        {v:'price',     l:'Price'},
+      ],
+      compareFns: productCmp,
+      fallback: [],
+    }),
+    init() { this._loadSortRank(); },
+  };
+}
+
+function dealsSortVM() {
+  return {
+    ...window.sortRank({
+      storageKey: 'sortRank:products.deals',
+      options: [
+        {v:'percent',   l:'% Saved',    defaultDir:'desc'},
+        {v:'dollar',    l:'$ Saved',    defaultDir:'desc'},
+        {v:'health',    l:'Health',     defaultDir:'desc'},
+        {v:'favorites', l:'Favorites',  noDir:true},
+      ],
+      compareFns: productCmp,
+      fallback: [{v:'percent', dir:'desc'}],
+    }),
+    init() { this._loadSortRank(); },
+  };
+}
 </script>
 
 <div
@@ -405,217 +356,28 @@ function productsPageData() {
     </template>
   </div>
 
-  <!-- Search-mode sort controls -->
-  <div x-show="mode === 'search' && products.length > 0 && !loading"
-    class="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b border-gray-100">
-    <div class="relative" @click.away="searchSortDropdownOpen = false">
-      <button @click="searchSortDropdownOpen = !searchSortDropdownOpen"
-        :class="searchSortStack.length > 0 ? 'border-emerald-400 text-emerald-700 bg-emerald-50' : 'border-gray-200 text-gray-600 bg-white hover:border-emerald-400'"
-        class="flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-xl transition-colors">
-        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6h18M7 12h10M11 18h2"/>
-        </svg>
-        Sort
-        <span x-show="searchSortStack.length > 0"
-          class="bg-emerald-600 text-white rounded-full font-bold px-1.5 leading-[1.4]"
-          style="font-size:0.6rem;"
-          x-text="searchSortStack.length"></span>
-        <svg class="w-3 h-3 transition-transform" :class="searchSortDropdownOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-        </svg>
-      </button>
-      <div x-show="searchSortDropdownOpen" x-transition
-        class="absolute left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden min-w-[150px]">
-        <div class="p-1.5">
-          <template x-for="opt in searchSortOptions" :key="opt.v">
-            <button @click="toggleSearchSort(opt.v)"
-              :class="searchSortStack.includes(opt.v) ? 'bg-emerald-50 text-emerald-700 font-semibold' : (opt.v==='favorites' ? 'text-amber-700 hover:bg-amber-50' : 'text-gray-700 hover:bg-gray-50')"
-              class="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-xs rounded-lg transition-colors border-none cursor-pointer"
-              style="text-align:left; background:transparent;">
-              <span x-text="opt.l"></span>
-              <svg x-show="searchSortStack.includes(opt.v)" class="w-3 h-3 flex-shrink-0"
-                :class="opt.v==='favorites' ? 'text-amber-500' : 'text-emerald-600'"
-                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-              </svg>
-            </button>
-          </template>
-        </div>
-      </div>
-    </div>
-    <!-- Active search sort chips (draggable) -->
-    <div x-show="searchSortStack.length > 0" class="flex items-center gap-1.5 flex-wrap">
-      <template x-for="(key, idx) in searchSortStack" :key="key">
-        <div
-          draggable="true"
-          @dragstart="sortDragStart(key)"
-          @dragover.prevent="sortDragOver(key)"
-          @drop.prevent="sortDrop('searchSortStack')"
-          @dragend="sortDragEnd()"
-          :class="{
-            'opacity-40': _dragKey === key,
-            'ring-2 ring-emerald-400 ring-offset-1': _dragOverKey === key,
-            'bg-emerald-600 text-white font-semibold': idx === 0 && key !== 'favorites',
-            'bg-emerald-50 text-emerald-700 font-medium': idx > 0 && key !== 'favorites',
-            'bg-amber-500 text-white font-semibold': idx === 0 && key === 'favorites',
-            'bg-amber-50 text-amber-700 font-medium': idx > 0 && key === 'favorites',
-          }"
-          class="inline-flex items-center gap-1.5 rounded-full cursor-grab select-none transition-opacity px-2.5 py-1 text-xs">
-          <span class="rounded-full font-bold px-1 leading-[1.5] flex-shrink-0"
-            style="font-size:0.5rem;"
-            :class="idx === 0 ? (key==='favorites'?'bg-amber-800 text-white':'bg-emerald-800 text-white') : (key==='favorites'?'bg-amber-200 text-amber-700':'bg-emerald-200 text-emerald-700')"
-            x-text="(idx+1) + '.'"></span>
-          <span x-text="searchSortKeyLabel(key)" class="whitespace-nowrap"></span>
-          <svg class="w-2.5 h-2.5 opacity-40 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <circle cx="7" cy="4" r="1.2"/><circle cx="13" cy="4" r="1.2"/><circle cx="7" cy="10" r="1.2"/><circle cx="13" cy="10" r="1.2"/><circle cx="7" cy="16" r="1.2"/><circle cx="13" cy="16" r="1.2"/>
-          </svg>
-          <button @click.stop="searchSortStack = searchSortStack.filter(k=>k!==key); saveSortPrefs()"
-            class="opacity-50 hover:opacity-100 transition-opacity flex items-center p-0 bg-transparent border-none cursor-pointer text-inherit"
-            title="Remove">
-            <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-          </button>
-        </div>
-      </template>
-      <button @click="searchSortStack = []; saveSortPrefs()"
-        class="text-xs text-gray-400 underline hover:text-gray-600 transition-colors px-1">Clear</button>
-    </div>
-  </div>
+  <!-- ===== SEARCH MODE ===== -->
+  <div x-show="mode === 'search'" x-data="searchSortVM()">
 
-  <!-- Deals-mode controls -->
-  <div x-show="mode === 'deals'" class="flex flex-wrap items-center gap-4 mb-4 pb-4 border-b border-gray-100">
-
-    <!-- Min savings -->
-    <div class="flex items-center gap-2">
-      <label class="text-xs text-gray-500 whitespace-nowrap">Min savings:</label>
-      <input
-        type="number"
-        x-model.number="minSavings"
-        min="0" max="100"
-        class="w-16 text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
-      />
-      <span class="text-xs text-gray-400">%</span>
+    <!-- Search-mode sort controls (own sortRank instance) -->
+    <div x-show="products.length > 0 && !loading"
+      class="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b border-gray-100">
+      {{ sort_rank() }}
     </div>
 
-    <!-- Refresh button -->
-    <button @click="autoLoad()" :disabled="dealsLoading"
-      class="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:border-emerald-400 hover:text-emerald-700 disabled:opacity-50 transition-colors">
-      &#8635; Refresh All
-    </button>
+    <!-- Error -->
+    <div x-show="error"
+      class="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700"
+      x-text="error"></div>
 
-    <!-- Sort dropdown + ranked draggable chips (deals mode) -->
-    <div x-show="deals.length > 0" class="flex flex-wrap items-center gap-2 ml-auto">
-      <div class="relative" @click.away="sortDropdownOpen = false">
-        <button @click="sortDropdownOpen = !sortDropdownOpen"
-          :class="sortStack.length > 0 ? 'border-emerald-400 text-emerald-700 bg-emerald-50' : 'border-gray-200 text-gray-600 bg-white hover:border-emerald-400'"
-          class="flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-xl transition-colors">
-          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6h18M7 12h10M11 18h2"/>
-          </svg>
-          Sort
-          <span x-show="sortStack.length > 0"
-            class="bg-emerald-600 text-white rounded-full font-bold px-1.5 leading-[1.4]"
-            style="font-size:0.6rem;"
-            x-text="sortStack.length"></span>
-          <svg class="w-3 h-3 transition-transform" :class="sortDropdownOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-          </svg>
-        </button>
-        <div x-show="sortDropdownOpen" x-transition
-          class="absolute right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden min-w-[155px]">
-          <div class="p-1.5">
-            <template x-for="opt in dealsSortOptions" :key="opt.v">
-              <button @click="toggleSort(opt.v)"
-                :class="sortStack.includes(opt.v) ? 'bg-emerald-50 text-emerald-700 font-semibold' : (opt.v==='favorites' ? 'text-amber-700 hover:bg-amber-50' : 'text-gray-700 hover:bg-gray-50')"
-                class="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-xs rounded-lg transition-colors border-none cursor-pointer"
-                style="text-align:left; background:transparent;">
-                <span x-text="opt.l"></span>
-                <svg x-show="sortStack.includes(opt.v)" class="w-3 h-3 flex-shrink-0"
-                  :class="opt.v==='favorites' ? 'text-amber-500' : 'text-emerald-600'"
-                  fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-                </svg>
-              </button>
-            </template>
-          </div>
-        </div>
-      </div>
-      <!-- Active deals sort chips (draggable) -->
-      <div x-show="sortStack.length > 0" class="flex items-center gap-1.5 flex-wrap">
-        <template x-for="(key, idx) in sortStack" :key="key">
-          <div
-            draggable="true"
-            @dragstart="sortDragStart(key)"
-            @dragover.prevent="sortDragOver(key)"
-            @drop.prevent="sortDrop('sortStack')"
-            @dragend="sortDragEnd()"
-            :class="{
-              'opacity-40': _dragKey === key,
-              'ring-2 ring-emerald-400 ring-offset-1': _dragOverKey === key,
-              'bg-emerald-600 text-white font-semibold': idx === 0 && key !== 'favorites',
-              'bg-emerald-50 text-emerald-700 font-medium': idx > 0 && key !== 'favorites',
-              'bg-amber-500 text-white font-semibold': idx === 0 && key === 'favorites',
-              'bg-amber-50 text-amber-700 font-medium': idx > 0 && key === 'favorites',
-            }"
-            class="inline-flex items-center gap-1.5 rounded-full cursor-grab select-none transition-opacity px-2.5 py-1 text-xs">
-            <span class="rounded-full font-bold px-1 leading-[1.5] flex-shrink-0"
-              style="font-size:0.5rem;"
-              :class="idx === 0 ? (key==='favorites'?'bg-amber-800 text-white':'bg-emerald-800 text-white') : (key==='favorites'?'bg-amber-200 text-amber-700':'bg-emerald-200 text-emerald-700')"
-              x-text="(idx+1) + '.'"></span>
-            <span x-text="dealsSortKeyLabel(key)" class="whitespace-nowrap"></span>
-            <svg class="w-2.5 h-2.5 opacity-40 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <circle cx="7" cy="4" r="1.2"/><circle cx="13" cy="4" r="1.2"/><circle cx="7" cy="10" r="1.2"/><circle cx="13" cy="10" r="1.2"/><circle cx="7" cy="16" r="1.2"/><circle cx="13" cy="16" r="1.2"/>
-            </svg>
-            <button @click.stop="sortStack = sortStack.filter(k=>k!==key); saveSortPrefs()"
-              class="opacity-50 hover:opacity-100 transition-opacity flex items-center p-0 bg-transparent border-none cursor-pointer text-inherit"
-              title="Remove">
-              <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-        </template>
-        <button @click="sortStack = []; saveSortPrefs()"
-          class="text-xs text-gray-400 underline hover:text-gray-600 transition-colors px-1">Clear</button>
-      </div>
+    <!-- Loading -->
+    <div x-show="loading" class="flex flex-col items-center gap-3 py-16">
+      <div class="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
     </div>
 
-  </div>
-
-  <!-- Favorites-on-sale alert (deals mode) -->
-  <div x-show="mode === 'deals' && favoritesOnSale > 0 && deals.length > 0"
-    class="flex items-center gap-3 mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
-    <span class="text-xl">&#9733;</span>
-    <div>
-      <p class="text-sm font-semibold text-amber-800">
-        <span x-text="favoritesOnSale"></span> of your favorites are on sale!
-      </p>
-      <p class="text-xs text-amber-600">Sort by "Favorites" to see them first.</p>
-    </div>
-    <button @click="sortStack = ['favorites', ...sortStack.filter(k=>k!=='favorites')]; saveSortPrefs()"
-      class="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900 underline whitespace-nowrap">
-      View first &#8594;
-    </button>
-  </div>
-
-  <!-- Error state -->
-  <div
-    x-show="(mode === 'search' && error) || (mode === 'deals' && dealsError)"
-    class="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700"
-    x-text="mode === 'search' ? error : dealsError"
-  ></div>
-
-  <!-- Loading state -->
-  <div x-show="(mode === 'search' && loading) || (mode === 'deals' && dealsLoading)"
-    class="flex flex-col items-center gap-3 py-16">
-    <div class="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
-    <p x-show="mode === 'deals'" class="text-sm text-gray-400">Scanning store for deals across all departments...</p>
-  </div>
-
-  <!-- ── Search results grid ── -->
-  <div x-show="mode === 'search' && products.length > 0 && !loading" class="grid grid-cols-3 gap-4">
-    <template x-for="product in sortedProducts" :key="product.product_id">
+    <!-- Search results grid -->
+    <div x-show="products.length > 0 && !loading" class="grid grid-cols-3 gap-4">
+      <template x-for="product in sortRunner(products)" :key="product.product_id">
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col hover:shadow-md transition-shadow">
 
         <div class="flex-1">
@@ -697,11 +459,68 @@ function productsPageData() {
 
       </div>
     </template>
-  </div>
+    </div>
 
-  <!-- ── Deals results grid ── -->
-  <div x-show="mode === 'deals' && sortedDeals.length > 0 && !dealsLoading" class="grid grid-cols-3 gap-4">
-    <template x-for="deal in sortedDeals" :key="deal.product_id">
+    <!-- Empty state: Search -->
+    <div x-show="!loading && products.length === 0 && !error"
+      class="text-center py-16 text-gray-400">
+      <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+      <p class="text-sm">Search for products or click a category above</p>
+    </div>
+
+  </div>
+  <!-- ===== / SEARCH MODE ===== -->
+
+  <!-- ===== DEALS MODE ===== -->
+  <div x-show="mode === 'deals'" x-data="dealsSortVM()">
+
+    <!-- Deals controls: min savings, refresh, sort -->
+    <div class="flex flex-wrap items-center gap-4 mb-4 pb-4 border-b border-gray-100">
+      <div class="flex items-center gap-2">
+        <label class="text-xs text-gray-500 whitespace-nowrap">Min savings:</label>
+        <input type="number" x-model.number="minSavings" min="0" max="100"
+          class="w-16 text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+        <span class="text-xs text-gray-400">%</span>
+      </div>
+      <button @click="autoLoad()" :disabled="dealsLoading"
+        class="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:border-emerald-400 hover:text-emerald-700 disabled:opacity-50 transition-colors">
+        &#8635; Refresh All
+      </button>
+      <div x-show="deals.length > 0" class="ml-auto">{{ sort_rank() }}</div>
+    </div>
+
+    <!-- Favorites-on-sale alert -->
+    <div x-show="favoritesOnSale > 0 && deals.length > 0"
+      class="flex items-center gap-3 mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+      <span class="text-xl">&#9733;</span>
+      <div>
+        <p class="text-sm font-semibold text-amber-800">
+          <span x-text="favoritesOnSale"></span> of your favorites are on sale!
+        </p>
+        <p class="text-xs text-amber-600">Sort by "Favorites" to see them first.</p>
+      </div>
+      <button @click="sortStack = [{v:'favorites', dir:'asc'}, ...sortStack.filter(i => i.v !== 'favorites')]; _persistSortRank()"
+        class="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900 underline whitespace-nowrap">
+        View first &#8594;
+      </button>
+    </div>
+
+    <!-- Error -->
+    <div x-show="dealsError"
+      class="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700"
+      x-text="dealsError"></div>
+
+    <!-- Loading -->
+    <div x-show="dealsLoading" class="flex flex-col items-center gap-3 py-16">
+      <div class="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+      <p class="text-sm text-gray-400">Scanning store for deals across all departments...</p>
+    </div>
+
+    <!-- Deals results grid -->
+    <div x-show="deals.length > 0 && !dealsLoading" class="grid grid-cols-3 gap-4">
+    <template x-for="deal in sortRunner(deals)" :key="deal.product_id">
       <div class="bg-white rounded-xl shadow-sm border p-4 flex flex-col transition-shadow hover:shadow-md"
         :class="favoriteIds.has(deal.product_id) ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100'">
 
@@ -782,32 +601,19 @@ function productsPageData() {
 
       </div>
     </template>
-  </div>
+    </div>
 
-  <!-- Empty state: Search -->
-  <div
-    x-show="mode === 'search' && !loading && products.length === 0 && !error"
-    class="text-center py-16 text-gray-400"
-  >
-    <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-    </svg>
-    <p class="text-sm">Search for products or click a category above</p>
-  </div>
+    <!-- Empty state: Deals -->
+    <div x-show="!dealsLoading && deals.length === 0 && dealsInitialized && !dealsError"
+      class="text-center py-16 text-gray-400">
+      <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 012-2z"/>
+      </svg>
+      <p class="text-sm">No deals found. Try lowering the minimum savings % or refreshing.</p>
+    </div>
 
-  <!-- Empty state: Deals -->
-  <div
-    x-show="mode === 'deals' && !dealsLoading && deals.length === 0 && dealsInitialized && !dealsError"
-    class="text-center py-16 text-gray-400"
-  >
-    <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 012-2z"/>
-    </svg>
-    <p class="text-sm">No deals found. Try lowering the minimum savings % or refreshing.</p>
-  </div>
-
-  <!-- ── Watchlist (deals mode only) ── -->
-  <div x-show="mode === 'deals'" class="mt-8">
+    <!-- Watchlist -->
+    <div class="mt-8">
 
     <button @click="showWatchlist = !showWatchlist"
       class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors mb-3">
@@ -878,6 +684,9 @@ function productsPageData() {
 
     </div>
   </div>
+
+  </div>
+  <!-- ===== / DEALS MODE ===== -->
 
 </div>
 {% endblock %}

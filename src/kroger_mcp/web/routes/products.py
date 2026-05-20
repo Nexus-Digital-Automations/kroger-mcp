@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
-from kroger_mcp.tools.shared import get_preferred_location_id, get_product_sort_preferences
+from kroger_mcp.tools.shared import get_preferred_location_id
 from kroger_mcp.web.context import action_menu_context
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -39,8 +39,6 @@ async def products_page(request: Request):
     except Exception:
         pass
 
-    sort_prefs = get_product_sort_preferences()
-
     return templates.TemplateResponse(request, "products.html",
         {
             "active_page": "products",
@@ -48,7 +46,6 @@ async def products_page(request: Request):
             "watchlist": watchlist,
             "watchlist_count": len(watchlist),
             "favorite_ids": favorite_ids,
-            "sort_prefs": sort_prefs,
             **action_menu_context(),
         },
     )
