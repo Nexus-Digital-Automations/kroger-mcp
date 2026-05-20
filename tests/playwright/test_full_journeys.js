@@ -4,7 +4,7 @@
  *
  * Owns:  end-to-end exercise of every interactive element on each
  *        in-scope page (recipes, shopping list, pantry, meal plan,
- *        meal tracker, settings, login, safety/ingredients). Each
+ *        settings, login, safety/ingredients). Each
  *        journey snapshots state, mutates it, then restores so the
  *        suite is idempotent.
  * Does NOT own: cart-confirm against the real Kroger API (covered
@@ -67,7 +67,6 @@ async function run() {
   await journey_shopping_list();
   await journey_pantry();
   await journey_meal_plan();
-  await journey_meal_tracker();
   await journey_settings();
   await journey_login();
   await journey_safety();
@@ -304,31 +303,7 @@ async function journey_meal_plan() {
 }
 
 // ═══════════════════════════════════════════════
-// 6. /meal-tracker — type tabs + description field
-// ═══════════════════════════════════════════════
-async function journey_meal_tracker() {
-  console.log('\n[6. Meal tracker]');
-  await goto('/meal-tracker');
-
-  assert(await page.locator('text=Meal').first().isVisible(), 'Meal tracker page loads');
-
-  // Meal type tabs
-  const typeTab = page.locator('button:has-text("Breakfast"), button:has-text("Lunch"), button:has-text("Dinner")').first();
-  if (await typeTab.count() > 0) {
-    await typeTab.click();
-    await page.waitForTimeout(150);
-    assert(true, 'Meal type tab clickable');
-  }
-
-  // Description input
-  const desc = page.locator('input[placeholder*="describe" i], textarea[placeholder*="describe" i]').first();
-  assert(await desc.count() >= 0, 'Description input wired');
-
-  await ss('meal_tracker');
-}
-
-// ═══════════════════════════════════════════════
-// 7. /settings — household servings round-trip
+// 6. /settings — household servings round-trip
 // ═══════════════════════════════════════════════
 async function journey_settings() {
   console.log('\n[7. Settings]');

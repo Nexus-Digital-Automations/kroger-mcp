@@ -22,7 +22,6 @@ const PAGES = [
   '/favorites',
   '/recipes',
   '/meal-plan',
-  '/meal-tracker',
   '/predictions',
   '/settings',
   '/safety',

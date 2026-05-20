@@ -46,6 +46,25 @@ HEALTHY_CATEGORIES: dict[str, list[str]] = {
         "pineapple",
         "grapefruit",
         "scallion",
+        "radish",
+        "beet",
+        "artichoke",
+        "corn",
+        "romaine",
+        "arugula",
+        "chard",
+        "watermelon",
+        "pear",
+        "peach",
+        "plum",
+        "jalapeno",
+        "jalapeño",
+        "leek",
+        "shallot",
+        "okra",
+        "kohlrabi",
+        "endive",
+        "fennel bulb",
     ],
     "lean_protein": [
         "chicken",
@@ -65,6 +84,21 @@ HEALTHY_CATEGORIES: dict[str, list[str]] = {
         "fish",
         "clam",
         "bean",
+        "halibut",
+        "sardine",
+        "trout",
+        "mackerel",
+        "anchovy",
+        "mussel",
+        "oyster",
+        "crab",
+        "lobster",
+        "scallop",
+        "pork tenderloin",
+        "sirloin",
+        "flank steak",
+        "edamame",
+        "hummus",
     ],
     "whole_grain": [
         "brown rice",
@@ -75,6 +109,13 @@ HEALTHY_CATEGORIES: dict[str, list[str]] = {
         "farro",
         "barley",
         "bulgur",
+        "wild rice",
+        "buckwheat",
+        "millet",
+        "steel-cut oats",
+        "rolled oats",
+        "whole-wheat pasta",
+        "whole wheat pasta",
     ],
     "healthy_fat": [
         "olive oil",
@@ -87,6 +128,13 @@ HEALTHY_CATEGORIES: dict[str, list[str]] = {
         "hemp seed",
         "pecan",
         "pine nut",
+        "pistachio",
+        "sesame seed",
+        "pumpkin seed",
+        "sunflower seed",
+        "tahini",
+        "avocado oil",
+        "coconut oil",
     ],
     "herbs_spices": [
         "basil",
@@ -114,6 +162,14 @@ HEALTHY_CATEGORIES: dict[str, list[str]] = {
         "fennel",
         "tarragon",
         "five-spice",
+        "chili powder",
+        "smoked paprika",
+        "garlic powder",
+        "onion powder",
+        "red pepper flake",
+        "italian seasoning",
+        "za'atar",
+        "old bay",
     ],
 }
 
@@ -182,15 +238,32 @@ SUGAR_KEYWORDS: list[str] = [
     "sugar",
 ]
 
+# Neutral cooking staples — present in almost every recipe but not "unhealthy".
+# Excluded from the quality-ratio denominator so they don't drag the score
+# down when paired with otherwise-healthy ingredients.
+NEUTRAL_STAPLES: list[str] = [
+    "salt", "pepper", "black pepper", "white pepper", "water", "ice",
+    "vinegar", "rice vinegar", "balsamic", "apple cider vinegar",
+    "soy sauce", "tamari", "fish sauce", "worcestershire",
+    "broth", "stock", "bouillon",
+    "lemon juice", "lime juice", "orange juice",
+    "mustard", "dijon", "ketchup", "hot sauce", "sriracha", "tabasco",
+    "honey", "maple syrup",
+    "yogurt", "greek yogurt", "milk", "butter", "cream", "cheese",
+    "flour", "cornstarch", "baking soda", "baking powder", "yeast",
+    "egg white", "egg yolk",
+    "vanilla", "vanilla extract",
+]
+
 
 def _grade(score: int) -> str:
-    if score >= 85:
+    if score >= 80:
         return "A"
-    if score >= 70:
+    if score >= 65:
         return "B"
-    if score >= 55:
+    if score >= 50:
         return "C"
-    if score >= 40:
+    if score >= 35:
         return "D"
     return "F"
 
@@ -328,16 +401,27 @@ def calculate_health_score(
             categories_detected.append(cat)
     cat_score = min(len(categories_detected) * 7, 35)
 
-    # 2. Ingredient quality ratio: proportion matching healthy keywords (max 30)
+    # 2. Ingredient quality ratio: of NON-STAPLE ingredients, how many are
+    # healthy? Excluding staples (salt, broth, soy sauce, etc.) stops common
+    # pantry items from dragging the ratio down on otherwise-clean recipes.
     all_keywords = [kw for kws in HEALTHY_CATEGORIES.values() for kw in kws]
-    quality_hits = sum(1 for name in ing_names_lower if any(kw in name for kw in all_keywords))
-    quality_score = round((quality_hits / total) * 30) if total else 0
+    non_staple = [
+        name for name in ing_names_lower
+        if not any(staple in name for staple in NEUTRAL_STAPLES)
+    ]
+    denom = max(1, len(non_staple))
+    quality_hits = sum(
+        1 for name in non_staple if any(kw in name for kw in all_keywords)
+    )
+    quality_score = round((quality_hits / denom) * 30)
 
-    # 3. Whole food signals: proportion with freshness markers (max 15)
+    # 3. Whole food signals: small bonus when authors explicitly say
+    # "fresh"/"organic"/etc. Capped at 5 so recipes that just write "broccoli"
+    # aren't punished for omitting marketing adjectives.
     whole_hits = sum(
         1 for name in ing_names_lower if any(sig in name for sig in WHOLE_FOOD_SIGNALS)
     )
-    whole_score = round((whole_hits / total) * 15) if total else 0
+    whole_score = min(round((whole_hits / total) * 15), 5) if total else 0
 
     # 4. Processed indicators penalty (max -15, -5 each)
     proc_penalty = 0

@@ -380,29 +380,6 @@ def initialize_database() -> None:
             INSERT OR IGNORE INTO safety_settings (key, value)
             VALUES ('block_mode', 'soft');
 
-            -- Meal consumption tracking
-            CREATE TABLE IF NOT EXISTS meal_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                logged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
-                description TEXT,
-                recipe_id TEXT DEFAULT NULL,
-                notes TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS meal_log_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                meal_log_id INTEGER NOT NULL,
-                product_id TEXT NOT NULL,
-                description TEXT,
-                quantity_percent REAL NOT NULL DEFAULT 10.0,
-                previous_level REAL,
-                pantry_deducted INTEGER DEFAULT 0,
-                FOREIGN KEY (meal_log_id) REFERENCES meal_log(id) ON DELETE CASCADE,
-                FOREIGN KEY (product_id) REFERENCES products(product_id)
-            );
-
             -- Indexes for performance
             CREATE INDEX IF NOT EXISTS idx_purchase_events_product
                 ON purchase_events(product_id);
@@ -466,14 +443,6 @@ def initialize_database() -> None:
                 ON deal_scan_results(scan_date DESC);
             CREATE INDEX IF NOT EXISTS idx_deal_scan_results_viewed
                 ON deal_scan_results(viewed);
-            CREATE INDEX IF NOT EXISTS idx_meal_log_date
-                ON meal_log(logged_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_meal_log_type
-                ON meal_log(meal_type);
-            CREATE INDEX IF NOT EXISTS idx_meal_log_items_meal
-                ON meal_log_items(meal_log_id);
-            CREATE INDEX IF NOT EXISTS idx_meal_log_items_product
-                ON meal_log_items(product_id);
         """
         )
         conn.commit()
@@ -584,8 +553,6 @@ def get_table_counts() -> dict:
             "deal_watchlist",
             "whole_foods_catalog",
             "deal_scan_results",
-            "meal_log",
-            "meal_log_items",
         ]:
             cursor = conn.execute(f"SELECT COUNT(*) FROM {table}")
             counts[table] = cursor.fetchone()[0]

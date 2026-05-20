@@ -6,7 +6,7 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
-  for (const p of ['/meal-tracker', '/favorites', '/products', '/safety']) {
+  for (const p of ['/favorites', '/products', '/safety']) {
     await page.goto(`${BASE}${p}`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(600);
     const title = await page.title();

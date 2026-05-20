@@ -28,12 +28,6 @@ from .database import (
     get_db_connection,
     initialize_database,
 )
-from .meal_tracker import (
-    delete_meal_log,
-    get_meal_log,
-    get_today_meals,
-    log_meal,
-)
 from .migration import (
     migrate_json_to_sqlite,
     needs_migration,
@@ -142,11 +136,6 @@ __all__ = [
     "check_recipe_pantry",
     "generate_shopping_list",
     "get_recipes_for_pantry",
-    # Meal Tracker
-    "log_meal",
-    "get_meal_log",
-    "get_today_meals",
-    "delete_meal_log",
     # Reporting
     "generate_spending_report",
     "generate_prediction_accuracy_report",

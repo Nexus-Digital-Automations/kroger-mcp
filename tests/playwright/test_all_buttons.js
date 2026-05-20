@@ -90,7 +90,6 @@ async function testSidebarNavigation() {
     { href: '/products', label: 'Products' },
     { href: '/shopping-list', label: 'Shopping List' },
     { href: '/pantry', label: 'Pantry' },
-    { href: '/meal-tracker', label: 'Meal Tracker' },
     { href: '/favorites', label: 'Favorites' },
     { href: '/recipes', label: 'Recipes' },
     { href: '/meal-plan', label: 'Meal Plan' },
@@ -843,60 +842,6 @@ async function testSettingsButtons() {
   });
 }
 
-async function testMealTrackerButtons() {
-  console.log('\n── Meal Tracker ──');
-  await navigateTo('/meal-tracker');
-
-  await test('Page loads without JS errors', async () => {
-    const errs = [];
-    page.on('pageerror', e => errs.push(e.message));
-    await page.waitForTimeout(500);
-    page.removeAllListeners('pageerror');
-    if (errs.length > 0) throw new Error(errs.join('; '));
-  });
-
-  await test('Meal type selector buttons exist (Breakfast, Lunch, Dinner, Snack)', async () => {
-    for (const mt of ['Breakfast', 'Lunch', 'Dinner', 'Snack']) {
-      const btn = page.locator('button').filter({ hasText: mt }).first();
-      if (await btn.count() === 0) throw new Error(`Missing meal type button: ${mt}`);
-    }
-  });
-
-  await test('Meal type buttons toggle active state', async () => {
-    const breakfast = page.locator('button').filter({ hasText: 'Breakfast' }).first();
-    const dinner = page.locator('button').filter({ hasText: 'Dinner' }).first();
-    await breakfast.click();
-    await page.waitForTimeout(200);
-    await dinner.click();
-    await page.waitForTimeout(200);
-  });
-
-  await test('"Log Meal" submit button exists', async () => {
-    // The button text is dynamic: "Log Lunch", "Log Dinner", etc.
-    const logBtn = page.locator('button').filter({ hasText: /Log (Breakfast|Lunch|Dinner|Snack)/i }).first();
-    await logBtn.waitFor({ state: 'visible', timeout: 5000 });
-  });
-
-  await test('Pantry item search input exists', async () => {
-    await assertVisible('input[x-model="pantrySearch"]');
-  });
-
-  await test('"Meal History" toggle button works', async () => {
-    const histBtn = page.locator('button').filter({ hasText: 'Meal History' });
-    if (await histBtn.count() > 0) {
-      await histBtn.click();
-      await page.waitForTimeout(300);
-      // "Load" button should appear in history section
-      const loadBtn = page.locator('button').filter({ hasText: 'Load' }).first();
-      if (await loadBtn.count() > 0) {
-        await loadBtn.waitFor({ state: 'visible', timeout: 3000 });
-      }
-      await histBtn.click();
-      await page.waitForTimeout(200);
-    }
-  });
-}
-
 async function testChatWidget() {
   console.log('\n── Chat Widget ──');
   await navigateTo('/dashboard');
@@ -1184,7 +1129,6 @@ async function testPageLoadNoErrors() {
     '/products',
     '/shopping-list',
     '/pantry',
-    '/meal-tracker',
     '/favorites',
     '/recipes',
     '/meal-plan',
@@ -1237,7 +1181,6 @@ async function main() {
     await testPredictionsButtons();
     await testSafetyButtons();
     await testSettingsButtons();
-    await testMealTrackerButtons();
     await testChatWidget();
     await testChatWidgetExpanded();
   } catch (e) {

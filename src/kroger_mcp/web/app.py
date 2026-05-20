@@ -54,7 +54,6 @@ from .routes import auth as auth_routes
 from .routes import dashboard, favorites, meal_plan, pantry, recipes
 from .routes import deals as deals_page
 from .routes import ingredients as ingredients_page
-from .routes import meal_tracker as meal_tracker_page
 from .routes import predictions as predictions_page
 from .routes import products as products_page
 from .routes import safety as safety_page
@@ -67,7 +66,6 @@ from .routes.api import deals as api_deals
 from .routes.api import favorites as api_favorites
 from .routes.api import ingredients as api_ingredients
 from .routes.api import meal_plan as api_meal_plan
-from .routes.api import meal_tracker as api_meal_tracker
 from .routes.api import pantry as api_pantry
 from .routes.api import predictions as api_predictions
 from .routes.api import products as api_products
@@ -118,7 +116,6 @@ app.include_router(safety_page.router)
 app.include_router(ingredients_page.router)
 app.include_router(predictions_page.router)
 app.include_router(analytics_page.router)
-app.include_router(meal_tracker_page.router)
 app.include_router(settings_page.router)
 
 # API routes
@@ -135,7 +132,6 @@ app.include_router(api_settings.router)
 app.include_router(api_favorites.router)
 app.include_router(api_recipes.router)
 app.include_router(api_meal_plan.router)
-app.include_router(api_meal_tracker.router)
 app.include_router(api_chat.router)
 
 

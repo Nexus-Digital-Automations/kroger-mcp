@@ -59,7 +59,6 @@ async function run() {
   await testShoppingList();
   await testMealPlan();
   await testPantry();
-  await testMealTracker();
   await testFavorites();
   await testProducts();
   await testDeals();
@@ -371,31 +370,6 @@ async function testPantry() {
   // Restock all button
   const restockBtn = page.locator('button:has-text("Restock")').first();
   if (await restockBtn.count() > 0) assert(true, '"Restock" button present');
-}
-
-async function testMealTracker() {
-  console.log('\n[Meal Tracker]');
-  await goto('/meal-tracker');
-  await page.waitForTimeout(600);
-  await ss('meal_tracker');
-
-  const mealTitle = await page.title();
-  assert(mealTitle.includes('Meal Tracker'), 'Meal tracker page loads');
-
-  // Meal type tabs
-  const tabs = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
-  for (const tab of tabs) {
-    const tabBtn = page.locator(`button:has-text("${tab}")`).first();
-    if (await tabBtn.count() > 0) {
-      await tabBtn.click();
-      await page.waitForTimeout(200);
-    }
-  }
-  assert(true, 'Meal type tabs clickable');
-
-  // Description input
-  const descInput = page.locator('input[x-model="description"], input[placeholder*="meal" i], input[placeholder*="description" i]').first();
-  if (await descInput.count() > 0) assert(true, 'Description input present');
 }
 
 async function testFavorites() {
