@@ -80,6 +80,7 @@
 
       {% if card_type == 'product' %}
         {{ _submenu_trigger('favorites', 'Add to Favorites') }}
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('shopping-add')">Add to List</button>
         <button type="button" role="menuitem" class="action-menu-item" @click="act('cart-add')">+ Cart</button>
         {{ _submenu_trigger('recipes', 'Add to Recipe') }}
         <div class="action-menu-separator" role="none"></div>
@@ -87,6 +88,7 @@
 
       {% elif card_type == 'favorite_item' %}
         {{ _submenu_trigger('favorites', 'Move to List') }}
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('shopping-add')">Add to List</button>
         <button type="button" role="menuitem" class="action-menu-item" @click="act('cart-add')">+ Cart</button>
         {{ _submenu_trigger('recipes', 'Add to Recipe') }}
         <div class="action-menu-separator" role="none"></div>

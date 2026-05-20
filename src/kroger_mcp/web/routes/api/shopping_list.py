@@ -291,6 +291,51 @@ async def add_recipe_to_list(body: AddRecipeBody):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/shopping-list/items  (add a single item)
+# Used by the action_menu 'Add to List' action on product + favorite cards.
+# Consolidation merges duplicates by product_id so repeated clicks bump qty
+# instead of creating parallel rows.
+# ---------------------------------------------------------------------------
+
+
+class AddItemBody(BaseModel):
+    product_id: str | None = None
+    name: str
+    quantity: float = 1.0
+    unit: str = ""
+
+
+@router.post("/api/shopping-list/items")
+async def add_shopping_list_item(body: AddItemBody):
+    try:
+        listing = _load_shopping_list()
+        new_item = {
+            "id": _generate_list_item_id(),
+            "product_id": body.product_id,
+            "name": body.name,
+            "quantity": body.quantity,
+            "unit": body.unit,
+            "added_at": datetime.now().isoformat(),
+            "notes": None,
+            "sources": [],
+        }
+        listing["items"].append(new_item)
+        listing["items"] = _consolidate_items(listing["items"])
+        _save_shopping_list(listing)
+        return JSONResponse(content={
+            "success": True,
+            "item_id": new_item["id"],
+            "total_items": len(listing["items"]),
+        })
+    except Exception as exc:
+        logger.exception("add_shopping_list_item failed")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to add item: {exc}"},
+        )
+
+
+# ---------------------------------------------------------------------------
 # DELETE /api/shopping-list  (clear-all)
 # Must be registered before /{item_id} so FastAPI doesn't treat the empty
 # path as an item_id match.

@@ -137,6 +137,25 @@ function productsPageData() {
       setTimeout(() => { const msgs = {...this.cartMsg}; delete msgs[pid]; this.cartMsg = msgs; }, 3000);
     },
 
+    async addToShoppingList(p) {
+      this.cartMsg[p.product_id] = 'Adding...';
+      try {
+        const r = await fetch('/api/shopping-list/items', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            product_id: p.product_id,
+            name: p.description,
+            quantity: 1,
+            unit: '',
+          })
+        });
+        this.cartMsg[p.product_id] = r.ok ? '\u2713 On list' : 'Failed';
+      } catch(e) { this.cartMsg[p.product_id] = 'Error'; }
+      const pid = p.product_id;
+      setTimeout(() => { const msgs = {...this.cartMsg}; delete msgs[pid]; this.cartMsg = msgs; }, 3000);
+    },
+
     async addToFavorites(p, listId) {
       try {
         const r = await fetch('/api/favorites/lists/' + listId + '/items', {
@@ -288,6 +307,7 @@ function dealsSortVM() {
   @action-menu:favorites-add.window="addToFavorites($event.detail.item, $event.detail.listId)"
   @action-menu:favorites-new-list.window="menuNewList($event.detail.item)"
   @action-menu:cart-add.window="addToCart($event.detail.item)"
+  @action-menu:shopping-add.window="addToShoppingList($event.detail.item)"
   @action-menu:recipe-add.window="menuAddToRecipe($event.detail.item, $event.detail.recipeId, $event.detail.recipeName)"
   @action-menu:view-details.window="window.location.href = '/products?q=' + encodeURIComponent($event.detail.item.description || '')"
 >

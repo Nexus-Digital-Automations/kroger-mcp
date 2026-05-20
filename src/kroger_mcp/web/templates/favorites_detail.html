@@ -200,6 +200,7 @@
   x-data='favoriteItemsActions({{ lst.id | tojson }})'
   @action-menu:favorites-move.window="moveToList($event.detail.item, $event.detail.listId, $event.detail.listName)"
   @action-menu:cart-add.window="addToCart($event.detail.item)"
+  @action-menu:shopping-add.window="addToShoppingList($event.detail.item)"
   @action-menu:recipe-add.window="addToRecipe($event.detail.item, $event.detail.recipeId, $event.detail.recipeName)"
   @action-menu:delete.window="removeItem($event.detail.item)"
   class="ss-card overflow-hidden"
@@ -337,6 +338,25 @@ function favoriteItemsActions(currentListId) {
       });
       const d = await r.json();
       this._flash(r.ok ? 'Added to cart' : ('Error: ' + (d.error || 'Failed')));
+    },
+
+    async addToShoppingList(item) {
+      try {
+        const r = await fetch('/api/shopping-list/items', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            product_id: item.product_id,
+            name: item.description,
+            quantity: item.default_quantity || 1,
+            unit: '',
+          }),
+        });
+        const d = await r.json();
+        this._flash(r.ok ? 'Added to list' : ('Error: ' + (d.error || 'Failed')));
+      } catch (e) {
+        this._flash('Network error');
+      }
     },
 
     async addToRecipe(item, recipeId, recipeName) {
