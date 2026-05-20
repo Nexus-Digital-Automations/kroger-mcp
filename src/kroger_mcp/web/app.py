@@ -49,17 +49,14 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .routes import analytics as analytics_page
 from .routes import auth as auth_routes
 from .routes import dashboard, favorites, meal_plan, pantry, recipes
 from .routes import deals as deals_page
 from .routes import ingredients as ingredients_page
-from .routes import predictions as predictions_page
 from .routes import products as products_page
 from .routes import safety as safety_page
 from .routes import settings as settings_page
 from .routes import shopping_list as shopping_list_page
-from .routes.api import analytics as api_analytics
 from .routes.api import cart as api_cart
 from .routes.api import chat as api_chat
 from .routes.api import deals as api_deals
@@ -67,7 +64,6 @@ from .routes.api import favorites as api_favorites
 from .routes.api import ingredients as api_ingredients
 from .routes.api import meal_plan as api_meal_plan
 from .routes.api import pantry as api_pantry
-from .routes.api import predictions as api_predictions
 from .routes.api import products as api_products
 from .routes.api import recipes as api_recipes
 from .routes.api import safety as api_safety
@@ -114,8 +110,6 @@ app.include_router(shopping_list_page.router)
 app.include_router(deals_page.router)
 app.include_router(safety_page.router)
 app.include_router(ingredients_page.router)
-app.include_router(predictions_page.router)
-app.include_router(analytics_page.router)
 app.include_router(settings_page.router)
 
 # API routes
@@ -126,8 +120,6 @@ app.include_router(api_shopping_list.router)
 app.include_router(api_deals.router)
 app.include_router(api_safety.router)
 app.include_router(api_ingredients.router)
-app.include_router(api_predictions.router)
-app.include_router(api_analytics.router)
 app.include_router(api_settings.router)
 app.include_router(api_favorites.router)
 app.include_router(api_recipes.router)
