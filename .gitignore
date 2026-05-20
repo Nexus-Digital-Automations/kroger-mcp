@@ -8,6 +8,9 @@ venv/
 # Token files
 .kroger_token*
 
+# Claude session runtime files
+.claude-session.pid
+
 # Python cache files
 __pycache__/
 *.py[cod]

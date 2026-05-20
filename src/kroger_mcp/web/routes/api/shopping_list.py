@@ -607,6 +607,7 @@ async def shopping_list_to_cart(body: AddToCartBody):
                     product_id=it["product_id"],
                     quantity=it["quantity"],
                     modality=body.modality,
+                    product_details={"description": it.get("name")},
                 )
             except Exception:
                 pass
