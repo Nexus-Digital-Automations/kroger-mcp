@@ -8,7 +8,8 @@ from datetime import datetime
 from typing import Any, Literal
 
 import requests
-from fastmcp import Context, Image
+from fastmcp import Context
+from fastmcp.utilities.types import Image
 from pydantic import Field
 
 from ..analytics.database import get_db_connection, get_db_cursor
