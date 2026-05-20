@@ -4,8 +4,9 @@ Manual test script for the smart shopping recommendations tool.
 Run this to verify the tool works end-to-end with actual database data.
 """
 
-from src.kroger_mcp.analytics.recommendations import get_comprehensive_recommendations
 import json
+
+from src.kroger_mcp.analytics.recommendations import get_comprehensive_recommendations
 
 
 def test_basic_recommendations():

@@ -13,11 +13,9 @@ NO USER INPUT REQUIRED - expiration is 100% automatic!
 """
 
 from datetime import datetime, timedelta
+
 from src.kroger_mcp.analytics.database import ensure_initialized, get_db_connection
-from src.kroger_mcp.analytics.pantry import (
-    restock_item,
-    get_pantry_status
-)
+from src.kroger_mcp.analytics.pantry import get_pantry_status, restock_item
 from src.kroger_mcp.analytics.recommendations import get_comprehensive_recommendations
 
 

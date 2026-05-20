@@ -4,8 +4,9 @@ Tests for bulk operations support in MCP tools.
 Tests Tier 1 (Pantry Tools) and Tier 2 (High-Priority Tools) bulk functionality.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Mark all tests in this module as async
 pytestmark = pytest.mark.asyncio

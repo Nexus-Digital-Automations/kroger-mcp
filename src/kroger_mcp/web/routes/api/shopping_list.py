@@ -1,6 +1,7 @@
 """Shopping list API endpoints."""
 
 import asyncio
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter
@@ -14,7 +15,106 @@ from kroger_mcp.tools.shopping_list_tools import (
     _save_shopping_list,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers — pantry context + recipe-preview construction.
+# Kept module-private; route handlers are humble shells over these.
+# ---------------------------------------------------------------------------
+
+
+def _pantry_levels() -> dict[str, int]:
+    """Best-effort `{product_id: level_percent}` map. Empty on failure."""
+    try:
+        from kroger_mcp.analytics.pantry import get_pantry_status
+
+        return {
+            row["product_id"]: row.get("level_percent", 0)
+            for row in get_pantry_status(apply_depletion=True)
+        }
+    except Exception as exc:
+        logger.debug("pantry context unavailable: %s", exc)
+        return {}
+
+
+def _round_scaled_qty(raw: float) -> float:
+    """Match the in-browser ingredient scaler so previewed qty == committed qty."""
+    if raw >= 3:
+        return float(round(raw))
+    if raw >= 1:
+        return round(raw * 2) / 2
+    if raw > 0:
+        return max(0.25, round(raw * 4) / 4)
+    return 1.0
+
+
+def _build_recipe_preview(
+    recipe: dict, servings: int, pantry: dict[str, int]
+) -> dict:
+    """
+    Compute what `add_recipe` would write, without writing.
+
+    Returns `{items_to_add, items_to_skip, manual_purchase, scale_factor}`
+    where each item carries the rounded `quantity` the UI will preselect.
+    """
+    recipe_base = recipe.get("servings", 4) or 4
+    scale_factor = servings / recipe_base
+
+    items_to_add: list[dict] = []
+    items_to_skip: list[dict] = []
+    manual_purchase: list[dict] = []
+
+    for ing in recipe.get("ingredients", []):
+        name = ing.get("name", "Unknown")
+        unit = ing.get("unit", "")
+        product_id = ing.get("product_id")
+        is_override = ing.get("override", False)
+
+        try:
+            qty_num = float(ing.get("quantity") or 1)
+        except (ValueError, TypeError):
+            qty_num = 1.0
+        scaled_qty = _round_scaled_qty(qty_num * scale_factor)
+
+        if is_override:
+            manual_purchase.append({
+                "name": name,
+                "unit": unit,
+                "quantity": scaled_qty,
+                "original_quantity": ing.get("quantity"),
+                "notes": ing.get("override_reason", "Not from Kroger"),
+            })
+            continue
+
+        pantry_level = pantry.get(product_id) if product_id else None
+        if product_id and pantry_level is not None and pantry_level >= 30:
+            items_to_skip.append({
+                "name": name,
+                "product_id": product_id,
+                "quantity": scaled_qty,
+                "unit": unit,
+                "pantry_level": pantry_level,
+                "reason": f"Pantry at {pantry_level}%",
+            })
+            continue
+
+        items_to_add.append({
+            "name": name,
+            "product_id": product_id,
+            "quantity": scaled_qty,
+            "unit": unit,
+            "original_quantity": ing.get("quantity"),
+            "pantry_level": pantry_level,
+        })
+
+    return {
+        "items_to_add": items_to_add,
+        "items_to_skip": items_to_skip,
+        "manual_purchase": manual_purchase,
+        "scale_factor": scale_factor,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -40,157 +140,153 @@ async def get_shopping_list():
 # ---------------------------------------------------------------------------
 
 
+class SelectedIngredient(BaseModel):
+    """User-curated ingredient row from the recipe preview modal."""
+
+    name: str
+    product_id: str | None = None
+    quantity: float
+    # Recipe ingredients with no unit serialise as null; accept both for
+    # robustness — anything falsy becomes "" downstream.
+    unit: str | None = ""
+    override: bool = False
+
+
 class AddRecipeBody(BaseModel):
     recipe_id: str
     servings_override: int | None = None
+    # `confirm` defaults True so MCP/CLI callers keep their current
+    # one-shot behaviour. The web UI sends confirm=False first to fetch a
+    # preview, then confirm=True with `selections` to commit user edits.
+    confirm: bool = True
+    selections: list[SelectedIngredient] | None = None
+
+
+def _resolve_recipe_and_servings(body: AddRecipeBody) -> tuple[dict, int] | JSONResponse:
+    from kroger_mcp.tools.recipe_tools import _find_recipe
+    from kroger_mcp.tools.shared import get_default_servings
+
+    recipe = _find_recipe(body.recipe_id)
+    if not recipe:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Recipe '{body.recipe_id}' not found"},
+        )
+    servings = body.servings_override or get_default_servings()
+    return recipe, servings
+
+
+def _commit_recipe_items(
+    selections: list[dict],
+    recipe: dict,
+    recipe_id: str,
+    servings: int,
+) -> int:
+    """Write user-selected ingredient rows to the shopping list."""
+    listing = _load_shopping_list()
+    now_iso = datetime.now().isoformat()
+    for sel in selections:
+        listing["items"].append({
+            "id": _generate_list_item_id(),
+            "product_id": None if sel["override"] else sel["product_id"],
+            "ingredient_name": sel["name"],
+            "name": sel["name"],
+            "quantity": sel["quantity"],
+            "unit": sel.get("unit") or "",
+            "sources": [{
+                "recipe_id": recipe_id,
+                "recipe_name": recipe.get("name"),
+                "servings_used": servings,
+                "original_quantity": sel.get("original_quantity"),
+                "scaled_quantity": sel["quantity"],
+            }],
+            "added_at": now_iso,
+            "notes": "Manual purchase" if sel["override"] else None,
+            "manual_purchase": sel["override"],
+            "recipe_name": recipe.get("name"),
+        })
+    listing["items"] = _consolidate_items(listing["items"])
+    _save_shopping_list(listing)
+    return len(listing["items"])
 
 
 @router.post("/api/shopping-list/add-recipe")
 async def add_recipe_to_list(body: AddRecipeBody):
     """
-    Add a recipe's ingredients to the shopping list, scaled to the requested
-    servings.  The session pantry-attention gate is intentionally bypassed for
-    the web UI.
+    Three modes:
+      - confirm=False                  → return preview (no writes).
+      - confirm=True, selections=None  → legacy: auto-add all non-pantry items.
+      - confirm=True, selections=[...] → write exactly those rows.
+
+    The pantry-attention session gate is intentionally bypassed here; the
+    web UI surfaces pantry levels directly in the preview instead.
     """
     try:
-        from kroger_mcp.tools.recipe_tools import _find_recipe
-        from kroger_mcp.tools.shared import get_default_servings
+        resolved = _resolve_recipe_and_servings(body)
+        if isinstance(resolved, JSONResponse):
+            return resolved
+        recipe, servings = resolved
 
-        recipe = _find_recipe(body.recipe_id)
-        if not recipe:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"Recipe '{body.recipe_id}' not found"},
-            )
+        preview = _build_recipe_preview(recipe, servings, _pantry_levels())
 
-        household_default = get_default_servings()
-        servings = body.servings_override if body.servings_override else household_default
-        recipe_base = recipe.get("servings", 4)
-        scale_factor = servings / recipe_base
-
-        # Optional pantry context for intelligent skipping
-        pantry_context: dict = {}
-        try:
-            from kroger_mcp.analytics.pantry import get_pantry_status
-
-            for item in get_pantry_status(apply_depletion=True):
-                pantry_context[item["product_id"]] = item.get("level_percent", 0)
-        except Exception:
-            pass
-
-        data = _load_shopping_list()
-        items_added = 0
-        items_skipped = 0
-
-        for ing in recipe.get("ingredients", []):
-            name = ing.get("name", "Unknown")
-            qty = ing.get("quantity", 1)
-            unit = ing.get("unit", "")
-            product_id = ing.get("product_id")
-            is_override = ing.get("override", False)
-
-            try:
-                qty_num = float(qty) if qty not in (None, "", 0) else 1.0
-            except (ValueError, TypeError):
-                qty_num = 1.0
-            raw_scaled = qty_num * scale_factor
-            # Smart rounding: produce realistic cooking quantities
-            # Quantities >= 3 round to nearest whole number
-            # Quantities >= 1 round to nearest 0.5
-            # Quantities < 1 round to nearest 0.25 (quarter measures)
-            if raw_scaled >= 3:
-                scaled_qty = round(raw_scaled)
-            elif raw_scaled >= 1:
-                scaled_qty = round(raw_scaled * 2) / 2  # nearest 0.5
-            elif raw_scaled > 0:
-                scaled_qty = max(0.25, round(raw_scaled * 4) / 4)  # nearest 0.25
-            else:
-                scaled_qty = 1
-
-            if is_override:
-                override_reason = ing.get("override_reason", "Not from Kroger")
-                data["items"].append(
-                    {
-                        "id": _generate_list_item_id(),
-                        "product_id": None,
-                        "ingredient_name": name,
-                        # Web-facing alias so the template can use item.name
-                        "name": name,
-                        "quantity": scaled_qty,
-                        "unit": unit,
-                        "sources": [
-                            {
-                                "recipe_id": body.recipe_id,
-                                "recipe_name": recipe.get("name"),
-                                "servings_used": servings,
-                                "original_quantity": qty,
-                                "scaled_quantity": scaled_qty,
-                            }
-                        ],
-                        "added_at": datetime.now().isoformat(),
-                        "notes": f"Manual: {override_reason}",
-                        "manual_purchase": True,
-                        "recipe_name": recipe.get("name"),
-                    }
-                )
-                items_added += 1
-                continue
-
-            # Skip if pantry level is adequate
-            if product_id and pantry_context.get(product_id, 0) >= 30:
-                items_skipped += 1
-                continue
-
-            data["items"].append(
-                {
-                    "id": _generate_list_item_id(),
-                    "product_id": product_id,
-                    "ingredient_name": name,
-                    "name": name,
-                    "quantity": scaled_qty,
-                    "unit": unit,
-                    "sources": [
-                        {
-                            "recipe_id": body.recipe_id,
-                            "recipe_name": recipe.get("name"),
-                            "servings_used": servings,
-                            "original_quantity": qty,
-                            "scaled_quantity": scaled_qty,
-                        }
-                    ],
-                    "added_at": datetime.now().isoformat(),
-                    "notes": None,
-                    "recipe_name": recipe.get("name"),
-                }
-            )
-            items_added += 1
-
-        data["items"] = _consolidate_items(data["items"])
-        _save_shopping_list(data)
-
-        return JSONResponse(
-            content={
+        if not body.confirm:
+            return JSONResponse(content={
                 "success": True,
+                "confirmation_required": True,
+                "recipe_id": body.recipe_id,
                 "recipe_name": recipe.get("name"),
-                "items_added": items_added,
-                "items_skipped": items_skipped,
-                "total_items": len(data["items"]),
-                "message": (
-                    f"Added {items_added} ingredients from '{recipe.get('name')}' "
-                    f"(scaled to {servings} servings)"
-                    + (
-                        f". {items_skipped} item(s) skipped (well-stocked pantry)."
-                        if items_skipped
-                        else ""
-                    )
-                ),
-            }
-        )
+                "servings": servings,
+                "items_to_add": preview["items_to_add"],
+                "items_to_skip": preview["items_to_skip"],
+                "manual_purchase": preview["manual_purchase"],
+                "summary": {
+                    "to_add": len(preview["items_to_add"]),
+                    "to_skip": len(preview["items_to_skip"]),
+                    "manual": len(preview["manual_purchase"]),
+                },
+            })
 
-    except Exception as e:
+        if body.selections is None:
+            chosen = [
+                {**row, "override": False, "original_quantity": row.get("original_quantity")}
+                for row in preview["items_to_add"]
+            ] + [
+                {**row, "override": True, "product_id": None, "original_quantity": None}
+                for row in preview["manual_purchase"]
+            ]
+            items_skipped = len(preview["items_to_skip"])
+        else:
+            chosen = [
+                {
+                    "name": s.name,
+                    "product_id": s.product_id,
+                    "quantity": max(0.25, float(s.quantity)),
+                    "unit": s.unit,
+                    "override": s.override,
+                    "original_quantity": None,
+                }
+                for s in body.selections
+            ]
+            items_skipped = 0
+
+        total = _commit_recipe_items(chosen, recipe, body.recipe_id, servings)
+        return JSONResponse(content={
+            "success": True,
+            "recipe_name": recipe.get("name"),
+            "items_added": len(chosen),
+            "items_skipped": items_skipped,
+            "total_items": total,
+            "message": (
+                f"Added {len(chosen)} ingredients from '{recipe.get('name')}' "
+                f"(scaled to {servings} servings)"
+            ),
+        })
+
+    except Exception as exc:
+        logger.exception("add_recipe_to_list failed")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Failed to add recipe: {str(e)}"},
+            content={"error": f"Failed to add recipe: {exc}"},
         )
 
 
@@ -301,12 +397,37 @@ async def update_shopping_list_item(item_id: str, body: UpdateItemBody):
 # ---------------------------------------------------------------------------
 
 
+class SelectedCartItem(BaseModel):
+    """User-confirmed cart row: which product, how many."""
+
+    product_id: str
+    quantity: int
+
+
 class AddToCartBody(BaseModel):
     confirm: bool = False
     modality: str = "PICKUP"
-    # Product IDs from the modal's Spices section the user ticked. None on the
-    # initial preview round-trip; populated by the client on confirm.
+    # Product IDs from the modal's Spices section the user ticked. None on
+    # the initial preview round-trip; populated by the client on confirm.
     included_spice_ids: list[str] | None = None
+    # Per-row {product_id, quantity} chosen via the modal's checkbox +
+    # stepper UI. When confirm=True and selections is provided, only these
+    # product_ids are sent and only they are cleared from the local list;
+    # unknown product_ids are silently dropped (treated as stale).
+    selections: list[SelectedCartItem] | None = None
+
+
+def _apply_cart_selections(
+    items_to_add: list[dict],
+    selections: list[SelectedCartItem],
+) -> list[dict]:
+    """Intersect server-computed cart items with the user's curated picks."""
+    overrides = {s.product_id: max(1, int(s.quantity)) for s in selections}
+    return [
+        {**row, "quantity": overrides[row["product_id"]]}
+        for row in items_to_add
+        if row["product_id"] in overrides
+    ]
 
 
 @router.post("/api/shopping-list/add-to-cart")
@@ -336,15 +457,7 @@ async def shopping_list_to_cart(body: AddToCartBody):
                 }
             )
 
-        # Optional pantry context
-        pantry_context: dict = {}
-        try:
-            from kroger_mcp.analytics.pantry import get_pantry_status
-
-            for pi in get_pantry_status(apply_depletion=True):
-                pantry_context[pi["product_id"]] = pi.get("level_percent", 0)
-        except Exception:
-            pass
+        pantry_context = _pantry_levels()
 
         spice_default_included = get_include_spices_by_default()
 
@@ -428,21 +541,23 @@ async def shopping_list_to_cart(body: AddToCartBody):
                 }
             )
 
-        # Promote any spices the user explicitly ticked into the cart batch.
+        # Promote any spices the user explicitly ticked into the cart batch
+        # BEFORE applying per-row selections, so a single `selections` list
+        # can curate both regular items and opted-in spices.
         spice_id_set = set(body.included_spice_ids or [])
         if spice_id_set:
             for spice in items_spices:
                 if spice["product_id"] in spice_id_set:
-                    items_to_add.append(
-                        {
-                            "product_id": spice["product_id"],
-                            "name": spice["name"],
-                            "quantity": spice["quantity"],
-                            "recipe_name": spice.get("recipe_name"),
-                        }
-                    )
+                    items_to_add.append({
+                        "product_id": spice["product_id"],
+                        "name": spice["name"],
+                        "quantity": spice["quantity"],
+                        "recipe_name": spice.get("recipe_name"),
+                    })
 
-        # Confirm mode — add to Kroger cart
+        if body.selections is not None:
+            items_to_add = _apply_cart_selections(items_to_add, body.selections)
+
         if not items_to_add:
             return JSONResponse(
                 content={

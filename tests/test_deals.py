@@ -2,17 +2,19 @@
 Tests for deal discovery and price tracking functionality.
 """
 
-import pytest
 from datetime import datetime, timedelta
+
+import pytest
+
 from kroger_mcp.analytics.database import (
     ensure_initialized,
     get_db_connection,
     reset_initialization,
 )
 from kroger_mcp.analytics.deals import (
-    record_price_observation,
-    get_price_statistics,
     calculate_cart_savings,
+    get_price_statistics,
+    record_price_observation,
     score_deal_quality,
 )
 

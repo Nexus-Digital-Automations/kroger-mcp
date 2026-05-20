@@ -6,8 +6,8 @@ Run this script to verify bulk operations work correctly:
     python tests/manual_bulk_test.py
 """
 
-import sys
 import os
+import sys
 
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))

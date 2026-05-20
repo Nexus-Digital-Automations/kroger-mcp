@@ -67,3 +67,9 @@ tests/playwright/screenshots/
 
 # Test output images
 output/*.png
+
+# Claude Code workspace
+.claude/
+
+# macOS clutter
+.DS_Store

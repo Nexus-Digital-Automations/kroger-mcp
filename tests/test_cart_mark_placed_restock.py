@@ -6,7 +6,6 @@ import sqlite3
 import sys
 
 
-
 def _purge_test_orders_from_history(test_product_ids: list, order_history_file: str) -> None:
     """Remove orders containing test product IDs from kroger_order_history.json."""
     if not os.path.exists(order_history_file):
@@ -40,9 +39,9 @@ class TestMarkPlacedRestockWebRoute:
         import importlib
 
         cr = importlib.import_module('kroger_mcp.web.routes.api.cart')
-        import kroger_mcp.tools.cart_tools as ct
         import kroger_mcp.analytics.database as db_mod
         import kroger_mcp.analytics.pantry as pantry_mod
+        import kroger_mcp.tools.cart_tools as ct
 
         product_id = 'PYTEST_RESTOCK_HAPPY_001'
         backup = json.load(open(ct.CART_FILE)) if os.path.exists(ct.CART_FILE) else {'current_cart': []}
@@ -94,9 +93,9 @@ class TestMarkPlacedRestockWebRoute:
         import importlib
 
         cr = importlib.import_module('kroger_mcp.web.routes.api.cart')
-        import kroger_mcp.tools.cart_tools as ct
         import kroger_mcp.analytics.database as db_mod
         import kroger_mcp.analytics.pantry as pantry_mod
+        import kroger_mcp.tools.cart_tools as ct
 
         product_id = 'PYTEST_RESTOCK_ERR_002'
         backup = json.load(open(ct.CART_FILE)) if os.path.exists(ct.CART_FILE) else {'current_cart': []}

@@ -2,19 +2,20 @@
 Tests for dynamic ingredient management system.
 """
 
-import pytest
 import json
 import sys
 from pathlib import Path
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from kroger_mcp.analytics.database import get_db_connection, initialize_database
 from kroger_mcp.analytics.ingredients import (
+    check_product_safety,
     get_active_ingredients,
     get_compiled_patterns,
-    check_product_safety,
 )
 
 
