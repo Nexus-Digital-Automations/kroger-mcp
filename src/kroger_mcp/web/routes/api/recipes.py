@@ -1,5 +1,6 @@
 """API routes for recipe write operations."""
 
+import json
 from datetime import datetime
 
 from fastapi import APIRouter
@@ -9,9 +10,102 @@ from pydantic import BaseModel
 router = APIRouter()
 
 
+class IngredientIn(BaseModel):
+    name: str
+    quantity: float | None = None
+    unit: str | None = None
+    category: str | None = None
+    product_id: str | None = None
+    override: bool = False
+    override_reason: str | None = None
+
+
+class ReplaceIngredientsBody(BaseModel):
+    ingredients: list[IngredientIn]
+
+
+class ReplaceInstructionsBody(BaseModel):
+    instructions: list[str]
+
+
 class AddToCartBody(BaseModel):
     confirm: bool = False
     modality: str = "PICKUP"
+
+
+@router.put("/api/recipes/{recipe_id}/ingredients")
+async def replace_recipe_ingredients(recipe_id: str, body: ReplaceIngredientsBody):
+    """Replace the entire ingredient list for a recipe.
+
+    Atomic alternative to the append-one POST endpoint. The recipe-detail
+    inline editor uses this so add/edit/remove/reorder flow through a
+    single round-trip. Safety scoring is re-derived at render time, so we
+    do not persist it here.
+    """
+    try:
+        from kroger_mcp.tools.recipe_tools import _load_recipes, _save_recipes
+
+        store = _load_recipes()
+        recipe = next(
+            (r for r in store.get("recipes", []) if r.get("id") == recipe_id),
+            None,
+        )
+        if not recipe:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Recipe '{recipe_id}' not found"},
+            )
+        recipe["ingredients"] = [
+            {
+                "name": ing.name,
+                "quantity": ing.quantity,
+                "unit": ing.unit,
+                "category": ing.category,
+                "product_id": ing.product_id,
+                "override": ing.override,
+                "override_reason": ing.override_reason,
+            }
+            for ing in body.ingredients
+        ]
+        recipe["updated_at"] = datetime.now().isoformat()
+        _save_recipes(store)
+        return {
+            "success": True,
+            "recipe_id": recipe_id,
+            "ingredient_count": len(recipe["ingredients"]),
+        }
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.put("/api/recipes/{recipe_id}/instructions")
+async def replace_recipe_instructions(recipe_id: str, body: ReplaceInstructionsBody):
+    """Replace the recipe's instruction steps.
+
+    Stored as a JSON-encoded list so the existing `_parse_instructions`
+    reader (which already handles the JSON-array form) round-trips
+    cleanly without a schema migration.
+    """
+    try:
+        from kroger_mcp.tools.recipe_tools import _load_recipes, _save_recipes
+
+        store = _load_recipes()
+        recipe = next(
+            (r for r in store.get("recipes", []) if r.get("id") == recipe_id),
+            None,
+        )
+        if not recipe:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Recipe '{recipe_id}' not found"},
+            )
+        steps = [s.strip() for s in body.instructions if s and s.strip()]
+        recipe["instructions"] = json.dumps(steps)
+        recipe["updated_at"] = datetime.now().isoformat()
+        _save_recipes(store)
+        return {"success": True, "recipe_id": recipe_id, "step_count": len(steps)}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.delete("/api/recipes/{recipe_id}")

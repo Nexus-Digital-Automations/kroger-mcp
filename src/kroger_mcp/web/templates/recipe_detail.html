@@ -7,6 +7,34 @@
 
 {% block content %}
 
+<style>
+  /* Click-to-edit affordance shared by header, ingredient cells, and steps.
+     We don't show a visible border by default (it'd be noisy) — just a
+     subtle hover background so the cursor reveals what's editable. */
+  .ss-inline-edit:hover { background: oklch(96% 0.012 80) !important; }
+  .ss-inline-edit:focus { background: oklch(95% 0.015 80) !important; box-shadow: 0 0 0 2px oklch(85% 0.05 145); }
+  .ss-inline-edit[data-placeholder]:empty:before {
+    content: attr(data-placeholder);
+    color: var(--text-3);
+    opacity: 0.55;
+    font-style: italic;
+    pointer-events: none;
+  }
+  .ss-row-action {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    padding: 0.15rem 0.4rem;
+    color: var(--text-3);
+    font-size: 0.75rem;
+    cursor: pointer;
+    line-height: 1;
+    transition: all 0.12s;
+  }
+  .ss-row-action:hover { color: var(--text-1); background: oklch(96% 0.012 80); border-color: var(--border); }
+  .ss-row-action.is-danger:hover { color: oklch(45% 0.18 25); border-color: oklch(80% 0.08 25); background: oklch(96% 0.04 25); }
+</style>
+
 {{ recipe_add_modal() }}
 
 <!-- Back link -->
@@ -79,26 +107,53 @@
   </div>
 
   <div class="flex items-start justify-between gap-4 mb-3">
-    <h2 class="font-bold text-gray-900" style="font-family:'Lora',serif; font-size:2rem; line-height:1.15; letter-spacing:-0.02em; flex:1; min-width:0;">{{ recipe.name }}</h2>
+    <h2 class="font-bold text-gray-900 ss-inline-edit"
+      style="font-family:'Lora',serif; font-size:2rem; line-height:1.15; letter-spacing:-0.02em; flex:1; min-width:0; cursor:text; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; outline:none; transition:background 0.15s;"
+      contenteditable="plaintext-only" spellcheck="false"
+      title="Click to edit"
+      @focus="$el.dataset.original = $el.innerText.trim(); $el.style.background='oklch(95% 0.015 80)';"
+      @blur="$el.style.background=''; inlineEdit('name', $el)"
+      @keydown.enter.prevent="$el.blur()"
+      @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+    >{{ recipe.name }}</h2>
     <div class="flex-shrink-0">
       {{ action_menu('recipe', item_expr=({"id": recipe.id, "name": recipe.name} | tojson)) }}
     </div>
   </div>
 
-  {% if recipe.description %}
-  <p class="text-gray-600 mb-4" style="font-size:0.9375rem; line-height:1.55; max-width:62ch;">{{ recipe.description }}</p>
-  {% endif %}
+  <!-- Description: always rendered so an empty recipe shows a placeholder
+       prompting the user to click. The :empty:before CSS hook lives in
+       base styles via the ss-inline-edit class. -->
+  <p class="text-gray-600 mb-4 ss-inline-edit"
+    style="font-size:0.9375rem; line-height:1.55; max-width:62ch; cursor:text; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; min-height:1.55em; outline:none; transition:background 0.15s;"
+    data-placeholder="Add a description…"
+    contenteditable="plaintext-only" spellcheck="false"
+    title="Click to edit"
+    @focus="$el.dataset.original = $el.innerText.trim(); $el.style.background='oklch(95% 0.015 80)';"
+    @blur="$el.style.background=''; inlineEdit('description', $el)"
+    @keydown.enter.prevent="$el.blur()"
+    @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+  >{{ recipe.description or '' }}</p>
 
   <!-- Meta strip: quick facts demoted to bullet-separated text; health stays as a popover pill -->
   <div class="flex flex-wrap items-center mb-4" style="gap:0.5rem 0.625rem; font-size:0.8125rem; color:var(--text-3); font-family:'DM Sans',sans-serif;">
-    {% set _meta_items = [] %}
-    {% if recipe.servings %}{% set _ = _meta_items.append(recipe.servings ~ ' servings') %}{% endif %}
-    {% if recipe.times_ordered %}{% set _ = _meta_items.append('Ordered ' ~ recipe.times_ordered ~ '×') %}{% endif %}
-    {% if recipe.source %}{% set _ = _meta_items.append(recipe.source) %}{% endif %}
-    {% for label in _meta_items %}
-      {% if not loop.first %}<span aria-hidden="true" style="color:var(--text-3); opacity:0.5;">·</span>{% endif %}
-      <span>{{ label }}</span>
-    {% endfor %}
+    <!-- Servings count is click-to-edit (changes the recipe's *base* servings,
+         which is the default the ingredient stepper starts at). -->
+    <span style="display:inline-flex; align-items:baseline; gap:0.25rem;">
+      <span class="ss-inline-edit"
+        style="cursor:text; border-radius:0.25rem; padding:0 0.25rem; outline:none; transition:background 0.15s; font-variant-numeric: tabular-nums;"
+        contenteditable="plaintext-only" spellcheck="false"
+        inputmode="numeric"
+        title="Click to edit base servings"
+        @focus="$el.dataset.original = $el.innerText.trim(); $el.style.background='oklch(95% 0.015 80)';"
+        @blur="$el.style.background=''; inlineEdit('servings', $el)"
+        @keydown.enter.prevent="$el.blur()"
+        @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+      >{{ recipe.servings or 4 }}</span>
+      <span>servings</span>
+    </span>
+    {% if recipe.times_ordered %}<span aria-hidden="true" style="color:var(--text-3); opacity:0.5;">·</span><span>Ordered {{ recipe.times_ordered }}×</span>{% endif %}
+    {% if recipe.source %}<span aria-hidden="true" style="color:var(--text-3); opacity:0.5;">·</span><span>{{ recipe.source }}</span>{% endif %}
     {% if health_data %}
     {% if _meta_items %}<span aria-hidden="true" style="color:var(--text-3); opacity:0.5;">·</span>{% endif %}
     <script id="health-init-data" type="application/json">{{ health_data | tojson }}</script>
@@ -144,14 +199,35 @@
     {% endif %}
   </div>
 
-  <!-- Tags -->
-  {% if recipe.tags %}
-  <div class="flex flex-wrap gap-2">
-    {% for tag in recipe.tags %}
-    <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full">{{ tag }}</span>
-    {% endfor %}
+  <!-- Tags: click the row to edit as a comma-separated list. The initial
+       draft is the existing tags joined with ', ' — pre-rendered server-side
+       so we don't have to escape a JS array literal inside an HTML attr. -->
+  {% set _tags_csv = (recipe.tags or []) | join(', ') %}
+  <div x-data='{ "editingTags": false, "tagsDraft": {{ _tags_csv | tojson }} }' class="flex flex-wrap items-center gap-2">
+    <template x-if="!editingTags">
+      <div class="flex flex-wrap items-center gap-2"
+        style="cursor:text; min-height:1.5rem;"
+        title="Click to edit tags"
+        @click="editingTags = true; $nextTick(() => $refs.tagsInput.focus())">
+        {% if recipe.tags %}
+          {% for tag in recipe.tags %}
+          <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full">{{ tag }}</span>
+          {% endfor %}
+        {% else %}
+          <span class="text-xs text-gray-400 italic">+ Add tags</span>
+        {% endif %}
+      </div>
+    </template>
+    <template x-if="editingTags">
+      <input x-ref="tagsInput" x-model="tagsDraft" type="text"
+        placeholder="dinner, healthy, italian"
+        class="ss-input"
+        style="font-size:0.75rem; padding:0.25rem 0.5rem; width:24rem; max-width:100%;"
+        @keydown.enter.prevent="saveTags(tagsDraft); editingTags = false"
+        @keydown.escape.prevent="editingTags = false"
+        @blur="saveTags(tagsDraft); editingTags = false"/>
+    </template>
   </div>
-  {% endif %}
 </div>
 
 <!-- Two-column: Ingredients + Instructions -->
@@ -206,25 +282,52 @@
       inc() { if (this.servings < 50) this.servings++; },
       dec() { if (this.servings > 1)  this.servings--; },
 
+      // Display a scaled quantity. Returns '' only when there is genuinely
+      // nothing to show (null/NaN). Never silently emits an empty string
+      // for a *positive* result \u2014 that used to mask scaling bugs by falling
+      // back to the unscaled value in the template.
       fmtQty(raw) {
         if (raw === null || raw === undefined) return '';
         const n = parseFloat(raw);
-        if (isNaN(n) || n === 0) return '';
-        if (n === Math.floor(n)) return String(Math.floor(n));
-        const whole = Math.floor(n);
-        const frac  = n - whole;
-        const table = [[0.125,'\u215b'],[0.25,'\u00bc'],[0.333,'\u2153'],[0.5,'\u00bd'],[0.667,'\u2154'],[0.75,'\u00be'],[0.875,'\u215e']];
+        if (isNaN(n)) return '';
+        if (n === 0) return '0';
+        // Snap to integer only when the rounded value is non-zero — otherwise
+        // 0.001 would silently become '0', resurrecting the silent-zero bug.
+        const _rnd = Math.round(n);
+        if (_rnd !== 0 && Math.abs(n - _rnd) < 0.005) return String(_rnd);
+        const sign  = n < 0 ? '-' : '';
+        const abs   = Math.abs(n);
+        const whole = Math.floor(abs);
+        const frac  = abs - whole;
+        const table = [
+          [0.0625, '\u2009\u00b9\u2044\u2081\u2086'], // 1/16 \u2014 fall back to literal when no precomposed glyph exists
+          [0.125, '\u215b'],   // \u215b
+          [0.1667, '\u2009\u00b9\u2044\u2086'], // 1/6
+          [0.25, '\u00bc'],    // \u00bc
+          [0.333, '\u2153'],   // \u2153
+          [0.375, '\u215c'],   // \u215c
+          [0.5, '\u00bd'],     // \u00bd
+          [0.625, '\u215d'],   // \u215d
+          [0.667, '\u2154'],   // \u2154
+          [0.75, '\u00be'],    // \u00be
+          [0.833, '\u2009\u2075\u2044\u2086'], // 5/6
+          [0.875, '\u215e'],   // \u215e
+        ];
         for (const [v, sym] of table) {
-          if (Math.abs(frac - v) < 0.04) return (whole ? whole + '\u2009' : '') + sym;
+          if (Math.abs(frac - v) < 0.02) return sign + (whole ? whole + '\u2009' : '') + sym;
         }
-        const r = Math.round(n * 10) / 10;
-        return (r === Math.floor(r)) ? String(Math.floor(r)) : r.toFixed(1);
+        // Decimal fallback \u2014 never round a positive value to '0'.
+        if (abs < 0.05) return sign + abs.toFixed(2);
+        const r = Math.round(abs * 10) / 10;
+        if (r === Math.floor(r)) return sign + String(Math.floor(r));
+        return sign + r.toFixed(1);
       },
 
       get scaledIngs() {
         const f = this.servings / this.baseServings;
-        return this.ings.map(i => ({
+        return this.ings.map((i, idx) => ({
           ...i,
+          _idx: idx,
           sq: (i.quantity !== null && i.quantity !== undefined) ? i.quantity * f : null
         }));
       },
@@ -238,6 +341,90 @@
           (map[key] = map[key] || []).push(i);
         });
         return this.catOrder.filter(k => map[k]).map(k => ({ header: this.catLabels[k], key: k, items: map[k] }));
+      },
+
+      // ── Inline ingredient editing ─────────────────────────────────────
+      // All mutations go through PUT /api/recipes/{id}/ingredients with the
+      // full list (atomic). On success we reload so safety/health scoring
+      // are recomputed server-side.
+      _recipeId() {
+        const el = document.getElementById('recipe-init-data');
+        return el ? JSON.parse(el.textContent).id : null;
+      },
+      async _putIngredients(next) {
+        try {
+          const r = await fetch('/api/recipes/' + this._recipeId() + '/ingredients', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ ingredients: next })
+          });
+          const d = await r.json();
+          if (r.ok && d.success) { window.location.reload(); return true; }
+          alert((d && d.error) || 'Failed to save ingredients');
+        } catch(e) { alert('Network error'); }
+        return false;
+      },
+      _serialize(ings) {
+        return ings.map(i => ({
+          name: i.name,
+          quantity: i.quantity,
+          unit: i.unit,
+          category: i.category,
+          product_id: i.product_id,
+          override: !!i.override,
+          override_reason: i.override_reason,
+        }));
+      },
+      async saveIngredientField(idx, field, raw, $el) {
+        const current = this.ings[idx];
+        if (!current) return;
+        let value = raw;
+        if (field === 'quantity') {
+          const trimmed = String(raw).trim();
+          if (trimmed === '') { value = null; }
+          else {
+            const n = parseFloat(trimmed);
+            if (isNaN(n) || n < 0) { if ($el) $el.innerText = String(current.quantity ?? ''); return; }
+            value = n;
+          }
+        } else {
+          value = (raw ?? '').trim() || null;
+        }
+        if (field === 'name' && !value) {
+          if ($el) $el.innerText = current.name;
+          return;
+        }
+        if (value === current[field]) return;
+        const next = this._serialize(this.ings);
+        next[idx][field] = value;
+        await this._putIngredients(next);
+      },
+      async removeIngredient(idx) {
+        const target = this.ings[idx];
+        if (!target) return;
+        if (!confirm('Remove "' + (target.name || 'this ingredient') + '"?')) return;
+        const next = this._serialize(this.ings).filter((_, i) => i !== idx);
+        await this._putIngredients(next);
+      },
+      async addIngredient(rawQty, rawUnit, rawName) {
+        const name = (rawName || '').trim();
+        if (!name) return;
+        let qty = null;
+        const tq = String(rawQty || '').trim();
+        if (tq) {
+          const n = parseFloat(tq);
+          if (!isNaN(n) && n >= 0) qty = n;
+        }
+        const unit = (rawUnit || '').trim() || null;
+        // Manual entry without a Kroger product_id: the API requires either
+        // a product_id or override=true. New rows default to override so
+        // they're accepted; users can later link a real product.
+        const next = this._serialize(this.ings).concat([{
+          name, quantity: qty, unit, category: null,
+          product_id: null, override: true,
+          override_reason: 'Added inline; not yet linked to Kroger product'
+        }]);
+        await this._putIngredients(next);
       },
 
     }));
@@ -269,13 +456,18 @@
             @mouseleave="$el.style.background='transparent'; $el.style.color='var(--text-2)';">+</button>
         </div>
 
-        <!-- Multiplier badge (only when scaled) -->
+        <!-- Multiplier badge + reset (only when scaled away from base) -->
         <span x-show="ings.length > 0 && servings !== baseServings" x-cloak
           x-transition:enter="transition ease-out duration-150"
           x-transition:enter-start="opacity-0 scale-95"
           x-transition:enter-end="opacity-100 scale-100"
-          style="font-size:0.6875rem; color:var(--text-3); font-style:italic; white-space:nowrap;"
-          x-text="'\u00d7\u2009' + (servings / baseServings % 1 === 0 ? Math.floor(servings / baseServings) : parseFloat((servings / baseServings).toFixed(2))) + ' of base'"></span>
+          style="display:inline-flex; align-items:center; gap:0.375rem; white-space:nowrap;">
+          <span style="font-size:0.6875rem; color:var(--text-3); font-style:italic;"
+            x-text="'\u00d7\u2009' + (servings / baseServings % 1 === 0 ? Math.floor(servings / baseServings) : parseFloat((servings / baseServings).toFixed(2))) + ' of base'"></span>
+          <button @click="servings = baseServings"
+            title="Reset to base servings"
+            style="font-size:0.625rem; color:var(--green); background:transparent; border:1px solid var(--border); border-radius:99px; padding:0.1rem 0.5rem; cursor:pointer; font-family:'DM Sans',sans-serif; letter-spacing:0.02em;">Reset</button>
+        </span>
       </div>
 
       <!-- Right: view toggle -->
@@ -298,13 +490,15 @@
       </div>
 
     </div>
-    <div x-show="ings.length > 0">
-      <!-- Column header -->
-      <div class="grid pb-2 mb-1" style="grid-template-columns: 7rem 1fr auto auto; gap: 0.5rem; border-bottom: 1px solid oklch(90% 0.015 80); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
+    <div>
+      <!-- Column header (always shown so the Add row is visible on empty recipes) -->
+      <div class="grid pb-2 mb-1" style="grid-template-columns: 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; border-bottom: 1px solid oklch(90% 0.015 80); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
         <span>Qty</span>
+        <span>Unit</span>
         <span>Ingredient</span>
         <span>Source</span>
         <span>Health</span>
+        <span></span>
       </div>
       <template x-for="(group, gi) in groups" :key="gi">
         <div>
@@ -316,11 +510,41 @@
             <span x-text="group.header"></span>
             <span style="font-weight:400; opacity:0.6; font-size:0.5625rem; margin-left:0.125rem;" x-text="'(' + group.items.length + ')'"></span>
           </div>
-          <template x-for="(ing, ii) in group.items" :key="ing.name + ii">
-            <div class="grid items-baseline" style="grid-template-columns: 7rem 1fr auto auto; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px solid oklch(93% 0.01 80);">
-              <span style="font-size: 0.8rem; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums;"
-                x-text="(ing.quantity ? (fmtQty(+ing.quantity * (servings / baseServings)) || String(ing.quantity)) : '') + (ing.unit ? ' ' + ing.unit : '')"></span>
-              <span style="font-size: 0.875rem; color: var(--text-1);" x-text="ing.name"></span>
+          <template x-for="(ing, ii) in group.items" :key="ing._idx">
+            <div class="grid items-baseline" data-ingredient-row
+              :data-ingredient-idx="ing._idx"
+              style="grid-template-columns: 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px solid oklch(93% 0.01 80);"
+              x-data="{ editQ: false }">
+              <!-- Qty cell: shows scaled qty when idle; editing reverts to BASE qty
+                   so the user is changing the canonical value, not the scaled view. -->
+              <span x-show="!editQ"
+                @click="editQ = true; $nextTick(() => $refs['q' + ing._idx].focus())"
+                class="ss-inline-edit"
+                style="font-size: 0.8rem; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; cursor: text; min-height: 1.1rem; display: inline-block; padding: 0 0.25rem;"
+                x-text="fmtQty(ing.sq) || '—'"></span>
+              <input x-show="editQ" x-cloak :x-ref="'q' + ing._idx" type="text" inputmode="decimal"
+                :value="ing.quantity ?? ''"
+                @blur="editQ = false; saveIngredientField(ing._idx, 'quantity', $event.target.value)"
+                @keydown.enter.prevent="$event.target.blur()"
+                @keydown.escape.prevent="editQ = false"
+                style="font-size: 0.8rem; padding: 0.1rem 0.3rem; border: 1px solid var(--border); border-radius: 0.25rem; width: 100%; min-width: 0; font-variant-numeric: tabular-nums;"/>
+              <span class="ss-inline-edit"
+                contenteditable="plaintext-only" spellcheck="false"
+                style="font-size: 0.8rem; color: var(--text-3); cursor: text; padding: 0 0.25rem; min-height: 1.1rem; display: inline-block;"
+                data-placeholder="unit"
+                @focus="$el.dataset.original = $el.innerText.trim()"
+                @blur="saveIngredientField(ing._idx, 'unit', $el.innerText.trim(), $el)"
+                @keydown.enter.prevent="$el.blur()"
+                @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+                x-text="ing.unit || ''"></span>
+              <span class="ss-inline-edit"
+                contenteditable="plaintext-only" spellcheck="false"
+                style="font-size: 0.875rem; color: var(--text-1); cursor: text; padding: 0 0.25rem; min-height: 1.1rem; display: inline-block;"
+                @focus="$el.dataset.original = $el.innerText.trim()"
+                @blur="saveIngredientField(ing._idx, 'name', $el.innerText.trim(), $el)"
+                @keydown.enter.prevent="$el.blur()"
+                @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+                x-text="ing.name"></span>
               <span>
                 <span x-show="ing.override" style="font-size: 0.6875rem; background: oklch(92% 0.015 80); color: var(--text-2); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Manual</span>
                 <span x-show="!ing.override && ing.product_id" style="font-size: 0.6875rem; background: oklch(91% 0.1 145); color: oklch(30% 0.14 145); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Kroger</span>
@@ -366,34 +590,90 @@
                 </div>
               </div>
               <span x-show="!ing.safety_grade" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
+              <button class="ss-row-action is-danger"
+                title="Remove ingredient"
+                @click="removeIngredient(ing._idx)"
+                style="justify-self:end;">✕</button>
             </div>
           </template>
         </div>
       </template>
-    </div>
-    <p x-show="ings.length === 0" class="text-sm text-gray-400">No ingredients listed.</p>
 
+      <!-- Add ingredient row -->
+      <div x-data="{ addQ: '', addU: '', addN: '' }"
+        class="grid items-baseline"
+        style="grid-template-columns: 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; padding: 0.55rem 0; border-top: 1px dashed oklch(88% 0.015 80); margin-top: 0.25rem;">
+        <input x-model="addQ" type="text" inputmode="decimal" placeholder="qty"
+          @keydown.enter.prevent="addIngredient(addQ, addU, addN); addQ=''; addU=''; addN='';"
+          style="font-size: 0.8rem; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; min-width: 0; font-variant-numeric: tabular-nums;"/>
+        <input x-model="addU" type="text" placeholder="unit"
+          @keydown.enter.prevent="addIngredient(addQ, addU, addN); addQ=''; addU=''; addN='';"
+          style="font-size: 0.8rem; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; min-width: 0;"/>
+        <input x-model="addN" type="text" placeholder="+ Add ingredient (name)…"
+          @keydown.enter.prevent="addIngredient(addQ, addU, addN); addQ=''; addU=''; addN='';"
+          style="font-size: 0.875rem; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; min-width: 0;"/>
+        <span></span>
+        <span></span>
+        <button class="ss-row-action"
+          :disabled="!addN.trim()"
+          @click="addIngredient(addQ, addU, addN); addQ=''; addU=''; addN='';"
+          title="Add ingredient"
+          style="justify-self:end; color: var(--green);">+</button>
+      </div>
+    </div>
   </div>
 
-  <!-- Instructions -->
-  <div class="ss-card p-6">
+  <!-- Instructions: inline-editable, reorderable, deletable.
+       We flatten any group headers into the step list on first edit —
+       the editor is intentionally a simple ordered list of strings,
+       matching the JSON-array storage form. -->
+  {% set _flat_steps = [] %}
+  {% for _grp in instruction_groups %}
+    {% if _grp.header %}{% set _ = _flat_steps.append(_grp.header) %}{% endif %}
+    {% for _stp in _grp.steps %}{% set _ = _flat_steps.append(_stp) %}{% endfor %}
+  {% endfor %}
+  <script id="instructions-init-data" type="application/json">{{ _flat_steps | tojson }}</script>
+  <div class="ss-card p-6" x-data="instructionsEditor">
     <h3 style="font-family:'Lora',serif; font-weight:600; font-size:0.9375rem; color:var(--text-1); letter-spacing:-0.01em; margin:0 0 0.875rem; padding-bottom:0.875rem; border-bottom:1px solid var(--border);">Instructions</h3>
-    {% if instruction_groups %}
-      {% for group in instruction_groups %}
-        {% if group.header %}
-        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide {% if not loop.first %}mt-4{% endif %} mb-1">
-          {{ group.header }}
-        </p>
-        {% endif %}
-        <ol class="space-y-2 list-decimal list-inside text-sm text-gray-700 leading-relaxed mb-2">
-          {% for step in group.steps %}
-          <li>{{ step }}</li>
-          {% endfor %}
-        </ol>
-      {% endfor %}
-    {% else %}
-    <p class="text-sm text-gray-400">No instructions recorded.</p>
-    {% endif %}
+
+    <ol class="space-y-1" style="list-style:none; padding:0; counter-reset:step;">
+      <template x-for="(step, i) in steps" :key="i + ':' + step.slice(0,20)">
+        <li class="grid items-baseline"
+          style="grid-template-columns: 1.75rem 1fr auto; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid oklch(95% 0.01 80);">
+          <span style="font-size:0.75rem; color:var(--text-3); font-variant-numeric:tabular-nums; padding-top:0.1rem;"
+            x-text="(i + 1) + '.'"></span>
+          <span class="ss-inline-edit"
+            contenteditable="plaintext-only" spellcheck="false"
+            data-placeholder="Step text…"
+            style="font-size: 0.875rem; color: var(--text-1); line-height: 1.55; cursor:text; padding:0.05rem 0.25rem; border-radius:0.25rem; outline:none;"
+            @focus="$el.dataset.original = $el.innerText.trim()"
+            @blur="updateStep(i, $el.innerText.trim(), $el)"
+            @keydown.enter.prevent="$el.blur()"
+            @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+            x-text="step"></span>
+          <span style="display:inline-flex; gap:0.125rem; justify-self:end; align-self:start; padding-top:0.05rem;">
+            <button class="ss-row-action" :disabled="i === 0"
+              :style="i === 0 ? 'opacity:0.3; cursor:not-allowed;' : ''"
+              @click="i > 0 && moveStep(i, -1)" title="Move up">↑</button>
+            <button class="ss-row-action" :disabled="i === steps.length - 1"
+              :style="i === steps.length - 1 ? 'opacity:0.3; cursor:not-allowed;' : ''"
+              @click="i < steps.length - 1 && moveStep(i, 1)" title="Move down">↓</button>
+            <button class="ss-row-action is-danger" @click="removeStep(i)" title="Remove step">✕</button>
+          </span>
+        </li>
+      </template>
+    </ol>
+
+    <div x-data="{ draft: '' }" class="flex items-center gap-2" style="margin-top:0.5rem; padding:0.4rem 0;">
+      <input x-model="draft" type="text" placeholder="+ Add step…"
+        @keydown.enter.prevent="addStep(draft); draft = ''"
+        class="ss-input"
+        style="flex:1; font-size:0.875rem; padding:0.3rem 0.6rem;"/>
+      <button class="ss-row-action"
+        :disabled="!draft.trim()"
+        @click="addStep(draft); draft = ''"
+        style="color: var(--green);">+ Add</button>
+    </div>
   </div>
 
 </div>
@@ -586,6 +866,99 @@ document.addEventListener('alpine:init', () => {
         else { this.editError = d.error || 'Failed to save changes'; }
       } catch(e) { this.editError = 'Network error'; }
       this.editLoading = false;
+    },
+
+    // ── Inline (click-to-edit) field saves ────────────────────────────
+    // Each editable element captures its current text into dataset.original
+    // on focus and calls inlineEdit(field, $el) on blur. We only PATCH when
+    // the value actually changed, then reload so the page rerenders with
+    // server-canonical state (incl. recomputed health/safety scoring).
+    async inlineEdit(field, $el) {
+      const orig = ($el.dataset.original ?? '').trim();
+      const next = $el.innerText.trim();
+      if (next === orig) return;
+      if (field === 'name' && !next) { $el.innerText = orig; return; }
+      if (field === 'servings') {
+        const n = parseInt(next, 10);
+        if (isNaN(n) || n < 1 || n > 50) { $el.innerText = orig; return; }
+        return this._patchRecipe({ servings: n }, $el, orig);
+      }
+      if (field === 'description') {
+        return this._patchRecipe({ description: next || null }, $el, orig);
+      }
+      return this._patchRecipe({ [field]: next }, $el, orig);
+    },
+    async saveTags(rawCsv) {
+      const tags = (rawCsv || '').split(',').map(t => t.trim()).filter(Boolean);
+      const current = (_rd.tags || []);
+      if (tags.length === current.length && tags.every((t, i) => t === current[i])) return;
+      return this._patchRecipe({ tags }, null, null);
+    },
+    async _patchRecipe(body, $el, orig) {
+      try {
+        const r = await fetch('/api/recipes/' + _rd.id, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body)
+        });
+        const d = await r.json();
+        if (r.ok && d.success) { window.location.reload(); return; }
+        if ($el && orig !== null) $el.innerText = orig;
+        alert((d && d.error) || 'Failed to save changes');
+      } catch(e) {
+        if ($el && orig !== null) $el.innerText = orig;
+        alert('Network error');
+      }
+    }
+  }));
+
+  // Instructions editor — flat list of step strings. Saved as a JSON array
+  // via PUT /api/recipes/{id}/instructions. Group headers from the
+  // legacy free-text form are flattened on first read.
+  const _instrEl = document.getElementById('instructions-init-data');
+  const _instrFlat = _instrEl ? JSON.parse(_instrEl.textContent) : [];
+  Alpine.data('instructionsEditor', () => ({
+    steps: [..._instrFlat],
+    async _putSteps(next) {
+      try {
+        const r = await fetch('/api/recipes/' + _rd.id + '/instructions', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ instructions: next })
+        });
+        const d = await r.json();
+        if (r.ok && d.success) { window.location.reload(); return; }
+        alert((d && d.error) || 'Failed to save instructions');
+      } catch(e) { alert('Network error'); }
+    },
+    async updateStep(idx, text, $el) {
+      const orig = ($el.dataset.original || '').trim();
+      if (text === orig) return;
+      if (!text) {
+        if (!confirm('Remove this step?')) { $el.innerText = orig; return; }
+        const next = this.steps.slice(); next.splice(idx, 1);
+        return this._putSteps(next);
+      }
+      const next = this.steps.slice(); next[idx] = text;
+      return this._putSteps(next);
+    },
+    async moveStep(idx, dir) {
+      const j = idx + dir;
+      if (j < 0 || j >= this.steps.length) return;
+      const next = this.steps.slice();
+      [next[idx], next[j]] = [next[j], next[idx]];
+      return this._putSteps(next);
+    },
+    async removeStep(idx) {
+      const target = this.steps[idx];
+      if (!confirm('Remove step ' + (idx + 1) + (target ? ': "' + target.slice(0, 60) + '"?' : '?'))) return;
+      const next = this.steps.slice(); next.splice(idx, 1);
+      return this._putSteps(next);
+    },
+    async addStep(text) {
+      const s = (text || '').trim();
+      if (!s) return;
+      return this._putSteps([...this.steps, s]);
     }
   }));
 
