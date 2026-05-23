@@ -18,29 +18,86 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
-from ._storage import JsonStore
-
 logger = logging.getLogger(__name__)
 
-# Shopping list storage file
-_BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
-SHOPPING_LIST_FILE = str(_BASE_DIR / "kroger_shopping_list.json")
 
-_shopping_list_store = JsonStore(
-    SHOPPING_LIST_FILE, default=lambda: {"items": [], "last_updated": None}
-)
+def _resolve_shopping_user_id(user_id: str | None) -> str:
+    """None falls back to mcp_user_id() (KROGER_MCP_USER_ID or default)."""
+    from kroger_mcp.auth.dependencies import mcp_user_id
 
-
-def _load_shopping_list() -> dict[str, Any]:
-    return _shopping_list_store.load()
+    return user_id if user_id is not None else mcp_user_id()
 
 
-def _save_shopping_list(data: dict[str, Any]) -> None:
-    data["last_updated"] = datetime.now().isoformat()
+def _load_shopping_list(user_id: str | None = None) -> dict[str, Any]:
+    """Return this user's shopping list in the legacy `{items, last_updated}` shape."""
+    from kroger_mcp.analytics.database import get_db_connection
+
+    owner = _resolve_shopping_user_id(user_id)
+    conn = get_db_connection()
     try:
-        _shopping_list_store.save(data)
-    except OSError as exc:
-        logger.warning("Could not save shopping list: %s", exc)
+        rows = conn.execute(
+            """
+            SELECT id, product_id, name, quantity, unit, category,
+                   purchased, recipe_source, added_at
+            FROM user_shopping_lists WHERE user_id = ?
+            ORDER BY added_at
+            """,
+            (owner,),
+        ).fetchall()
+        items = [
+            {
+                "id": row["id"],
+                "product_id": row["product_id"],
+                "name": row["name"],
+                "quantity": row["quantity"],
+                "unit": row["unit"],
+                "category": row["category"],
+                "purchased": bool(row["purchased"]),
+                "recipe_source": row["recipe_source"],
+                "added_at": row["added_at"],
+            }
+            for row in rows
+        ]
+        last_updated = rows[-1]["added_at"] if rows else None
+        return {"items": items, "last_updated": last_updated}
+    finally:
+        conn.close()
+
+
+def _save_shopping_list(data: dict[str, Any], user_id: str | None = None) -> None:
+    """Replace this user's shopping list with data['items']."""
+    from kroger_mcp.analytics.database import get_db_connection
+
+    owner = _resolve_shopping_user_id(user_id)
+    items = data.get("items", []) or []
+    conn = get_db_connection()
+    try:
+        conn.execute("DELETE FROM user_shopping_lists WHERE user_id = ?", (owner,))
+        for item in items:
+            item_id = item.get("id") or _generate_list_item_id()
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO user_shopping_lists
+                    (id, user_id, product_id, name, quantity, unit, category,
+                     purchased, recipe_source, added_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item_id,
+                    owner,
+                    item.get("product_id"),
+                    item.get("name", ""),
+                    float(item.get("quantity", 1) or 1),
+                    item.get("unit", ""),
+                    item.get("category"),
+                    1 if item.get("purchased") else 0,
+                    item.get("recipe_source"),
+                    item.get("added_at") or datetime.now().isoformat(),
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _generate_list_item_id() -> str:

@@ -2,12 +2,11 @@
 Unit tests for shopping list functionality.
 """
 
-import os
-
 import pytest
 
+from kroger_mcp.analytics.database import get_db_connection
+from kroger_mcp.auth.dependencies import default_user_id
 from kroger_mcp.tools.shopping_list_tools import (
-    SHOPPING_LIST_FILE,
     _consolidate_items,
     _generate_list_item_id,
     _load_shopping_list,
@@ -17,29 +16,39 @@ from kroger_mcp.tools.shopping_list_tools import (
 
 @pytest.fixture(autouse=True)
 def cleanup_shopping_list():
-    """Clean up shopping list file before and after each test."""
-    if os.path.exists(SHOPPING_LIST_FILE):
-        os.remove(SHOPPING_LIST_FILE)
+    """Wipe this user's shopping list row(s) before and after each test."""
+
+    def _clear():
+        conn = get_db_connection()
+        try:
+            conn.execute(
+                "DELETE FROM user_shopping_lists WHERE user_id = ?",
+                (default_user_id(),),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    _clear()
     yield
-    if os.path.exists(SHOPPING_LIST_FILE):
-        os.remove(SHOPPING_LIST_FILE)
+    _clear()
 
 
 def test_load_empty_shopping_list():
-    """Test loading when no shopping list file exists."""
+    """Spec: load returns empty items + None last_updated when nothing stored."""
     data = _load_shopping_list()
     assert data == {"items": [], "last_updated": None}
 
 
 def test_save_and_load_shopping_list():
-    """Test saving and loading shopping list."""
+    """Spec: round-trip a single item through user_shopping_lists DB table."""
     data = {
         "items": [
             {
                 "id": "list_item_001",
                 "product_id": "12345",
-                "ingredient_name": "Eggs",
-                "quantity": 2
+                "name": "Eggs",
+                "quantity": 2,
             }
         ]
     }
@@ -48,7 +57,7 @@ def test_save_and_load_shopping_list():
 
     loaded = _load_shopping_list()
     assert len(loaded["items"]) == 1
-    assert loaded["items"][0]["ingredient_name"] == "Eggs"
+    assert loaded["items"][0]["name"] == "Eggs"
     assert "last_updated" in loaded
 
 
