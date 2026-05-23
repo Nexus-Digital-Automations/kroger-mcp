@@ -44,12 +44,11 @@ class TestMarkPlacedRestockWebRoute:
         import kroger_mcp.tools.cart_tools as ct
 
         product_id = 'PYTEST_RESTOCK_HAPPY_001'
-        backup = json.load(open(ct.CART_FILE)) if os.path.exists(ct.CART_FILE) else {'current_cart': []}
+        backup = ct._load_cart_data()
 
         try:
-            json.dump(
+            ct._save_cart_data(
                 {'current_cart': [{'product_id': product_id, 'name': 'TestItem', 'quantity': 1}]},
-                open(ct.CART_FILE, 'w'),
             )
             pantry_mod.ensure_initialized()
             conn = sqlite3.connect(db_mod.DB_FILE)
@@ -84,7 +83,7 @@ class TestMarkPlacedRestockWebRoute:
             conn.execute('DELETE FROM products WHERE product_id=?', (product_id,))
             conn.commit()
             conn.close()
-            json.dump(backup, open(ct.CART_FILE, 'w'))
+            ct._save_cart_data(backup)
             _purge_test_orders_from_history([product_id], ct.ORDER_HISTORY_FILE)
 
     def test_item_without_product_id_skipped_silently(self):
@@ -98,15 +97,14 @@ class TestMarkPlacedRestockWebRoute:
         import kroger_mcp.tools.cart_tools as ct
 
         product_id = 'PYTEST_RESTOCK_ERR_002'
-        backup = json.load(open(ct.CART_FILE)) if os.path.exists(ct.CART_FILE) else {'current_cart': []}
+        backup = ct._load_cart_data()
 
         try:
-            json.dump(
+            ct._save_cart_data(
                 {'current_cart': [
-                    {'name': 'NoIDItem', 'quantity': 1},  # no product_id
+                    {'name': 'NoIDItem', 'quantity': 1},
                     {'product_id': product_id, 'name': 'RealItem', 'quantity': 1},
                 ]},
-                open(ct.CART_FILE, 'w'),
             )
             pantry_mod.ensure_initialized()
             cr.record_order = lambda *a, **kw: 'test-ord'
@@ -132,5 +130,5 @@ class TestMarkPlacedRestockWebRoute:
             conn.execute('DELETE FROM products WHERE product_id=?', (product_id,))
             conn.commit()
             conn.close()
-            json.dump(backup, open(ct.CART_FILE, 'w'))
+            ct._save_cart_data(backup)
             _purge_test_orders_from_history([product_id], ct.ORDER_HISTORY_FILE)

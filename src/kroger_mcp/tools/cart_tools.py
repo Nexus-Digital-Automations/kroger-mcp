@@ -24,15 +24,12 @@ from .shared import get_authenticated_client, get_preferred_location_id
 
 logger = logging.getLogger(__name__)
 
-# Cart storage file
 _BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
-CART_FILE = str(_BASE_DIR / "kroger_cart.json")
 ORDER_HISTORY_FILE = str(_BASE_DIR / "kroger_order_history.json")
 
-_cart_store = JsonStore(
-    CART_FILE,
-    default=lambda: {"current_cart": [], "last_updated": None, "preferred_location_id": None},
-)
+# Order history is still file-backed pending the orders+purchase_events DB
+# rewrite. It returns an empty list when the file is missing (relocated by
+# the multi-tenant migration). Cart state itself is now per-user DB-backed.
 _order_history_store: JsonStore = JsonStore(ORDER_HISTORY_FILE, default=list)
 
 
@@ -43,15 +40,85 @@ def _get_session_id(ctx) -> str:
     return "default"
 
 
-def _load_cart_data() -> dict[str, Any]:
-    return _cart_store.load()
+def _resolve_cart_user_id(user_id: str | None) -> str:
+    """Resolve user_id for cart operations.
+
+    None falls back to mcp_user_id() — picks up KROGER_MCP_USER_ID per
+    Claude Desktop profile, falls back to the migration-installed owner.
+    HTTP-route callers should pass user_id explicitly via current_user_id().
+    """
+    from kroger_mcp.auth.dependencies import mcp_user_id
+
+    return user_id if user_id is not None else mcp_user_id()
 
 
-def _save_cart_data(cart_data: dict[str, Any]) -> None:
+def _load_cart_data(user_id: str | None = None) -> dict[str, Any]:
+    """Return this user's cart in the legacy `{current_cart, last_updated}` shape."""
+    from kroger_mcp.analytics.database import get_db_connection
+
+    owner = _resolve_cart_user_id(user_id)
+    conn = get_db_connection()
     try:
-        _cart_store.save(cart_data)
-    except OSError as exc:
-        logger.warning("Could not save cart data: %s", exc)
+        rows = conn.execute(
+            """
+            SELECT product_id, description, quantity, modality, added_at
+            FROM user_carts WHERE user_id = ?
+            ORDER BY added_at
+            """,
+            (owner,),
+        ).fetchall()
+        current_cart = [
+            {
+                "product_id": row["product_id"],
+                "description": row["description"],
+                "quantity": row["quantity"],
+                "modality": row["modality"],
+                "added_at": row["added_at"],
+                "last_updated": row["added_at"],
+            }
+            for row in rows
+        ]
+        last_updated = rows[-1]["added_at"] if rows else None
+        return {
+            "current_cart": current_cart,
+            "last_updated": last_updated,
+            "preferred_location_id": None,
+        }
+    finally:
+        conn.close()
+
+
+def _save_cart_data(cart_data: dict[str, Any], user_id: str | None = None) -> None:
+    """Replace this user's cart with the items in `cart_data["current_cart"]`."""
+    from kroger_mcp.analytics.database import get_db_connection
+
+    owner = _resolve_cart_user_id(user_id)
+    items = cart_data.get("current_cart", []) or []
+    conn = get_db_connection()
+    try:
+        conn.execute("DELETE FROM user_carts WHERE user_id = ?", (owner,))
+        for item in items:
+            pid = item.get("product_id")
+            if not pid:
+                continue
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO user_carts
+                    (user_id, product_id, description, quantity, modality, added_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    owner,
+                    pid,
+                    item.get("description"),
+                    int(item.get("quantity", 1) or 1),
+                    item.get("modality", "PICKUP"),
+                    item.get("added_at") or datetime.now().isoformat(),
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _load_order_history() -> list[dict[str, Any]]:

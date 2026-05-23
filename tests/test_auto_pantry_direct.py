@@ -14,25 +14,26 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from kroger_mcp.analytics.database import ensure_initialized
 from kroger_mcp.analytics.pantry import get_pantry_status
-from kroger_mcp.tools.cart_tools import CART_FILE, ORDER_HISTORY_FILE, _add_item_to_local_cart
+from kroger_mcp.tools.cart_tools import ORDER_HISTORY_FILE, _add_item_to_local_cart
 
 _TEST_PRODUCT_IDS = ["TEST_PRODUCT_AUTO_001", "TEST_PRODUCT_DUPLICATE"]
 
 
 def _purge_test_data():
-    """Remove test items from kroger_cart.json and kroger_order_history.json."""
-    # Clean cart JSON
-    if os.path.exists(CART_FILE):
-        with open(CART_FILE, 'r') as f:
-            cart = json.load(f)
-        cart['current_cart'] = [
-            item for item in cart.get('current_cart', [])
-            if item.get('product_id') not in _TEST_PRODUCT_IDS
-        ]
-        with open(CART_FILE, 'w') as f:
-            json.dump(cart, f)
+    """Remove test items from user_carts (DB) + kroger_order_history.json."""
+    from kroger_mcp.analytics.database import get_db_connection
 
-    # Clean order history JSON
+    conn = get_db_connection()
+    try:
+        placeholders = ",".join("?" * len(_TEST_PRODUCT_IDS))
+        conn.execute(
+            f"DELETE FROM user_carts WHERE product_id IN ({placeholders})",
+            _TEST_PRODUCT_IDS,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
     if os.path.exists(ORDER_HISTORY_FILE):
         with open(ORDER_HISTORY_FILE, 'r') as f:
             history = json.load(f)
