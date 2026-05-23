@@ -1,0 +1,224 @@
+{#
+  Global recipe picker modal.
+
+  OWNS: searchable centered-modal UI for selecting one recipe from the
+  user's saved recipes ($store.actionMenu.recipes, populated by base.html
+  from action_menu_context()).
+
+  DOES NOT OWN: the actual "add product to recipe" network call. Host
+  pages already listen for `action-menu:recipe-add` (see products.html
+  line 311, favorites_detail.html line 204) — this picker simply replaces
+  the dropped recipes cascade submenu and dispatches that same event when
+  the user picks one.
+
+  Event contract:
+    receives: window 'action-menu:recipe-pick'  detail: {item}
+    emits:    window 'action-menu:recipe-add'   detail: {item, recipeId, recipeName}
+
+  CALLED BY: base.html — rendered once globally so every page that uses
+  the action_menu macro gets recipe-picking for free.
+
+  @stable — host-page listeners depend on the action-menu:recipe-add event
+  shape. The recipe-pick event is consumed only by this picker.
+#}
+
+{% macro recipe_picker() %}
+<div
+  x-data="recipePicker()"
+  @action-menu:recipe-pick.window="openFor($event.detail.item)"
+  @keydown.escape.window="open && close()"
+>
+  <div
+    x-show="open"
+    x-cloak
+    class="recipe-picker-backdrop"
+    @click="close()"
+  ></div>
+
+  <div
+    x-show="open"
+    x-cloak
+    x-transition:enter="transition ease-out duration-150"
+    x-transition:enter-start="opacity-0 scale-95"
+    x-transition:enter-end="opacity-100 scale-100"
+    class="recipe-picker-panel"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="recipe-picker-title"
+  >
+    <div class="recipe-picker-header">
+      <h2 id="recipe-picker-title" class="recipe-picker-title">Add to Recipe</h2>
+      <button type="button" class="recipe-picker-close" @click="close()" aria-label="Close">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <input
+      type="search"
+      class="recipe-picker-search"
+      placeholder="Search recipes…"
+      x-model="query"
+      x-ref="searchInput"
+      @keydown.enter.prevent="selectFirst()"
+    />
+
+    <div class="recipe-picker-list" role="listbox">
+      <template x-for="recipe in filtered()" :key="recipe.id">
+        <button
+          type="button"
+          class="recipe-picker-item"
+          role="option"
+          @click="pick(recipe)"
+          x-text="recipe.name"
+        ></button>
+      </template>
+      <div class="recipe-picker-empty" x-show="filtered().length === 0">
+        <span x-show="$store.actionMenu.recipes.length === 0">No recipes yet.</span>
+        <span x-show="$store.actionMenu.recipes.length > 0">No matches.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /**
+   * @internal — picker state. WHY filtered() over a computed: keeping it a
+   * method means the template re-evaluates on every `query` change without
+   * needing Alpine's $watch plumbing.
+   */
+  function recipePicker() {
+    return {
+      open: false,
+      item: null,
+      query: '',
+      openFor(item) {
+        this.item = item;
+        this.query = '';
+        this.open = true;
+        this.$nextTick(() => this.$refs.searchInput?.focus());
+      },
+      close() {
+        this.open = false;
+        this.item = null;
+        this.query = '';
+      },
+      filtered() {
+        const recipes = this.$store.actionMenu.recipes || [];
+        const q = this.query.trim().toLowerCase();
+        if (!q) return recipes;
+        return recipes.filter(r => (r.name || '').toLowerCase().includes(q));
+      },
+      selectFirst() {
+        const first = this.filtered()[0];
+        if (first) this.pick(first);
+      },
+      pick(recipe) {
+        const detail = { item: this.item, recipeId: recipe.id, recipeName: recipe.name };
+        window.dispatchEvent(new CustomEvent('action-menu:recipe-add', { detail, bubbles: true }));
+        this.close();
+      },
+    };
+  }
+</script>
+
+<style>
+  .recipe-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    background: oklch(0% 0 0 / 0.4);
+    z-index: 100;
+  }
+  .recipe-picker-panel {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(28rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 4rem);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    box-shadow:
+      0 24px 60px oklch(0% 0 0 / 0.18),
+      0 4px 12px oklch(0% 0 0 / 0.08);
+    z-index: 101;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    gap: 0.75rem;
+  }
+  .recipe-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .recipe-picker-title {
+    font-family: 'Lora', serif;
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-1);
+  }
+  .recipe-picker-close {
+    background: none;
+    border: none;
+    color: var(--text-3);
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 0.3rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .recipe-picker-close:hover { color: var(--text-1); background: var(--cream); }
+  .recipe-picker-search {
+    font-family: inherit;
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--cream);
+    color: var(--text-1);
+    outline: none;
+    width: 100%;
+  }
+  .recipe-picker-search:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px var(--green-light);
+  }
+  .recipe-picker-list {
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    flex: 1;
+    min-height: 0;
+  }
+  .recipe-picker-item {
+    text-align: left;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.875rem;
+    border: none;
+    background: transparent;
+    color: var(--text-1);
+    border-radius: 0.4rem;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1.3;
+  }
+  .recipe-picker-item:hover, .recipe-picker-item:focus-visible {
+    background: var(--green-light);
+    color: var(--green);
+    outline: none;
+  }
+  .recipe-picker-empty {
+    text-align: center;
+    color: var(--text-3);
+    font-size: 0.8125rem;
+    padding: 1rem 0;
+    font-style: italic;
+  }
+</style>
+{% endmacro %}

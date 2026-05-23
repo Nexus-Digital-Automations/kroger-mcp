@@ -35,7 +35,8 @@
  *   action-menu:cart-add             detail: {item}                       (Kroger cart)
  *   action-menu:shopping-add         detail: {item}                       (local shopping list)
  *   action-menu:shopping-remove      detail: {item}
- *   action-menu:recipe-add           detail: {item, recipeId, recipeName}
+ *   action-menu:recipe-pick          detail: {item}                       (opens global recipe picker modal)
+ *   action-menu:recipe-add           detail: {item, recipeId, recipeName} (dispatched by picker on selection)
  *   action-menu:view-details         detail: {item}
  *   action-menu:meal-plan-add        detail: {item}
  *   action-menu:edit                 detail: {item}
@@ -169,7 +170,12 @@ document.addEventListener('alpine:init', () => {
 
       panel.style.top = `${Math.round(top)}px`;
       panel.style.left = `${Math.round(left)}px`;
-      panel.style.maxHeight = `${Math.round(maxH)}px`;
+      // WHY maxHeight on the level, not panel: the panel is overflow:visible
+      // so its level-2 flyout submenu can escape sideways. Capping the panel
+      // would either clip the submenu or require overflow:auto (which clips).
+      // Capping the inner level keeps scrolling on the long list itself.
+      const rootLevel = this.$root.querySelector('[data-menu-level="root"]');
+      if (rootLevel) rootLevel.style.maxHeight = `${Math.round(maxH)}px`;
     },
 
     _setupReflow() {

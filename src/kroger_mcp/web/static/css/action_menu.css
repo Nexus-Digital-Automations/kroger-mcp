@@ -54,15 +54,19 @@
 /* WHY fixed (not absolute): list rows live inside `.ss-card.overflow-hidden`
    wrappers that clip absolutely-positioned descendants. Fixed positioning
    anchors to the viewport so the panel escapes those clips and the JS in
-   action_menu.js can flip/shift it to stay on-screen for bottom-row items. */
+   action_menu.js can flip/shift it to stay on-screen for bottom-row items.
+
+   WHY overflow:visible (not auto): the level-2 submenu is a sibling
+   `position: absolute; right: 100%` flyout — `overflow: auto` here would
+   clip it into oblivion. The root level container below has its own
+   max-height + scroll, so tall menus still behave. */
 .action-menu-panel {
   position: fixed;
   top: 0;
   left: 0;
   z-index: 40;
   min-width: 11rem;
-  max-height: calc(100vh - 1rem);
-  overflow-y: auto;
+  overflow: visible;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
@@ -71,6 +75,11 @@
     0 2px 6px oklch(0% 0 0 / 0.06);
   padding: 0.25rem;
   font-size: 0.8125rem;
+}
+
+.action-menu-panel > .action-menu-level {
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
 }
 
 .action-menu-level {

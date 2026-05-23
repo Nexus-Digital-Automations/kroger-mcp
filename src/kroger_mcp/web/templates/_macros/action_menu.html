@@ -82,7 +82,7 @@
         {{ _submenu_trigger('favorites', 'Add to Favorites') }}
         <button type="button" role="menuitem" class="action-menu-item" @click="act('shopping-add')">Add to List</button>
         <button type="button" role="menuitem" class="action-menu-item" @click="act('cart-add')">+ Cart</button>
-        {{ _submenu_trigger('recipes', 'Add to Recipe') }}
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('recipe-pick')">Add to Recipe…</button>
         <div class="action-menu-separator" role="none"></div>
         <button type="button" role="menuitem" class="action-menu-item" @click="act('view-details')">View Details</button>
 
@@ -90,7 +90,7 @@
         {{ _submenu_trigger('favorites', 'Move to List') }}
         <button type="button" role="menuitem" class="action-menu-item" @click="act('shopping-add')">Add to List</button>
         <button type="button" role="menuitem" class="action-menu-item" @click="act('cart-add')">+ Cart</button>
-        {{ _submenu_trigger('recipes', 'Add to Recipe') }}
+        <button type="button" role="menuitem" class="action-menu-item" @click="act('recipe-pick')">Add to Recipe…</button>
         <div class="action-menu-separator" role="none"></div>
         <button type="button" role="menuitem" class="action-menu-item is-danger" @click="act('delete')">Remove</button>
 
@@ -154,39 +154,10 @@
     </div>
     {% endif %}
 
-    {# ─── Level 2: Recipes submenu ───────────────────────────── #}
-    {% if card_type in ('product', 'favorite_item') %}
-    <div
-      class="action-menu-submenu"
-      data-menu-level="recipes"
-      role="menu"
-      x-show="activeSub === 'recipes'"
-      @mouseenter="mode === 'desktop' && clearCloseTimer()"
-      @mouseleave="mode === 'desktop' && scheduleClose('recipes')"
-    >
-      <button type="button" class="action-menu-back" @click="back()" role="menuitem">
-        <svg width="12" height="12" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-          <path d="M12 5l-5 5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        Back
-      </button>
-
-      <template x-for="recipe in $store.actionMenu.recipes" :key="recipe.id">
-        <button
-          type="button"
-          role="menuitem"
-          class="action-menu-item"
-          @click="act('recipe-add', {recipeId: recipe.id, recipeName: recipe.name})"
-          x-text="recipe.name"
-        ></button>
-      </template>
-
-      <div
-        class="action-menu-empty"
-        x-show="$store.actionMenu.recipes.length === 0"
-      >No recipes yet</div>
-    </div>
-    {% endif %}
+    {# Recipes get their own search-and-select modal (recipe_picker.html)
+       instead of a cascading submenu — too many recipes to scroll. The
+       'Add to Recipe…' leaf dispatches action-menu:recipe-pick, the
+       global picker handles search + dispatches action-menu:recipe-add. #}
 
   </div>
 </div>

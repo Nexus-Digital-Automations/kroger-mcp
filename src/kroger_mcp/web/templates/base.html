@@ -1,3 +1,4 @@
+{% from "_macros/recipe_picker.html" import recipe_picker %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -22,10 +23,10 @@
   </script>
   <!-- Shared action-menu assets. The component registers on alpine:init so
        it must load before the Alpine CDN bundle triggers that event. -->
-  <link rel="stylesheet" href="/static/css/action_menu.css?v=20260523b" />
+  <link rel="stylesheet" href="/static/css/action_menu.css?v=20260523c" />
   <link rel="stylesheet" href="/static/css/sort_rank.css" />
   <script src="/static/js/api-client.js"></script>
-  <script src="/static/js/action_menu.js?v=20260523b"></script>
+  <script src="/static/js/action_menu.js?v=20260523c"></script>
   <script src="/static/js/sort_rank.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <style>
@@ -446,6 +447,9 @@
       {% block content %}{% endblock %}
     </div>
   </main>
+
+  {# Global "Add to Recipe" picker — listens on window for action-menu:recipe-pick #}
+  {{ recipe_picker() }}
 
   <!-- ── Chat Widget ──────────────────────────────────────────────── -->
   <div x-data="chatWidget()" @keydown.escape.window="open = false" class="fixed bottom-6 right-6 z-50" style="font-family: 'DM Sans', sans-serif;">
