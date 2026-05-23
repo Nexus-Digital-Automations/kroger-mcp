@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from kroger_mcp.auth.dependencies import default_user_id
+from kroger_mcp.auth.dependencies import mcp_user_id
 
 from .database import ensure_initialized, get_db_cursor
 
@@ -17,12 +17,12 @@ from .database import ensure_initialized, get_db_cursor
 def _resolve_user_id(user_id: str | None) -> str:
     """Resolve user_id for user-scoped queries.
 
-    When a caller passes None (MCP tools, scripts, background jobs that have
-    no HTTP request context), fall back to the migration-installed owner via
-    `default_user_id()`. HTTP route handlers must always pass an explicit
-    user_id resolved from the session.
+    HTTP route handlers always pass user_id from the session. MCP/script
+    callers may pass None; we fall back to `mcp_user_id()` which honors
+    KROGER_MCP_USER_ID per Claude Desktop profile, then
+    KROGER_MCP_DEFAULT_USER_ID.
     """
-    return user_id if user_id is not None else default_user_id()
+    return user_id if user_id is not None else mcp_user_id()
 
 # ========== Helper Functions ==========
 

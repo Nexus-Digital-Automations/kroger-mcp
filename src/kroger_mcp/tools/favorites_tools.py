@@ -210,6 +210,10 @@ def register_tools(mcp):
         limit,
         ctx,
     ):
+        from kroger_mcp.auth.dependencies import mcp_user_id
+
+        user_id = mcp_user_id()
+
         match action:
             case "create_list":
                 if not name:
@@ -221,12 +225,13 @@ def register_tools(mcp):
                     description=description,
                     list_type=list_type or "custom",
                     reorder_weeks=reorder_weeks,
+                    user_id=user_id,
                 )
 
             case "get_lists":
                 from ..analytics.favorites import get_lists
 
-                lists = get_lists()
+                lists = get_lists(user_id=user_id)
                 return {
                     "success": True,
                     "lists": lists,
@@ -249,7 +254,7 @@ def register_tools(mcp):
                     return {"success": False, "error": "list_id is required"}
                 from ..analytics.favorites import delete_list
 
-                return delete_list(list_id=list_id)
+                return delete_list(list_id=list_id, user_id=user_id)
 
             case "add_item":
                 from ..analytics.favorites import add_to_list, bulk_add_to_list
