@@ -2,22 +2,31 @@
 Unit tests for default servings preference functionality.
 """
 
-import json
-import os
-
 import pytest
 
-from kroger_mcp.tools.shared import PREFERENCES_FILE, get_default_servings, set_default_servings
+from kroger_mcp.analytics.database import get_db_connection
+from kroger_mcp.auth.dependencies import default_user_id
+from kroger_mcp.tools.shared import get_default_servings, set_default_servings
 
 
 @pytest.fixture(autouse=True)
 def cleanup_preferences():
-    """Clean up preferences file before and after each test."""
-    if os.path.exists(PREFERENCES_FILE):
-        os.remove(PREFERENCES_FILE)
+    """Clear this user's stored default_servings_per_meal between tests."""
+
+    def _clear():
+        conn = get_db_connection()
+        try:
+            conn.execute(
+                "DELETE FROM user_settings WHERE user_id = ? AND setting_key = ?",
+                (default_user_id(), "default_servings_per_meal"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    _clear()
     yield
-    if os.path.exists(PREFERENCES_FILE):
-        os.remove(PREFERENCES_FILE)
+    _clear()
 
 
 def test_get_default_servings_returns_4_by_default():
@@ -54,32 +63,56 @@ def test_set_default_servings_validation():
     assert get_default_servings() == 20
 
 
+def _read_setting(key: str):
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT setting_value FROM user_settings WHERE user_id = ? AND setting_key = ?",
+            (default_user_id(), key),
+        ).fetchone()
+        return row["setting_value"] if row else None
+    finally:
+        conn.close()
+
+
+def _write_setting(key: str, value: str):
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO user_settings (user_id, setting_key, setting_value)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id, setting_key) DO UPDATE SET setting_value = excluded.setting_value
+            """,
+            (default_user_id(), key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def test_default_servings_persists():
-    """Test that default servings persists across function calls."""
+    """Spec: setting persists to user_settings row and round-trips through get_default_servings."""
     set_default_servings(3)
-
-    # Read from file to verify persistence
-    with open(PREFERENCES_FILE, 'r') as f:
-        data = json.load(f)
-
-    assert data.get("default_servings_per_meal") == 3
-
-    # Get should return persisted value
+    assert _read_setting("default_servings_per_meal") == "3"
     assert get_default_servings() == 3
 
 
 def test_default_servings_does_not_affect_other_preferences():
-    """Test that setting default servings doesn't overwrite other prefs."""
-    # Set a different preference first
-    with open(PREFERENCES_FILE, 'w') as f:
-        json.dump({"preferred_location_id": "12345"}, f)
+    """Spec: writing default_servings does not clobber other rows in user_settings."""
+    _write_setting("preferred_location_id", "12345")
 
-    # Set default servings
     set_default_servings(2)
 
-    # Both should be present
-    with open(PREFERENCES_FILE, 'r') as f:
-        data = json.load(f)
+    assert _read_setting("default_servings_per_meal") == "2"
+    assert _read_setting("preferred_location_id") == "12345"
 
-    assert data.get("default_servings_per_meal") == 2
-    assert data.get("preferred_location_id") == "12345"
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "DELETE FROM user_settings WHERE user_id = ? AND setting_key = ?",
+            (default_user_id(), "preferred_location_id"),
+        )
+        conn.commit()
+    finally:
+        conn.close()

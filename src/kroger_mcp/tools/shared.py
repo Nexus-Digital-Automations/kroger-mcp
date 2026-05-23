@@ -23,8 +23,6 @@ from kroger_api.kroger_api import KrogerAPI
 from kroger_api.token_storage import load_token
 from kroger_api.utils.env import get_zip_code, load_and_validate_env
 
-from ._storage import JsonStore
-
 # Load environment variables
 load_dotenv()
 
@@ -33,11 +31,6 @@ logger = logging.getLogger(__name__)
 # Global state for clients and preferred location
 _authenticated_client: KrogerAPI | None = None
 _client_credentials_client: KrogerAPI | None = None
-
-# JSON files for configuration storage
-_BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
-PREFERENCES_FILE = str(_BASE_DIR / "kroger_preferences.json")
-
 
 def get_client_credentials_client() -> KrogerAPI:
     """Get or create a client credentials authenticated client for public data"""
@@ -150,28 +143,77 @@ def invalidate_client_credentials_client():
     _client_credentials_client = None
 
 
-_preferences_store = JsonStore(PREFERENCES_FILE, default=lambda: {"preferred_location_id": None})
+def _resolve_pref_user_id(user_id: str | None) -> str:
+    """Resolve user_id for preference reads/writes.
+
+    Falls back to mcp_user_id() when None — keeps existing callers working
+    while still scoping to the per-Claude-Desktop user when KROGER_MCP_USER_ID
+    is set. HTTP-route callers should pass user_id explicitly.
+    """
+    from kroger_mcp.auth.dependencies import mcp_user_id
+
+    return user_id if user_id is not None else mcp_user_id()
 
 
-def _load_preferences() -> dict:
-    return _preferences_store.load()
+def _load_preferences(user_id: str | None = None) -> dict:
+    """Load this user's preferences from the user_settings table."""
+    from kroger_mcp.analytics.database import get_db_connection
+
+    owner = _resolve_pref_user_id(user_id)
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT setting_key, setting_value FROM user_settings WHERE user_id = ?",
+            (owner,),
+        ).fetchall()
+        prefs: dict = {}
+        for row in rows:
+            value = row["setting_value"]
+            # Coerce stringly-stored numbers + booleans back to native types
+            if value in ("True", "true"):
+                value = True
+            elif value in ("False", "false"):
+                value = False
+            elif value is not None and value.isdigit():
+                value = int(value)
+            prefs[row["setting_key"]] = value
+        return prefs
+    finally:
+        conn.close()
 
 
-def _save_preferences(preferences: dict) -> None:
-    _preferences_store.save(preferences)
+def _save_preference(key: str, value, user_id: str | None = None) -> None:
+    """Upsert one preference key/value for the given user."""
+    from kroger_mcp.analytics.database import get_db_connection
+
+    owner = _resolve_pref_user_id(user_id)
+    stored = None if value is None else str(value)
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO user_settings (user_id, setting_key, setting_value, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, setting_key) DO UPDATE SET
+                setting_value = excluded.setting_value,
+                updated_at = excluded.updated_at
+            """,
+            (owner, key, stored),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def get_preferred_location_id() -> str | None:
-    """Get preferred location ID: preferences file first, then KROGER_LOCATION_ID env var"""
-    preferences = _load_preferences()
+def get_preferred_location_id(user_id: str | None = None) -> str | None:
+    """Per-user preferred location ID; falls back to KROGER_LOCATION_ID env."""
+    preferences = _load_preferences(user_id=user_id)
     return preferences.get("preferred_location_id") or os.environ.get("KROGER_LOCATION_ID")
 
 
-def set_preferred_location_id(location_id: str) -> None:
-    """Set the preferred location ID in preferences file"""
-    preferences = _load_preferences()
-    preferences["preferred_location_id"] = location_id
-    _save_preferences(preferences)
+def set_preferred_location_id(location_id: str, user_id: str | None = None) -> None:
+    """Persist this user's preferred location ID."""
+    _save_preference("preferred_location_id", location_id, user_id=user_id)
 
 
 def format_currency(value: float | None) -> str:
@@ -186,17 +228,9 @@ def get_default_zip_code() -> str:
     return get_zip_code(default="10001")
 
 
-def get_default_servings() -> int:
-    """
-    Get the user's default servings per meal preference.
-
-    Returns the household size/serving preference for recipes.
-    Defaults to 4 if not set.
-
-    Returns:
-        Number of servings (1-20)
-    """
-    preferences = _load_preferences()
+def get_default_servings(user_id: str | None = None) -> int:
+    """This user's default servings per meal (household size). Defaults to 4."""
+    preferences = _load_preferences(user_id=user_id)
     return preferences.get("default_servings_per_meal", 4)
 
 
@@ -216,50 +250,37 @@ async def async_get_authenticated_client() -> KrogerAPI:
     return await asyncio.to_thread(get_authenticated_client)
 
 
-def set_default_servings(servings: int) -> None:
-    """
-    Set the user's default servings per meal preference.
+def set_default_servings(servings: int, user_id: str | None = None) -> None:
+    """Persist this user's default servings per meal (household size).
 
-    This preference is used when:
-    - Creating new recipes (if servings not specified)
-    - Adding recipes to shopping list (if override not specified)
-    - Assigning meals to meal plan (if override not specified)
-    - Displaying recipe information
-
-    Args:
-        servings: Number of servings (1-20)
-
-    Raises:
-        ValueError: If servings is not between 1 and 20
+    Raises ValueError if servings is outside 1..20.
     """
     if not 1 <= servings <= 20:
         raise ValueError("Servings must be between 1 and 20")
-
-    preferences = _load_preferences()
-    preferences["default_servings_per_meal"] = servings
-    _save_preferences(preferences)
+    _save_preference("default_servings_per_meal", servings, user_id=user_id)
 
 
-def get_include_spices_by_default() -> bool:
+def get_include_spices_by_default(user_id: str | None = None) -> bool:
     """Whether the Send-to-Kroger-Cart preview should pre-check spice items.
 
     Defaults to False — spices appear in the preview but stay unchecked until
     the user explicitly opts them in, keeping pantry seasonings off the cart.
     """
-    return bool(_load_preferences().get("include_spices_by_default", False))
+    return bool(_load_preferences(user_id=user_id).get("include_spices_by_default", False))
 
 
-def set_include_spices_by_default(value: bool) -> None:
-    """Persist the 'include spices by default' Advanced-Settings toggle."""
-    preferences = _load_preferences()
-    preferences["include_spices_by_default"] = bool(value)
-    _save_preferences(preferences)
+def set_include_spices_by_default(value: bool, user_id: str | None = None) -> None:
+    """Persist this user's 'include spices by default' Advanced-Settings toggle."""
+    _save_preference("include_spices_by_default", bool(value), user_id=user_id)
 
 
-def get_kroger_credentials() -> dict:
-    """Get Kroger API credentials: preferences first, then env vars."""
-    preferences = _load_preferences()
-    creds = preferences.get("kroger_credentials", {})
+def get_kroger_credentials(user_id: str | None = None) -> dict:
+    """Get this user's Kroger API credentials; falls back to KROGER_* env vars."""
+    import json as _json
+
+    preferences = _load_preferences(user_id=user_id)
+    creds_raw = preferences.get("kroger_credentials")
+    creds = _json.loads(creds_raw) if isinstance(creds_raw, str) else (creds_raw or {})
     return {
         "client_id": creds.get("client_id") or os.environ.get("KROGER_CLIENT_ID", ""),
         "client_secret": creds.get("client_secret") or os.environ.get("KROGER_CLIENT_SECRET", ""),
@@ -268,21 +289,24 @@ def get_kroger_credentials() -> dict:
 
 
 def set_kroger_credentials(
-    client_id: str = None,
-    client_secret: str = None,
-    redirect_uri: str = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    redirect_uri: str | None = None,
+    user_id: str | None = None,
 ) -> None:
-    """Save Kroger API credentials to preferences file."""
-    preferences = _load_preferences()
-    existing = preferences.get("kroger_credentials", {})
+    """Save Kroger API credentials per-user."""
+    import json as _json
+
+    prefs = _load_preferences(user_id=user_id)
+    existing_raw = prefs.get("kroger_credentials")
+    existing = _json.loads(existing_raw) if isinstance(existing_raw, str) else (existing_raw or {})
     if client_id is not None:
         existing["client_id"] = client_id
     if client_secret is not None:
         existing["client_secret"] = client_secret
     if redirect_uri is not None:
         existing["redirect_uri"] = redirect_uri
-    preferences["kroger_credentials"] = existing
-    _save_preferences(preferences)
+    _save_preference("kroger_credentials", _json.dumps(existing), user_id=user_id)
 
 
 def get_token_info() -> dict | None:
@@ -313,26 +337,40 @@ def delete_user_token() -> None:
     invalidate_authenticated_client()
 
 
-def get_product_sort_preferences() -> dict:
-    """Get saved product page sort preferences."""
-    preferences = _load_preferences()
-    return preferences.get(
-        "product_sort",
-        {
-            "search_sort_stack": ["favorites"],
-            "deals_sort_stack": [],
-        },
-    )
+def get_product_sort_preferences(user_id: str | None = None) -> dict:
+    """Get this user's saved product page sort preferences."""
+    import json as _json
+
+    preferences = _load_preferences(user_id=user_id)
+    raw = preferences.get("product_sort")
+    if isinstance(raw, str):
+        return _json.loads(raw)
+    if isinstance(raw, dict):
+        return raw
+    return {
+        "search_sort_stack": ["favorites"],
+        "deals_sort_stack": [],
+    }
 
 
-def set_product_sort_preferences(search_sort_stack: list, deals_sort_stack: list) -> None:
-    """Save product page sort preferences."""
+def set_product_sort_preferences(
+    search_sort_stack: list,
+    deals_sort_stack: list,
+    user_id: str | None = None,
+) -> None:
+    """Save this user's product page sort preferences."""
+    import json as _json
+
     valid_keys = {"favorites", "health", "price", "percent", "dollar"}
     search_sort_stack = [k for k in search_sort_stack if k in valid_keys]
     deals_sort_stack = [k for k in deals_sort_stack if k in valid_keys]
-    preferences = _load_preferences()
-    preferences["product_sort"] = {
-        "search_sort_stack": search_sort_stack,
-        "deals_sort_stack": deals_sort_stack,
-    }
-    _save_preferences(preferences)
+    _save_preference(
+        "product_sort",
+        _json.dumps(
+            {
+                "search_sort_stack": search_sort_stack,
+                "deals_sort_stack": deals_sort_stack,
+            }
+        ),
+        user_id=user_id,
+    )
