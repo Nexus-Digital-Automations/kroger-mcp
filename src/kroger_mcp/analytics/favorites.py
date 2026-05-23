@@ -300,20 +300,14 @@ def get_list(list_id: str, user_id: str | None = None) -> dict[str, Any] | None:
 
 
 def rename_list(
-    list_id: str, new_name: str | None = None, new_description: str | None = None
+    list_id: str,
+    new_name: str | None = None,
+    new_description: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Rename a list or update its description.
-
-    Args:
-        list_id: The list ID
-        new_name: New name (optional)
-        new_description: New description (optional)
-
-    Returns:
-        Success status
-    """
+    """Rename a list or update its description, only if it belongs to `user_id`."""
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     if list_id == "default":
         return {"success": False, "error": "Cannot rename the default list"}
@@ -336,13 +330,13 @@ def rename_list(
 
             updates.append("updated_at = ?")
             params.append(datetime.now().isoformat())
-            params.append(list_id)
+            params.extend([list_id, owner])
 
             cursor.execute(
                 f"""
                 UPDATE favorite_lists
                 SET {', '.join(updates)}
-                WHERE id = ?
+                WHERE id = ? AND user_id = ?
                 """,
                 params,
             )
@@ -395,29 +389,13 @@ def add_to_list(
     min_stock_percent: int | None = None,
     min_stock_quantity: int | None = None,
     current_stock_quantity: int | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Add a product to a favorite list.
-
-    Args:
-        list_id: The list ID
-        product_id: Kroger product ID
-        description: Product description
-        brand: Product brand (optional)
-        default_quantity: Default quantity when ordering
-        preferred_modality: PICKUP or DELIVERY
-        notes: Optional notes
-        min_stock_percent: Reorder if pantry < this % (None = use global threshold)
-        min_stock_quantity: Target on-hand unit count (None = not tracked)
-        current_stock_quantity: Actual on-hand count (None = not tracked)
-
-    Returns:
-        Success status
-    """
+    """Add a product to a favorite list, only if the list belongs to `user_id`."""
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
-    # Verify list exists
-    lst = get_list(list_id)
+    lst = get_list(list_id, user_id=owner)
     if not lst:
         return {"success": False, "error": f"List '{list_id}' not found"}
 
@@ -466,27 +444,16 @@ def add_to_list(
         return {"success": False, "error": str(e)}
 
 
-def bulk_add_to_list(list_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
-    """
-    Add multiple products to a favorite list in one operation.
-
-    Args:
-        list_id: The list ID
-        items: List of items, each with:
-            - product_id (required): Kroger product ID
-            - description (required): Product description
-            - brand (optional): Product brand
-            - default_quantity (optional): Default quantity (default 1)
-            - preferred_modality (optional): PICKUP or DELIVERY (default PICKUP)
-            - notes (optional): Notes
-
-    Returns:
-        Success status with counts of added/failed items
-    """
+def bulk_add_to_list(
+    list_id: str,
+    items: list[dict[str, Any]],
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Add multiple products in one operation, only if the list belongs to `user_id`."""
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
-    # Verify list exists
-    lst = get_list(list_id)
+    lst = get_list(list_id, user_id=owner)
     if not lst:
         return {"success": False, "error": f"List '{list_id}' not found"}
 
@@ -554,18 +521,17 @@ def bulk_add_to_list(list_id: str, items: list[dict[str, Any]]) -> dict[str, Any
     }
 
 
-def remove_from_list(list_id: str, product_id: str) -> dict[str, Any]:
-    """
-    Remove a product from a favorite list.
-
-    Args:
-        list_id: The list ID
-        product_id: Kroger product ID
-
-    Returns:
-        Success status
-    """
+def remove_from_list(
+    list_id: str,
+    product_id: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Remove a product from a list, only if the list belongs to `user_id`."""
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    if not get_list(list_id, user_id=owner):
+        return {"success": False, "error": f"List '{list_id}' not found"}
 
     with get_db_cursor() as cursor:
         cursor.execute(
@@ -774,19 +740,18 @@ def get_list_items(
     return {"success": True, "list": lst, "items": items, "total_items": len(items)}
 
 
-def update_list_item(list_id: str, product_id: str, **kwargs) -> dict[str, Any]:
-    """
-    Update an item in a favorite list.
-
-    Args:
-        list_id: The list ID
-        product_id: Kroger product ID
-        **kwargs: Fields to update (default_quantity, preferred_modality, notes)
-
-    Returns:
-        Success status
-    """
+def update_list_item(
+    list_id: str,
+    product_id: str,
+    user_id: str | None = None,
+    **kwargs,
+) -> dict[str, Any]:
+    """Update an item in a favorite list, only if the list belongs to `user_id`."""
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    if not get_list(list_id, user_id=owner):
+        return {"success": False, "error": f"List '{list_id}' not found"}
 
     allowed_fields = {
         "default_quantity",
@@ -829,17 +794,18 @@ def update_list_item(list_id: str, product_id: str, **kwargs) -> dict[str, Any]:
         }
 
 
-def increment_times_ordered(list_id: str, product_ids: list[str]) -> None:
-    """
-    Increment the times_ordered counter for products that were ordered.
-
-    Args:
-        list_id: The list ID
-        product_ids: List of product IDs that were ordered
-    """
+def increment_times_ordered(
+    list_id: str,
+    product_ids: list[str],
+    user_id: str | None = None,
+) -> None:
+    """Increment times_ordered for products, only if the list belongs to `user_id`."""
     ensure_initialized()
 
     if not product_ids:
+        return
+
+    if not get_list(list_id, user_id=_resolve_user_id(user_id)):
         return
 
     placeholders = ", ".join("?" * len(product_ids))
@@ -858,21 +824,14 @@ def increment_times_ordered(list_id: str, product_ids: list[str]) -> None:
 
 
 def get_items_needing_reorder(
-    list_id: str = "default", pantry_threshold: int = 30
+    list_id: str = "default",
+    pantry_threshold: int = 30,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Get items from a list that need reordering based on pantry levels.
-
-    Args:
-        list_id: The list ID
-        pantry_threshold: Pantry level below which items need reorder
-
-    Returns:
-        Dict with items needing reorder
-    """
+    """Get items needing reorder, only if the list belongs to `user_id`."""
     ensure_initialized()
 
-    lst = get_list(list_id)
+    lst = get_list(list_id, user_id=_resolve_user_id(user_id))
     if not lst:
         return {"success": False, "error": f"List '{list_id}' not found"}
 
@@ -1017,23 +976,18 @@ def suggest_for_list(
 # ========== Reorder Schedule Management ==========
 
 
-def update_list_schedule(list_id: str, reorder_weeks: int | None) -> dict[str, Any]:
-    """
-    Update the reorder schedule for an existing list.
-
-    Args:
-        list_id: The list ID
-        reorder_weeks: Number of weeks between reorders (1-52), or None to disable
-
-    Returns:
-        Success status with updated reorder info
-    """
+def update_list_schedule(
+    list_id: str,
+    reorder_weeks: int | None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Update the reorder schedule, only if the list belongs to `user_id`."""
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     if list_id == "default":
         return {"success": False, "error": "Cannot modify schedule for the default list"}
 
-    # Validate reorder_weeks
     if reorder_weeks is not None:
         if not isinstance(reorder_weeks, int) or reorder_weeks < 1 or reorder_weeks > 52:
             return {
@@ -1042,8 +996,10 @@ def update_list_schedule(list_id: str, reorder_weeks: int | None) -> dict[str, A
             }
 
     with get_db_cursor() as cursor:
-        # Check if list exists and get current last_ordered_at
-        cursor.execute("SELECT last_ordered_at FROM favorite_lists WHERE id = ?", (list_id,))
+        cursor.execute(
+            "SELECT last_ordered_at FROM favorite_lists WHERE id = ? AND user_id = ?",
+            (list_id, owner),
+        )
         row = cursor.fetchone()
 
         if not row:
@@ -1051,14 +1007,13 @@ def update_list_schedule(list_id: str, reorder_weeks: int | None) -> dict[str, A
 
         last_ordered_at = row["last_ordered_at"]
 
-        # Update the schedule
         cursor.execute(
             """
             UPDATE favorite_lists
             SET reorder_weeks = ?, updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (reorder_weeks, datetime.now().isoformat(), list_id),
+            (reorder_weeks, datetime.now().isoformat(), list_id, owner),
         )
 
     # Calculate new reorder status
@@ -1072,22 +1027,14 @@ def update_list_schedule(list_id: str, reorder_weeks: int | None) -> dict[str, A
     }
 
 
-def get_low_stock_items(list_id: str) -> dict[str, Any]:
-    """
-    Return items from a favorites list that are below their user-defined minimum stock.
-
-    Only includes items that have at least one minimum configured
-    (min_stock_percent or min_stock_quantity).
-
-    Args:
-        list_id: The list ID
-
-    Returns:
-        Dict with low_stock_items list and summary counts
-    """
+def get_low_stock_items(
+    list_id: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Return low-stock items, only if the list belongs to `user_id`."""
     ensure_initialized()
 
-    lst = get_list(list_id)
+    lst = get_list(list_id, user_id=_resolve_user_id(user_id))
     if not lst:
         return {"success": False, "error": f"List '{list_id}' not found"}
 
@@ -1159,26 +1106,20 @@ def get_low_stock_items(list_id: str) -> dict[str, Any]:
     }
 
 
-def mark_list_ordered(list_id: str) -> dict[str, Any]:
-    """
-    Mark a list as ordered, updating the last_ordered_at timestamp.
-
-    This should be called after successfully ordering items from a list.
-
-    Args:
-        list_id: The list ID
-
-    Returns:
-        Success status with reorder info
-    """
+def mark_list_ordered(
+    list_id: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """Mark a list as ordered, only if it belongs to `user_id`."""
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     now = datetime.now().isoformat()
 
     with get_db_cursor() as cursor:
-        # Get current reorder_weeks
         cursor.execute(
-            "SELECT reorder_weeks, last_ordered_at FROM favorite_lists WHERE id = ?", (list_id,)
+            "SELECT reorder_weeks, last_ordered_at FROM favorite_lists WHERE id = ? AND user_id = ?",
+            (list_id, owner),
         )
         row = cursor.fetchone()
 
@@ -1188,18 +1129,16 @@ def mark_list_ordered(list_id: str) -> dict[str, Any]:
         reorder_weeks = row["reorder_weeks"]
         previous_ordered_at = row["last_ordered_at"]
 
-        # Calculate if it was overdue before marking
         previous_status = _calculate_reorder_status(previous_ordered_at, reorder_weeks)
         was_overdue = previous_status.get("is_overdue", False)
 
-        # Update last_ordered_at
         cursor.execute(
             """
             UPDATE favorite_lists
             SET last_ordered_at = ?, updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
             """,
-            (now, now, list_id),
+            (now, now, list_id, owner),
         )
 
     # Calculate new reorder status

@@ -86,9 +86,10 @@ async def delete_list(list_id: str, request: Request):
 
 
 @router.put("/api/favorites/lists/{list_id}")
-async def rename_list(list_id: str, body: RenameListBody):
+async def rename_list(list_id: str, body: RenameListBody, request: Request):
     """Rename a list, update its description, or update reorder schedule."""
     try:
+        owner = current_user_id(request)
         errors = []
 
         if body.name is not None or body.description is not None:
@@ -98,6 +99,7 @@ async def rename_list(list_id: str, body: RenameListBody):
                 list_id=list_id,
                 new_name=body.name,
                 new_description=body.description,
+                user_id=owner,
             )
             if not result.get("success"):
                 errors.append(result.get("error", "Rename failed"))
@@ -107,7 +109,9 @@ async def rename_list(list_id: str, body: RenameListBody):
 
             # 0 means "disable schedule", positive int means set schedule
             weeks = None if body.reorder_weeks == 0 else body.reorder_weeks
-            rw_result = update_list_schedule(list_id=list_id, reorder_weeks=weeks)
+            rw_result = update_list_schedule(
+                list_id=list_id, reorder_weeks=weeks, user_id=owner
+            )
             if not rw_result.get("success"):
                 errors.append(rw_result.get("error", "Schedule update failed"))
 
@@ -119,12 +123,12 @@ async def rename_list(list_id: str, body: RenameListBody):
 
 
 @router.get("/api/favorites/lists/{list_id}/items")
-async def get_list_items(list_id: str):
+async def get_list_items(list_id: str, request: Request):
     """Get items in a favorite list."""
     try:
         from kroger_mcp.analytics.favorites import get_list_items as _get_list_items
 
-        result = _get_list_items(list_id=list_id)
+        result = _get_list_items(list_id=list_id, user_id=current_user_id(request))
         if not result.get("success"):
             return JSONResponse(status_code=404, content=result)
         return result
@@ -133,7 +137,7 @@ async def get_list_items(list_id: str):
 
 
 @router.post("/api/favorites/lists/{list_id}/items")
-async def add_item(list_id: str, body: AddItemBody):
+async def add_item(list_id: str, body: AddItemBody, request: Request):
     """Add a product to a favorite list."""
     try:
         from kroger_mcp.analytics.favorites import add_to_list
@@ -145,6 +149,7 @@ async def add_item(list_id: str, body: AddItemBody):
             brand=body.brand,
             default_quantity=body.quantity,
             notes=body.notes,
+            user_id=current_user_id(request),
         )
         if not result.get("success"):
             return JSONResponse(status_code=400, content=result)
@@ -154,12 +159,14 @@ async def add_item(list_id: str, body: AddItemBody):
 
 
 @router.delete("/api/favorites/lists/{list_id}/items/{product_id}")
-async def remove_item(list_id: str, product_id: str):
+async def remove_item(list_id: str, product_id: str, request: Request):
     """Remove a product from a favorite list."""
     try:
         from kroger_mcp.analytics.favorites import remove_from_list
 
-        result = remove_from_list(list_id=list_id, product_id=product_id)
+        result = remove_from_list(
+            list_id=list_id, product_id=product_id, user_id=current_user_id(request)
+        )
         if not result.get("success"):
             return JSONResponse(status_code=404, content=result)
         return result
@@ -168,7 +175,7 @@ async def remove_item(list_id: str, product_id: str):
 
 
 @router.post("/api/favorites/lists/{list_id}/add-to-shopping-list")
-async def add_list_to_shopping_list(list_id: str):
+async def add_list_to_shopping_list(list_id: str, request: Request):
     """Add all items from a favorites list into the shopping list, skipping well-stocked items."""
     from datetime import datetime
 
@@ -182,7 +189,9 @@ async def add_list_to_shopping_list(list_id: str):
 
     # Load list items
     try:
-        result = _get_list_items(list_id=list_id, include_pantry_status=True)
+        result = _get_list_items(
+            list_id=list_id, include_pantry_status=True, user_id=current_user_id(request)
+        )
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 

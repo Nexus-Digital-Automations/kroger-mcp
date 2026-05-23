@@ -94,3 +94,80 @@ test('user B sees empty per-user payloads even after user A populates them', asy
   await aCtx.close();
   await bCtx.close();
 });
+
+test('user B cannot mutate user A\'s favorites list (cross-user mutation rejected)', async ({
+  browser,
+  baseURL,
+  testUser,
+}) => {
+  // ---- user A: create a list and add one item
+  const aCtx = await browser.newContext();
+  const aPage = await aCtx.newPage();
+  await aPage.goto(`${baseURL}/login`);
+  await aPage.locator('input[name=email]').fill(testUser.email);
+  await aPage.locator('input[name=password]').fill(testUser.password);
+  await Promise.all([
+    aPage.waitForURL((u) => !/\/login$/.test(u.pathname)),
+    aPage.locator('button[type=submit]').click(),
+  ]);
+
+  const tag = `__E2E__crossmut-${Math.random().toString(36).slice(2, 8)}`;
+  const aFav = await aPage.request.post(`${baseURL}/api/favorites/lists`, {
+    data: { name: `${tag}-list`, list_type: 'custom' },
+  });
+  expect(aFav.ok()).toBeTruthy();
+  const aListId = (await aFav.json()).list_id;
+
+  const aProductId = `${tag}-prod`;
+  const aAdd = await aPage.request.post(
+    `${baseURL}/api/favorites/lists/${aListId}/items`,
+    { data: { product_id: aProductId, description: `${tag}-onion` } },
+  );
+  expect(aAdd.ok(), 'A should be able to add to its own list').toBeTruthy();
+
+  // ---- user B: register fresh, then try every mutation against A's list
+  const bCtx = await browser.newContext();
+  const bPage = await bCtx.newPage();
+  const bEmail = `e2e-crossmut-${Date.now().toString(36)}@example.test`;
+  await registerAndLogin(bPage, bEmail, `__E2E__crossmut-userB-${tag}`);
+
+  // B tries to ADD an item to A's list → must be rejected
+  const bAdd = await bPage.request.post(
+    `${baseURL}/api/favorites/lists/${aListId}/items`,
+    { data: { product_id: `${tag}-bprod`, description: `${tag}-bitem` } },
+  );
+  expect(bAdd.status(), 'B must not be able to add to A\'s list').toBeGreaterThanOrEqual(400);
+
+  // B tries to REMOVE A's item → must be rejected
+  const bDel = await bPage.request.delete(
+    `${baseURL}/api/favorites/lists/${aListId}/items/${aProductId}`,
+  );
+  expect(bDel.status(), 'B must not be able to remove from A\'s list').toBeGreaterThanOrEqual(400);
+
+  // B tries to RENAME A's list → server may 200 with success:false, or 4xx
+  const bRename = await bPage.request.put(`${baseURL}/api/favorites/lists/${aListId}`, {
+    data: { name: `${tag}-hijacked` },
+  });
+  if (bRename.ok()) {
+    const body = await bRename.json();
+    expect(body.success ?? false, 'B must not rename A\'s list').toBeFalsy();
+  }
+
+  // ---- verify A's item is still there and the list name unchanged
+  const aGet = await aPage.request.get(`${baseURL}/api/favorites/lists/${aListId}/items`);
+  expect(aGet.ok(), 'A can still read its own list').toBeTruthy();
+  const aItems = (await aGet.json()).items || [];
+  const aProductIds = aItems.map((i: { product_id?: string }) => i.product_id);
+  expect(aProductIds, 'A\'s original item must survive B\'s tampering').toContain(aProductId);
+
+  const aLists = await aPage.request.get(`${baseURL}/api/favorites/lists`);
+  const aListNames = (await aLists.json()).map((l: { id: string; name: string }) =>
+    l.id === aListId ? l.name : null,
+  ).filter(Boolean);
+  expect(aListNames[0], 'list name must be unchanged after B\'s rename attempt').toBe(`${tag}-list`);
+
+  // ---- teardown
+  await aPage.request.delete(`${baseURL}/api/favorites/lists/${aListId}`);
+  await aCtx.close();
+  await bCtx.close();
+});
