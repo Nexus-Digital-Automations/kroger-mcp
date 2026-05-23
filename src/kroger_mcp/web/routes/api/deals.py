@@ -3,7 +3,7 @@
 import asyncio
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -12,6 +12,7 @@ from kroger_mcp.analytics.database import (
     get_db_connection,
     get_db_cursor,
 )
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.shared import (
     get_client_credentials_client,
     get_preferred_location_id,
@@ -251,12 +252,16 @@ async def find_deals(
 
 
 @router.get("/api/deals/watchlist")
-async def get_watchlist():
-    """Return the full deal watchlist from the database."""
+async def get_watchlist(request: Request):
+    """Return the authenticated user's deal watchlist."""
     try:
         ensure_initialized()
+        user_id = current_user_id(request)
         conn = get_db_connection()
-        cursor = conn.execute("SELECT * FROM deal_watchlist ORDER BY added_at DESC")
+        cursor = conn.execute(
+            "SELECT * FROM deal_watchlist WHERE user_id = ? ORDER BY added_at DESC",
+            (user_id,),
+        )
         rows = [dict(row) for row in cursor.fetchall()]
         conn.close()
         return JSONResponse(content=rows)
@@ -279,13 +284,13 @@ class WatchlistAddBody(BaseModel):
 
 
 @router.post("/api/deals/watchlist")
-async def add_to_watchlist(body: WatchlistAddBody):
-    """Add a product to the deal watchlist."""
+async def add_to_watchlist(body: WatchlistAddBody, request: Request):
+    """Add a product to the authenticated user's deal watchlist."""
     try:
         ensure_initialized()
+        user_id = current_user_id(request)
         now = datetime.now().isoformat()
         with get_db_cursor() as cursor:
-            # Ensure product exists in products table (FK requirement)
             cursor.execute(
                 "INSERT OR IGNORE INTO products (product_id, description) VALUES (?, ?)",
                 (body.product_id, body.description or None),
@@ -293,13 +298,13 @@ async def add_to_watchlist(body: WatchlistAddBody):
             cursor.execute(
                 """
                 INSERT INTO deal_watchlist
-                    (product_id, description, target_price, added_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(product_id) DO UPDATE SET
+                    (user_id, product_id, description, target_price, added_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, product_id) DO UPDATE SET
                     description = excluded.description,
                     target_price = excluded.target_price
                 """,
-                (body.product_id, body.description, body.target_price, now),
+                (user_id, body.product_id, body.description, body.target_price, now),
             )
         return JSONResponse(
             content={
@@ -314,20 +319,16 @@ async def add_to_watchlist(body: WatchlistAddBody):
         )
 
 
-# ---------------------------------------------------------------------------
-# DELETE /api/deals/watchlist/{product_id}
-# ---------------------------------------------------------------------------
-
-
 @router.delete("/api/deals/watchlist/{product_id}")
-async def remove_from_watchlist(product_id: str):
-    """Remove a product from the deal watchlist."""
+async def remove_from_watchlist(product_id: str, request: Request):
+    """Remove a product from the authenticated user's deal watchlist."""
     try:
         ensure_initialized()
+        user_id = current_user_id(request)
         with get_db_cursor() as cursor:
             cursor.execute(
-                "DELETE FROM deal_watchlist WHERE product_id = ?",
-                (product_id,),
+                "DELETE FROM deal_watchlist WHERE user_id = ? AND product_id = ?",
+                (user_id, product_id),
             )
         return JSONResponse(content={"success": True, "removed": product_id})
     except Exception as e:
@@ -335,6 +336,11 @@ async def remove_from_watchlist(product_id: str):
             status_code=500,
             content={"error": f"Failed to remove from watchlist: {str(e)}"},
         )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/deals/watchlist/{product_id}
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
