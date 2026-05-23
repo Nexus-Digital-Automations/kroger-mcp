@@ -39,15 +39,18 @@ async function setup() {
 }
 
 async function getIngredientRows() {
+  // Rows carry the data-ingredient-row hook; cells: span[0]=qty, span[1]=unit,
+  // span[2]=name (later spans belong to source/health/popovers).
   return page.evaluate(() => {
     const card = document.getElementById('ingredients-card');
     if (!card) return [];
-    const rows = Array.from(card.querySelectorAll('[style*="grid-template-columns: 7rem"]'));
-    return rows.slice(1).map(row => {
+    const rows = Array.from(card.querySelectorAll('[data-ingredient-row]'));
+    return rows.map(row => {
       const spans = row.querySelectorAll('span');
       return {
         qty: spans[0] ? spans[0].textContent.trim() : '',
-        name: spans[1] ? spans[1].textContent.trim() : '',
+        unit: spans[1] ? spans[1].textContent.trim() : '',
+        name: spans[2] ? spans[2].textContent.trim() : '',
       };
     });
   });
