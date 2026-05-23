@@ -98,7 +98,7 @@ Phase order:
 
 ## Session-2 status (delivered)
 
-Commits: `5d26a83` (migration v2 + mcp_user_id), `9f282ef` (pantry/meals/safety/ingredients), `15185f4` (dashboard + isolation tests), `5c58d47` (spec), `5d387c9` (deals watchlist), `50f561b` (shared.py preferences → user_settings), `bfab649` (settings API).
+Commits: `5d26a83` (migration v2 + mcp_user_id), `9f282ef` (pantry/meals/safety/ingredients), `15185f4` (dashboard + isolation tests), `5c58d47` (spec), `5d387c9` (deals watchlist), `50f561b` (shared.py preferences → user_settings), `bfab649` (settings API), `aa9f6fd` (spec session-3 notes), `1af014f` (cart_tools DB migration), `1666c9a` (shopping_list_tools DB migration), `3859cd3` (shopping_list API endpoints).
 
 **Migration v2** — extended `scripts/migrate_to_multi_tenant.py`:
 - New tables: `user_carts`, `user_shopping_lists`, `user_notion_sync`, `user_settings`.
@@ -128,16 +128,16 @@ Commits: `5d26a83` (migration v2 + mcp_user_id), `9f282ef` (pantry/meals/safety/
 
 ## Session-3 deferred (still needs work)
 
-jeremyparker continues to see all his data on every page (verified end-to-end via login smoke). The items below either still bind to `default_user_id()` (so they would leak to a second user) or have a JsonStore-backed storage layer that needs a DB rewrite.
+Migrated to DB this session: cart, shopping_list, user_settings (location/servings/spices/credentials/product_sort). The items below are what still rides on `default_user_id()` fallback or has file-backed storage.
 
 | Surface | Status today | Concrete next step |
 |---|---|---|
-| recipes (storage) | Backed by `kroger_recipes.json` at project root — shared file, not per-user. Restored after migration relocated it. | Add a recipes-absorption step to `migrate_to_multi_tenant.py` that imports each JSON entry as a `recipes` row owned by the migration owner. Then change `tools/recipe_tools.py::_load_recipes / _save_recipes` to query the DB. |
-| recipes (routes) | `routes/recipes.py`, `routes/api/recipes.py` don't take `user_id`. Mutations go through file. | After the storage rewrite, every route handler takes `request: Request` and threads `current_user_id(request)` to the recipe layer. |
-| cart (storage) | `tools/cart_tools.py` uses `JsonStore(Path("kroger_cart.json"))`. File relocated by migration → JsonStore returns empty default; jeremyparker's cart appears empty in the UI today. The `user_carts` DB table is in place but unused. | Rewrite `_load_cart_data` / `_save_cart_data` / `_add_item_to_local_cart` to use `user_carts`. Each MCP cart action calls `user_id = mcp_user_id()`. |
-| shopping list (storage) | `tools/shopping_list_tools.py` uses `JsonStore(Path("kroger_shopping_list.json"))`. Same situation: relocated → empty. `user_shopping_lists` table in place but unused. | Same pattern as cart — rewrite to use DB, thread user_id through. |
-| MCP tools (8 modules) | `cart_tools`, `deal_tools`, `favorites_tools`, `notion_tools`, `prediction_tools`, `reporting_tools`, `info_tools`, `recipe_tools` still rely on `default_user_id()` fallback. Works for jeremyparker; would leak to other users in MCP context. | At the top of each `_*_impl` action dispatcher, call `user_id = mcp_user_id()` and pass through to every analytics call. |
-| E2E two-user isolation spec | Not written. | New `tests/e2e/two-user-isolation.spec.ts`: register a second account via `/register`, log in as B, GET `/api/favorites/lists` + `/api/pantry` etc., assert each returns an empty payload while a parallel jeremyparker session sees populated data. |
+| recipes (storage) | Still backed by `kroger_recipes.json` at project root — shared file. Restored after migration relocated it. | Add a recipes-absorption step to `migrate_to_multi_tenant.py` that imports each JSON entry as a `recipes` row owned by the migration owner. Then change `tools/recipe_tools.py::_load_recipes / _save_recipes` to query the DB. |
+| recipes (routes) | `routes/recipes.py`, `routes/api/recipes.py` don't take `user_id`. Mutations write to the shared JSON. | After the storage rewrite, every route handler takes `request: Request` and threads `current_user_id(request)` to the recipe layer. |
+| shopping list (composite endpoints) | 5 of 8 endpoints in `routes/api/shopping_list.py` now scoped. Still pending: `POST /api/shopping-list/add-recipe` and `POST /api/shopping-list/add-to-cart` — they call `_commit_recipe_items` and cart/recipe tools that need user_id threading. | Add `request: Request` to those two handlers, then thread `user_id` through `_commit_recipe_items` to `_save_shopping_list`. The cart side already supports user_id. |
+| order history | `tools/cart_tools.py` still uses `JsonStore(Path("kroger_order_history.json"))` for the cart-history view. File relocated by migration → empty list. Per-user orders live in the `orders` + `purchase_events` DB tables which already have `user_id`. | Rewrite `_load_order_history` / `_save_order_history` to read/write `orders` + `purchase_events` for the resolved user. |
+| MCP tools (7 modules) | `deal_tools`, `favorites_tools`, `notion_tools`, `prediction_tools`, `reporting_tools`, `info_tools`, `recipe_tools` still rely on `mcp_user_id()` fallback inside the analytics layer. Works for jeremyparker (his ID is the default). To support a second Claude Desktop profile, each `_*_impl` dispatcher should call `user_id = mcp_user_id()` and pass through explicitly. | Add the `mcp_user_id()` call at the top of each action dispatcher; pass `user_id=user_id` to every analytics call within. |
+| E2E two-user isolation spec | Not written. | New `tests/e2e/two-user-isolation.spec.ts`: register a second account via `/register`, log in as B, GET `/api/favorites/lists` + `/api/pantry` + `/api/shopping-list` etc., assert each returns an empty payload while a parallel jeremyparker session sees populated data. |
 
 Pattern to apply (mirrors favorites):
 1. Each analytics function gains `user_id: str | None = None`; uses `_resolve_user_id` at the top.
