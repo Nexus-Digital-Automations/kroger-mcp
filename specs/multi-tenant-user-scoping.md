@@ -96,33 +96,56 @@ Phase order:
 - pytest: 241 passed, 2 skipped (was 234) — 7 new isolation tests verify user A cannot see/delete user B's favorites.
 - e2e: 29 passed, 2 skipped (recipes tests skip on accounts with no recipes, which is the correct fresh-user state).
 
-## Session-1 deferred (follow-ups)
+## Session-2 status (delivered)
 
-The migration installed `user_id` columns on all 20 user-scoped tables and the
-analytics-layer fallback to `default_user_id()` means **jeremyparker continues to
-see and use all existing data**. But the read-path filtering is only complete
-for favorites. The following routes/analytics modules still call helpers
-without passing `user_id`, so a second user registering today will see
-jeremyparker's data:
+Commits: `5d26a83` (migration v2 + mcp_user_id), `9f282ef` (pantry/meals/safety/ingredients), `15185f4` (dashboard + isolation tests).
 
-| Surface | Analytics module | Routes |
-|---|---|---|
-| recipes | `analytics/recipes.py`, `analytics/recipe_*.py` | `routes/recipes.py`, `routes/api/recipes.py` |
-| pantry | `analytics/pantry.py` | `routes/pantry.py`, `routes/api/pantry.py` |
-| meal plans | `analytics/meal_planning.py` | `routes/meal_plan.py`, `routes/api/meal_plan.py` |
-| safety | `analytics/safety.py` | `routes/safety.py`, `routes/api/safety.py` |
-| custom ingredients | `analytics/custom_ingredients.py` | `routes/ingredients.py`, `routes/api/ingredients.py` |
-| deals / watchlist | `analytics/deals.py` | `routes/deals.py`, `routes/api/deals.py` |
-| shopping list | `tools/shopping_list_tools.py` | `routes/shopping_list.py`, `routes/api/shopping_list.py` |
-| settings | analytics N/A | `routes/settings.py`, `routes/api/settings.py` |
-| dashboard | (multi-source) | `routes/dashboard.py` |
+**Migration v2** — extended `scripts/migrate_to_multi_tenant.py`:
+- New tables: `user_carts`, `user_shopping_lists`, `user_notion_sync`, `user_settings`.
+- Generic `_recreate_table_without_unique` helper; 8 tables recreated with composite `UNIQUE(user_id, key)` / `PRIMARY KEY(user_id, key)`: `custom_ingredients`, `ingredient_overrides`, `ingredient_preferences`, `safe_products`, `blocked_products`, `pantry_items`, `deal_watchlist`, `safety_settings`.
+- `PRAGMA foreign_keys=OFF` during recreate prevents cascade-delete (lesson learned from session 1).
+- `_absorb_legacy_json` imports data/legacy/kroger_cart.json + kroger_notion_sync.json into the new tables. Idempotent.
+
+**`mcp_user_id()`** added to `src/kroger_mcp/auth/dependencies.py`:
+- Reads `KROGER_MCP_USER_ID` per Claude Desktop config first, falls back to `KROGER_MCP_DEFAULT_USER_ID`.
+- Raises `RuntimeError` if neither set — surfaces misconfig loudly.
+
+**Modules fully scoped (analytics + routes + MCP tools)**:
+- favorites (session 1)
+- pantry: 11 analytics functions + routes + meal_planner_tools
+- meal_planning: 19 analytics functions + routes
+- safety: 14+ analytics functions + routes + safety_tools + ingredient_management_tools (auto-seeds default safety_settings for new users)
+- ingredients: routes/api/ingredients + routes/ingredients + ingredient_management_tools
+- dashboard: 4 aggregation helpers now take user_id; dashboard_page resolves from session
+
+**pytest: 247 passed, 2 skipped** (was 234 baseline). 13 isolation tests covering:
+- favorites (4 cases)
+- pantry (1)
+- meal plans (1)
+- safety (2)
+- mcp_user_id resolver contract (3)
+- default_user_id resolver contract (3)
+
+## Session-3 deferred (still needs work)
+
+These modules still bind to `default_user_id()` (i.e. jeremyparker) at the route / tool layer. jeremyparker continues to use everything; a second user would see jeremyparker's data on these pages.
+
+| Surface | Status today |
+|---|---|
+| recipes | Backed by `kroger_recipes.json` at project root — shared, not per-user. Restored after migration relocated it. Routes (`routes/recipes.py`, `routes/api/recipes.py`) don't take `user_id`. Proper fix: migrate JSON content into `recipes` + `recipe_ingredients` DB rows per user_id, then update routes. |
+| deals / watchlist | `routes/api/deals.py` calls `deal_watchlist` directly without user filtering. Needs `current_user_id` pass-through. |
+| shopping list | `tools/shopping_list_tools.py` still uses `JsonStore(Path("kroger_shopping_list.json"))` — file was relocated by migration so this returns empty. Needs rewrite to query `user_shopping_lists` DB table. Routes (`routes/shopping_list.py`, `routes/api/shopping_list.py`) need user_id pass-through. |
+| cart | `tools/cart_tools.py` still uses `JsonStore(Path("kroger_cart.json"))` — file was relocated. Migration absorbed any cart data into `user_carts` table (0 items in this case). Needs rewrite to use DB. |
+| settings | `tools/shared.py` user preferences still in JsonStore. Needs rewrite to use `user_settings` table. `routes/api/settings.py` + `routes/settings.py` need user_id pass-through. |
+| MCP tools | These tools currently fall back to `default_user_id()`: `cart_tools`, `deal_tools`, `favorites_tools`, `notion_tools`, `prediction_tools`, `reporting_tools`, `info_tools`, `recipe_tools`, `shared`. They work for jeremyparker. To support per-profile MCP, add `user_id = mcp_user_id()` at the top of each action dispatcher and pass through to analytics. |
+| E2E two-user isolation spec | Not written. Should register a second account in `tests/e2e/`, log in as B, assert dashboard / pantry / meal-plan / safety pages all show empty state. |
 
 Pattern to apply (mirrors favorites):
-1. Each analytics function gains `user_id: str | None = None`; uses `_resolve_user_id` (factored out into a shared module) at the top.
+1. Each analytics function gains `user_id: str | None = None`; uses `_resolve_user_id` at the top.
 2. Every SQL `WHERE` filters by `user_id`; every `INSERT` includes it.
-3. Each route handler accepts `request: Request`, calls `current_user_id(request)`, and passes the result to the analytics function.
-4. Tables with name/key UNIQUE constraints (`custom_ingredients`, `ingredient_preferences`, etc.) get the same recreate-without-unique treatment as `favorite_lists` did.
-5. Add cross-user pytest cases analogous to `TestFavoritesScoping` for each subsystem.
+3. Each route handler accepts `request: Request`, calls `current_user_id(request)`, passes through.
+4. Each MCP action dispatcher calls `user_id = mcp_user_id()` and passes through.
+5. Add cross-user pytest cases analogous to `TestPantryScoping`/`TestSafetyScoping`.
 
 ## Rollback
 
