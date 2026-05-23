@@ -4,10 +4,11 @@ import asyncio
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.shopping_list_tools import (
     _consolidate_items,
     _generate_list_item_id,
@@ -123,10 +124,10 @@ def _build_recipe_preview(
 
 
 @router.get("/api/shopping-list")
-async def get_shopping_list():
-    """Return the current shopping list JSON."""
+async def get_shopping_list(request: Request):
+    """Return the authenticated user's shopping list."""
     try:
-        data = _load_shopping_list()
+        data = _load_shopping_list(user_id=current_user_id(request))
         return JSONResponse(content=data)
     except Exception as e:
         return JSONResponse(
@@ -306,9 +307,11 @@ class AddItemBody(BaseModel):
 
 
 @router.post("/api/shopping-list/items")
-async def add_shopping_list_item(body: AddItemBody):
+async def add_shopping_list_item(body: AddItemBody, request: Request):
+    """Append a manual item to the authenticated user's shopping list."""
     try:
-        listing = _load_shopping_list()
+        user_id = current_user_id(request)
+        listing = _load_shopping_list(user_id=user_id)
         new_item = {
             "id": _generate_list_item_id(),
             "product_id": body.product_id,
@@ -321,7 +324,7 @@ async def add_shopping_list_item(body: AddItemBody):
         }
         listing["items"].append(new_item)
         listing["items"] = _consolidate_items(listing["items"])
-        _save_shopping_list(listing)
+        _save_shopping_list(listing, user_id=user_id)
         return JSONResponse(content={
             "success": True,
             "item_id": new_item["id"],
@@ -343,13 +346,14 @@ async def add_shopping_list_item(body: AddItemBody):
 
 
 @router.delete("/api/shopping-list")
-async def clear_shopping_list():
-    """Remove all items from the shopping list."""
+async def clear_shopping_list(request: Request):
+    """Clear all items from the authenticated user's shopping list."""
     try:
-        data = _load_shopping_list()
+        user_id = current_user_id(request)
+        data = _load_shopping_list(user_id=user_id)
         count = len(data["items"])
         data["items"] = []
-        _save_shopping_list(data)
+        _save_shopping_list(data, user_id=user_id)
         return JSONResponse(content={"success": True, "cleared": count})
     except Exception as e:
         return JSONResponse(
@@ -364,10 +368,11 @@ async def clear_shopping_list():
 
 
 @router.delete("/api/shopping-list/{item_id}")
-async def remove_shopping_list_item(item_id: str):
-    """Remove a single item from the shopping list by its id."""
+async def remove_shopping_list_item(item_id: str, request: Request):
+    """Remove a single item from the authenticated user's shopping list."""
     try:
-        data = _load_shopping_list()
+        user_id = current_user_id(request)
+        data = _load_shopping_list(user_id=user_id)
         original_count = len(data["items"])
         data["items"] = [
             item
@@ -380,7 +385,7 @@ async def remove_shopping_list_item(item_id: str):
                 status_code=404,
                 content={"error": f"Item '{item_id}' not found"},
             )
-        _save_shopping_list(data)
+        _save_shopping_list(data, user_id=user_id)
         return JSONResponse(
             content={
                 "success": True,
@@ -406,10 +411,11 @@ class UpdateItemBody(BaseModel):
 
 
 @router.patch("/api/shopping-list/{item_id}")
-async def update_shopping_list_item(item_id: str, body: UpdateItemBody):
-    """Update quantity or notes for a shopping list item."""
+async def update_shopping_list_item(item_id: str, body: UpdateItemBody, request: Request):
+    """Update quantity or notes for one of the authenticated user's items."""
     try:
-        data = _load_shopping_list()
+        user_id = current_user_id(request)
+        data = _load_shopping_list(user_id=user_id)
         found = False
         for item in data["items"]:
             if item.get("id") == item_id:
@@ -427,7 +433,7 @@ async def update_shopping_list_item(item_id: str, body: UpdateItemBody):
                 content={"error": f"Item '{item_id}' not found"},
             )
 
-        _save_shopping_list(data)
+        _save_shopping_list(data, user_id=user_id)
         return JSONResponse(content={"success": True, "item_id": item_id})
 
     except Exception as e:
