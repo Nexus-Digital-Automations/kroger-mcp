@@ -75,21 +75,29 @@ class TestCustomIngredients:
             conn.close()
 
     def test_duplicate_ingredient_prevented(self, clean_db):
-        """Test that duplicate ingredients are prevented"""
+        """Test that duplicate ingredients are prevented per-user.
+
+        Composite UNIQUE(user_id, ingredient_name) means two NULL user_ids are
+        distinct in SQLite; the test must supply a user_id for the constraint
+        to actually fire.
+        """
+        from kroger_mcp.auth.dependencies import default_user_id
+
+        user_id = default_user_id()
         conn = get_db_connection()
         try:
-            # Add first ingredient
             conn.execute(
-                "INSERT INTO custom_ingredients (ingredient_name, severity) VALUES (?, ?)",
-                ("maltitol", "warning")
+                "INSERT INTO custom_ingredients (ingredient_name, severity, user_id) "
+                "VALUES (?, ?, ?)",
+                ("maltitol", "warning", user_id),
             )
             conn.commit()
 
-            # Try to add duplicate
-            with pytest.raises(Exception):  # Should raise UNIQUE constraint error
+            with pytest.raises(Exception):
                 conn.execute(
-                    "INSERT INTO custom_ingredients (ingredient_name, severity) VALUES (?, ?)",
-                    ("maltitol", "warning")
+                    "INSERT INTO custom_ingredients (ingredient_name, severity, user_id) "
+                    "VALUES (?, ?, ?)",
+                    ("maltitol", "warning", user_id),
                 )
                 conn.commit()
 

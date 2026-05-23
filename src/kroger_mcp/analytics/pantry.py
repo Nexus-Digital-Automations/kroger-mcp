@@ -11,7 +11,20 @@ Tracks estimated inventory levels using percentage-based tracking.
 from datetime import datetime, timedelta
 from typing import Any
 
+from kroger_mcp.auth.dependencies import default_user_id
+
 from .database import ensure_initialized, get_db_connection
+
+
+def _resolve_user_id(user_id: str | None) -> str:
+    """Resolve user_id for user-scoped queries.
+
+    When a caller passes None (MCP tools, scripts, background jobs that have
+    no HTTP request context), fall back to the migration-installed owner via
+    `default_user_id()`. HTTP route handlers must always pass an explicit
+    user_id resolved from the session.
+    """
+    return user_id if user_id is not None else default_user_id()
 
 # Shelf life in days for common categories
 CATEGORY_SHELF_LIFE = {
@@ -90,7 +103,7 @@ DEFAULT_SHELF_LIFE = {
 }
 
 
-def calculate_depletion_rate(product_id: str) -> float:
+def calculate_depletion_rate(product_id: str, user_id: str | None = None) -> float:
     """
     Calculate daily depletion percentage from consumption rate analytics.
 
@@ -102,11 +115,13 @@ def calculate_depletion_rate(product_id: str) -> float:
 
     Args:
         product_id: The product identifier
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Daily depletion rate as percentage (0-100)
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -114,9 +129,9 @@ def calculate_depletion_rate(product_id: str) -> float:
             """
             SELECT avg_days_between_purchases
             FROM product_statistics
-            WHERE product_id = ?
+            WHERE product_id = ? AND user_id = ?
         """,
-            (product_id,),
+            (product_id, owner),
         )
         row = cursor.fetchone()
 
@@ -239,10 +254,13 @@ def get_expiration_status(days_to_expiration: int | None) -> str:
 
 
 def restock_item(
-    product_id: str, level: int = 100, description: str | None = None
+    product_id: str,
+    level: int = 100,
+    description: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Set item to restocked level (default 100%).
+    Set item to restocked level (default 100%) for `user_id`'s pantry.
 
     Called automatically when an order is placed, or manually
     when user restocks from another source.
@@ -255,21 +273,23 @@ def restock_item(
         product_id: The product identifier
         level: Percentage level (0-100), default 100
         description: Product description (optional)
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with success status and item info (includes expiration data)
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     level = max(0, min(100, level))  # Clamp to 0-100
     now = datetime.now().isoformat()
 
     # Calculate depletion rate from analytics
-    depletion_rate = calculate_depletion_rate(product_id)
+    depletion_rate = calculate_depletion_rate(product_id, user_id=owner)
 
     conn = get_db_connection()
     try:
-        # Get description from products table if not provided
+        # Get description from products table if not provided (products is global)
         if not description:
             cursor = conn.execute(
                 "SELECT description FROM products WHERE product_id = ?", (product_id,)
@@ -279,7 +299,9 @@ def restock_item(
 
         # Get category from product_statistics for expiration calculation
         cursor = conn.execute(
-            "SELECT detected_category FROM product_statistics WHERE product_id = ?", (product_id,)
+            "SELECT detected_category FROM product_statistics "
+            "WHERE product_id = ? AND user_id = ?",
+            (product_id, owner),
         )
         row = cursor.fetchone()
         category = row["detected_category"] if row else "regular"
@@ -289,7 +311,7 @@ def restock_item(
         expiration_date = calculate_expiration_date(purchase_date, category, description or "")
         days_to_exp = calculate_days_to_expiration(expiration_date)
 
-        # Ensure product exists in products table (required for foreign key)
+        # Ensure product exists in products table (products is global catalog)
         conn.execute(
             """
             INSERT INTO products (product_id, description, created_at, updated_at)
@@ -301,14 +323,14 @@ def restock_item(
             (product_id, description, now, now),
         )
 
-        # Upsert pantry item WITH expiration tracking
+        # Upsert pantry item WITH expiration tracking — UNIQUE is (user_id, product_id)
         conn.execute(
             """
             INSERT INTO pantry_items
-            (product_id, description, level_percent, last_restocked_at,
+            (user_id, product_id, description, level_percent, last_restocked_at,
              last_updated_at, daily_depletion_rate, expiration_date, days_to_expiration)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(product_id) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, product_id) DO UPDATE SET
                 level_percent = excluded.level_percent,
                 last_restocked_at = excluded.last_restocked_at,
                 last_updated_at = excluded.last_updated_at,
@@ -318,6 +340,7 @@ def restock_item(
                 description = COALESCE(excluded.description, description)
         """,
             (
+                owner,
                 product_id,
                 description,
                 level,
@@ -345,9 +368,11 @@ def restock_item(
         conn.close()
 
 
-def update_pantry_level(product_id: str, level: int) -> dict[str, Any]:
+def update_pantry_level(
+    product_id: str, level: int, user_id: str | None = None
+) -> dict[str, Any]:
     """
-    Manually set pantry level for an item.
+    Manually set pantry level for an item owned by `user_id`.
 
     When level is set to 0 (empty), records a depletion event that feeds
     back into consumption rate calculations for more accurate predictions.
@@ -355,11 +380,13 @@ def update_pantry_level(product_id: str, level: int) -> dict[str, Any]:
     Args:
         product_id: The product identifier
         level: Percentage level (0-100)
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with success status and updated info
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     level = max(0, min(100, level))  # Clamp to 0-100
     now = datetime.now()
@@ -368,8 +395,9 @@ def update_pantry_level(product_id: str, level: int) -> dict[str, Any]:
     conn = get_db_connection()
     try:
         cursor = conn.execute(
-            "SELECT id, last_restocked_at, level_percent FROM pantry_items WHERE product_id = ?",
-            (product_id,),
+            "SELECT id, last_restocked_at, level_percent FROM pantry_items "
+            "WHERE product_id = ? AND user_id = ?",
+            (product_id, owner),
         )
         row = cursor.fetchone()
         if not row:
@@ -381,19 +409,21 @@ def update_pantry_level(product_id: str, level: int) -> dict[str, Any]:
         previous_level = row["level_percent"]
         last_restocked = row["last_restocked_at"]
 
-        # Record depletion event when item marked as empty (level <= 5%)
-        # This feeds back into consumption rate calculations
+        # Record depletion event when item marked as empty (level <= 5%);
+        # feeds back into consumption rate calculations.
         depletion_recorded = False
         if level <= 5 and previous_level > 5 and last_restocked:
-            depletion_recorded = _record_depletion_event(product_id, last_restocked, now_str)
+            depletion_recorded = _record_depletion_event(
+                product_id, last_restocked, now_str, user_id=owner
+            )
 
         conn.execute(
             """
             UPDATE pantry_items
             SET level_percent = ?, last_updated_at = ?
-            WHERE product_id = ?
+            WHERE product_id = ? AND user_id = ?
         """,
-            (level, now_str, product_id),
+            (level, now_str, product_id, owner),
         )
         conn.commit()
 
@@ -413,7 +443,12 @@ def update_pantry_level(product_id: str, level: int) -> dict[str, Any]:
         conn.close()
 
 
-def _record_depletion_event(product_id: str, last_restocked_at: str, depleted_at: str) -> bool:
+def _record_depletion_event(
+    product_id: str,
+    last_restocked_at: str,
+    depleted_at: str,
+    user_id: str | None = None,
+) -> bool:
     """
     Record a pantry depletion event for consumption analytics.
 
@@ -424,10 +459,12 @@ def _record_depletion_event(product_id: str, last_restocked_at: str, depleted_at
         product_id: The product identifier
         last_restocked_at: When the item was last restocked
         depleted_at: When the item was marked as depleted
+        user_id: Owner of the depletion event and pantry row.
 
     Returns:
         True if event was recorded, False otherwise
     """
+    owner = _resolve_user_id(user_id)
     try:
         conn = get_db_connection()
         try:
@@ -435,10 +472,10 @@ def _record_depletion_event(product_id: str, last_restocked_at: str, depleted_at
             conn.execute(
                 """
                 INSERT INTO purchase_events
-                (product_id, quantity, event_type, event_date, event_timestamp)
-                VALUES (?, 1, 'pantry_depleted', ?, ?)
+                (product_id, quantity, event_type, event_date, event_timestamp, user_id)
+                VALUES (?, 1, 'pantry_depleted', ?, ?, ?)
             """,
-                (product_id, depleted_at[:10], depleted_at),  # Just the date part
+                (product_id, depleted_at[:10], depleted_at, owner),
             )
             conn.commit()
 
@@ -448,15 +485,15 @@ def _record_depletion_event(product_id: str, last_restocked_at: str, depleted_at
             update_product_stats(product_id)
 
             # Update depletion rate based on new stats
-            new_rate = calculate_depletion_rate(product_id)
+            new_rate = calculate_depletion_rate(product_id, user_id=owner)
             conn = get_db_connection()
             conn.execute(
                 """
                 UPDATE pantry_items
                 SET daily_depletion_rate = ?
-                WHERE product_id = ?
+                WHERE product_id = ? AND user_id = ?
             """,
-                (new_rate, product_id),
+                (new_rate, product_id, owner),
             )
             conn.commit()
 
@@ -473,9 +510,10 @@ def add_to_pantry(
     level: int = 100,
     low_threshold: int = 20,
     auto_deplete: bool = True,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Add an item to pantry tracking.
+    Add an item to `user_id`'s pantry tracking.
 
     Args:
         product_id: The product identifier
@@ -483,19 +521,21 @@ def add_to_pantry(
         level: Initial percentage level (0-100)
         low_threshold: Alert when level drops below this (default 20%)
         auto_deplete: Enable automatic depletion (default True)
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with success status
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     level = max(0, min(100, level))
     now = datetime.now().isoformat()
-    depletion_rate = calculate_depletion_rate(product_id) if auto_deplete else 0
+    depletion_rate = calculate_depletion_rate(product_id, user_id=owner) if auto_deplete else 0
 
     conn = get_db_connection()
     try:
-        # Get description from products table if not provided
+        # Get description from products table if not provided (products is global)
         if not description:
             cursor = conn.execute(
                 "SELECT description FROM products WHERE product_id = ?", (product_id,)
@@ -503,7 +543,7 @@ def add_to_pantry(
             row = cursor.fetchone()
             description = row["description"] if row else None
 
-        # Ensure product exists in products table (required for foreign key)
+        # Ensure product exists in products table (global catalog, required for FK)
         conn.execute(
             """
             INSERT INTO products (product_id, description, created_at, updated_at)
@@ -515,13 +555,15 @@ def add_to_pantry(
             (product_id, description, now, now),
         )
 
+        # UNIQUE is composite (user_id, product_id) — two users may each
+        # track the same product independently.
         conn.execute(
             """
             INSERT INTO pantry_items
-            (product_id, description, level_percent, last_restocked_at,
+            (user_id, product_id, description, level_percent, last_restocked_at,
              last_updated_at, auto_deplete, daily_depletion_rate, low_threshold)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(product_id) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, product_id) DO UPDATE SET
                 description = COALESCE(excluded.description, description),
                 level_percent = excluded.level_percent,
                 last_restocked_at = excluded.last_restocked_at,
@@ -531,6 +573,7 @@ def add_to_pantry(
                 auto_deplete = excluded.auto_deplete
         """,
             (
+                owner,
                 product_id,
                 description,
                 level,
@@ -555,21 +598,26 @@ def add_to_pantry(
         conn.close()
 
 
-def remove_from_pantry(product_id: str) -> dict[str, Any]:
+def remove_from_pantry(product_id: str, user_id: str | None = None) -> dict[str, Any]:
     """
-    Remove an item from pantry tracking.
+    Remove an item from `user_id`'s pantry tracking.
 
     Args:
         product_id: The product identifier
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with success status
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
-        cursor = conn.execute("DELETE FROM pantry_items WHERE product_id = ?", (product_id,))
+        cursor = conn.execute(
+            "DELETE FROM pantry_items WHERE product_id = ? AND user_id = ?",
+            (product_id, owner),
+        )
         conn.commit()
 
         if cursor.rowcount > 0:
@@ -580,9 +628,12 @@ def remove_from_pantry(product_id: str) -> dict[str, Any]:
         conn.close()
 
 
-def get_pantry_status(apply_depletion: bool = True) -> list[dict[str, Any]]:
+def get_pantry_status(
+    apply_depletion: bool = True, user_id: str | None = None
+) -> list[dict[str, Any]]:
     """
-    Get all pantry items with current estimated levels and expiration status.
+    Get all pantry items owned by `user_id` with current estimated levels
+    and expiration status.
 
     If apply_depletion is True, calculates current level based on
     time elapsed since last update and depletion rate.
@@ -593,11 +644,13 @@ def get_pantry_status(apply_depletion: bool = True) -> list[dict[str, Any]]:
 
     Args:
         apply_depletion: Whether to calculate current depleted level
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of pantry items with status info including expiration data
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -608,8 +661,10 @@ def get_pantry_status(apply_depletion: bool = True) -> list[dict[str, Any]]:
                    auto_deplete, daily_depletion_rate, low_threshold,
                    expiration_date, days_to_expiration
             FROM pantry_items
+            WHERE user_id = ?
             ORDER BY level_percent ASC
-        """
+        """,
+            (owner,),
         )
 
         items = []
@@ -676,17 +731,21 @@ def get_pantry_status(apply_depletion: bool = True) -> list[dict[str, Any]]:
         conn.close()
 
 
-def get_low_inventory_items(threshold: int | None = None) -> list[dict[str, Any]]:
+def get_low_inventory_items(
+    threshold: int | None = None, user_id: str | None = None
+) -> list[dict[str, Any]]:
     """
-    Get items below their low threshold.
+    Get items below their low threshold for `user_id`'s pantry.
 
     Args:
         threshold: Override threshold (use item's own threshold if None)
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of low inventory items
     """
-    items = get_pantry_status(apply_depletion=True)
+    owner = _resolve_user_id(user_id)
+    items = get_pantry_status(apply_depletion=True, user_id=owner)
 
     low_items = []
     for item in items:
@@ -697,17 +756,21 @@ def get_low_inventory_items(threshold: int | None = None) -> list[dict[str, Any]
     return low_items
 
 
-def apply_daily_depletion() -> dict[str, Any]:
+def apply_daily_depletion(user_id: str | None = None) -> dict[str, Any]:
     """
-    Apply depletion to all pantry items based on their rates.
+    Apply depletion to all pantry items owned by `user_id` based on their rates.
 
     This updates the stored level_percent values in the database.
     Can be called periodically or on-demand.
+
+    Args:
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Summary of updates applied
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -719,8 +782,9 @@ def apply_daily_depletion() -> dict[str, Any]:
             SELECT product_id, level_percent, last_updated_at,
                    daily_depletion_rate
             FROM pantry_items
-            WHERE auto_deplete = 1 AND daily_depletion_rate > 0
-        """
+            WHERE user_id = ? AND auto_deplete = 1 AND daily_depletion_rate > 0
+        """,
+            (owner,),
         )
 
         updated_count = 0
@@ -743,9 +807,9 @@ def apply_daily_depletion() -> dict[str, Any]:
                     """
                     UPDATE pantry_items
                     SET level_percent = ?, last_updated_at = ?
-                    WHERE product_id = ?
+                    WHERE product_id = ? AND user_id = ?
                 """,
-                    (round(new_level), now_str, row["product_id"]),
+                    (round(new_level), now_str, row["product_id"], owner),
                 )
                 updated_count += 1
             except (ValueError, TypeError):
@@ -758,17 +822,19 @@ def apply_daily_depletion() -> dict[str, Any]:
         conn.close()
 
 
-def get_pantry_item(product_id: str) -> dict[str, Any] | None:
+def get_pantry_item(product_id: str, user_id: str | None = None) -> dict[str, Any] | None:
     """
-    Get a single pantry item by product ID.
+    Get a single pantry item by product ID from `user_id`'s pantry.
 
     Args:
         product_id: The product identifier
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Pantry item info or None if not found
     """
-    items = get_pantry_status(apply_depletion=True)
+    owner = _resolve_user_id(user_id)
+    items = get_pantry_status(apply_depletion=True, user_id=owner)
     for item in items:
         if item["product_id"] == product_id:
             return item
@@ -783,9 +849,10 @@ def consume_from_pantry(
     source_type: str = "",
     source_id: str = "",
     source_description: str = "",
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Deduct from pantry inventory based on consumption.
+    Deduct from `user_id`'s pantry inventory based on consumption.
 
     Args:
         product_id: Product identifier
@@ -795,17 +862,20 @@ def consume_from_pantry(
         source_type: Type of consumption source (e.g., 'meal', 'recipe')
         source_id: ID of the source
         source_description: Human-readable description of source
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dictionary with success status and details
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
         cursor = conn.execute(
-            "SELECT level_percent, last_restocked_at, daily_depletion_rate FROM pantry_items WHERE product_id = ?",
-            (product_id,),
+            "SELECT level_percent, last_restocked_at, daily_depletion_rate "
+            "FROM pantry_items WHERE product_id = ? AND user_id = ?",
+            (product_id, owner),
         )
         row = cursor.fetchone()
         if not row:
@@ -818,8 +888,9 @@ def consume_from_pantry(
             deduction = percent
         else:
             cursor = conn.execute(
-                "SELECT avg_days_between_purchases FROM product_statistics WHERE product_id = ?",
-                (product_id,),
+                "SELECT avg_days_between_purchases FROM product_statistics "
+                "WHERE product_id = ? AND user_id = ?",
+                (product_id, owner),
             )
             stats_row = cursor.fetchone()
             avg_days = (stats_row["avg_days_between_purchases"] if stats_row else None) or 7
@@ -831,12 +902,13 @@ def consume_from_pantry(
 
         now_str = datetime.now().isoformat()
         conn.execute(
-            "UPDATE pantry_items SET level_percent = ?, last_updated_at = ? WHERE product_id = ?",
-            (new_level, now_str, product_id),
+            "UPDATE pantry_items SET level_percent = ?, last_updated_at = ? "
+            "WHERE product_id = ? AND user_id = ?",
+            (new_level, now_str, product_id, owner),
         )
 
         if new_level <= 5 and previous_level > 5 and last_restocked:
-            _record_depletion_event(product_id, last_restocked, now_str)
+            _record_depletion_event(product_id, last_restocked, now_str, user_id=owner)
 
         conn.commit()
 

@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.recipe_tools import _load_recipes
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -19,7 +20,7 @@ SLOTS = ["breakfast", "lunch", "dinner", "snack"]
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
-def _get_all_plans(include_templates: bool = False):
+def _get_all_plans(user_id: str, include_templates: bool = False):
     ensure_initialized()
     conn = get_db_connection()
     try:
@@ -29,8 +30,10 @@ def _get_all_plans(include_templates: bool = False):
                 SELECT id, name, description, start_date, end_date,
                        plan_type, is_template, times_ordered, last_ordered_at
                 FROM meal_plans
+                WHERE user_id = ?
                 ORDER BY is_template ASC, start_date DESC
-            """
+            """,
+                (user_id,),
             )
         else:
             cursor = conn.execute(
@@ -38,16 +41,17 @@ def _get_all_plans(include_templates: bool = False):
                 SELECT id, name, description, start_date, end_date,
                        plan_type, is_template, times_ordered, last_ordered_at
                 FROM meal_plans
-                WHERE is_template = 0
+                WHERE user_id = ? AND is_template = 0
                 ORDER BY start_date DESC
-            """
+            """,
+                (user_id,),
             )
         return [dict(r) for r in cursor.fetchall()]
     finally:
         conn.close()
 
 
-def _get_plan_entries(plan_id: str):
+def _get_plan_entries(plan_id: str, user_id: str):
     ensure_initialized()
     conn = get_db_connection()
     try:
@@ -55,10 +59,10 @@ def _get_plan_entries(plan_id: str):
             """
             SELECT recipe_id, meal_date, meal_slot, cooked_at
             FROM meal_entries
-            WHERE plan_id = ?
+            WHERE plan_id = ? AND user_id = ?
             ORDER BY meal_date, meal_slot
         """,
-            (plan_id,),
+            (plan_id, user_id),
         )
         return [dict(r) for r in cursor.fetchall()]
     finally:
@@ -113,8 +117,9 @@ def _build_calendar(plan, entries, recipe_map, week_offset: int = 0):
 
 @router.get("/meal-plan", response_class=HTMLResponse)
 async def meal_plan_page(request: Request, plan_id: str | None = None, week: int | None = None):
-    plans = _get_all_plans(include_templates=False)
-    all_plans_with_templates = _get_all_plans(include_templates=True)
+    user_id = current_user_id(request)
+    plans = _get_all_plans(user_id, include_templates=False)
+    all_plans_with_templates = _get_all_plans(user_id, include_templates=True)
     templates_list = [p for p in all_plans_with_templates if p.get("is_template")]
 
     # Select active plan
@@ -142,7 +147,7 @@ async def meal_plan_page(request: Request, plan_id: str | None = None, week: int
     week_offset = week if week is not None else 0
 
     if active_plan:
-        entries = _get_plan_entries(active_plan["id"])
+        entries = _get_plan_entries(active_plan["id"], user_id)
         total_meals = len(entries)
         unique_recipes = {e["recipe_id"] for e in entries}
         cooked_count = sum(1 for e in entries if e.get("cooked_at"))

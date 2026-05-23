@@ -14,9 +14,22 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
+from kroger_mcp.auth.dependencies import default_user_id
+
 from .database import ensure_initialized, get_db_connection, get_db_cursor
 from .pantry import get_pantry_status
 from .recipe_integration import match_ingredient_to_pantry
+
+
+def _resolve_user_id(user_id: str | None) -> str:
+    """Resolve user_id for user-scoped queries.
+
+    When a caller passes None (MCP tools, scripts, background jobs that have
+    no HTTP request context), fall back to the migration-installed owner via
+    `default_user_id()`. HTTP route handlers must always pass an explicit
+    user_id resolved from the session.
+    """
+    return user_id if user_id is not None else default_user_id()
 
 VALID_MEAL_SLOTS = {"breakfast", "lunch", "dinner", "snack"}
 VALID_PLAN_TYPES = {"weekly", "monthly", "custom"}
@@ -98,9 +111,10 @@ def create_meal_plan(
     plan_type: str = "weekly",
     description: str | None = None,
     is_template: bool = False,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Create a new meal plan.
+    Create a new meal plan owned by `user_id`.
 
     Args:
         name: Plan name (e.g., "Week of Jan 27")
@@ -109,11 +123,13 @@ def create_meal_plan(
         plan_type: 'weekly', 'monthly', or 'custom'
         description: Optional description
         is_template: Whether this is a reusable template
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Created plan info with plan_id
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     if plan_type not in VALID_PLAN_TYPES:
         return {"success": False, "error": f"Invalid plan_type. Must be one of: {VALID_PLAN_TYPES}"}
@@ -151,8 +167,8 @@ def create_meal_plan(
             """
             INSERT INTO meal_plans
             (id, name, description, start_date, end_date, plan_type,
-             is_template, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             is_template, created_at, updated_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 plan_id,
@@ -164,6 +180,7 @@ def create_meal_plan(
                 int(is_template),
                 now,
                 now,
+                owner,
             ),
         )
 
@@ -181,27 +198,32 @@ def create_meal_plan(
 
 
 def get_meal_plans(
-    include_past: bool = False, include_templates: bool = False, limit: int = 20
+    include_past: bool = False,
+    include_templates: bool = False,
+    limit: int = 20,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    List meal plans with summary info.
+    List meal plans owned by `user_id` with summary info.
 
     Args:
         include_past: Include plans with end_date before today
         include_templates: Include template plans
         limit: Maximum number of plans to return
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of plan summaries
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
         today = _format_date(datetime.now())
 
-        query = "SELECT * FROM meal_plans WHERE 1=1"
-        params: list[Any] = []
+        query = "SELECT * FROM meal_plans WHERE user_id = ?"
+        params: list[Any] = [owner]
 
         if not include_past:
             query += " AND end_date >= ?"
@@ -216,20 +238,25 @@ def get_meal_plans(
         cursor = conn.execute(query, params)
         plans = [dict(row) for row in cursor.fetchall()]
 
-        # Get meal counts for each plan
+        # Get meal counts for each plan (entries scoped to owner via the plan FK + WHERE)
         for plan in plans:
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM meal_entries WHERE plan_id = ?", (plan["id"],)
+                "SELECT COUNT(*) FROM meal_entries WHERE plan_id = ? AND user_id = ?",
+                (plan["id"], owner),
             )
             plan["meal_count"] = cursor.fetchone()[0]
             plan["is_template"] = bool(plan.get("is_template"))
 
-        # Count templates and upcoming
-        cursor = conn.execute("SELECT COUNT(*) FROM meal_plans WHERE is_template = 1")
+        # Count templates and upcoming for this user
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM meal_plans WHERE user_id = ? AND is_template = 1", (owner,)
+        )
         template_count = cursor.fetchone()[0]
 
         cursor = conn.execute(
-            "SELECT COUNT(*) FROM meal_plans WHERE end_date >= ? AND is_template = 0", (today,)
+            "SELECT COUNT(*) FROM meal_plans "
+            "WHERE user_id = ? AND end_date >= ? AND is_template = 0",
+            (owner, today),
         )
         upcoming_count = cursor.fetchone()[0]
 
@@ -244,23 +271,31 @@ def get_meal_plans(
         conn.close()
 
 
-def get_meal_plan(plan_id: str, include_recipe_details: bool = True) -> dict[str, Any]:
+def get_meal_plan(
+    plan_id: str,
+    include_recipe_details: bool = True,
+    user_id: str | None = None,
+) -> dict[str, Any]:
     """
-    Get full details of a meal plan including all meal entries.
+    Get full details of a meal plan owned by `user_id`, including all meal entries.
 
     Args:
         plan_id: Plan identifier
         include_recipe_details: Whether to fetch full recipe info
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Plan with meals_by_date and recipe_summary
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
         # Get plan
-        cursor = conn.execute("SELECT * FROM meal_plans WHERE id = ?", (plan_id,))
+        cursor = conn.execute(
+            "SELECT * FROM meal_plans WHERE id = ? AND user_id = ?", (plan_id, owner)
+        )
         row = cursor.fetchone()
         if not row:
             return {"success": False, "error": f"Meal plan '{plan_id}' not found"}
@@ -272,10 +307,10 @@ def get_meal_plan(plan_id: str, include_recipe_details: bool = True) -> dict[str
         cursor = conn.execute(
             """
             SELECT * FROM meal_entries
-            WHERE plan_id = ?
+            WHERE plan_id = ? AND user_id = ?
             ORDER BY meal_date, meal_slot
         """,
-            (plan_id,),
+            (plan_id, owner),
         )
         entries = [dict(r) for r in cursor.fetchall()]
 
@@ -340,9 +375,10 @@ def update_meal_plan(
     description: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Update meal plan metadata.
+    Update meal plan metadata, only if `user_id` owns the plan.
 
     Args:
         plan_id: Plan identifier
@@ -350,16 +386,20 @@ def update_meal_plan(
         description: New description (optional)
         start_date: New start date (optional)
         end_date: New end date (optional)
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Updated plan info
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
-        # Check plan exists
-        cursor = conn.execute("SELECT * FROM meal_plans WHERE id = ?", (plan_id,))
+        # Check plan exists and is owned by this user
+        cursor = conn.execute(
+            "SELECT * FROM meal_plans WHERE id = ? AND user_id = ?", (plan_id, owner)
+        )
         if not cursor.fetchone():
             return {"success": False, "error": f"Meal plan '{plan_id}' not found"}
 
@@ -393,8 +433,12 @@ def update_meal_plan(
         updates.append("updated_at = ?")
         params.append(datetime.now().isoformat())
         params.append(plan_id)
+        params.append(owner)
 
-        conn.execute(f"UPDATE meal_plans SET {', '.join(updates)} WHERE id = ?", params)
+        conn.execute(
+            f"UPDATE meal_plans SET {', '.join(updates)} WHERE id = ? AND user_id = ?",
+            params,
+        )
         conn.commit()
 
         return {
@@ -407,22 +451,26 @@ def update_meal_plan(
         conn.close()
 
 
-def delete_meal_plan(plan_id: str) -> dict[str, Any]:
+def delete_meal_plan(plan_id: str, user_id: str | None = None) -> dict[str, Any]:
     """
-    Delete a meal plan and all its meal entries.
+    Delete a meal plan and all its meal entries, only if `user_id` owns the plan.
 
     Args:
         plan_id: Plan identifier
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Confirmation of deletion
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
-        # Check plan exists
-        cursor = conn.execute("SELECT name FROM meal_plans WHERE id = ?", (plan_id,))
+        # Check plan exists and is owned by this user
+        cursor = conn.execute(
+            "SELECT name FROM meal_plans WHERE id = ? AND user_id = ?", (plan_id, owner)
+        )
         row = cursor.fetchone()
         if not row:
             return {"success": False, "error": f"Meal plan '{plan_id}' not found"}
@@ -430,11 +478,16 @@ def delete_meal_plan(plan_id: str) -> dict[str, Any]:
         plan_name = row[0]
 
         # Get meal count before delete
-        cursor = conn.execute("SELECT COUNT(*) FROM meal_entries WHERE plan_id = ?", (plan_id,))
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM meal_entries WHERE plan_id = ? AND user_id = ?",
+            (plan_id, owner),
+        )
         meal_count = cursor.fetchone()[0]
 
-        # Delete (CASCADE will remove meal_entries)
-        conn.execute("DELETE FROM meal_plans WHERE id = ?", (plan_id,))
+        # Delete (CASCADE removes meal_entries via plan_id FK)
+        conn.execute(
+            "DELETE FROM meal_plans WHERE id = ? AND user_id = ?", (plan_id, owner)
+        )
         conn.commit()
 
         return {
@@ -446,9 +499,14 @@ def delete_meal_plan(plan_id: str) -> dict[str, Any]:
         conn.close()
 
 
-def copy_meal_plan(source_plan_id: str, new_name: str, new_start_date: str) -> dict[str, Any]:
+def copy_meal_plan(
+    source_plan_id: str,
+    new_name: str,
+    new_start_date: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
     """
-    Copy a meal plan to a new date range.
+    Copy a meal plan to a new date range, only if `user_id` owns the source plan.
 
     All meals are shifted to the new date range maintaining their
     relative positions (day offset and meal slot).
@@ -457,14 +515,16 @@ def copy_meal_plan(source_plan_id: str, new_name: str, new_start_date: str) -> d
         source_plan_id: Plan to copy from
         new_name: Name for the new plan
         new_start_date: Start date for the new plan YYYY-MM-DD
+        user_id: Owner of source and destination plans.
 
     Returns:
         New plan info
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
-    # Get source plan
-    source = get_meal_plan(source_plan_id, include_recipe_details=False)
+    # Get source plan (scoped to owner)
+    source = get_meal_plan(source_plan_id, include_recipe_details=False, user_id=owner)
     if not source.get("success"):
         return source
 
@@ -481,7 +541,7 @@ def copy_meal_plan(source_plan_id: str, new_name: str, new_start_date: str) -> d
     new_end_dt = new_start_dt + timedelta(days=duration)
     new_end_date = _format_date(new_end_dt)
 
-    # Create new plan
+    # Create new plan owned by the same user
     result = create_meal_plan(
         name=new_name,
         start_date=new_start_date,
@@ -489,6 +549,7 @@ def copy_meal_plan(source_plan_id: str, new_name: str, new_start_date: str) -> d
         plan_type=plan["plan_type"],
         description=plan.get("description"),
         is_template=False,
+        user_id=owner,
     )
 
     if not result.get("success"):
@@ -499,7 +560,10 @@ def copy_meal_plan(source_plan_id: str, new_name: str, new_start_date: str) -> d
     # Copy meal entries with date offset
     conn = get_db_connection()
     try:
-        cursor = conn.execute("SELECT * FROM meal_entries WHERE plan_id = ?", (source_plan_id,))
+        cursor = conn.execute(
+            "SELECT * FROM meal_entries WHERE plan_id = ? AND user_id = ?",
+            (source_plan_id, owner),
+        )
         entries = [dict(r) for r in cursor.fetchall()]
 
         copied = 0
@@ -512,8 +576,8 @@ def copy_meal_plan(source_plan_id: str, new_name: str, new_start_date: str) -> d
                 """
                 INSERT INTO meal_entries
                 (plan_id, recipe_id, meal_date, meal_slot,
-                 servings_override, notes, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                 servings_override, notes, created_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     new_plan_id,
@@ -523,6 +587,7 @@ def copy_meal_plan(source_plan_id: str, new_name: str, new_start_date: str) -> d
                     entry.get("servings_override"),
                     entry.get("notes"),
                     datetime.now().isoformat(),
+                    owner,
                 ),
             )
             copied += 1
@@ -546,9 +611,11 @@ def assign_meal(
     meal_slot: str,
     servings_override: int | None = None,
     notes: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Assign a recipe to a specific day and meal slot.
+    Assign a recipe to a specific day and meal slot, only if `user_id`
+    owns the target plan.
 
     Replaces any existing recipe in that slot.
 
@@ -563,11 +630,13 @@ def assign_meal(
         meal_slot: 'breakfast', 'lunch', 'dinner', or 'snack'
         servings_override: Override servings (None = use household default)
         notes: Optional notes
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Confirmation of assignment with servings information
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     if meal_slot not in VALID_MEAL_SLOTS:
         return {"success": False, "error": f"Invalid meal_slot. Must be one of: {VALID_MEAL_SLOTS}"}
@@ -590,9 +659,10 @@ def assign_meal(
 
     conn = get_db_connection()
     try:
-        # Verify plan exists and date is in range
+        # Verify plan exists, owned by this user, and date is in range
         cursor = conn.execute(
-            "SELECT start_date, end_date FROM meal_plans WHERE id = ?", (plan_id,)
+            "SELECT start_date, end_date FROM meal_plans WHERE id = ? AND user_id = ?",
+            (plan_id, owner),
         )
         row = cursor.fetchone()
         if not row:
@@ -604,18 +674,18 @@ def assign_meal(
         if not (start_dt <= meal_dt <= end_dt):
             return {"success": False, "error": f"meal_date must be between {row[0]} and {row[1]}"}
 
-        # Verify recipe exists
+        # Verify recipe exists (recipes are JSON-stored; scoping handled there)
         recipe = get_recipe(recipe_id)
         if not recipe:
             return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
 
-        # Insert or replace (UNIQUE constraint handles this)
+        # Insert or replace (UNIQUE(plan_id, meal_date, meal_slot) handles this)
         conn.execute(
             """
             INSERT OR REPLACE INTO meal_entries
             (plan_id, recipe_id, meal_date, meal_slot,
-             servings_override, notes, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+             servings_override, notes, created_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 plan_id,
@@ -625,6 +695,7 @@ def assign_meal(
                 servings_override,
                 notes,
                 datetime.now().isoformat(),
+                owner,
             ),
         )
         conn.commit()
@@ -646,19 +717,23 @@ def assign_meal(
         conn.close()
 
 
-def remove_meal(plan_id: str, meal_date: str, meal_slot: str) -> dict[str, Any]:
+def remove_meal(
+    plan_id: str, meal_date: str, meal_slot: str, user_id: str | None = None
+) -> dict[str, Any]:
     """
-    Remove a recipe from a meal slot.
+    Remove a recipe from a meal slot, only if `user_id` owns the plan.
 
     Args:
         plan_id: Plan identifier
         meal_date: Date YYYY-MM-DD
         meal_slot: 'breakfast', 'lunch', 'dinner', or 'snack'
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Confirmation of removal
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     if meal_slot not in VALID_MEAL_SLOTS:
         return {"success": False, "error": f"Invalid meal_slot. Must be one of: {VALID_MEAL_SLOTS}"}
@@ -668,9 +743,9 @@ def remove_meal(plan_id: str, meal_date: str, meal_slot: str) -> dict[str, Any]:
         cursor = conn.execute(
             """
             DELETE FROM meal_entries
-            WHERE plan_id = ? AND meal_date = ? AND meal_slot = ?
+            WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? AND user_id = ?
         """,
-            (plan_id, meal_date, meal_slot),
+            (plan_id, meal_date, meal_slot, owner),
         )
         conn.commit()
 
@@ -682,19 +757,28 @@ def remove_meal(plan_id: str, meal_date: str, meal_slot: str) -> dict[str, Any]:
         conn.close()
 
 
-def swap_meals(plan_id: str, date1: str, slot1: str, date2: str, slot2: str) -> dict[str, Any]:
+def swap_meals(
+    plan_id: str,
+    date1: str,
+    slot1: str,
+    date2: str,
+    slot2: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
     """
-    Swap two meal assignments within the same plan.
+    Swap two meal assignments within the same plan, only if `user_id` owns it.
 
     Args:
         plan_id: Plan identifier
         date1, slot1: First meal
         date2, slot2: Second meal
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Confirmation of swap
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     for slot in [slot1, slot2]:
         if slot not in VALID_MEAL_SLOTS:
@@ -705,16 +789,16 @@ def swap_meals(plan_id: str, date1: str, slot1: str, date2: str, slot2: str) -> 
 
     conn = get_db_connection()
     try:
-        # Get both entries
+        # Get both entries (owner-scoped so we never read other users' rows)
         cursor = conn.execute(
             """
             SELECT meal_date, meal_slot, recipe_id, servings_override, notes
             FROM meal_entries
-            WHERE plan_id = ? AND
+            WHERE plan_id = ? AND user_id = ? AND
                   ((meal_date = ? AND meal_slot = ?) OR
                    (meal_date = ? AND meal_slot = ?))
         """,
-            (plan_id, date1, slot1, date2, slot2),
+            (plan_id, owner, date1, slot1, date2, slot2),
         )
 
         entries = {(r[0], r[1]): r for r in cursor.fetchall()}
@@ -725,16 +809,15 @@ def swap_meals(plan_id: str, date1: str, slot1: str, date2: str, slot2: str) -> 
         if not entry1 and not entry2:
             return {"success": False, "error": "Neither meal slot has an assignment"}
 
-        # Perform swap
-        # Delete both
+        # Delete both (owner-scoped)
         conn.execute(
             """
             DELETE FROM meal_entries
-            WHERE plan_id = ? AND
+            WHERE plan_id = ? AND user_id = ? AND
                   ((meal_date = ? AND meal_slot = ?) OR
                    (meal_date = ? AND meal_slot = ?))
         """,
-            (plan_id, date1, slot1, date2, slot2),
+            (plan_id, owner, date1, slot1, date2, slot2),
         )
 
         # Re-insert swapped
@@ -745,10 +828,10 @@ def swap_meals(plan_id: str, date1: str, slot1: str, date2: str, slot2: str) -> 
                 """
                 INSERT INTO meal_entries
                 (plan_id, recipe_id, meal_date, meal_slot,
-                 servings_override, notes, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                 servings_override, notes, created_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (plan_id, entry1[2], date2, slot2, entry1[3], entry1[4], now),
+                (plan_id, entry1[2], date2, slot2, entry1[3], entry1[4], now, owner),
             )
 
         if entry2:
@@ -756,10 +839,10 @@ def swap_meals(plan_id: str, date1: str, slot1: str, date2: str, slot2: str) -> 
                 """
                 INSERT INTO meal_entries
                 (plan_id, recipe_id, meal_date, meal_slot,
-                 servings_override, notes, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                 servings_override, notes, created_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (plan_id, entry2[2], date1, slot1, entry2[3], entry2[4], now),
+                (plan_id, entry2[2], date1, slot1, entry2[3], entry2[4], now, owner),
             )
 
         conn.commit()
@@ -769,19 +852,23 @@ def swap_meals(plan_id: str, date1: str, slot1: str, date2: str, slot2: str) -> 
         conn.close()
 
 
-def bulk_assign_meals(plan_id: str, assignments: list[dict[str, Any]]) -> dict[str, Any]:
+def bulk_assign_meals(
+    plan_id: str, assignments: list[dict[str, Any]], user_id: str | None = None
+) -> dict[str, Any]:
     """
-    Assign multiple meals at once.
+    Assign multiple meals at once, only if `user_id` owns the plan.
 
     Args:
         plan_id: Plan identifier
         assignments: List of dicts with recipe_id, meal_date, meal_slot,
                     and optional servings_override
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Summary of assignments
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     if not assignments:
         return {"success": False, "error": "No assignments provided"}
@@ -796,6 +883,7 @@ def bulk_assign_meals(plan_id: str, assignments: list[dict[str, Any]]) -> dict[s
             meal_slot=assignment.get("meal_slot", ""),
             servings_override=assignment.get("servings_override"),
             notes=assignment.get("notes"),
+            user_id=owner,
         )
 
         if result.get("success"):
@@ -815,20 +903,25 @@ def bulk_assign_meals(plan_id: str, assignments: list[dict[str, Any]]) -> dict[s
 
 
 def get_meal_entries_for_dates(
-    plan_id: str | None = None, start_date: str | None = None, end_date: str | None = None
+    plan_id: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Get meal entries for a date range (optionally filtered by plan).
+    Get meal entries for `user_id` in a date range (optionally filtered by plan).
 
     Args:
         plan_id: Optional plan to filter by
         start_date: Start of date range YYYY-MM-DD
         end_date: End of date range YYYY-MM-DD
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of meal entries with recipe info
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -836,9 +929,9 @@ def get_meal_entries_for_dates(
             SELECT me.*, mp.name as plan_name
             FROM meal_entries me
             JOIN meal_plans mp ON me.plan_id = mp.id
-            WHERE 1=1
+            WHERE me.user_id = ?
         """
-        params: list[Any] = []
+        params: list[Any] = [owner]
 
         if plan_id:
             query += " AND me.plan_id = ?"
@@ -868,9 +961,10 @@ def generate_meal_plan_shopping_list(
     pantry_threshold: int = 30,
     combine_duplicates: bool = True,
     skip_items: list[str] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Generate shopping list for meal plan(s).
+    Generate shopping list for `user_id`'s meal plan(s).
 
     Can specify meals by:
     - plan_id: All meals in a specific plan
@@ -885,11 +979,13 @@ def generate_meal_plan_shopping_list(
         pantry_threshold: Skip items above this pantry level
         combine_duplicates: Merge same ingredients
         skip_items: Ingredient names to skip
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Shopping list with items categorized by action
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     skip_items = skip_items or []
 
@@ -898,8 +994,8 @@ def generate_meal_plan_shopping_list(
         start_date = _format_date(datetime.now())
         end_date = _format_date(datetime.now() + timedelta(days=days_ahead - 1))
     elif plan_id and not start_date:
-        # Get dates from plan
-        plan_result = get_meal_plan(plan_id, include_recipe_details=False)
+        # Get dates from plan (owner-scoped)
+        plan_result = get_meal_plan(plan_id, include_recipe_details=False, user_id=owner)
         if not plan_result.get("success"):
             return plan_result
         start_date = plan_result["plan"]["start_date"]
@@ -908,8 +1004,8 @@ def generate_meal_plan_shopping_list(
     if not start_date or not end_date:
         return {"success": False, "error": "Must specify plan_id, date range, or days_ahead"}
 
-    # Get meal entries
-    entries = get_meal_entries_for_dates(plan_id, start_date, end_date)
+    # Get meal entries (owner-scoped)
+    entries = get_meal_entries_for_dates(plan_id, start_date, end_date, user_id=owner)
 
     if not entries:
         return {
@@ -921,10 +1017,10 @@ def generate_meal_plan_shopping_list(
             "summary": {"items_to_add": 0, "items_to_skip": 0, "items_unknown": 0},
         }
 
-    # Get pantry context
+    # Get pantry context (owner's pantry only)
     pantry_context: dict[str, dict[str, Any]] = {}
     try:
-        pantry_items = get_pantry_status(apply_depletion=True)
+        pantry_items = get_pantry_status(apply_depletion=True, user_id=owner)
         for item in pantry_items:
             pantry_context[item["product_id"]] = {
                 "level_percent": item.get("level_percent", 0),
@@ -1104,9 +1200,11 @@ def mark_meal_cooked(
     meal_date: str,
     meal_slot: str,
     deduct_pantry: bool = True,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Mark a meal entry as cooked and optionally deduct ingredients from pantry.
+    Only operates on rows owned by `user_id`.
 
     When deduct_pantry=True, each recipe ingredient is subtracted from the
     pantry using the actual quantity and unit specified in the recipe,
@@ -1117,23 +1215,26 @@ def mark_meal_cooked(
         meal_date: Date YYYY-MM-DD
         meal_slot: 'breakfast', 'lunch', 'dinner', or 'snack'
         deduct_pantry: Whether to deduct ingredient quantities from pantry
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with cooking confirmation and pantry deduction summary
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
-        # Get the meal entry
+        # Get the meal entry (owner-scoped)
         cursor = conn.execute(
             """
             SELECT me.id, me.recipe_id, me.servings_override,
                    me.cooked_at, me.pantry_deducted
             FROM meal_entries me
             WHERE me.plan_id = ? AND me.meal_date = ? AND me.meal_slot = ?
+              AND me.user_id = ?
         """,
-            (plan_id, meal_date, meal_slot),
+            (plan_id, meal_date, meal_slot, owner),
         )
         entry = cursor.fetchone()
 
@@ -1156,14 +1257,14 @@ def mark_meal_cooked(
 
         now = datetime.now().isoformat()
 
-        # Mark as cooked
+        # Mark as cooked (owner-scoped guard on update)
         conn.execute(
             """
             UPDATE meal_entries
             SET cooked_at = ?
-            WHERE id = ?
+            WHERE id = ? AND user_id = ?
         """,
-            (now, entry_id),
+            (now, entry_id, owner),
         )
         conn.commit()
 
@@ -1216,6 +1317,7 @@ def mark_meal_cooked(
                         source_type="meal_plan",
                         source_id=str(entry_id),
                         source_description=(f"{recipe_name} — {meal_slot} on {meal_date}"),
+                        user_id=owner,
                     )
                     if result.get("success"):
                         deduction_summary.append(
@@ -1247,9 +1349,10 @@ def mark_meal_cooked(
                 # Mark pantry as deducted even if some items had no pantry entry
                 conn.execute(
                     """
-                    UPDATE meal_entries SET pantry_deducted = 1 WHERE id = ?
+                    UPDATE meal_entries SET pantry_deducted = 1
+                    WHERE id = ? AND user_id = ?
                 """,
-                    (entry_id,),
+                    (entry_id, owner),
                 )
                 conn.commit()
 
@@ -1288,9 +1391,10 @@ def check_meal_pantry_availability(
     plan_id: str,
     meal_date: str,
     meal_slot: str,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Check if pantry has enough for a specific planned meal.
+    Check if `user_id`'s pantry has enough for a specific planned meal.
 
     Returns per-ingredient availability with quantity comparisons
     so users know exactly what they're short on before cooking.
@@ -1299,11 +1403,13 @@ def check_meal_pantry_availability(
         plan_id: Plan identifier
         meal_date: Date YYYY-MM-DD
         meal_slot: Meal slot name
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with per-ingredient availability and a ready_to_cook flag
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -1312,8 +1418,9 @@ def check_meal_pantry_availability(
             SELECT recipe_id, servings_override
             FROM meal_entries
             WHERE plan_id = ? AND meal_date = ? AND meal_slot = ?
+              AND user_id = ?
         """,
-            (plan_id, meal_date, meal_slot),
+            (plan_id, meal_date, meal_slot, owner),
         )
         entry = cursor.fetchone()
 
@@ -1403,17 +1510,21 @@ def check_meal_pantry_availability(
 # ============== Utility Functions ==============
 
 
-def get_week_view(start_date: str | None = None) -> dict[str, Any]:
+def get_week_view(
+    start_date: str | None = None, user_id: str | None = None
+) -> dict[str, Any]:
     """
-    Get a calendar-style view of meals for a week.
+    Get a calendar-style view of `user_id`'s meals for a week.
 
     Args:
         start_date: Monday of the week (defaults to current week)
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Week view with meals for each day
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     if start_date:
         try:
@@ -1428,9 +1539,11 @@ def get_week_view(start_date: str | None = None) -> dict[str, Any]:
 
     week_end = week_start + timedelta(days=6)
 
-    # Get all entries for this week
+    # Get all entries for this week (owner-scoped)
     entries = get_meal_entries_for_dates(
-        start_date=_format_date(week_start), end_date=_format_date(week_end)
+        start_date=_format_date(week_start),
+        end_date=_format_date(week_end),
+        user_id=owner,
     )
 
     # Organize by date
@@ -1481,19 +1594,23 @@ def get_week_view(start_date: str | None = None) -> dict[str, Any]:
     }
 
 
-def get_meal_plan_summary(plan_id: str) -> dict[str, Any]:
+def get_meal_plan_summary(
+    plan_id: str, user_id: str | None = None
+) -> dict[str, Any]:
     """
-    Get summary statistics for a meal plan.
+    Get summary statistics for a meal plan owned by `user_id`.
 
     Args:
         plan_id: Plan identifier
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Summary with meal counts, recipe stats, and pantry readiness
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
-    plan_result = get_meal_plan(plan_id, include_recipe_details=True)
+    plan_result = get_meal_plan(plan_id, include_recipe_details=True, user_id=owner)
     if not plan_result.get("success"):
         return plan_result
 
@@ -1514,8 +1631,8 @@ def get_meal_plan_summary(plan_id: str) -> dict[str, Any]:
     max_meals = days_count * 4  # 4 slots per day
     coverage = plan_result["meal_count"] / max_meals if max_meals > 0 else 0
 
-    # Check pantry readiness
-    shopping = generate_meal_plan_shopping_list(plan_id=plan_id)
+    # Check pantry readiness (owner-scoped)
+    shopping = generate_meal_plan_shopping_list(plan_id=plan_id, user_id=owner)
 
     return {
         "success": True,
@@ -1562,27 +1679,31 @@ def _entry_to_meal_dict(row: Any, plan_name: str) -> dict[str, Any]:
     }
 
 
-def _load_plan_names(conn: Any, plan_ids: set) -> dict[str, str]:
-    """Fetch plan names for a set of plan_ids in one query."""
+def _load_plan_names(conn: Any, plan_ids: set, user_id: str) -> dict[str, str]:
+    """Fetch plan names for a set of plan_ids owned by `user_id` in one query."""
     if not plan_ids:
         return {}
     placeholders = ",".join("?" * len(plan_ids))
     rows = conn.execute(
-        f"SELECT id, name FROM meal_plans WHERE id IN ({placeholders})",
-        list(plan_ids),
+        f"SELECT id, name FROM meal_plans WHERE id IN ({placeholders}) AND user_id = ?",
+        [*plan_ids, user_id],
     ).fetchall()
     return {r["id"]: r["name"] for r in rows}
 
 
-def get_today_meals() -> dict[str, Any]:
+def get_today_meals(user_id: str | None = None) -> dict[str, Any]:
     """
-    Return today's planned meals grouped by slot.
+    Return today's planned meals for `user_id`, grouped by slot.
+
+    Args:
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         {success, date, meals: {breakfast, lunch, dinner, snack}, meal_count}
         Each slot value is None (not planned) or a meal dict.
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
     conn = get_db_connection()
     try:
         today = datetime.now().strftime("%Y-%m-%d")
@@ -1591,13 +1712,13 @@ def get_today_meals() -> dict[str, Any]:
             SELECT me.id, me.plan_id, me.meal_slot, me.meal_date,
                    me.cooked_at, me.notes, me.servings_override, me.recipe_id
             FROM meal_entries me
-            WHERE me.meal_date = ?
+            WHERE me.meal_date = ? AND me.user_id = ?
             ORDER BY {_SLOT_ORDER_SQL}
             """,
-            (today,),
+            (today, owner),
         ).fetchall()
 
-        plan_names = _load_plan_names(conn, {r["plan_id"] for r in rows})
+        plan_names = _load_plan_names(conn, {r["plan_id"] for r in rows}, owner)
 
         meals: dict[str, Any] = {
             "breakfast": None,
@@ -1622,14 +1743,18 @@ def get_today_meals() -> dict[str, Any]:
         conn.close()
 
 
-def get_next_meal() -> dict[str, Any]:
+def get_next_meal(user_id: str | None = None) -> dict[str, Any]:
     """
-    Return the next upcoming (uncompleted) meal from now.
+    Return the next upcoming (uncompleted) meal for `user_id` from now.
+
+    Args:
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         {success, meal: {...}} or {success, message} when nothing is planned.
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
     conn = get_db_connection()
     try:
         today = datetime.now().strftime("%Y-%m-%d")
@@ -1638,11 +1763,11 @@ def get_next_meal() -> dict[str, Any]:
             SELECT me.id, me.plan_id, me.meal_slot, me.meal_date,
                    me.cooked_at, me.notes, me.servings_override, me.recipe_id
             FROM meal_entries me
-            WHERE me.meal_date >= ?
+            WHERE me.meal_date >= ? AND me.user_id = ?
             ORDER BY me.meal_date ASC, {_SLOT_ORDER_SQL}
             LIMIT 1
             """,
-            (today,),
+            (today, owner),
         ).fetchone()
 
         if not row:
@@ -1652,7 +1777,7 @@ def get_next_meal() -> dict[str, Any]:
                 "message": "No upcoming meals planned.",
             }
 
-        plan_names = _load_plan_names(conn, {row["plan_id"]})
+        plan_names = _load_plan_names(conn, {row["plan_id"]}, owner)
         meal = _entry_to_meal_dict(row, plan_names.get(row["plan_id"], row["plan_id"]))
         meal["meal_date"] = row["meal_date"]
         meal["meal_slot"] = row["meal_slot"]
@@ -1665,19 +1790,23 @@ def get_next_meal() -> dict[str, Any]:
         conn.close()
 
 
-def get_upcoming_meals(days: int = 7, from_date: str | None = None) -> dict[str, Any]:
+def get_upcoming_meals(
+    days: int = 7, from_date: str | None = None, user_id: str | None = None
+) -> dict[str, Any]:
     """
-    Return planned meals for the next N days starting from from_date (default today).
+    Return `user_id`'s planned meals for the next N days from from_date (default today).
 
     Args:
         days: Number of days to look ahead (1–90)
         from_date: Start date YYYY-MM-DD (default today)
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         {success, from_date, to_date, days, day_list: [...], total_meals}
         Each day_list entry: {date, day_of_week, meals: {slot: meal|None}, meal_count}
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
     days = max(1, min(90, days))
     conn = get_db_connection()
     try:
@@ -1691,13 +1820,13 @@ def get_upcoming_meals(days: int = 7, from_date: str | None = None) -> dict[str,
             SELECT me.meal_date, me.meal_slot, me.cooked_at,
                    me.notes, me.servings_override, me.recipe_id, me.plan_id
             FROM meal_entries me
-            WHERE me.meal_date BETWEEN ? AND ?
+            WHERE me.meal_date BETWEEN ? AND ? AND me.user_id = ?
             ORDER BY me.meal_date ASC, {_SLOT_ORDER_SQL}
             """,
-            (start, end),
+            (start, end, owner),
         ).fetchall()
 
-        plan_names = _load_plan_names(conn, {r["plan_id"] for r in rows})
+        plan_names = _load_plan_names(conn, {r["plan_id"] for r in rows}, owner)
 
         # Index by date → slot
         by_date: dict[str, dict[str, Any]] = {}
@@ -1749,14 +1878,16 @@ def get_meal_history(
     days: int = 30,
     start_date: str | None = None,
     end_date: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Return past meal entries grouped by date (most recent first).
+    Return past meal entries for `user_id`, grouped by date (most recent first).
 
     Args:
         days: Look-back window in days (used when start_date not given)
         start_date: Explicit start YYYY-MM-DD (overrides days)
         end_date: Explicit end YYYY-MM-DD (defaults to yesterday)
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         {success, from_date, to_date, day_list: [...], total_meals, cooked_count}
@@ -1764,6 +1895,7 @@ def get_meal_history(
         Each meal entry includes was_cooked, cooked_at, cooked_label.
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
     conn = get_db_connection()
     try:
         today = datetime.now().strftime("%Y-%m-%d")
@@ -1783,12 +1915,13 @@ def get_meal_history(
             FROM meal_entries me
             WHERE me.meal_date < ?
               AND me.meal_date BETWEEN ? AND ?
+              AND me.user_id = ?
             ORDER BY me.meal_date DESC, {_SLOT_ORDER_SQL}
             """,
-            (today, start_date, end_date),
+            (today, start_date, end_date, owner),
         ).fetchall()
 
-        plan_names = _load_plan_names(conn, {r["plan_id"] for r in rows})
+        plan_names = _load_plan_names(conn, {r["plan_id"] for r in rows}, owner)
 
         # Group by date
         by_date: dict[str, list] = {}
@@ -1830,19 +1963,23 @@ def get_meal_history(
         conn.close()
 
 
-def cleanup_expired_plans(retention_days: int = 90) -> dict[str, Any]:
+def cleanup_expired_plans(
+    retention_days: int = 90, user_id: str | None = None
+) -> dict[str, Any]:
     """
-    Delete meal plans whose end_date is more than retention_days ago.
+    Delete `user_id`'s meal plans whose end_date is more than retention_days ago.
 
     Cascade-deletes associated meal_entries (via FK).
 
     Args:
         retention_days: Plans are kept for this many days after end_date.
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         {success, plans_removed, message}
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
     retention_days = max(1, retention_days)
     conn = get_db_connection()
     try:
@@ -1851,9 +1988,10 @@ def cleanup_expired_plans(retention_days: int = 90) -> dict[str, Any]:
             """
             SELECT id, name, end_date
             FROM meal_plans
-            WHERE date(end_date, '+' || ? || ' days') < date('now')
+            WHERE user_id = ?
+              AND date(end_date, '+' || ? || ' days') < date('now')
             """,
-            (str(retention_days),),
+            (owner, str(retention_days)),
         ).fetchall()
 
         if not expired:
@@ -1867,9 +2005,10 @@ def cleanup_expired_plans(retention_days: int = 90) -> dict[str, Any]:
         conn.execute(
             """
             DELETE FROM meal_plans
-            WHERE date(end_date, '+' || ? || ' days') < date('now')
+            WHERE user_id = ?
+              AND date(end_date, '+' || ? || ' days') < date('now')
             """,
-            (str(retention_days),),
+            (owner, str(retention_days)),
         )
         conn.commit()
 
@@ -1887,21 +2026,28 @@ def cleanup_expired_plans(retention_days: int = 90) -> dict[str, Any]:
         conn.close()
 
 
-def get_plan_summary_stats(plan_id: str) -> dict[str, Any]:
+def get_plan_summary_stats(
+    plan_id: str, user_id: str | None = None
+) -> dict[str, Any]:
     """
-    Lightweight stats for the bottom stats bar.
+    Lightweight stats for the bottom stats bar, scoped to `user_id`'s rows.
+
+    Args:
+        plan_id: Plan identifier
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         {success, plan_id, meal_count, unique_recipes, cooked_count}
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
     conn = get_db_connection()
     try:
         row = conn.execute(
             "SELECT COUNT(*) as total, COUNT(DISTINCT recipe_id) as unique_r, "
             "SUM(CASE WHEN cooked_at IS NOT NULL THEN 1 ELSE 0 END) as cooked "
-            "FROM meal_entries WHERE plan_id = ?",
-            (plan_id,),
+            "FROM meal_entries WHERE plan_id = ? AND user_id = ?",
+            (plan_id, owner),
         ).fetchone()
         if not row:
             return {
@@ -1922,31 +2068,37 @@ def get_plan_summary_stats(plan_id: str) -> dict[str, Any]:
         conn.close()
 
 
-def list_plans_for_api(include_templates: bool = False, limit: int = 50) -> dict[str, Any]:
+def list_plans_for_api(
+    include_templates: bool = False, limit: int = 50, user_id: str | None = None
+) -> dict[str, Any]:
     """
-    Clean plan listing for web API endpoints.
+    Clean plan listing for web API endpoints, scoped to `user_id`.
 
     Args:
         include_templates: If True return all plans; if False exclude templates.
         limit: Max rows to return.
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         {success, plans: [{id, name, start_date, end_date, plan_type, is_template}]}
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
     conn = get_db_connection()
     try:
         if include_templates:
             rows = conn.execute(
                 "SELECT id, name, start_date, end_date, plan_type, is_template "
-                "FROM meal_plans ORDER BY start_date DESC LIMIT ?",
-                (limit,),
+                "FROM meal_plans WHERE user_id = ? "
+                "ORDER BY start_date DESC LIMIT ?",
+                (owner, limit),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT id, name, start_date, end_date, plan_type, is_template "
-                "FROM meal_plans WHERE is_template = 0 ORDER BY start_date DESC LIMIT ?",
-                (limit,),
+                "FROM meal_plans WHERE user_id = ? AND is_template = 0 "
+                "ORDER BY start_date DESC LIMIT ?",
+                (owner, limit),
             ).fetchall()
         plans = [dict(r) for r in rows]
         for p in plans:

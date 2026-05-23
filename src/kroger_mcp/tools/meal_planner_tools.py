@@ -10,6 +10,7 @@ from fastmcp import Context
 from pydantic import Field
 
 from ..analytics import meal_planning
+from ..auth.dependencies import mcp_user_id
 from .shared import get_authenticated_client
 
 
@@ -257,6 +258,7 @@ def register_tools(mcp):
         cooked,
         ctx,
     ):
+        user_id = mcp_user_id()
         match action:
             case "create":
                 if not name:
@@ -271,6 +273,7 @@ def register_tools(mcp):
                     plan_type=plan_type or "weekly",
                     description=description,
                     is_template=is_template or False,
+                    user_id=user_id,
                 )
 
                 if ctx and result.get("success"):
@@ -283,6 +286,7 @@ def register_tools(mcp):
                     include_past=include_past or False,
                     include_templates=include_templates or False,
                     limit=limit or 20,
+                    user_id=user_id,
                 )
 
             case "get":
@@ -294,6 +298,7 @@ def register_tools(mcp):
                     include_recipe_details=(
                         include_recipe_details if include_recipe_details is not None else True
                     ),
+                    user_id=user_id,
                 )
 
             case "update":
@@ -306,13 +311,14 @@ def register_tools(mcp):
                     description=description,
                     start_date=start_date,
                     end_date=end_date,
+                    user_id=user_id,
                 )
 
             case "delete":
                 if not plan_id:
                     return {"success": False, "error": "plan_id is required"}
 
-                result = meal_planning.delete_meal_plan(plan_id)
+                result = meal_planning.delete_meal_plan(plan_id, user_id=user_id)
 
                 if ctx and result.get("success"):
                     ctx.info("Deleted meal plan")
@@ -331,6 +337,7 @@ def register_tools(mcp):
                     source_plan_id=source_plan_id,
                     new_name=new_name,
                     new_start_date=new_start_date,
+                    user_id=user_id,
                 )
 
                 if ctx and result.get("success"):
@@ -350,7 +357,7 @@ def register_tools(mcp):
                         }
 
                     result = meal_planning.bulk_assign_meals(
-                        plan_id=plan_id, assignments=assignments
+                        plan_id=plan_id, assignments=assignments, user_id=user_id
                     )
 
                     if ctx and result.get("success"):
@@ -374,6 +381,7 @@ def register_tools(mcp):
                     meal_slot=meal_slot,
                     servings_override=servings_override,
                     notes=notes,
+                    user_id=user_id,
                 )
 
                 if ctx and result.get("success"):
@@ -393,6 +401,7 @@ def register_tools(mcp):
                     plan_id=plan_id,
                     meal_date=meal_date,
                     meal_slot=meal_slot,
+                    user_id=user_id,
                 )
 
             case "swap":
@@ -410,6 +419,7 @@ def register_tools(mcp):
                     slot1=slot1,
                     date2=date2,
                     slot2=slot2,
+                    user_id=user_id,
                 )
 
             case "mark_cooked":
@@ -423,7 +433,7 @@ def register_tools(mcp):
                 mark = cooked if cooked is not None else True
 
                 if not mark:
-                    # Unmark: clear cooked_at via direct DB update
+                    # Unmark: clear cooked_at via direct DB update (owner-scoped)
                     from ..analytics.database import ensure_initialized, get_db_connection
 
                     ensure_initialized()
@@ -431,8 +441,9 @@ def register_tools(mcp):
                     try:
                         conn.execute(
                             "UPDATE meal_entries SET cooked_at = NULL "
-                            "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ?",
-                            (plan_id, meal_date, meal_slot),
+                            "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? "
+                            "AND user_id = ?",
+                            (plan_id, meal_date, meal_slot, user_id),
                         )
                         conn.commit()
                     finally:
@@ -450,6 +461,7 @@ def register_tools(mcp):
                     plan_id=plan_id,
                     meal_date=meal_date,
                     meal_slot=meal_slot,
+                    user_id=user_id,
                 )
 
             case "preview_shopping":
@@ -463,6 +475,7 @@ def register_tools(mcp):
                         combine_duplicates if combine_duplicates is not None else True
                     ),
                     skip_items=skip_items,
+                    user_id=user_id,
                 )
 
             case "add_to_cart":
@@ -474,6 +487,7 @@ def register_tools(mcp):
                     pantry_threshold=pantry_threshold if pantry_threshold is not None else 30,
                     combine_duplicates=True,
                     skip_items=skip_items,
+                    user_id=user_id,
                 )
 
                 if not shopping.get("success"):
@@ -564,9 +578,9 @@ def register_tools(mcp):
                                 UPDATE meal_plans
                                 SET times_ordered = times_ordered + 1,
                                     last_ordered_at = ?
-                                WHERE id = ?
+                                WHERE id = ? AND user_id = ?
                                 """,
-                                (datetime.now().isoformat(), plan_id),
+                                (datetime.now().isoformat(), plan_id, user_id),
                             )
                             conn.commit()
                         finally:
@@ -612,13 +626,15 @@ def register_tools(mcp):
                     }
 
             case "get_week_view":
-                return meal_planning.get_week_view(start_date=week_start_date)
+                return meal_planning.get_week_view(
+                    start_date=week_start_date, user_id=user_id
+                )
 
             case "get_summary":
                 if not plan_id:
                     return {"success": False, "error": "plan_id is required"}
 
-                return meal_planning.get_meal_plan_summary(plan_id=plan_id)
+                return meal_planning.get_meal_plan_summary(plan_id=plan_id, user_id=user_id)
 
             case _:
                 return {"success": False, "error": f"Unknown action: {action}"}

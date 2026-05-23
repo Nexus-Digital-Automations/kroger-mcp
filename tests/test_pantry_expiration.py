@@ -28,6 +28,12 @@ from kroger_mcp.analytics.pantry import (
     get_shelf_life_days,
     restock_item,
 )
+from kroger_mcp.auth.dependencies import default_user_id
+
+
+def _test_user_id() -> str:
+    """Resolve the migration-installed default user for test inserts."""
+    return default_user_id()
 
 
 @pytest.fixture
@@ -265,9 +271,9 @@ class TestRestockWithExpiration:
             VALUES ('MILK001', 'Whole Milk Gallon')
         """)
         conn.execute("""
-            INSERT INTO product_statistics (product_id, detected_category)
-            VALUES ('MILK001', 'routine')
-        """)
+            INSERT INTO product_statistics (product_id, detected_category, user_id)
+            VALUES ('MILK001', 'routine', ?)
+        """, (_test_user_id(),))
         conn.commit()
         conn.close()
 
@@ -288,9 +294,9 @@ class TestRestockWithExpiration:
             VALUES ('EGGS001', 'Large Eggs Dozen')
         """)
         conn.execute("""
-            INSERT INTO product_statistics (product_id, detected_category)
-            VALUES ('EGGS001', 'routine')
-        """)
+            INSERT INTO product_statistics (product_id, detected_category, user_id)
+            VALUES ('EGGS001', 'routine', ?)
+        """, (_test_user_id(),))
         conn.commit()
         conn.close()
 
@@ -308,9 +314,9 @@ class TestRestockWithExpiration:
             VALUES ('CHICKEN001', 'Frozen Chicken Breast')
         """)
         conn.execute("""
-            INSERT INTO product_statistics (product_id, detected_category)
-            VALUES ('CHICKEN001', 'routine')
-        """)
+            INSERT INTO product_statistics (product_id, detected_category, user_id)
+            VALUES ('CHICKEN001', 'routine', ?)
+        """, (_test_user_id(),))
         conn.commit()
         conn.close()
 
@@ -328,9 +334,9 @@ class TestRestockWithExpiration:
             VALUES ('CANDY001', 'Halloween Candy')
         """)
         conn.execute("""
-            INSERT INTO product_statistics (product_id, detected_category)
-            VALUES ('CANDY001', 'treat')
-        """)
+            INSERT INTO product_statistics (product_id, detected_category, user_id)
+            VALUES ('CANDY001', 'treat', ?)
+        """, (_test_user_id(),))
         conn.commit()
         conn.close()
 
@@ -349,9 +355,9 @@ class TestRestockWithExpiration:
             VALUES ('MILK002', 'Milk')
         """)
         conn.execute("""
-            INSERT INTO product_statistics (product_id, detected_category)
-            VALUES ('MILK002', 'routine')
-        """)
+            INSERT INTO product_statistics (product_id, detected_category, user_id)
+            VALUES ('MILK002', 'routine', ?)
+        """, (_test_user_id(),))
         conn.commit()
         conn.close()
 
@@ -381,9 +387,9 @@ class TestPantryStatusWithExpiration:
             VALUES ('MILK003', 'Milk')
         """)
         conn.execute("""
-            INSERT INTO product_statistics (product_id, detected_category)
-            VALUES ('MILK003', 'routine')
-        """)
+            INSERT INTO product_statistics (product_id, detected_category, user_id)
+            VALUES ('MILK003', 'routine', ?)
+        """, (_test_user_id(),))
         conn.commit()
         conn.close()
 
@@ -414,9 +420,9 @@ class TestPantryStatusWithExpiration:
             VALUES ('MILK004', 'Milk')
         """)
         conn.execute("""
-            INSERT INTO product_statistics (product_id, detected_category)
-            VALUES ('MILK004', 'routine')
-        """)
+            INSERT INTO product_statistics (product_id, detected_category, user_id)
+            VALUES ('MILK004', 'routine', ?)
+        """, (_test_user_id(),))
         conn.commit()
         conn.close()
 
@@ -443,9 +449,9 @@ class TestPantryStatusWithExpiration:
             VALUES ('CANDY002', 'Candy')
         """)
         conn.execute("""
-            INSERT INTO product_statistics (product_id, detected_category)
-            VALUES ('CANDY002', 'treat')
-        """)
+            INSERT INTO product_statistics (product_id, detected_category, user_id)
+            VALUES ('CANDY002', 'treat', ?)
+        """, (_test_user_id(),))
         conn.commit()
         conn.close()
 
@@ -500,9 +506,9 @@ class TestManualExpirationOverride:
             VALUES ('MILK006', 'Milk')
         """)
         conn.execute("""
-            INSERT INTO product_statistics (product_id, detected_category)
-            VALUES ('MILK006', 'routine')
-        """)
+            INSERT INTO product_statistics (product_id, detected_category, user_id)
+            VALUES ('MILK006', 'routine', ?)
+        """, (_test_user_id(),))
         conn.commit()
         conn.close()
 

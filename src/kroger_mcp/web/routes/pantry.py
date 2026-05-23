@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.pantry import get_pantry_status
+from kroger_mcp.auth.dependencies import current_user_id
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -16,7 +17,8 @@ router = APIRouter()
 
 @router.get("/pantry", response_class=HTMLResponse)
 async def pantry_page(request: Request):
-    items = get_pantry_status(apply_depletion=True)
+    user_id = current_user_id(request)
+    items = get_pantry_status(apply_depletion=True, user_id=user_id)
 
     out_items = [i for i in items if i["status"] == "out"]
     low_items = [i for i in items if i["status"] == "low"]

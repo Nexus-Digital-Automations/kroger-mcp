@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.database import ensure_initialized
 from kroger_mcp.analytics.ingredients import BAD_INGREDIENTS
+from kroger_mcp.auth.dependencies import current_user_id
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -17,6 +18,7 @@ router = APIRouter()
 @router.get("/safety", response_class=HTMLResponse)
 async def safety_page(request: Request):
     ensure_initialized()
+    user_id = current_user_id(request)
 
     settings = {"filtering_enabled": True, "block_mode": "soft"}
     safe_count = 0
@@ -26,7 +28,7 @@ async def safety_page(request: Request):
     try:
         from kroger_mcp.analytics.safety import get_safety_settings
 
-        settings = get_safety_settings()
+        settings = get_safety_settings(user_id=user_id)
     except Exception:
         pass
 
@@ -40,9 +42,13 @@ async def safety_page(request: Request):
         from kroger_mcp.analytics.database import get_db_connection
 
         conn = get_db_connection()
-        r1 = conn.execute("SELECT COUNT(*) as cnt FROM safe_products")
+        r1 = conn.execute(
+            "SELECT COUNT(*) as cnt FROM safe_products WHERE user_id = ?", (user_id,)
+        )
         safe_count = r1.fetchone()["cnt"]
-        r2 = conn.execute("SELECT COUNT(*) as cnt FROM blocked_products")
+        r2 = conn.execute(
+            "SELECT COUNT(*) as cnt FROM blocked_products WHERE user_id = ?", (user_id,)
+        )
         blocked_count = r2.fetchone()["cnt"]
         conn.close()
     except Exception:
@@ -53,7 +59,12 @@ async def safety_page(request: Request):
 
         conn2 = get_db_connection()
         cursor = conn2.execute(
-            "SELECT * FROM custom_ingredients WHERE is_active = 1 ORDER BY ingredient_name"
+            """
+            SELECT * FROM custom_ingredients
+            WHERE is_active = 1 AND user_id = ?
+            ORDER BY ingredient_name
+            """,
+            (user_id,),
         )
         custom_ingredients = [dict(row) for row in cursor.fetchall()]
         conn2.close()

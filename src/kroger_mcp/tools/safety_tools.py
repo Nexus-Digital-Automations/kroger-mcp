@@ -12,6 +12,7 @@ from ..analytics import safety as _safety
 from ..analytics.ingredients import (
     get_all_ingredients,
 )
+from ..auth.dependencies import mcp_user_id
 
 
 def register_tools(mcp):
@@ -135,12 +136,15 @@ def register_tools(mcp):
         product_ids,
         ctx,
     ):
+        # Resolve the MCP invocation's user once; all analytics calls scope to it.
+        user_id = mcp_user_id()
+
         match action:
             case "get_settings":
                 if ctx:
                     ctx.info("Getting safety filter settings")
 
-                settings = _safety.get_safety_settings()
+                settings = _safety.get_safety_settings(user_id=user_id)
                 return {
                     "success": True,
                     **settings,
@@ -159,6 +163,7 @@ def register_tools(mcp):
                     settings = _safety.update_safety_settings(
                         filtering_enabled=filtering_enabled,
                         block_mode=block_mode,
+                        user_id=user_id,
                     )
                     return {"success": True, **settings}
                 except ValueError as e:
@@ -223,13 +228,13 @@ def register_tools(mcp):
                     action_word = "Enabling" if enabled else "Disabling"
                     ctx.info(f"{action_word} ingredient check: {ingredient_key}")
 
-                return _safety.toggle_ingredient(ingredient_key, enabled)
+                return _safety.toggle_ingredient(ingredient_key, enabled, user_id=user_id)
 
             case "get_preferences":
                 if ctx:
                     ctx.info("Getting ingredient preferences")
 
-                prefs = _safety.get_ingredient_preferences()
+                prefs = _safety.get_ingredient_preferences(user_id=user_id)
                 disabled = [p for p in prefs if not p.get("enabled", True)]
 
                 return {
@@ -244,7 +249,7 @@ def register_tools(mcp):
                 if ctx:
                     ctx.info("Resetting ingredient preferences to defaults")
 
-                return _safety.reset_ingredient_preferences()
+                return _safety.reset_ingredient_preferences(user_id=user_id)
 
             case "approve_product":
                 if products:
@@ -256,6 +261,7 @@ def register_tools(mcp):
                             description=p.get("description"),
                             brand=p.get("brand"),
                             reason=p.get("reason"),
+                            user_id=user_id,
                         )
                         for p in products
                     ]
@@ -277,6 +283,7 @@ def register_tools(mcp):
                     description=description,
                     brand=brand,
                     reason=reason,
+                    user_id=user_id,
                 )
 
             case "unapprove_product":
@@ -287,9 +294,11 @@ def register_tools(mcp):
                     ctx.info(f"Removing {len(ids)} product(s) from safe list")
 
                 if len(ids) == 1:
-                    return _safety.remove_from_safe_list(ids[0])
+                    return _safety.remove_from_safe_list(ids[0], user_id=user_id)
 
-                results = {pid: _safety.remove_from_safe_list(pid) for pid in ids}
+                results = {
+                    pid: _safety.remove_from_safe_list(pid, user_id=user_id) for pid in ids
+                }
                 removed = sum(1 for r in results.values() if r.get("success"))
                 return {"success": True, "removed": removed, "total": len(ids), "results": results}
 
@@ -297,7 +306,7 @@ def register_tools(mcp):
                 if ctx:
                     ctx.info("Getting safe products list")
 
-                safe_products = _safety.get_safe_products()
+                safe_products = _safety.get_safe_products(user_id=user_id)
                 return {
                     "success": True,
                     "count": len(safe_products),
@@ -313,6 +322,7 @@ def register_tools(mcp):
                             product_id=p["product_id"],
                             description=p.get("description"),
                             reason=p.get("reason"),
+                            user_id=user_id,
                         )
                         for p in products
                     ]
@@ -333,6 +343,7 @@ def register_tools(mcp):
                     product_id=product_id,
                     description=description,
                     reason=reason,
+                    user_id=user_id,
                 )
 
             case "unblock_product":
@@ -343,9 +354,11 @@ def register_tools(mcp):
                     ctx.info(f"Unblocking {len(ids)} product(s)")
 
                 if len(ids) == 1:
-                    return _safety.remove_from_blocked_list(ids[0])
+                    return _safety.remove_from_blocked_list(ids[0], user_id=user_id)
 
-                results = {pid: _safety.remove_from_blocked_list(pid) for pid in ids}
+                results = {
+                    pid: _safety.remove_from_blocked_list(pid, user_id=user_id) for pid in ids
+                }
                 unblocked = sum(1 for r in results.values() if r.get("success"))
                 return {
                     "success": True,
@@ -358,7 +371,7 @@ def register_tools(mcp):
                 if ctx:
                     ctx.info("Getting blocked products list")
 
-                blocked_products = _safety.get_blocked_products()
+                blocked_products = _safety.get_blocked_products(user_id=user_id)
                 return {
                     "success": True,
                     "count": len(blocked_products),
@@ -377,6 +390,7 @@ def register_tools(mcp):
                     product_id=product_id,
                     description=description,
                     brand=brand,
+                    user_id=user_id,
                 )
                 return {"success": True, **status.to_dict()}
 
@@ -392,7 +406,7 @@ def register_tools(mcp):
                         "error": "Maximum 50 products per request",
                     }
 
-                statuses = _safety.check_products_safety_batch(products)
+                statuses = _safety.check_products_safety_batch(products, user_id=user_id)
                 return {
                     "success": True,
                     "count": len(statuses),
@@ -429,7 +443,7 @@ def register_tools(mcp):
                     for item in cart_items
                 ]
 
-                statuses = _safety.check_products_safety_batch(prods)
+                statuses = _safety.check_products_safety_batch(prods, user_id=user_id)
 
                 safe_items = []
                 flagged_items = []

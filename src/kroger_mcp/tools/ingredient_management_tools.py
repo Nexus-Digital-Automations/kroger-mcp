@@ -11,6 +11,7 @@ from pydantic import Field
 
 from ..analytics.database import get_db_connection
 from ..analytics.ingredients import get_compiled_patterns
+from ..auth.dependencies import mcp_user_id
 
 
 def register_tools(mcp):
@@ -174,6 +175,9 @@ def register_tools(mcp):
         include_system_overrides,
         ctx,
     ):
+        # Resolve the MCP invocation's user once; all SQL is scoped to it.
+        user_id = mcp_user_id()
+
         match action:
             case "add_custom":
                 if batch_ingredients is not None:
@@ -232,8 +236,9 @@ def register_tools(mcp):
 
                         try:
                             cursor = conn.execute(
-                                "SELECT id FROM custom_ingredients WHERE LOWER(ingredient_name) = LOWER(?)",
-                                (name,),
+                                "SELECT id FROM custom_ingredients "
+                                "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                                (user_id, name),
                             )
                             if cursor.fetchone():
                                 results[name] = {
@@ -246,10 +251,10 @@ def register_tools(mcp):
                             cursor = conn.execute(
                                 """
                                 INSERT INTO custom_ingredients
-                                    (ingredient_name, severity, category, reason, aliases, notes)
-                                VALUES (?, ?, ?, ?, ?, ?)
+                                    (user_id, ingredient_name, severity, category, reason, aliases, notes)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
                                 """,
-                                (name, sev, cat, rsn, aliases_json, nts),
+                                (user_id, name, sev, cat, rsn, aliases_json, nts),
                             )
                             conn.commit()
 
@@ -306,8 +311,9 @@ def register_tools(mcp):
                 conn = get_db_connection()
                 try:
                     cursor = conn.execute(
-                        "SELECT * FROM custom_ingredients WHERE LOWER(ingredient_name) = LOWER(?)",
-                        (ingredient_name,),
+                        "SELECT * FROM custom_ingredients "
+                        "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                        (user_id, ingredient_name),
                     )
                     row = cursor.fetchone()
                     if not row:
@@ -341,10 +347,11 @@ def register_tools(mcp):
                         return {"success": False, "error": "No changes specified"}
 
                     updates.append("modified_at = CURRENT_TIMESTAMP")
-                    params.append(ingredient_name)
+                    params.extend([user_id, ingredient_name])
 
                     conn.execute(
-                        f"UPDATE custom_ingredients SET {', '.join(updates)} WHERE LOWER(ingredient_name) = LOWER(?)",
+                        f"UPDATE custom_ingredients SET {', '.join(updates)} "
+                        "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
                         params,
                     )
                     conn.commit()
@@ -380,8 +387,9 @@ def register_tools(mcp):
                 conn = get_db_connection()
                 try:
                     cursor = conn.execute(
-                        "SELECT id FROM custom_ingredients WHERE LOWER(ingredient_name) = LOWER(?)",
-                        (ingredient_name,),
+                        "SELECT id FROM custom_ingredients "
+                        "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                        (user_id, ingredient_name),
                     )
                     if not cursor.fetchone():
                         return {
@@ -391,14 +399,17 @@ def register_tools(mcp):
 
                     if permanent:
                         conn.execute(
-                            "DELETE FROM custom_ingredients WHERE LOWER(ingredient_name) = LOWER(?)",
-                            (ingredient_name,),
+                            "DELETE FROM custom_ingredients "
+                            "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                            (user_id, ingredient_name),
                         )
                         message = f"Permanently deleted custom ingredient: {ingredient_name}"
                     else:
                         conn.execute(
-                            "UPDATE custom_ingredients SET is_active = 0, modified_at = CURRENT_TIMESTAMP WHERE LOWER(ingredient_name) = LOWER(?)",
-                            (ingredient_name,),
+                            "UPDATE custom_ingredients "
+                            "SET is_active = 0, modified_at = CURRENT_TIMESTAMP "
+                            "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                            (user_id, ingredient_name),
                         )
                         message = f"Deactivated custom ingredient: {ingredient_name} (can be restored later)"
 
@@ -426,8 +437,8 @@ def register_tools(mcp):
 
                 conn = get_db_connection()
                 try:
-                    query = "SELECT * FROM custom_ingredients WHERE 1=1"
-                    params = []
+                    query = "SELECT * FROM custom_ingredients WHERE user_id = ?"
+                    params: list[Any] = [user_id]
 
                     if not (include_inactive or False):
                         query += " AND is_active = 1"
@@ -506,8 +517,9 @@ def register_tools(mcp):
                 conn = get_db_connection()
                 try:
                     cursor = conn.execute(
-                        "SELECT id FROM ingredient_overrides WHERE LOWER(ingredient_name) = LOWER(?)",
-                        (ingredient_name,),
+                        "SELECT id FROM ingredient_overrides "
+                        "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                        (user_id, ingredient_name),
                     )
                     existing = cursor.fetchone()
 
@@ -544,21 +556,24 @@ def register_tools(mcp):
                             params.append(notes)
 
                         updates.append("modified_at = CURRENT_TIMESTAMP")
-                        params.append(ingredient_name)
+                        params.extend([user_id, ingredient_name])
 
                         if updates:
                             conn.execute(
-                                f"UPDATE ingredient_overrides SET {', '.join(updates)} WHERE LOWER(ingredient_name) = LOWER(?)",
+                                f"UPDATE ingredient_overrides SET {', '.join(updates)} "
+                                "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
                                 params,
                             )
                     else:
                         conn.execute(
                             """
                             INSERT INTO ingredient_overrides
-                                (ingredient_name, override_severity, override_reason, additional_aliases, is_hidden, notes)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                                (user_id, ingredient_name, override_severity, override_reason,
+                                 additional_aliases, is_hidden, notes)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
+                                user_id,
                                 ingredient_name,
                                 new_severity,
                                 new_reason,
@@ -601,8 +616,9 @@ def register_tools(mcp):
                 conn = get_db_connection()
                 try:
                     cursor = conn.execute(
-                        "DELETE FROM ingredient_overrides WHERE LOWER(ingredient_name) = LOWER(?)",
-                        (ingredient_name,),
+                        "DELETE FROM ingredient_overrides "
+                        "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                        (user_id, ingredient_name),
                     )
 
                     if cursor.rowcount == 0:
@@ -658,8 +674,9 @@ def register_tools(mcp):
                         }
 
                         cursor = conn.execute(
-                            "SELECT * FROM ingredient_overrides WHERE LOWER(ingredient_name) = LOWER(?)",
-                            (ingredient_name,),
+                            "SELECT * FROM ingredient_overrides "
+                            "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                            (user_id, ingredient_name),
                         )
                         override = cursor.fetchone()
 
@@ -686,8 +703,9 @@ def register_tools(mcp):
 
                     else:
                         cursor = conn.execute(
-                            "SELECT * FROM custom_ingredients WHERE LOWER(ingredient_name) = LOWER(?)",
-                            (ingredient_name,),
+                            "SELECT * FROM custom_ingredients "
+                            "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                            (user_id, ingredient_name),
                         )
                         custom = cursor.fetchone()
 
@@ -748,8 +766,9 @@ def register_tools(mcp):
                                 sev = ing["severity"]
 
                                 cursor = conn.execute(
-                                    "SELECT id FROM custom_ingredients WHERE LOWER(ingredient_name) = LOWER(?)",
-                                    (name,),
+                                    "SELECT id FROM custom_ingredients "
+                                    "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                                    (user_id, name),
                                 )
                                 exists = cursor.fetchone()
 
@@ -759,8 +778,9 @@ def register_tools(mcp):
                                         continue
                                     elif strategy == "replace":
                                         conn.execute(
-                                            "DELETE FROM custom_ingredients WHERE LOWER(ingredient_name) = LOWER(?)",
-                                            (name,),
+                                            "DELETE FROM custom_ingredients "
+                                            "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                                            (user_id, name),
                                         )
 
                                 if not exists or strategy == "replace":
@@ -768,10 +788,12 @@ def register_tools(mcp):
                                     conn.execute(
                                         """
                                         INSERT INTO custom_ingredients
-                                            (ingredient_name, severity, category, reason, aliases, source)
-                                        VALUES (?, ?, ?, ?, ?, 'imported')
+                                            (user_id, ingredient_name, severity, category,
+                                             reason, aliases, source)
+                                        VALUES (?, ?, ?, ?, ?, ?, 'imported')
                                         """,
                                         (
+                                            user_id,
                                             name,
                                             sev,
                                             ing.get("category"),
@@ -792,8 +814,9 @@ def register_tools(mcp):
                                 name = override["name"]
 
                                 cursor = conn.execute(
-                                    "SELECT id FROM ingredient_overrides WHERE LOWER(ingredient_name) = LOWER(?)",
-                                    (name,),
+                                    "SELECT id FROM ingredient_overrides "
+                                    "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                                    (user_id, name),
                                 )
                                 exists = cursor.fetchone()
 
@@ -803,8 +826,9 @@ def register_tools(mcp):
 
                                 if exists and strategy == "replace":
                                     conn.execute(
-                                        "DELETE FROM ingredient_overrides WHERE LOWER(ingredient_name) = LOWER(?)",
-                                        (name,),
+                                        "DELETE FROM ingredient_overrides "
+                                        "WHERE user_id = ? AND LOWER(ingredient_name) = LOWER(?)",
+                                        (user_id, name),
                                     )
 
                                 if not exists or strategy == "replace":
@@ -816,10 +840,12 @@ def register_tools(mcp):
                                     conn.execute(
                                         """
                                         INSERT INTO ingredient_overrides
-                                            (ingredient_name, override_severity, override_reason, additional_aliases, is_hidden)
-                                        VALUES (?, ?, ?, ?, ?)
+                                            (user_id, ingredient_name, override_severity,
+                                             override_reason, additional_aliases, is_hidden)
+                                        VALUES (?, ?, ?, ?, ?, ?)
                                         """,
                                         (
+                                            user_id,
                                             name,
                                             override.get("new_severity"),
                                             override.get("new_reason"),
@@ -862,7 +888,10 @@ def register_tools(mcp):
                 conn = get_db_connection()
                 try:
                     cursor = conn.execute(
-                        "SELECT * FROM custom_ingredients WHERE is_active = 1 ORDER BY severity, ingredient_name"
+                        "SELECT * FROM custom_ingredients "
+                        "WHERE is_active = 1 AND user_id = ? "
+                        "ORDER BY severity, ingredient_name",
+                        (user_id,),
                     )
                     custom_rows = cursor.fetchall()
 
@@ -881,7 +910,9 @@ def register_tools(mcp):
                     overrides = []
                     if include_system_overrides if include_system_overrides is not None else True:
                         cursor = conn.execute(
-                            "SELECT * FROM ingredient_overrides ORDER BY ingredient_name"
+                            "SELECT * FROM ingredient_overrides "
+                            "WHERE user_id = ? ORDER BY ingredient_name",
+                            (user_id,),
                         )
                         override_rows = cursor.fetchall()
 

@@ -3,9 +3,11 @@
 import asyncio
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from kroger_mcp.auth.dependencies import current_user_id
 
 router = APIRouter()
 
@@ -64,8 +66,9 @@ class AddToCartBody(BaseModel):
 
 
 @router.post("/api/meal-plan")
-async def create_meal_plan(body: CreatePlanBody):
-    """Create a new meal plan."""
+async def create_meal_plan(body: CreatePlanBody, request: Request):
+    """Create a new meal plan owned by the current user."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import create_meal_plan as _create
 
@@ -75,6 +78,7 @@ async def create_meal_plan(body: CreatePlanBody):
             plan_type=body.plan_type,
             description=body.description,
             is_template=body.is_template,
+            user_id=user_id,
         )
         if isinstance(result, dict) and not result.get("success", True):
             return JSONResponse(status_code=400, content=result)
@@ -84,12 +88,13 @@ async def create_meal_plan(body: CreatePlanBody):
 
 
 @router.delete("/api/meal-plan/{plan_id}")
-async def delete_meal_plan(plan_id: str):
+async def delete_meal_plan(plan_id: str, request: Request):
     """Delete a meal plan and its entries."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import delete_meal_plan as _delete
 
-        result = _delete(plan_id)
+        result = _delete(plan_id, user_id=user_id)
         if not result.get("success"):
             return JSONResponse(status_code=404, content=result)
         return result
@@ -98,8 +103,9 @@ async def delete_meal_plan(plan_id: str):
 
 
 @router.post("/api/meal-plan/{plan_id}/meals")
-async def add_meal_to_plan(plan_id: str, body: AddMealBody):
+async def add_meal_to_plan(plan_id: str, body: AddMealBody, request: Request):
     """Assign a recipe to a meal slot in a plan."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import assign_meal
 
@@ -108,6 +114,7 @@ async def add_meal_to_plan(plan_id: str, body: AddMealBody):
             recipe_id=body.recipe_id,
             meal_date=body.meal_date,
             meal_slot=body.meal_slot,
+            user_id=user_id,
         )
         if not result.get("success"):
             return JSONResponse(status_code=400, content=result)
@@ -117,16 +124,20 @@ async def add_meal_to_plan(plan_id: str, body: AddMealBody):
 
 
 @router.delete("/api/meal-plan/{plan_id}/meals")
-async def remove_meal_from_plan(plan_id: str, meal_date: str, meal_slot: str):
+async def remove_meal_from_plan(
+    plan_id: str, meal_date: str, meal_slot: str, request: Request
+):
     """Remove a recipe from a specific meal slot."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.database import ensure_initialized, get_db_cursor
 
         ensure_initialized()
         with get_db_cursor() as cursor:
             cursor.execute(
-                "DELETE FROM meal_entries WHERE plan_id = ? AND meal_date = ? AND meal_slot = ?",
-                (plan_id, meal_date, meal_slot),
+                "DELETE FROM meal_entries "
+                "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? AND user_id = ?",
+                (plan_id, meal_date, meal_slot, user_id),
             )
             if cursor.rowcount == 0:
                 return JSONResponse(
@@ -145,25 +156,30 @@ async def remove_meal_from_plan(plan_id: str, meal_date: str, meal_slot: str):
 
 @router.get("/api/meal-plan/list")
 async def list_plans(
+    request: Request,
     include_templates: bool = Query(False),
     limit: int = Query(50),
 ):
-    """List all meal plans (non-template by default)."""
+    """List all meal plans (non-template by default) for the current user."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import list_plans_for_api
 
-        return list_plans_for_api(include_templates=include_templates, limit=limit)
+        return list_plans_for_api(
+            include_templates=include_templates, limit=limit, user_id=user_id
+        )
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.get("/api/meal-plan/templates")
-async def list_templates():
-    """List all template plans."""
+async def list_templates(request: Request):
+    """List all template plans for the current user."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import list_plans_for_api
 
-        result = list_plans_for_api(include_templates=True, limit=50)
+        result = list_plans_for_api(include_templates=True, limit=50, user_id=user_id)
         if not result.get("success"):
             return JSONResponse(status_code=500, content=result)
         templates = [p for p in result["plans"] if p.get("is_template")]
@@ -173,8 +189,9 @@ async def list_templates():
 
 
 @router.post("/api/meal-plan/from-template")
-async def create_from_template(body: FromTemplateBody):
+async def create_from_template(body: FromTemplateBody, request: Request):
     """Create a new plan from a template."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import copy_meal_plan
 
@@ -182,6 +199,7 @@ async def create_from_template(body: FromTemplateBody):
             source_plan_id=body.source_plan_id,
             new_name=body.new_name,
             new_start_date=body.new_start_date,
+            user_id=user_id,
         )
         if not result.get("success"):
             return JSONResponse(status_code=400, content=result)
@@ -191,8 +209,9 @@ async def create_from_template(body: FromTemplateBody):
 
 
 @router.post("/api/meal-plan/{plan_id}/copy")
-async def copy_plan(plan_id: str, body: CopyPlanBody):
+async def copy_plan(plan_id: str, body: CopyPlanBody, request: Request):
     """Copy a meal plan to a new date range."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import copy_meal_plan
 
@@ -200,6 +219,7 @@ async def copy_plan(plan_id: str, body: CopyPlanBody):
             source_plan_id=plan_id,
             new_name=body.new_name,
             new_start_date=body.new_start_date,
+            user_id=user_id,
         )
         if not result.get("success"):
             return JSONResponse(status_code=400, content=result)
@@ -209,16 +229,18 @@ async def copy_plan(plan_id: str, body: CopyPlanBody):
 
 
 @router.patch("/api/meal-plan/{plan_id}/template")
-async def toggle_template(plan_id: str, body: ToggleTemplateBody):
-    """Toggle is_template flag on a plan."""
+async def toggle_template(plan_id: str, body: ToggleTemplateBody, request: Request):
+    """Toggle is_template flag on a plan, only if the current user owns it."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.database import ensure_initialized, get_db_cursor
 
         ensure_initialized()
         with get_db_cursor() as cursor:
             cursor.execute(
-                "UPDATE meal_plans SET is_template = ?, updated_at = ? WHERE id = ?",
-                (1 if body.is_template else 0, datetime.now().isoformat(), plan_id),
+                "UPDATE meal_plans SET is_template = ?, updated_at = ? "
+                "WHERE id = ? AND user_id = ?",
+                (1 if body.is_template else 0, datetime.now().isoformat(), plan_id, user_id),
             )
             if cursor.rowcount == 0:
                 return JSONResponse(
@@ -231,8 +253,9 @@ async def toggle_template(plan_id: str, body: ToggleTemplateBody):
 
 
 @router.post("/api/meal-plan/{plan_id}/meals/swap")
-async def swap_meals(plan_id: str, body: SwapMealsBody):
+async def swap_meals(plan_id: str, body: SwapMealsBody, request: Request):
     """Swap two meal slots within a plan."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import swap_meals as _swap
 
@@ -242,6 +265,7 @@ async def swap_meals(plan_id: str, body: SwapMealsBody):
             slot1=body.slot1,
             date2=body.date2,
             slot2=body.slot2,
+            user_id=user_id,
         )
         if not result.get("success"):
             return JSONResponse(status_code=400, content=result)
@@ -251,8 +275,9 @@ async def swap_meals(plan_id: str, body: SwapMealsBody):
 
 
 @router.delete("/api/meal-plan/{plan_id}/meals/{meal_date}/{meal_slot}")
-async def remove_meal(plan_id: str, meal_date: str, meal_slot: str):
+async def remove_meal(plan_id: str, meal_date: str, meal_slot: str, request: Request):
     """Remove a meal from a plan slot."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import remove_meal as _remove
 
@@ -260,6 +285,7 @@ async def remove_meal(plan_id: str, meal_date: str, meal_slot: str):
             plan_id=plan_id,
             meal_date=meal_date,
             meal_slot=meal_slot,
+            user_id=user_id,
         )
         if not result.get("success"):
             return JSONResponse(status_code=404, content=result)
@@ -269,8 +295,15 @@ async def remove_meal(plan_id: str, meal_date: str, meal_slot: str):
 
 
 @router.patch("/api/meal-plan/{plan_id}/meals/{meal_date}/{meal_slot}/cooked")
-async def mark_meal_cooked(plan_id: str, meal_date: str, meal_slot: str, body: MarkCookedBody):
+async def mark_meal_cooked(
+    plan_id: str,
+    meal_date: str,
+    meal_slot: str,
+    body: MarkCookedBody,
+    request: Request,
+):
     """Mark or unmark a meal as cooked."""
+    user_id = current_user_id(request)
     try:
         if body.cooked:
             from kroger_mcp.analytics.meal_planning import mark_meal_cooked as _mark
@@ -279,6 +312,7 @@ async def mark_meal_cooked(plan_id: str, meal_date: str, meal_slot: str, body: M
                 plan_id=plan_id,
                 meal_date=meal_date,
                 meal_slot=meal_slot,
+                user_id=user_id,
             )
         else:
             from kroger_mcp.analytics.database import ensure_initialized, get_db_cursor
@@ -287,8 +321,9 @@ async def mark_meal_cooked(plan_id: str, meal_date: str, meal_slot: str, body: M
             with get_db_cursor() as cursor:
                 cursor.execute(
                     "UPDATE meal_entries SET cooked_at = NULL "
-                    "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ?",
-                    (plan_id, meal_date, meal_slot),
+                    "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? "
+                    "AND user_id = ?",
+                    (plan_id, meal_date, meal_slot, user_id),
                 )
             result = {
                 "success": True,
@@ -305,26 +340,28 @@ async def mark_meal_cooked(plan_id: str, meal_date: str, meal_slot: str, body: M
 
 
 @router.get("/api/meal-plan/{plan_id}/shopping-preview")
-async def shopping_preview(plan_id: str):
+async def shopping_preview(plan_id: str, request: Request):
     """Preview shopping list for a plan (no cart action)."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import generate_meal_plan_shopping_list
 
-        result = generate_meal_plan_shopping_list(plan_id=plan_id)
+        result = generate_meal_plan_shopping_list(plan_id=plan_id, user_id=user_id)
         return result
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.post("/api/meal-plan/{plan_id}/add-to-cart")
-async def add_plan_to_cart(plan_id: str, body: AddToCartBody):
+async def add_plan_to_cart(plan_id: str, body: AddToCartBody, request: Request):
     """Add all plan ingredients to cart (requires Kroger auth)."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import generate_meal_plan_shopping_list
         from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
         from kroger_mcp.tools.shared import get_authenticated_client
 
-        shopping = generate_meal_plan_shopping_list(plan_id=plan_id)
+        shopping = generate_meal_plan_shopping_list(plan_id=plan_id, user_id=user_id)
         if not shopping.get("success"):
             return JSONResponse(status_code=400, content=shopping)
 
@@ -425,12 +462,13 @@ async def add_plan_to_cart(plan_id: str, body: AddToCartBody):
 
 
 @router.get("/api/meal-plan/{plan_id}/summary")
-async def plan_summary(plan_id: str):
+async def plan_summary(plan_id: str, request: Request):
     """Lightweight stats: meal_count, unique_recipes, cooked_count."""
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import get_plan_summary_stats
 
-        return get_plan_summary_stats(plan_id)
+        return get_plan_summary_stats(plan_id, user_id=user_id)
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
@@ -438,6 +476,7 @@ async def plan_summary(plan_id: str):
 @router.get("/api/meal-plan/{plan_id}/week")
 async def plan_week_view(
     plan_id: str,
+    request: Request,
     week_offset: int = Query(0, description="Weeks offset from current week"),
 ):
     """
@@ -446,6 +485,7 @@ async def plan_week_view(
     Response shape:
       {week_label, week_start, days: [{date, day_short, slots: {breakfast,lunch,dinner,snack}}]}
     """
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.analytics.meal_planning import get_meal_entries_for_dates, get_recipe
 
@@ -465,6 +505,7 @@ async def plan_week_view(
             plan_id=plan_id,
             start_date=week_start_str,
             end_date=week_end_str,
+            user_id=user_id,
         )
 
         # Build lookup {(date, slot): {recipe_name, recipe_id, cooked_at}}

@@ -3,12 +3,13 @@
 import json
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
 from kroger_mcp.analytics.ingredients import get_active_ingredients, get_all_ingredients
+from kroger_mcp.auth.dependencies import current_user_id
 
 router = APIRouter()
 
@@ -39,13 +40,19 @@ class UpdateIngredientRequest(BaseModel):
 
 
 @router.get("/api/ingredients/custom")
-async def list_custom():
-    """Get all active custom ingredients."""
+async def list_custom(request: Request):
+    """Get all active custom ingredients for the authenticated user."""
     try:
         ensure_initialized()
+        user_id = current_user_id(request)
         conn = get_db_connection()
         cursor = conn.execute(
-            "SELECT * FROM custom_ingredients WHERE is_active = 1 ORDER BY ingredient_name"
+            """
+            SELECT * FROM custom_ingredients
+            WHERE is_active = 1 AND user_id = ?
+            ORDER BY ingredient_name
+            """,
+            (user_id,),
         )
         rows = [dict(row) for row in cursor.fetchall()]
         conn.close()
@@ -70,8 +77,8 @@ async def list_custom():
 
 
 @router.post("/api/ingredients/custom")
-async def add_custom(body: CustomIngredientRequest):
-    """Add a new custom ingredient."""
+async def add_custom(request: Request, body: CustomIngredientRequest):
+    """Add a new custom ingredient for the authenticated user."""
     try:
         ensure_initialized()
         if body.severity not in ("critical", "warning", "watch"):
@@ -79,15 +86,17 @@ async def add_custom(body: CustomIngredientRequest):
                 status_code=400,
                 content={"error": "severity must be critical, warning, or watch"},
             )
+        user_id = current_user_id(request)
         conn = get_db_connection()
         now = datetime.now().isoformat()
         aliases_json = json.dumps(body.aliases or [])
         conn.execute(
             """
             INSERT INTO custom_ingredients
-                (ingredient_name, severity, category, reason, aliases, source, created_at, modified_at, is_active)
-            VALUES (?, ?, ?, ?, ?, 'user', ?, ?, 1)
-            ON CONFLICT(ingredient_name) DO UPDATE SET
+                (user_id, ingredient_name, severity, category, reason, aliases,
+                 source, created_at, modified_at, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, 'user', ?, ?, 1)
+            ON CONFLICT(user_id, ingredient_name) DO UPDATE SET
                 severity = excluded.severity,
                 category = excluded.category,
                 reason = excluded.reason,
@@ -95,12 +104,21 @@ async def add_custom(body: CustomIngredientRequest):
                 modified_at = excluded.modified_at,
                 is_active = 1
             """,
-            (body.name, body.severity, body.category, body.reason, aliases_json, now, now),
+            (
+                user_id,
+                body.name,
+                body.severity,
+                body.category,
+                body.reason,
+                aliases_json,
+                now,
+                now,
+            ),
         )
         conn.commit()
         conn.close()
 
-        # Invalidate pattern cache so next safety check picks up the new ingredient
+        # Invalidate pattern cache so next safety check picks up the new ingredient.
         try:
             from kroger_mcp.analytics.ingredients import get_compiled_patterns
 
@@ -117,10 +135,11 @@ async def add_custom(body: CustomIngredientRequest):
 
 
 @router.put("/api/ingredients/custom/{name}")
-async def update_custom(name: str, body: UpdateIngredientRequest):
-    """Update an existing custom ingredient."""
+async def update_custom(request: Request, name: str, body: UpdateIngredientRequest):
+    """Update an existing custom ingredient for the authenticated user."""
     try:
         ensure_initialized()
+        user_id = current_user_id(request)
         conn = get_db_connection()
         now = datetime.now().isoformat()
 
@@ -153,10 +172,11 @@ async def update_custom(name: str, body: UpdateIngredientRequest):
 
         updates.append("modified_at = ?")
         params.append(now)
-        params.append(name)
+        params.extend([user_id, name])
 
         conn.execute(
-            f"UPDATE custom_ingredients SET {', '.join(updates)} WHERE ingredient_name = ? COLLATE NOCASE",
+            f"UPDATE custom_ingredients SET {', '.join(updates)} "
+            "WHERE user_id = ? AND ingredient_name = ? COLLATE NOCASE",
             params,
         )
         conn.commit()
@@ -178,14 +198,19 @@ async def update_custom(name: str, body: UpdateIngredientRequest):
 
 
 @router.delete("/api/ingredients/custom/{name}")
-async def remove_custom(name: str):
-    """Soft-delete a custom ingredient (set is_active = 0)."""
+async def remove_custom(request: Request, name: str):
+    """Soft-delete a custom ingredient for the authenticated user."""
     try:
         ensure_initialized()
+        user_id = current_user_id(request)
         conn = get_db_connection()
         conn.execute(
-            "UPDATE custom_ingredients SET is_active = 0, modified_at = ? WHERE ingredient_name = ? COLLATE NOCASE",
-            (datetime.now().isoformat(), name),
+            """
+            UPDATE custom_ingredients
+            SET is_active = 0, modified_at = ?
+            WHERE user_id = ? AND ingredient_name = ? COLLATE NOCASE
+            """,
+            (datetime.now().isoformat(), user_id, name),
         )
         deleted = conn.total_changes
         conn.commit()
