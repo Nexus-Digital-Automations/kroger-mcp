@@ -3,11 +3,14 @@
 Owns: the contract between AuthMiddleware (which sets request.state.user) and
 route handlers / analytics functions (which need a user_id to scope queries).
 
-Two resolvers:
-    - current_user(): FastAPI Depends — for HTTP route handlers, returns the user
-      attached by AuthMiddleware. Raises 401 if missing.
-    - default_user_id(): for non-HTTP contexts (MCP tools, scripts, background
-      jobs) — reads KROGER_MCP_DEFAULT_USER_ID from env, raises if unset.
+Resolvers:
+    - current_user() / current_user_id(): for HTTP route handlers — pulls the
+      user attached by AuthMiddleware. Raises 401 if missing.
+    - mcp_user_id(): for MCP tool dispatchers — reads KROGER_MCP_USER_ID
+      per-invocation (lets each Claude Desktop profile bind to a specific
+      user), falls back to KROGER_MCP_DEFAULT_USER_ID for backward compat.
+    - default_user_id(): bare-bones fallback for scripts and tests, reads
+      only KROGER_MCP_DEFAULT_USER_ID. Raises if unset.
 
 @stable
 """
@@ -34,10 +37,10 @@ def current_user_id(request: Request) -> str:
 
 
 def default_user_id() -> str:
-    """For MCP / scripts / background jobs with no HTTP context.
+    """For scripts / tests with no HTTP context and no per-invocation env.
 
-    Resolves to KROGER_MCP_DEFAULT_USER_ID set by the multi-tenant migration.
-    Raises RuntimeError if the env var is unset — the caller MUST migrate first.
+    Reads KROGER_MCP_DEFAULT_USER_ID (installed by the multi-tenant migration).
+    Raises RuntimeError if unset.
     """
     user_id = os.environ.get("KROGER_MCP_DEFAULT_USER_ID")
     if not user_id:
@@ -46,3 +49,20 @@ def default_user_id() -> str:
             "`uv run python -m kroger_mcp.scripts.migrate_to_multi_tenant` first."
         )
     return user_id
+
+
+def mcp_user_id() -> str:
+    """For MCP tool dispatchers — resolves the user the MCP invocation acts as.
+
+    Resolution order:
+      1. KROGER_MCP_USER_ID — set per Claude Desktop config so each profile
+         can bind to a specific user (`"env": {"KROGER_MCP_USER_ID": "<uuid>"}`).
+      2. KROGER_MCP_DEFAULT_USER_ID — the migration-installed owner, used when
+         no per-profile override is configured.
+
+    Raises RuntimeError if neither is set — surfaces misconfiguration loudly.
+    """
+    explicit = os.environ.get("KROGER_MCP_USER_ID")
+    if explicit:
+        return explicit
+    return default_user_id()
