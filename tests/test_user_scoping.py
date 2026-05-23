@@ -21,7 +21,11 @@ from kroger_mcp.auth.passwords import hash_password
 
 @pytest.fixture
 def two_users():
-    """Create two throwaway users in the live analytics DB and yield their ids."""
+    """Create two throwaway users in the live analytics DB and yield their ids.
+
+    Teardown deletes any rows owned by either user across all user-scoped
+    tables so tests cannot pollute each other or jeremyparker's data.
+    """
     conn = get_db_connection()
     a_id = str(uuid.uuid4())
     b_id = str(uuid.uuid4())
@@ -37,8 +41,25 @@ def two_users():
         conn.commit()
         yield a_id, b_id
     finally:
-        conn.execute("DELETE FROM favorite_list_items WHERE user_id IN (?, ?)", (a_id, b_id))
-        conn.execute("DELETE FROM favorite_lists WHERE user_id IN (?, ?)", (a_id, b_id))
+        for table in (
+            "favorite_list_items",
+            "favorite_lists",
+            "pantry_items",
+            "pantry_consumption_log",
+            "meal_entries",
+            "meal_plans",
+            "safe_products",
+            "blocked_products",
+            "custom_ingredients",
+            "ingredient_overrides",
+            "ingredient_preferences",
+            "safety_settings",
+            "deal_watchlist",
+            "user_carts",
+            "user_shopping_lists",
+            "user_settings",
+        ):
+            conn.execute(f"DELETE FROM {table} WHERE user_id IN (?, ?)", (a_id, b_id))
         conn.execute("DELETE FROM users WHERE id IN (?, ?)", (a_id, b_id))
         conn.commit()
         conn.close()
@@ -113,3 +134,86 @@ def test_resolve_user_id_falls_back_to_default(monkeypatch):
 
     assert _resolve_user_id(None) == "fallback-owner"
     assert _resolve_user_id("explicit-id") == "explicit-id"
+
+
+def test_mcp_user_id_prefers_per_invocation_env(monkeypatch):
+    """Spec: KROGER_MCP_USER_ID wins over KROGER_MCP_DEFAULT_USER_ID."""
+    from kroger_mcp.auth.dependencies import mcp_user_id
+
+    monkeypatch.setenv("KROGER_MCP_DEFAULT_USER_ID", "default-owner")
+    monkeypatch.setenv("KROGER_MCP_USER_ID", "profile-owner")
+    assert mcp_user_id() == "profile-owner"
+
+
+def test_mcp_user_id_falls_back_to_default(monkeypatch):
+    """Spec: mcp_user_id falls back to KROGER_MCP_DEFAULT_USER_ID when no per-invocation override."""
+    from kroger_mcp.auth.dependencies import mcp_user_id
+
+    monkeypatch.delenv("KROGER_MCP_USER_ID", raising=False)
+    monkeypatch.setenv("KROGER_MCP_DEFAULT_USER_ID", "default-owner")
+    assert mcp_user_id() == "default-owner"
+
+
+class TestPantryScoping:
+    """Pantry operations must enforce user_id boundaries."""
+
+    def test_user_a_cannot_see_user_b_pantry_items(self, two_users):
+        from kroger_mcp.analytics import pantry
+
+        a_id, b_id = two_users
+        pantry.add_to_pantry(
+            product_id="__E2E__pantry-isolated",
+            description="A's milk",
+            level=100,
+            user_id=a_id,
+        )
+
+        b_items = pantry.get_pantry_status(user_id=b_id)
+        b_product_ids = [item["product_id"] for item in b_items]
+        assert "__E2E__pantry-isolated" not in b_product_ids
+
+
+class TestMealPlanScoping:
+    """Meal plan operations must enforce user_id boundaries."""
+
+    def test_user_a_meal_plan_invisible_to_user_b(self, two_users):
+        from kroger_mcp.analytics import meal_planning
+
+        a_id, b_id = two_users
+        meal_planning.create_meal_plan(
+            name="__E2E__a-plan",
+            start_date="2026-01-01",
+            end_date="2026-01-07",
+            user_id=a_id,
+        )
+
+        b_plans = meal_planning.list_meal_plans(user_id=b_id) if hasattr(
+            meal_planning, "list_meal_plans"
+        ) else meal_planning.get_meal_plans(user_id=b_id)
+        b_names = [p.get("name") for p in (b_plans if isinstance(b_plans, list) else b_plans.get("plans", []))]
+        assert "__E2E__a-plan" not in b_names
+
+
+class TestSafetyScoping:
+    """Safety operations must enforce user_id boundaries."""
+
+    def test_safe_product_added_by_a_invisible_to_b(self, two_users):
+        from kroger_mcp.analytics import safety
+
+        a_id, b_id = two_users
+        safety.add_to_safe_list(
+            product_id="__E2E__safety-isolated",
+            description="A's safe item",
+            user_id=a_id,
+        )
+
+        b_safe = safety.get_safe_products(user_id=b_id)
+        b_pids = [p["product_id"] for p in b_safe]
+        assert "__E2E__safety-isolated" not in b_pids
+
+    def test_new_user_gets_default_safety_settings(self, two_users):
+        from kroger_mcp.analytics import safety
+
+        _, b_id = two_users
+        settings = safety.get_safety_settings(user_id=b_id)
+        assert settings.get("filtering_enabled") in (1, True, "1")

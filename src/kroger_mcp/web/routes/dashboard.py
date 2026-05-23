@@ -1,4 +1,7 @@
-"""Dashboard route — aggregates key stats for the home page."""
+"""Dashboard route — aggregates key stats for the home page, scoped per user.
+
+@stable
+"""
 
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
 from kroger_mcp.analytics.favorites import get_lists
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.recipe_tools import _load_recipes
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -17,8 +21,8 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 router = APIRouter()
 
 
-def _get_pantry_alerts():
-    """Return pantry items that are low or expiring within 7 days."""
+def _get_pantry_alerts(user_id: str):
+    """Return this user's pantry items that are low or expiring within 7 days."""
     ensure_initialized()
     conn = get_db_connection()
     try:
@@ -27,8 +31,10 @@ def _get_pantry_alerts():
             SELECT product_id, description, level_percent, low_threshold,
                    expiration_date, days_to_expiration
             FROM pantry_items
+            WHERE user_id = ?
             ORDER BY level_percent ASC
-        """
+        """,
+            (user_id,),
         )
         items = []
         for row in cursor.fetchall():
@@ -55,13 +61,12 @@ def _get_pantry_alerts():
         conn.close()
 
 
-def _get_this_week_meals():
-    """Return meal entries for the current Mon–Sun week."""
+def _get_this_week_meals(user_id: str):
+    """Return this user's meal entries for the current Mon–Sun week."""
     ensure_initialized()
     conn = get_db_connection()
     try:
         today = datetime.now().date()
-        # Monday of this week
         monday = today - timedelta(days=today.weekday())
         sunday = monday + timedelta(days=6)
 
@@ -72,13 +77,13 @@ def _get_this_week_meals():
             FROM meal_entries me
             JOIN meal_plans mp ON me.plan_id = mp.id
             WHERE me.meal_date BETWEEN ? AND ?
+              AND me.user_id = ?
             ORDER BY me.meal_date, me.meal_slot
         """,
-            (monday.isoformat(), sunday.isoformat()),
+            (monday.isoformat(), sunday.isoformat(), user_id),
         )
 
         rows = cursor.fetchall()
-        # Resolve recipe names
         recipe_data = _load_recipes()
         recipe_map = {r["id"]: r["name"] for r in recipe_data.get("recipes", [])}
 
@@ -96,11 +101,15 @@ def _get_this_week_meals():
         conn.close()
 
 
-def _get_meal_plan_count():
+def _get_meal_plan_count(user_id: str):
     ensure_initialized()
     conn = get_db_connection()
     try:
-        cursor = conn.execute("SELECT COUNT(*) as cnt FROM meal_plans WHERE is_template = 0")
+        cursor = conn.execute(
+            "SELECT COUNT(*) as cnt FROM meal_plans "
+            "WHERE is_template = 0 AND user_id = ?",
+            (user_id,),
+        )
         row = cursor.fetchone()
         return row["cnt"] if row else 0
     finally:
@@ -127,20 +136,20 @@ def _get_overdue_favorites(lists):
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
+    user_id = current_user_id(request)
     recipe_data = _load_recipes()
     recipes = recipe_data.get("recipes", [])
-    pantry_alerts = _get_pantry_alerts()
-    this_week_meals = _get_this_week_meals()
-    meal_plan_count = _get_meal_plan_count()
-    fav_lists = get_lists()
+    pantry_alerts = _get_pantry_alerts(user_id)
+    this_week_meals = _get_this_week_meals(user_id)
+    meal_plan_count = _get_meal_plan_count(user_id)
+    fav_lists = get_lists(user_id=user_id)
     overdue_favorites = _get_overdue_favorites(fav_lists)
 
-    # Build week calendar strip
     today = datetime.now().date()
     monday = today - timedelta(days=today.weekday())
     week_days = [monday + timedelta(days=i) for i in range(7)]
 
-    meals_by_date = {}
+    meals_by_date: dict[str, list[str]] = {}
     for meal in this_week_meals:
         date_str = meal["date"]
         if date_str not in meals_by_date:
