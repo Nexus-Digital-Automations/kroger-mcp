@@ -78,15 +78,20 @@ document.addEventListener('alpine:init', () => {
     mode: 'desktop',
     _hoverTimer: null,
     _resizeHandler: null,
+    _reflowHandler: null,
 
     init() {
       this._setMode();
-      this._resizeHandler = () => this._setMode();
+      this._resizeHandler = () => {
+        this._setMode();
+        if (this.open) this._positionPanel();
+      };
       window.addEventListener('resize', this._resizeHandler);
     },
 
     destroy() {
       if (this._resizeHandler) window.removeEventListener('resize', this._resizeHandler);
+      this._teardownReflow();
       this._clearHoverTimer();
     },
 
@@ -105,7 +110,17 @@ document.addEventListener('alpine:init', () => {
     openMenu() {
       this.open = true;
       this.activeSub = null;
-      this.$nextTick(() => this._focusFirstAt('[data-menu-level="root"]'));
+      // Two rAFs: $nextTick fires before x-show's display change has been
+      // painted, so panel.offsetHeight reads 0. Wait one frame for layout,
+      // then position. Focus comes last so it doesn't trigger scroll-into-
+      // view against an unpositioned panel.
+      this.$nextTick(() => {
+        requestAnimationFrame(() => {
+          this._positionPanel();
+          this._setupReflow();
+          this._focusFirstAt('[data-menu-level="root"]');
+        });
+      });
     },
 
     close() {
@@ -113,9 +128,60 @@ document.addEventListener('alpine:init', () => {
       this.open = false;
       this.activeSub = null;
       this._clearHoverTimer();
+      this._teardownReflow();
       this.$nextTick(() => {
         if (this.$refs.trigger) this.$refs.trigger.focus();
       });
+    },
+
+    /**
+     * Position the fixed panel relative to the trigger, flipping above and
+     * shifting horizontally so it never leaves the viewport. Called on open
+     * and on every scroll/resize while open.
+     * @internal
+     */
+    _positionPanel() {
+      // WHY $root not $el: when openMenu is reached via @click="toggle()" on
+      // the trigger button, Alpine sets $el to the BUTTON (the directive's
+      // host), so $el.querySelector('.action-menu-panel') returns null and
+      // we'd silently early-return. $root is always the x-data element.
+      const panel = this.$root.querySelector('.action-menu-panel');
+      const trigger = this.$refs.trigger;
+      if (!panel || !trigger) return;
+      const margin = 8;
+      const gap = 4;
+      const triggerRect = trigger.getBoundingClientRect();
+      const panelW = panel.offsetWidth;
+      const panelH = panel.offsetHeight;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      const spaceBelow = vh - triggerRect.bottom;
+      const spaceAbove = triggerRect.top;
+      const opensUp = spaceBelow < panelH + margin && spaceAbove > spaceBelow;
+      let top = opensUp
+        ? Math.max(margin, triggerRect.top - panelH - gap)
+        : triggerRect.bottom + gap;
+      const maxH = Math.max(120, (opensUp ? spaceAbove : spaceBelow) - margin);
+
+      let left = triggerRect.right - panelW;
+      left = Math.min(Math.max(margin, left), vw - panelW - margin);
+
+      panel.style.top = `${Math.round(top)}px`;
+      panel.style.left = `${Math.round(left)}px`;
+      panel.style.maxHeight = `${Math.round(maxH)}px`;
+    },
+
+    _setupReflow() {
+      if (this._reflowHandler) return;
+      this._reflowHandler = () => this._positionPanel();
+      window.addEventListener('scroll', this._reflowHandler, { passive: true, capture: true });
+    },
+
+    _teardownReflow() {
+      if (!this._reflowHandler) return;
+      window.removeEventListener('scroll', this._reflowHandler, { capture: true });
+      this._reflowHandler = null;
     },
 
     clickAway(event) {
