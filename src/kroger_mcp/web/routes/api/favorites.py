@@ -1,8 +1,10 @@
 """API routes for favorites list write operations."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from kroger_mcp.auth.dependencies import current_user_id
 
 router = APIRouter()
 
@@ -29,12 +31,12 @@ class AddItemBody(BaseModel):
 
 
 @router.get("/api/favorites/lists")
-async def get_favorites_lists():
-    """Return all user-created favorites lists for UI dropdowns."""
+async def get_favorites_lists(request: Request):
+    """Return all favorites lists owned by the authenticated user."""
     try:
         from kroger_mcp.analytics.favorites import get_lists
 
-        lists = get_lists()
+        lists = get_lists(user_id=current_user_id(request))
         return JSONResponse(
             content=[
                 {"id": lst["id"], "name": lst["name"], "item_count": lst["item_count"]}
@@ -47,8 +49,8 @@ async def get_favorites_lists():
 
 
 @router.post("/api/favorites/lists")
-async def create_list(body: CreateListBody):
-    """Create a new favorite list."""
+async def create_list(body: CreateListBody, request: Request):
+    """Create a favorites list owned by the authenticated user."""
     try:
         from kroger_mcp.analytics.favorites import create_list as _create_list
 
@@ -57,6 +59,7 @@ async def create_list(body: CreateListBody):
             description=body.description,
             list_type=body.list_type,
             reorder_weeks=body.reorder_weeks,
+            user_id=current_user_id(request),
         )
         if not result.get("success"):
             return JSONResponse(
@@ -69,12 +72,12 @@ async def create_list(body: CreateListBody):
 
 
 @router.delete("/api/favorites/lists/{list_id}")
-async def delete_list(list_id: str):
-    """Delete a favorite list and all its items."""
+async def delete_list(list_id: str, request: Request):
+    """Delete a favorites list owned by the authenticated user."""
     try:
         from kroger_mcp.analytics.favorites import delete_list as _delete_list
 
-        result = _delete_list(list_id=list_id)
+        result = _delete_list(list_id=list_id, user_id=current_user_id(request))
         if not result.get("success"):
             return JSONResponse(status_code=400, content=result)
         return result

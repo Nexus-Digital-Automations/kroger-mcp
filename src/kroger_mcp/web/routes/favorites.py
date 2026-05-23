@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.favorites import get_list_items, get_lists
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.web.context import action_menu_context
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -32,7 +33,7 @@ def _reorder_badge(reorder_status):
 
 @router.get("/favorites", response_class=HTMLResponse)
 async def favorites_list(request: Request):
-    lists = get_lists()
+    lists = get_lists(user_id=current_user_id(request))
 
     annotated = []
     for lst in lists:
@@ -55,7 +56,9 @@ async def favorites_list(request: Request):
 
 @router.get("/favorites/{list_id}", response_class=HTMLResponse)
 async def favorites_detail(request: Request, list_id: str):
-    result = get_list_items(list_id, include_pantry_status=True)
+    result = get_list_items(
+        list_id, include_pantry_status=True, user_id=current_user_id(request)
+    )
 
     if not result.get("success", True) and "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])

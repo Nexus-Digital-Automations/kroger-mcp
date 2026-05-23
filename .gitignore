@@ -59,6 +59,10 @@ tests/e2e/_discovery/account.json
 tests/e2e/_discovery/route-map.json
 test-results/
 
+# Multi-tenant migration artifacts — local-only state
+data/backups/
+data/legacy/
+
 # Playwright MCP runtime artifacts
 .playwright-mcp/
 

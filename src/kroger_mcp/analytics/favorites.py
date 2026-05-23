@@ -9,7 +9,20 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
+from kroger_mcp.auth.dependencies import default_user_id
+
 from .database import ensure_initialized, get_db_cursor
+
+
+def _resolve_user_id(user_id: str | None) -> str:
+    """Resolve user_id for user-scoped queries.
+
+    When a caller passes None (MCP tools, scripts, background jobs that have
+    no HTTP request context), fall back to the migration-installed owner via
+    `default_user_id()`. HTTP route handlers must always pass an explicit
+    user_id resolved from the session.
+    """
+    return user_id if user_id is not None else default_user_id()
 
 # ========== Helper Functions ==========
 
@@ -109,37 +122,35 @@ def create_list(
     description: str | None = None,
     list_type: str = "custom",
     reorder_weeks: int | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Create a new favorite list.
+    Create a new favorite list owned by `user_id`.
 
     Args:
-        name: List name (must be unique)
+        name: List name (must be unique per user)
         description: Optional description
         list_type: Type of list ('custom', 'weekly', 'monthly', 'seasonal')
         reorder_weeks: Number of weeks between reorders (None = no schedule)
-
-    Returns:
-        Dict with list_id and success status
+        user_id: Owner. None resolves to the migration-installed default user.
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
-    # Validate reorder_weeks
     if reorder_weeks is not None:
         if not isinstance(reorder_weeks, int) or reorder_weeks < 1 or reorder_weeks > 52:
             return {"success": False, "error": "reorder_weeks must be between 1 and 52"}
 
-    # Generate a URL-safe ID from the name
     list_id = f"{name.lower().replace(' ', '-')}-{uuid.uuid4().hex[:8]}"
 
     try:
         with get_db_cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO favorite_lists (id, name, description, list_type, reorder_weeks)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO favorite_lists (id, name, description, list_type, reorder_weeks, user_id)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (list_id, name, description, list_type, reorder_weeks),
+                (list_id, name, description, list_type, reorder_weeks, owner),
             )
 
             # Calculate initial reorder status
@@ -159,14 +170,11 @@ def create_list(
         return {"success": False, "error": str(e)}
 
 
-def get_lists() -> list[dict[str, Any]]:
-    """
-    Get all favorite lists with item counts and reorder status.
-
-    Returns:
-        List of lists with id, name, description, item_count, reorder_status, etc.
-    """
+def get_lists(user_id: str | None = None) -> list[dict[str, Any]]:
+    """Get all favorite lists owned by `user_id` with item counts and reorder status."""
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    _ensure_default_list_for_user(owner)
 
     with get_db_cursor() as cursor:
         cursor.execute(
@@ -183,11 +191,13 @@ def get_lists() -> list[dict[str, Any]]:
                 COUNT(fli.product_id) as item_count
             FROM favorite_lists fl
             LEFT JOIN favorite_list_items fli ON fl.id = fli.list_id
+            WHERE fl.user_id = ?
             GROUP BY fl.id
             ORDER BY
-                CASE WHEN fl.id = 'default' THEN 0 ELSE 1 END,
+                CASE WHEN fl.name = 'My Favorites' THEN 0 ELSE 1 END,
                 fl.name
-            """
+            """,
+            (owner,),
         )
         rows = cursor.fetchall()
 
@@ -207,33 +217,39 @@ def get_lists() -> list[dict[str, Any]]:
                 "reorder_status": reorder_status,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
-                "is_default": row["id"] == "default",
+                "is_default": row["id"] == "default" or row["name"] == "My Favorites",
             }
         )
-
-    # Patch default list's item_count to reflect all unique products across all lists
-    with get_db_cursor() as cursor:
-        cursor.execute("SELECT COUNT(DISTINCT product_id) FROM favorite_list_items")
-        total_unique = cursor.fetchone()[0]
-
-    for lst in results:
-        if lst["id"] == "default":
-            lst["item_count"] = total_unique
 
     return results
 
 
-def get_list(list_id: str) -> dict[str, Any] | None:
-    """
-    Get a single list by ID.
+def _ensure_default_list_for_user(user_id: str) -> None:
+    """Lazily create 'My Favorites' for a user that has no lists yet."""
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) AS cnt FROM favorite_lists WHERE user_id = ?", (user_id,)
+        )
+        if cursor.fetchone()["cnt"] > 0:
+            return
+        new_id = f"default-{uuid.uuid4().hex[:8]}"
+        cursor.execute(
+            """
+            INSERT INTO favorite_lists (id, name, description, list_type, user_id)
+            VALUES (?, 'My Favorites', 'Default favorites list', 'custom', ?)
+            """,
+            (new_id, user_id),
+        )
 
-    Args:
-        list_id: The list ID
 
-    Returns:
-        List details or None if not found
+def get_list(list_id: str, user_id: str | None = None) -> dict[str, Any] | None:
+    """Get a single list by ID, only if it belongs to `user_id`.
+
+    Returns None when the list doesn't exist OR belongs to a different user
+    (treated identically so callers can't distinguish "missing" from "forbidden").
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     with get_db_cursor() as cursor:
         cursor.execute(
@@ -250,10 +266,10 @@ def get_list(list_id: str) -> dict[str, Any] | None:
                 COUNT(fli.product_id) as item_count
             FROM favorite_lists fl
             LEFT JOIN favorite_list_items fli ON fl.id = fli.list_id
-            WHERE fl.id = ?
+            WHERE fl.id = ? AND fl.user_id = ?
             GROUP BY fl.id
             """,
-            (list_id,),
+            (list_id, owner),
         )
         row = cursor.fetchone()
 
@@ -341,30 +357,23 @@ def rename_list(
         return {"success": False, "error": str(e)}
 
 
-def delete_list(list_id: str) -> dict[str, Any]:
-    """
-    Delete a list and all its items.
-
-    Args:
-        list_id: The list ID (cannot be 'default')
-
-    Returns:
-        Success status
-    """
+def delete_list(list_id: str, user_id: str | None = None) -> dict[str, Any]:
+    """Delete a list and its items, only if it belongs to `user_id`."""
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     if list_id == "default":
         return {"success": False, "error": "Cannot delete the default list"}
 
     with get_db_cursor() as cursor:
-        # Get item count before deletion
         cursor.execute(
             "SELECT COUNT(*) as cnt FROM favorite_list_items WHERE list_id = ?", (list_id,)
         )
         item_count = cursor.fetchone()["cnt"]
 
-        # Delete the list (cascade deletes items)
-        cursor.execute("DELETE FROM favorite_lists WHERE id = ?", (list_id,))
+        cursor.execute(
+            "DELETE FROM favorite_lists WHERE id = ? AND user_id = ?", (list_id, owner)
+        )
 
         if cursor.rowcount == 0:
             return {"success": False, "error": f"List '{list_id}' not found"}
@@ -580,23 +589,20 @@ def remove_from_list(list_id: str, product_id: str) -> dict[str, Any]:
 
 
 def get_list_items(
-    list_id: str, include_pantry_status: bool = True, sort_by: str = "description"
+    list_id: str,
+    include_pantry_status: bool = True,
+    sort_by: str = "description",
+    user_id: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Get all items in a favorite list with optional pantry status.
+    """Get items in a favorite list, only if it belongs to `user_id`.
 
-    Args:
-        list_id: The list ID
-        include_pantry_status: Include current pantry levels
-        sort_by: Sort field ('description', 'times_ordered', 'added_at')
-
-    Returns:
-        Dict with list info and items
+    The pantry-status JOIN is also constrained to the user's own pantry rows
+    so we don't leak other users' inventory levels through this endpoint.
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
-    # Get list info
-    lst = get_list(list_id)
+    lst = get_list(list_id, user_id=owner)
     if not lst:
         return {"success": False, "error": f"List '{list_id}' not found"}
 

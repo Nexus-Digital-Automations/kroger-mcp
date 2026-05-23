@@ -1,32 +1,33 @@
 """Authentication middleware for Starlette/FastAPI.
 
 Checks for a session cookie on every request. If valid, attaches the user
-to request.state.user. If not, redirects to /login (except public routes).
+to request.state.user. Otherwise: HTML routes redirect to /login (302),
+API routes return JSON 401 (browsers can't follow a redirect for fetch()).
 """
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
+from starlette.responses import JSONResponse, RedirectResponse
 
-# Routes that don't require authentication
-PUBLIC_PATHS = {"/login", "/register", "/logout"}
+# /callback is the Kroger OAuth redirect target; it must be reachable without
+# our own session cookie because the browser is mid-OAuth-handshake when it
+# lands here.
+PUBLIC_PATHS = {"/login", "/register", "/logout", "/callback"}
 PUBLIC_PREFIXES = ("/static/", "/api/auth/")
 
 SESSION_COOKIE = "kroger_session"
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """Middleware that enforces authentication on all non-public routes."""
+    """Enforces authentication on all non-public routes."""
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Allow public routes
         if path in PUBLIC_PATHS or any(path.startswith(p) for p in PUBLIC_PREFIXES):
             request.state.user = None
             return await call_next(request)
 
-        # Check session cookie
         token = request.cookies.get(SESSION_COOKIE)
         if token:
             from kroger_mcp.auth.sessions import validate_session
@@ -36,6 +37,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.state.user = user
                 return await call_next(request)
 
-        # No valid session — redirect to login
         request.state.user = None
+        if path.startswith("/api/"):
+            return JSONResponse({"error": "authentication required"}, status_code=401)
         return RedirectResponse(url="/login", status_code=302)

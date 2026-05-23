@@ -90,9 +90,9 @@ try:
 except Exception:
     pass
 
-# Auth middleware — uncomment to enable login requirement:
-# from kroger_mcp.auth.middleware import AuthMiddleware
-# app.add_middleware(AuthMiddleware)
+from kroger_mcp.auth.middleware import AuthMiddleware
+
+app.add_middleware(AuthMiddleware)
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 

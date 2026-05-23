@@ -5,7 +5,10 @@
 import { test, expect, E2E_PREFIX } from './fixtures';
 
 test('create + read + delete a __E2E__ favorites list via API, verify in UI', async ({ authedPage, testUser }) => {
-  const name = `${E2E_PREFIX(testUser.runId)}fav-list`;
+  // Per-test suffix prevents collisions with stale lists from earlier runs that
+  // failed before reaching their cleanup step.
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const name = `${E2E_PREFIX(testUser.runId)}fav-list-${suffix}`;
   const created = await authedPage.request.post('/api/favorites/lists', {
     data: { name, list_type: 'custom', description: 'frontend-bug-finder' },
   });
