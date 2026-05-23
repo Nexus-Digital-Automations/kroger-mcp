@@ -5,9 +5,11 @@ import logging
 import pathlib
 import tempfile
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from kroger_mcp.auth.dependencies import current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +38,8 @@ class CredentialsBody(BaseModel):
 
 
 @router.get("/api/settings")
-async def get_settings():
-    """Return current app settings."""
+async def get_settings(request: Request):
+    """Return current app settings for the authenticated user."""
     try:
         from kroger_mcp.tools.shared import (
             get_authenticated_client,
@@ -46,9 +48,10 @@ async def get_settings():
             get_preferred_location_id,
         )
 
-        location_id = get_preferred_location_id() or ""
-        servings = get_default_servings()
-        include_spices_by_default = get_include_spices_by_default()
+        user_id = current_user_id(request)
+        location_id = get_preferred_location_id(user_id=user_id) or ""
+        servings = get_default_servings(user_id=user_id)
+        include_spices_by_default = get_include_spices_by_default(user_id=user_id)
 
         auth_status = "not_configured"
         try:
@@ -69,12 +72,12 @@ async def get_settings():
 
 
 @router.post("/api/settings/servings")
-async def set_servings(body: ServingsBody):
-    """Set the default number of servings per meal."""
+async def set_servings(body: ServingsBody, request: Request):
+    """Set the authenticated user's default number of servings per meal."""
     try:
         from kroger_mcp.tools.shared import set_default_servings
 
-        set_default_servings(body.servings)
+        set_default_servings(body.servings, user_id=current_user_id(request))
         return {"success": True, "servings": body.servings}
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
@@ -83,29 +86,24 @@ async def set_servings(body: ServingsBody):
 
 
 @router.post("/api/settings/include-spices-by-default")
-async def set_include_spices(body: IncludeSpicesBody):
-    """Persist the 'Include spices by default' Advanced-Settings toggle.
-
-    When True, the Send-to-Kroger-Cart preview pre-checks every spice; when
-    False (default) spices appear unchecked and stay on the shopping list
-    until the user explicitly opts them in.
-    """
+async def set_include_spices(body: IncludeSpicesBody, request: Request):
+    """Persist this user's 'Include spices by default' Advanced-Settings toggle."""
     try:
         from kroger_mcp.tools.shared import set_include_spices_by_default
 
-        set_include_spices_by_default(body.include)
+        set_include_spices_by_default(body.include, user_id=current_user_id(request))
         return {"success": True, "include_spices_by_default": body.include}
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.post("/api/settings/location")
-async def set_location(body: LocationBody):
-    """Set the preferred Kroger store location."""
+async def set_location(body: LocationBody, request: Request):
+    """Set the authenticated user's preferred Kroger store location."""
     try:
         from kroger_mcp.tools.shared import set_preferred_location_id
 
-        set_preferred_location_id(body.location_id)
+        set_preferred_location_id(body.location_id, user_id=current_user_id(request))
         return {"success": True, "location_id": body.location_id}
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
@@ -266,11 +264,11 @@ async def disconnect_kroger():
 
 
 @router.get("/api/settings/credentials")
-async def get_credentials():
-    """Get current Kroger API credentials (secret masked)."""
+async def get_credentials(request: Request):
+    """Get this user's Kroger API credentials (secret masked)."""
     from kroger_mcp.tools.shared import get_kroger_credentials
 
-    creds = get_kroger_credentials()
+    creds = get_kroger_credentials(user_id=current_user_id(request))
     secret = creds["client_secret"]
     return {
         "client_id": creds["client_id"],
@@ -281,8 +279,8 @@ async def get_credentials():
 
 
 @router.post("/api/settings/credentials")
-async def save_credentials(body: CredentialsBody):
-    """Save Kroger API credentials to preferences."""
+async def save_credentials(body: CredentialsBody, request: Request):
+    """Save this user's Kroger API credentials."""
     from kroger_mcp.tools.shared import (
         invalidate_authenticated_client,
         invalidate_client_credentials_client,
@@ -293,8 +291,8 @@ async def save_credentials(body: CredentialsBody):
         client_id=body.client_id or None,
         client_secret=body.client_secret or None,
         redirect_uri=body.redirect_uri or None,
+        user_id=current_user_id(request),
     )
-    # Force clients to reinitialize with new credentials
     invalidate_authenticated_client()
     invalidate_client_credentials_client()
     return {"success": True}
