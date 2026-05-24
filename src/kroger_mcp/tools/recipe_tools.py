@@ -727,6 +727,8 @@ def register_tools(mcp):
                                 "level_percent": item.get("level_percent", 0),
                                 "status": item.get("status"),
                                 "days_until_empty": item.get("days_until_empty"),
+                                "quantity_on_hand": item.get("quantity_on_hand"),
+                                "unit": item.get("unit"),
                             }
                     except Exception:
                         pass
@@ -736,6 +738,7 @@ def register_tools(mcp):
                     items_manual = []
                     items_to_skip = []
                     items_in_pantry = []
+                    items_partial = []
 
                     for i, ing in enumerate(recipe.get("ingredients", [])):
                         ing_name = ing.get("name", "Unknown")
@@ -748,6 +751,25 @@ def register_tools(mcp):
                         pantry = pantry_context.get(pid, {}) if pid else {}
                         pantry_level = pantry.get("level_percent")
                         in_pantry = pantry_level is not None
+                        on_hand = pantry.get("quantity_on_hand")
+                        stored_unit = pantry.get("unit")
+                        unit_match = (
+                            stored_unit is not None
+                            and unit
+                            and stored_unit.lower() == unit.lower()
+                        )
+                        # Partial fulfillment is only safe when units match;
+                        # otherwise we fall back to % heuristics.
+                        on_hand_usable = (
+                            float(on_hand)
+                            if (on_hand is not None and unit_match)
+                            else None
+                        )
+
+                        from_pantry_qty = 0
+                        to_order_qty = scaled_qty
+                        action_val = "ADD"
+                        reason = ""
 
                         if is_override:
                             action_val = "MANUAL"
@@ -767,8 +789,58 @@ def register_tools(mcp):
                             action_val = "SKIP"
                             reason = "User specified to skip"
                             items_to_skip.append(ing_name)
+                        elif on_hand_usable is not None and on_hand_usable >= scaled_qty:
+                            action_val = "SKIP"
+                            from_pantry_qty = scaled_qty
+                            to_order_qty = 0
+                            reason = (
+                                f"Pantry has {on_hand_usable:g} {stored_unit} on hand "
+                                f"(need {scaled_qty})"
+                            )
+                            items_in_pantry.append(
+                                {
+                                    "name": ing_name,
+                                    "pantry_level": pantry_level,
+                                    "from_pantry": from_pantry_qty,
+                                    "unit": stored_unit,
+                                }
+                            )
+                            items_to_skip.append(ing_name)
+                        elif on_hand_usable is not None and on_hand_usable > 0:
+                            from_pantry_qty = int(on_hand_usable)
+                            to_order_qty = max(1, scaled_qty - from_pantry_qty)
+                            action_val = "PARTIAL"
+                            reason = (
+                                f"Use {from_pantry_qty} {stored_unit} from pantry, "
+                                f"order {to_order_qty} more"
+                            )
+                            items_partial.append(
+                                {
+                                    "name": ing_name,
+                                    "needed": scaled_qty,
+                                    "from_pantry": from_pantry_qty,
+                                    "to_order": to_order_qty,
+                                    "unit": stored_unit,
+                                }
+                            )
+                            if pid:
+                                items_to_add.append(
+                                    {
+                                        "product_id": pid,
+                                        "name": ing_name,
+                                        "quantity": to_order_qty,
+                                        "modality": _modality,
+                                        "needed_quantity": scaled_qty,
+                                        "from_pantry_quantity": from_pantry_qty,
+                                        "unit": stored_unit,
+                                        "recipe_id": recipe_id,
+                                        "recipe_name": recipe.get("name"),
+                                    }
+                                )
                         elif in_pantry and pantry_level >= 30:
                             action_val = "SKIP"
+                            from_pantry_qty = scaled_qty
+                            to_order_qty = 0
                             reason = f"Pantry: {pantry_level}% remaining"
                             items_in_pantry.append({"name": ing_name, "pantry_level": pantry_level})
                             items_to_skip.append(ing_name)
@@ -784,6 +856,11 @@ def register_tools(mcp):
                                         "name": ing_name,
                                         "quantity": scaled_qty,
                                         "modality": _modality,
+                                        "needed_quantity": scaled_qty,
+                                        "from_pantry_quantity": 0,
+                                        "unit": unit,
+                                        "recipe_id": recipe_id,
+                                        "recipe_name": recipe.get("name"),
                                     }
                                 )
 
@@ -796,6 +873,10 @@ def register_tools(mcp):
                                 "reason": reason,
                                 "product_id": pid,
                                 "pantry_level": pantry_level,
+                                "quantity_on_hand": on_hand,
+                                "pantry_unit": stored_unit,
+                                "from_pantry": from_pantry_qty,
+                                "to_order": to_order_qty,
                                 "in_favorites": False,
                             }
                         )
@@ -815,7 +896,9 @@ def register_tools(mcp):
                                     "items_to_skip": len(items_to_skip),
                                     "items_in_pantry": len(items_in_pantry),
                                     "items_manual_purchase": len(items_manual),
+                                    "items_partial_from_pantry": len(items_partial),
                                 },
+                                "partial_from_pantry": items_partial,
                             },
                             "items_in_pantry": items_in_pantry,
                             "manual_purchase_required": items_manual,
@@ -863,6 +946,36 @@ def register_tools(mcp):
                         _add_item_to_local_cart(
                             item["product_id"], item["quantity"], item["modality"]
                         )
+
+                    # Partial fulfillment leaves an implicit pantry draw —
+                    # record it now so the user can confirm/deny at the pantry
+                    # gap-reconciliation inbox before we touch on-hand counts.
+                    try:
+                        from ..analytics.pantry import create_pending_gap
+
+                        for partial in items_partial:
+                            matched_pid = next(
+                                (
+                                    it["product_id"]
+                                    for it in items_to_add
+                                    if it.get("name") == partial["name"]
+                                ),
+                                None,
+                            )
+                            if not matched_pid:
+                                continue
+                            create_pending_gap(
+                                product_id=matched_pid,
+                                needed_quantity=partial["needed"],
+                                ordered_quantity=partial["to_order"],
+                                unit=partial.get("unit"),
+                                recipe_id=recipe_id,
+                                recipe_name=recipe.get("name"),
+                                product_description=partial["name"],
+                            )
+                    except Exception:
+                        # Never let gap bookkeeping block the cart write.
+                        pass
 
                     data = _load_recipes()
                     for r in data.get("recipes", []):

@@ -159,12 +159,16 @@ def update_product_stats(product_id: str) -> dict[str, Any]:
 
     conn = get_db_connection()
     try:
-        # Get all consumption-related events for this product (sorted by date)
-        # Includes both actual orders and pantry depletion feedback
+        # Consumption signals: real orders + every pantry-side draw-down event
+        # (depletion, recipe cook-through, manual use, gap reconciliation).
+        # All four are evidence the user actually went through the product.
         cursor = conn.execute(
             """
             SELECT * FROM purchase_events
-            WHERE product_id = ? AND event_type IN ('order_placed', 'pantry_depleted')
+            WHERE product_id = ? AND event_type IN (
+                'order_placed', 'pantry_depleted',
+                'recipe_consumed', 'manual_use', 'gap_reconciled'
+            )
             ORDER BY event_date ASC
         """,
             (product_id,),

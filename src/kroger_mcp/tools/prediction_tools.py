@@ -131,11 +131,14 @@ def register_tools(mcp):
             "get_low_inventory",
             "remove",
             "get_attention",
+            "list_gaps",
+            "resolve_gap",
         ] = Field(
             description=(
                 "get_attention — SESSION REQUIRED before shopping. "
                 "Returns expiring/low/overdue items. "
                 "Batch ops (max 50) via product_ids. "
+                "list_gaps/resolve_gap — partial-fulfillment reconciliation. "
                 "Other: get|add|update_item|restock|get_low_inventory|remove"
             )
         ),
@@ -167,6 +170,24 @@ def register_tools(mcp):
             default=None,
             description="Days ahead to check for expiring items",
         ),
+        quantity: float | None = Field(
+            default=None,
+            description="Absolute quantity on hand for add/restock (paired with unit)",
+        ),
+        unit: str | None = Field(
+            default=None,
+            description="Unit for quantity (e.g. 'can', 'lb')",
+        ),
+        gap_id: int | None = Field(
+            default=None,
+            description="pending_gaps row id (resolve_gap)",
+        ),
+        resolution: Literal[
+            "pantry_covered", "user_skipped", "manual_acquired"
+        ] | None = Field(
+            default=None,
+            description="How the gap was resolved (resolve_gap)",
+        ),
         ctx: Context = None,
     ) -> dict[str, Any]:
         """Pantry inventory tracking with auto-depletion modeling.
@@ -188,6 +209,10 @@ def register_tools(mcp):
             low_threshold,
             threshold,
             days_ahead,
+            quantity,
+            unit,
+            gap_id,
+            resolution,
             ctx,
         )
 
@@ -200,6 +225,10 @@ def register_tools(mcp):
         low_threshold,
         threshold,
         days_ahead,
+        quantity,
+        unit,
+        gap_id,
+        resolution,
         ctx,
     ):
         match action:
@@ -243,6 +272,8 @@ def register_tools(mcp):
                                 level=_level,
                                 low_threshold=_low_threshold,
                                 auto_deplete=True,
+                                quantity=quantity,
+                                unit=unit,
                             )
                             results[pid] = result
                         except Exception as e:
@@ -325,7 +356,9 @@ def register_tools(mcp):
                     results = {}
                     for pid in ids:
                         try:
-                            results[pid] = restock_item(pid, _level)
+                            results[pid] = restock_item(
+                                pid, _level, quantity=quantity, unit=unit
+                            )
                         except Exception as e:
                             results[pid] = {
                                 "success": False,
@@ -529,6 +562,39 @@ def register_tools(mcp):
                         "success": False,
                         "error": f"Failed to get pantry attention items: {str(e)}",
                     }
+
+            case "list_gaps":
+                try:
+                    from ..analytics.pantry import list_pending_gaps
+
+                    gaps = list_pending_gaps()
+                    return {
+                        "success": True,
+                        "gaps": gaps,
+                        "count": len(gaps),
+                    }
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to list gaps: {str(e)}"}
+
+            case "resolve_gap":
+                if gap_id is None:
+                    return {"success": False, "error": "gap_id is required"}
+                if resolution is None:
+                    return {
+                        "success": False,
+                        "error": (
+                            "resolution is required "
+                            "(pantry_covered | user_skipped | manual_acquired)"
+                        ),
+                    }
+                try:
+                    from ..analytics.pantry import resolve_gap as _resolve_gap
+
+                    return _resolve_gap(gap_id=gap_id, resolution=resolution)
+                except ValueError as e:
+                    return {"success": False, "error": str(e)}
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to resolve gap: {str(e)}"}
 
             case _:
                 return {"success": False, "error": f"Unknown action: {action}"}

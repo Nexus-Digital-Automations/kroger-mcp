@@ -259,6 +259,8 @@ def restock_item(
     level: int = 100,
     description: str | None = None,
     user_id: str | None = None,
+    quantity: float | None = None,
+    unit: str | None = None,
 ) -> dict[str, Any]:
     """
     Set item to restocked level (default 100%) for `user_id`'s pantry.
@@ -266,15 +268,16 @@ def restock_item(
     Called automatically when an order is placed, or manually
     when user restocks from another source.
 
-    AUTOMATIC EXPIRATION TRACKING:
-    - Calculates expiration date based on product category and shelf life
-    - No user input required - completely automatic!
-
     Args:
         product_id: The product identifier
         level: Percentage level (0-100), default 100
         description: Product description (optional)
         user_id: Owner. None resolves to the migration-installed default user.
+        quantity: Absolute count restocked (e.g. 2 cans). Stored alongside %
+            so partial-fulfillment math has real units to work with. None
+            leaves the prior on-hand quantity untouched.
+        unit: Unit label paired with quantity (e.g. "can", "lb"). Persisted
+            when quantity is provided.
 
     Returns:
         Dict with success status and item info (includes expiration data)
@@ -324,13 +327,14 @@ def restock_item(
             (product_id, description, now, now),
         )
 
-        # Upsert pantry item WITH expiration tracking — UNIQUE is (user_id, product_id)
+        # quantity_on_hand uses COALESCE so a None call preserves prior on-hand.
         conn.execute(
             """
             INSERT INTO pantry_items
             (user_id, product_id, description, level_percent, last_restocked_at,
-             last_updated_at, daily_depletion_rate, expiration_date, days_to_expiration)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             last_updated_at, daily_depletion_rate, expiration_date, days_to_expiration,
+             quantity_on_hand, unit)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, product_id) DO UPDATE SET
                 level_percent = excluded.level_percent,
                 last_restocked_at = excluded.last_restocked_at,
@@ -338,7 +342,9 @@ def restock_item(
                 daily_depletion_rate = excluded.daily_depletion_rate,
                 expiration_date = excluded.expiration_date,
                 days_to_expiration = excluded.days_to_expiration,
-                description = COALESCE(excluded.description, description)
+                description = COALESCE(excluded.description, description),
+                quantity_on_hand = COALESCE(excluded.quantity_on_hand, quantity_on_hand),
+                unit = COALESCE(excluded.unit, unit)
         """,
             (
                 owner,
@@ -350,6 +356,8 @@ def restock_item(
                 depletion_rate,
                 expiration_date,
                 days_to_exp,
+                quantity,
+                unit,
             ),
         )
         conn.commit()
@@ -363,6 +371,8 @@ def restock_item(
             "restocked_at": now,
             "expiration_date": expiration_date,
             "days_to_expiration": days_to_exp,
+            "quantity_on_hand": quantity,
+            "unit": unit,
             "auto_calculated": expiration_date is not None,
         }
     finally:
@@ -512,6 +522,8 @@ def add_to_pantry(
     low_threshold: int = 20,
     auto_deplete: bool = True,
     user_id: str | None = None,
+    quantity: float | None = None,
+    unit: str | None = None,
 ) -> dict[str, Any]:
     """
     Add an item to `user_id`'s pantry tracking.
@@ -523,6 +535,9 @@ def add_to_pantry(
         low_threshold: Alert when level drops below this (default 20%)
         auto_deplete: Enable automatic depletion (default True)
         user_id: Owner. None resolves to the migration-installed default user.
+        quantity: Absolute count on hand (e.g. 2 cans). Optional; enables
+            partial-fulfillment math when set.
+        unit: Unit label paired with quantity (e.g. "can", "lb").
 
     Returns:
         Dict with success status
@@ -556,14 +571,13 @@ def add_to_pantry(
             (product_id, description, now, now),
         )
 
-        # UNIQUE is composite (user_id, product_id) — two users may each
-        # track the same product independently.
         conn.execute(
             """
             INSERT INTO pantry_items
             (user_id, product_id, description, level_percent, last_restocked_at,
-             last_updated_at, auto_deplete, daily_depletion_rate, low_threshold)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             last_updated_at, auto_deplete, daily_depletion_rate, low_threshold,
+             quantity_on_hand, unit)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, product_id) DO UPDATE SET
                 description = COALESCE(excluded.description, description),
                 level_percent = excluded.level_percent,
@@ -571,7 +585,9 @@ def add_to_pantry(
                 last_updated_at = excluded.last_updated_at,
                 daily_depletion_rate = excluded.daily_depletion_rate,
                 low_threshold = excluded.low_threshold,
-                auto_deplete = excluded.auto_deplete
+                auto_deplete = excluded.auto_deplete,
+                quantity_on_hand = COALESCE(excluded.quantity_on_hand, quantity_on_hand),
+                unit = COALESCE(excluded.unit, unit)
         """,
             (
                 owner,
@@ -583,6 +599,8 @@ def add_to_pantry(
                 1 if auto_deplete else 0,
                 depletion_rate,
                 low_threshold,
+                quantity,
+                unit,
             ),
         )
         conn.commit()
@@ -594,6 +612,8 @@ def add_to_pantry(
             "level_percent": level,
             "low_threshold": low_threshold,
             "auto_deplete": auto_deplete,
+            "quantity_on_hand": quantity,
+            "unit": unit,
         }
     finally:
         conn.close()
@@ -660,7 +680,8 @@ def get_pantry_status(
             SELECT product_id, description, level_percent,
                    last_restocked_at, last_updated_at,
                    auto_deplete, daily_depletion_rate, low_threshold,
-                   expiration_date, days_to_expiration
+                   expiration_date, days_to_expiration,
+                   quantity_on_hand, unit, last_used_at, last_used_source
             FROM pantry_items
             WHERE user_id = ?
             ORDER BY level_percent ASC
@@ -720,10 +741,13 @@ def get_pantry_status(
                         if item["daily_depletion_rate"]
                         else 0
                     ),
-                    # Expiration tracking (freshly calculated!)
                     "expiration_date": exp_date,
                     "days_to_expiration": days_to_exp,
                     "expiration_status": exp_status,
+                    "quantity_on_hand": item["quantity_on_hand"],
+                    "unit": item["unit"],
+                    "last_used_at": item["last_used_at"],
+                    "last_used_source": item["last_used_source"],
                 }
             )
 
@@ -851,19 +875,34 @@ def consume_from_pantry(
     source_id: str = "",
     source_description: str = "",
     user_id: str | None = None,
+    recipe_id: str | None = None,
+    event_type: str = "recipe_consumed",
 ) -> dict[str, Any]:
     """
     Deduct from `user_id`'s pantry inventory based on consumption.
 
+    Writes an enriched row to purchase_events so the UI can render
+    last-used attribution, the sparkline, and the detail-drawer history.
+    Decrements quantity_on_hand if both `quantity` (>0) and a stored
+    unit are present.
+
     Args:
         product_id: Product identifier
-        quantity: Quantity consumed (if percent not provided)
-        unit: Unit of measurement
-        percent: Percentage points to deduct (alternative to quantity)
-        source_type: Type of consumption source (e.g., 'meal', 'recipe')
-        source_id: ID of the source
-        source_description: Human-readable description of source
+        quantity: Quantity consumed (used for unit-based decrement and the
+            event_type sparkline). Caller may also pass `percent` to override
+            the level math directly.
+        unit: Unit of measurement (matched against stored unit before
+            decrementing quantity_on_hand)
+        percent: Percentage points to deduct (overrides quantity-based math)
+        source_type: Logical channel of the consumption — e.g. "meal_plan",
+            "gap_reconciled", "manual". Persisted for analytics.
+        source_id: Free-form ID of the source (meal entry id, etc.)
+        source_description: Human-readable label written to last_used_source
         user_id: Owner. None resolves to the migration-installed default user.
+        recipe_id: Recipe that drove this consumption, if any
+        event_type: purchase_events.event_type value. Defaults to
+            "recipe_consumed"; pass "manual_use" / "gap_reconciled" as
+            appropriate.
 
     Returns:
         Dictionary with success status and details
@@ -874,7 +913,8 @@ def consume_from_pantry(
     conn = get_db_connection()
     try:
         cursor = conn.execute(
-            "SELECT level_percent, last_restocked_at, daily_depletion_rate "
+            "SELECT level_percent, last_restocked_at, daily_depletion_rate, "
+            "       quantity_on_hand, unit "
             "FROM pantry_items WHERE product_id = ? AND user_id = ?",
             (product_id, owner),
         )
@@ -884,6 +924,8 @@ def consume_from_pantry(
 
         previous_level = row["level_percent"]
         last_restocked = row["last_restocked_at"]
+        prev_quantity = row["quantity_on_hand"]
+        stored_unit = row["unit"]
 
         if percent is not None:
             deduction = percent
@@ -898,14 +940,50 @@ def consume_from_pantry(
             avg_days = max(avg_days, 7)
             deduction = min(quantity * (100 / avg_days), 50)
 
-        new_level = max(0, previous_level - deduction)
-        new_level = min(100, new_level)
+        new_level = max(0, min(100, previous_level - deduction))
+
+        # Only decrement on_hand when the caller's unit matches what we stored;
+        # mismatched units (e.g. "tsp" vs stored "lb") would silently corrupt the count.
+        new_quantity = prev_quantity
+        if (
+            prev_quantity is not None
+            and quantity > 0
+            and stored_unit
+            and unit
+            and stored_unit.lower() == unit.lower()
+        ):
+            new_quantity = max(0.0, prev_quantity - quantity)
 
         now_str = datetime.now().isoformat()
+        last_used_source = source_description or source_type or "manual"
+
         conn.execute(
-            "UPDATE pantry_items SET level_percent = ?, last_updated_at = ? "
+            "UPDATE pantry_items SET level_percent = ?, last_updated_at = ?, "
+            "                        quantity_on_hand = ?, "
+            "                        last_used_at = ?, last_used_source = ? "
             "WHERE product_id = ? AND user_id = ?",
-            (new_level, now_str, product_id, owner),
+            (new_level, now_str, new_quantity, now_str, last_used_source, product_id, owner),
+        )
+
+        conn.execute(
+            """
+            INSERT INTO purchase_events
+            (product_id, quantity, event_type, event_date, event_timestamp,
+             user_id, recipe_id, quantity_delta, unit, source_description)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                product_id,
+                int(quantity) if quantity else 1,
+                event_type,
+                now_str[:10],
+                now_str,
+                owner,
+                recipe_id,
+                -float(quantity) if quantity else -deduction,
+                unit,
+                last_used_source,
+            ),
         )
 
         if new_level <= 5 and previous_level > 5 and last_restocked:
@@ -919,9 +997,188 @@ def consume_from_pantry(
             "previous_level": previous_level,
             "new_level": new_level,
             "amount_deducted": deduction,
+            "previous_quantity": prev_quantity,
+            "new_quantity": new_quantity,
+            "unit": stored_unit,
             "remaining_display": f"{new_level:.1f}%",
             "updated_at": now_str,
+            "last_used_source": last_used_source,
         }
 
+    finally:
+        conn.close()
+
+
+def get_usage_history(
+    product_id: str,
+    days: int = 30,
+    user_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Return recent purchase_events for one pantry product, newest first.
+
+    Powers the sparkline and per-item detail drawer. Includes restocks
+    (order_placed) and consumption (recipe_consumed, manual_use,
+    gap_reconciled, pantry_depleted) so the timeline tells a complete story.
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            """
+            SELECT event_type, event_timestamp, quantity, quantity_delta,
+                   unit, recipe_id, source_description, order_id
+            FROM purchase_events
+            WHERE product_id = ? AND user_id = ? AND event_timestamp >= ?
+            ORDER BY event_timestamp DESC
+            LIMIT 200
+            """,
+            (product_id, owner, cutoff),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+_VALID_GAP_RESOLUTIONS = ("pantry_covered", "user_skipped", "manual_acquired")
+
+
+def create_pending_gap(
+    product_id: str,
+    needed_quantity: float,
+    ordered_quantity: float,
+    unit: str | None = None,
+    recipe_id: str | None = None,
+    recipe_name: str | None = None,
+    product_description: str | None = None,
+    user_id: str | None = None,
+) -> int:
+    """
+    Record that a placed order under-fulfilled a recipe requirement.
+
+    The shortfall stays open until the user reconciles it via resolve_gap,
+    which is how partial fulfillment ("ordered 1 of the 2 cans the recipe
+    needed") becomes a real pantry consumption event.
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO pending_gaps
+            (user_id, recipe_id, recipe_name, product_id, product_description,
+             needed_quantity, ordered_quantity, unit)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                owner,
+                recipe_id,
+                recipe_name,
+                product_id,
+                product_description,
+                needed_quantity,
+                ordered_quantity,
+                unit,
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def list_pending_gaps(user_id: str | None = None) -> list[dict[str, Any]]:
+    """Return unresolved gaps for the gap-reconciliation inbox, newest first."""
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            """
+            SELECT id, recipe_id, recipe_name, product_id, product_description,
+                   needed_quantity, ordered_quantity, unit, created_at
+            FROM pending_gaps
+            WHERE user_id = ? AND resolved_at IS NULL
+            ORDER BY created_at DESC
+            """,
+            (owner,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def resolve_gap(
+    gap_id: int,
+    resolution: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Close a pending gap. If `resolution` is "pantry_covered" the shortfall
+    is deducted from the pantry as a `gap_reconciled` consumption event.
+
+    Raises ValueError on unknown resolution; caller (API/MCP) maps that
+    to a 400.
+    """
+    if resolution not in _VALID_GAP_RESOLUTIONS:
+        raise ValueError(
+            f"resolution must be one of {_VALID_GAP_RESOLUTIONS}, got {resolution!r}"
+        )
+
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT product_id, product_description, recipe_id, recipe_name, "
+            "       needed_quantity, ordered_quantity, unit, resolved_at "
+            "FROM pending_gaps WHERE id = ? AND user_id = ?",
+            (gap_id, owner),
+        )
+        gap = cursor.fetchone()
+        if not gap:
+            return {"success": False, "error": f"Gap {gap_id} not found"}
+        if gap["resolved_at"]:
+            return {"success": False, "error": f"Gap {gap_id} already resolved"}
+
+        shortfall = max(0.0, gap["needed_quantity"] - gap["ordered_quantity"])
+        consumed_result: dict[str, Any] | None = None
+
+        if resolution == "pantry_covered" and shortfall > 0:
+            consumed_result = consume_from_pantry(
+                product_id=gap["product_id"],
+                quantity=shortfall,
+                unit=gap["unit"] or "each",
+                source_type="gap_reconciled",
+                source_id=str(gap_id),
+                source_description=(
+                    f"Gap covered: {gap['recipe_name'] or 'recipe'} "
+                    f"needed {gap['needed_quantity']}, ordered {gap['ordered_quantity']}"
+                ),
+                user_id=owner,
+                recipe_id=gap["recipe_id"],
+                event_type="gap_reconciled",
+            )
+
+        now_str = datetime.now().isoformat()
+        conn.execute(
+            "UPDATE pending_gaps SET resolved_at = ?, resolution = ? WHERE id = ?",
+            (now_str, resolution, gap_id),
+        )
+        conn.commit()
+
+        return {
+            "success": True,
+            "gap_id": gap_id,
+            "resolution": resolution,
+            "shortfall": shortfall,
+            "consumed": consumed_result,
+        }
     finally:
         conn.close()

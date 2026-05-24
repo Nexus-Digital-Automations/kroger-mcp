@@ -545,10 +545,23 @@
                 @keydown.enter.prevent="$el.blur()"
                 @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
                 x-text="ing.name"></span>
-              <span>
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
                 <span x-show="ing.override" style="font-size: 0.6875rem; background: oklch(92% 0.015 80); color: var(--text-2); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Manual</span>
                 <span x-show="!ing.override && ing.product_id" style="font-size: 0.6875rem; background: oklch(91% 0.1 145); color: oklch(30% 0.14 145); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Kroger</span>
                 <span x-show="!ing.override && !ing.product_id" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
+                <template x-if="ing.pantry">
+                  <span class="ss-badge"
+                        :class="ing.pantry.status === 'ok' ? 'ss-badge-ok' : (ing.pantry.status === 'low' ? 'ss-badge-warning' : 'ss-badge-danger')"
+                        :title="'Pantry level: ' + ing.pantry.level_percent + '%' + (ing.pantry.quantity_on_hand !== null ? (' · ' + ing.pantry.quantity_on_hand + (ing.pantry.unit ? ' ' + ing.pantry.unit : '')) : '')"
+                        style="font-size: 0.625rem;">
+                    <template x-if="ing.pantry.quantity_on_hand !== null">
+                      <span><span x-text="ing.pantry.quantity_on_hand"></span><template x-if="ing.pantry.unit"><span> <span x-text="ing.pantry.unit"></span></span></template> in pantry</span>
+                    </template>
+                    <template x-if="ing.pantry.quantity_on_hand === null">
+                      <span>Pantry <span x-text="ing.pantry.level_percent"></span>%</span>
+                    </template>
+                  </span>
+                </template>
               </span>
               <div x-show="ing.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
                 <button @click.stop="pop = !pop"

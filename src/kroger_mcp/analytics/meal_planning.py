@@ -1319,6 +1319,8 @@ def mark_meal_cooked(
                         source_id=str(entry_id),
                         source_description=(f"{recipe_name} — {meal_slot} on {meal_date}"),
                         user_id=owner,
+                        recipe_id=recipe_id,
+                        event_type="recipe_consumed",
                     )
                     if result.get("success"):
                         deduction_summary.append(

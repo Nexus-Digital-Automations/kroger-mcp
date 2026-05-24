@@ -131,6 +131,55 @@
   </div>
 </div>
 
+{% if pending_gaps %}
+<div class="ss-card overflow-hidden mb-5" style="border-left: 3px solid var(--amber);">
+  <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);">
+    <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-1);">
+      Gaps to reconcile
+      <span style="color: var(--text-3); font-weight: 400; margin-left: 0.25rem;">
+        ({{ pending_gaps | length }})
+      </span>
+    </h2>
+    <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.25rem;">
+      A recipe needed more than we ordered. Confirm whether the difference came from pantry.
+    </p>
+  </div>
+  <ul style="list-style: none; margin: 0; padding: 0;">
+    {% for gap in pending_gaps %}
+    <li class="ss-gap-row"
+        data-gap-id="{{ gap.id }}"
+        style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border-soft, var(--border));">
+      <div style="flex: 1; min-width: 0;">
+        <p style="font-size: 0.8125rem; font-weight: 500; color: var(--text-1);">
+          {{ gap.product_description or gap.product_id }}
+        </p>
+        <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.125rem;">
+          {{ gap.recipe_name or 'Recipe' }} needed
+          <strong>{{ '%g' % gap.needed_quantity }}{% if gap.unit %} {{ gap.unit }}{% endif %}</strong>,
+          ordered
+          <strong>{{ '%g' % gap.ordered_quantity }}</strong>.
+          {% set shortfall = gap.needed_quantity - gap.ordered_quantity %}
+          {% if shortfall > 0 %}Shortfall: <strong>{{ '%g' % shortfall }}</strong>.{% endif %}
+        </p>
+      </div>
+      <button class="ss-btn-primary" style="padding: 0.25rem 0.625rem; font-size: 0.75rem;"
+              data-gap-resolve="pantry_covered" data-gap-id="{{ gap.id }}">
+        Use from pantry
+      </button>
+      <button class="ss-btn-secondary" style="padding: 0.25rem 0.625rem; font-size: 0.75rem;"
+              data-gap-resolve="user_skipped" data-gap-id="{{ gap.id }}">
+        Skip it
+      </button>
+      <button class="ss-btn-secondary" style="padding: 0.25rem 0.625rem; font-size: 0.75rem;"
+              data-gap-resolve="manual_acquired" data-gap-id="{{ gap.id }}">
+        Got it elsewhere
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {% if not all_items %}
 <div style="text-align: center; padding: 4rem 1rem;">
   <p style="font-size: 0.875rem; color: var(--text-3);">No pantry items tracked yet. Add items to cart through Claude to start tracking.</p>
@@ -147,6 +196,9 @@
       <tr>
         <th class="ss-table-th">Item</th>
         <th class="ss-table-th w-48">Level</th>
+        <th class="ss-table-th" style="text-align: right;">On Hand</th>
+        <th class="ss-table-th" style="width: 80px;">Trend</th>
+        <th class="ss-table-th">Last Used</th>
         <th class="ss-table-th" style="text-align: center;">Status</th>
         <th class="ss-table-th" style="text-align: right;">Days Left</th>
         <th class="ss-table-th" style="text-align: right;">Expiration</th>
@@ -174,6 +226,31 @@
             </div>
             <span style="font-size: 0.75rem; color: var(--text-3); width: 2rem; text-align: right;">{{ level }}%</span>
           </div>
+        </td>
+        <td style="padding: 0.75rem 1rem; text-align: right; font-size: 0.75rem; color: var(--text-2); font-variant-numeric: tabular-nums;">
+          {% if item.quantity_on_hand is not none %}
+            {{ '%g' % item.quantity_on_hand }}{% if item.unit %} {{ item.unit }}{% endif %}
+          {% else %}
+            <span style="color: var(--text-3);">—</span>
+          {% endif %}
+        </td>
+        <td style="padding: 0.75rem 0.5rem;">
+          <span class="ss-spark" data-spark-pid="{{ item.product_id }}"
+                style="display: inline-block; width: 72px; height: 18px; color: var(--text-3);">
+            <svg width="72" height="18" viewBox="0 0 72 18" xmlns="http://www.w3.org/2000/svg">
+              <line x1="0" y1="14" x2="72" y2="14" stroke="currentColor" stroke-width="0.5" opacity="0.25"/>
+            </svg>
+          </span>
+        </td>
+        <td style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--text-2);">
+          {% if item.last_used_at %}
+            <span data-relative-time="{{ item.last_used_at }}" title="{{ item.last_used_at }}">{{ item.last_used_at[:10] }}</span>
+            {% if item.last_used_source %}
+              <span style="display: block; font-size: 0.6875rem; color: var(--text-3); margin-top: 0.125rem;">{{ item.last_used_source }}</span>
+            {% endif %}
+          {% else %}
+            <span style="color: var(--text-3);">—</span>
+          {% endif %}
         </td>
         <td style="padding: 0.75rem 1rem; text-align: center;">
           {% if status == 'out' %}
@@ -257,6 +334,14 @@
               </button>
             </template>
 
+            <!-- Details drawer trigger -->
+            <button @click="$dispatch('open-pantry-detail', { pid: '{{ item.product_id }}', desc: {{ (item.description or item.product_id) | tojson }}, qty: {{ (item.quantity_on_hand if item.quantity_on_hand is not none else 'null') }}, unit: {{ (item.unit or '') | tojson }} })"
+                    title="View history & details"
+                    class="ss-btn-secondary"
+                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+              Details
+            </button>
+
             <!-- Restock to 100% -->
             <button x-data="{ busy: false }"
                     :disabled="busy"
@@ -297,4 +382,200 @@
 </div>
 
 {% endif %}
+
+<!-- Per-item detail drawer (Alpine) -->
+<div x-data="pantryDetail()"
+     x-show="open"
+     x-cloak
+     class="ss-modal-overlay"
+     @keydown.escape.window="open = false"
+     @open-pantry-detail.window="show($event.detail)">
+  <div class="ss-modal-card mx-4" style="max-width: 36rem;" @click.stop>
+    <div class="flex items-start justify-between mb-3">
+      <div>
+        <h3 style="font-family: 'Lora', serif; font-size: 1rem; font-weight: 600; color: var(--text-1);"
+            x-text="desc"></h3>
+        <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.125rem;">
+          <span x-text="pid"></span>
+          <template x-if="qty !== null">
+            <span> · <span x-text="qty"></span> <span x-text="unit"></span> on hand</span>
+          </template>
+        </p>
+      </div>
+      <button @click="open = false" class="ss-btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">✕</button>
+    </div>
+
+    <h4 style="font-size: 0.75rem; font-weight: 600; color: var(--text-2); margin: 1rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">
+      Recent activity (last 30 days)
+    </h4>
+    <div x-show="loading" style="font-size: 0.8125rem; color: var(--text-3);">Loading…</div>
+    <div x-show="!loading && !events.length" style="font-size: 0.8125rem; color: var(--text-3);">No recorded events.</div>
+    <ul x-show="!loading && events.length" style="list-style: none; margin: 0; padding: 0; max-height: 22rem; overflow-y: auto;">
+      <template x-for="ev in events" :key="ev.event_timestamp + ev.event_type">
+        <li style="display: grid; grid-template-columns: 6rem 1fr auto; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border-soft, var(--border)); font-size: 0.8125rem;">
+          <span style="color: var(--text-3); font-variant-numeric: tabular-nums;" x-text="formatDate(ev.event_timestamp)"></span>
+          <span>
+            <span class="ss-badge" :class="badgeClass(ev.event_type)" x-text="labelFor(ev.event_type)"></span>
+            <template x-if="ev.source_description">
+              <span style="color: var(--text-2); margin-left: 0.5rem;" x-text="ev.source_description"></span>
+            </template>
+          </span>
+          <span style="color: var(--text-2); font-variant-numeric: tabular-nums;" x-text="formatDelta(ev)"></span>
+        </li>
+      </template>
+    </ul>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.ss-spark[data-spark-pid]').forEach(function (el) {
+      var pid = el.getAttribute('data-spark-pid');
+      fetch('/api/pantry/' + encodeURIComponent(pid) + '/history?days=30')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (payload) {
+          if (!payload || !payload.events || !payload.events.length) return;
+          renderSpark(el, payload.events);
+        })
+        .catch(function () { /* sparkline failure must not block the table */ });
+    });
+
+    document.querySelectorAll('[data-relative-time]').forEach(function (el) {
+      var iso = el.getAttribute('data-relative-time');
+      var rel = relativeTime(iso);
+      if (rel) el.textContent = rel;
+    });
+
+    document.querySelectorAll('[data-gap-resolve]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var gapId = btn.getAttribute('data-gap-id');
+        var resolution = btn.getAttribute('data-gap-resolve');
+        btn.disabled = true;
+        fetch('/api/pantry/gaps/' + gapId + '/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resolution: resolution })
+        })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, body: d }; }); })
+          .then(function (res) {
+            if (!res.ok || !res.body.success) {
+              alert(res.body.error || 'Failed to resolve gap');
+              btn.disabled = false;
+              return;
+            }
+            window.location.reload();
+          })
+          .catch(function () { alert('Network error'); btn.disabled = false; });
+      });
+    });
+  });
+
+  // SVG built via DOM API (no innerHTML) so the security hook stays happy.
+  function renderSpark(container, events) {
+    var width = 72, height = 18, pad = 1;
+    var byDay = {};
+    var now = new Date();
+    for (var i = 29; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      byDay[d.toISOString().slice(0, 10)] = 0;
+    }
+    events.forEach(function (ev) {
+      var key = (ev.event_timestamp || '').slice(0, 10);
+      if (!(key in byDay)) return;
+      var delta = Math.abs(parseFloat(ev.quantity_delta) || parseFloat(ev.quantity) || 0);
+      byDay[key] += delta;
+    });
+    var values = Object.keys(byDay).sort().map(function (k) { return byDay[k]; });
+    var max = Math.max.apply(null, values.concat([1]));
+    var stepX = (width - pad * 2) / Math.max(values.length - 1, 1);
+    var pts = values.map(function (v, i) {
+      var x = pad + i * stepX;
+      var y = height - pad - (v / max) * (height - pad * 2);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+
+    var svgNs = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(svgNs, 'svg');
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
+    svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+    var poly = document.createElementNS(svgNs, 'polyline');
+    poly.setAttribute('points', pts);
+    poly.setAttribute('fill', 'none');
+    poly.setAttribute('stroke', 'currentColor');
+    poly.setAttribute('stroke-width', '1.25');
+    poly.setAttribute('stroke-linejoin', 'round');
+    poly.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(poly);
+
+    while (container.firstChild) container.removeChild(container.firstChild);
+    container.appendChild(svg);
+    container.style.color = 'var(--success)';
+  }
+
+  function relativeTime(iso) {
+    if (!iso) return null;
+    var then = new Date(iso);
+    if (isNaN(then)) return null;
+    var s = Math.round((Date.now() - then.getTime()) / 1000);
+    if (s < 60) return 'just now';
+    var m = Math.round(s / 60);
+    if (m < 60) return m + 'm ago';
+    var h = Math.round(m / 60);
+    if (h < 24) return h + 'h ago';
+    var d = Math.round(h / 24);
+    if (d < 30) return d + 'd ago';
+    var mo = Math.round(d / 30);
+    if (mo < 12) return mo + 'mo ago';
+    return Math.round(mo / 12) + 'y ago';
+  }
+
+  function pantryDetail() {
+    return {
+      open: false, pid: '', desc: '', qty: null, unit: '',
+      events: [], loading: false,
+      show: function (detail) {
+        this.pid = detail.pid;
+        this.desc = detail.desc;
+        this.qty = (detail.qty === null || detail.qty === undefined) ? null : detail.qty;
+        this.unit = detail.unit || '';
+        this.events = [];
+        this.open = true;
+        this.loading = true;
+        var self = this;
+        fetch('/api/pantry/' + encodeURIComponent(this.pid) + '/history?days=30')
+          .then(function (r) { return r.json(); })
+          .then(function (payload) { self.events = (payload && payload.events) || []; })
+          .catch(function () { /* drawer remains empty on failure */ })
+          .finally(function () { self.loading = false; });
+      },
+      formatDate: function (iso) { return iso ? iso.slice(0, 10) : ''; },
+      labelFor: function (t) {
+        return ({
+          order_placed: 'Ordered',
+          pantry_depleted: 'Depleted',
+          recipe_consumed: 'Cooked',
+          manual_use: 'Manual',
+          gap_reconciled: 'Gap covered',
+        })[t] || t;
+      },
+      badgeClass: function (t) {
+        if (t === 'order_placed') return 'ss-badge-ok';
+        if (t === 'pantry_depleted') return 'ss-badge-danger';
+        return 'ss-badge-warning';
+      },
+      formatDelta: function (ev) {
+        var d = parseFloat(ev.quantity_delta);
+        var u = ev.unit ? ' ' + ev.unit : '';
+        if (!isNaN(d)) {
+          var sign = d < 0 ? '−' : '+';
+          return sign + Math.abs(d) + u;
+        }
+        var q = parseFloat(ev.quantity);
+        return isNaN(q) ? '' : ('+' + q + u);
+      }
+    };
+  }
+</script>
+
 {% endblock %}

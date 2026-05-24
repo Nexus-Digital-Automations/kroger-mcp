@@ -258,6 +258,37 @@ async def recipe_detail(request: Request, recipe_id: str):
                     ing["category"] = cat
                     break
 
+    # Pantry-availability badges per ingredient so the user sees what's already
+    # in stock without opening the pantry page first.
+    try:
+        from kroger_mcp.analytics.pantry import get_pantry_status
+        from kroger_mcp.auth.dependencies import current_user_id
+
+        pantry_lookup = {
+            item["product_id"]: item
+            for item in get_pantry_status(
+                apply_depletion=True, user_id=current_user_id(request)
+            )
+        }
+        for ing in ingredients:
+            pid = ing.get("product_id")
+            if not pid:
+                ing["pantry"] = None
+                continue
+            stocked = pantry_lookup.get(pid)
+            if not stocked:
+                ing["pantry"] = None
+                continue
+            ing["pantry"] = {
+                "level_percent": stocked.get("level_percent"),
+                "status": stocked.get("status"),
+                "quantity_on_hand": stocked.get("quantity_on_hand"),
+                "unit": stocked.get("unit"),
+            }
+    except Exception:
+        for ing in ingredients:
+            ing.setdefault("pantry", None)
+
     return templates.TemplateResponse(request, "recipe_detail.html",
         {
             "active_page": "recipes",

@@ -16,7 +16,6 @@ import asyncio
 import json
 import logging
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 from kroger_api.kroger_api import KrogerAPI

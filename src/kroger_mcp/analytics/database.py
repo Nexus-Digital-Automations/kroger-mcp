@@ -607,11 +607,59 @@ def run_schema_migrations() -> None:
         pantry_items_new_columns = [
             ("expiration_date", "TEXT DEFAULT NULL"),
             ("days_to_expiration", "INTEGER DEFAULT NULL"),
+            ("quantity_on_hand", "REAL DEFAULT NULL"),
+            ("unit", "TEXT DEFAULT NULL"),
+            ("last_used_at", "TEXT DEFAULT NULL"),
+            ("last_used_source", "TEXT DEFAULT NULL"),
         ]
 
         for col_name, col_def in pantry_items_new_columns:
             if col_name not in pantry_items_columns:
                 conn.execute(f"ALTER TABLE pantry_items ADD COLUMN {col_name} {col_def}")
+
+        # Enrich purchase_events for source-attributed consumption.
+        # event_type CHECK is intentionally NOT added; existing rows use free-form
+        # values (order_placed, pantry_depleted) and SQLite cannot ALTER CHECK in place.
+        cursor = conn.execute("PRAGMA table_info(purchase_events)")
+        purchase_events_columns = {row[1] for row in cursor.fetchall()}
+        purchase_events_new_columns = [
+            ("recipe_id", "TEXT DEFAULT NULL"),
+            ("quantity_delta", "REAL DEFAULT NULL"),
+            ("unit", "TEXT DEFAULT NULL"),
+            ("source_description", "TEXT DEFAULT NULL"),
+        ]
+        for col_name, col_def in purchase_events_new_columns:
+            if col_name not in purchase_events_columns:
+                conn.execute(f"ALTER TABLE purchase_events ADD COLUMN {col_name} {col_def}")
+
+        # Gap reconciliation: tracks shortfalls where a placed order delivered
+        # less of a product than a contributing recipe required.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pending_gaps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                recipe_id TEXT,
+                recipe_name TEXT,
+                product_id TEXT NOT NULL,
+                product_description TEXT,
+                needed_quantity REAL NOT NULL,
+                ordered_quantity REAL NOT NULL,
+                unit TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TEXT,
+                resolution TEXT
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pending_gaps_user_unresolved "
+            "ON pending_gaps(user_id, resolved_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pending_gaps_product "
+            "ON pending_gaps(product_id)"
+        )
 
         # Migrate favorite_list_items table - add minimum stock tracking
         cursor = conn.execute("PRAGMA table_info(favorite_list_items)")
