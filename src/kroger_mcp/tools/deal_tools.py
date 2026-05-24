@@ -36,6 +36,7 @@ def register_tools(mcp):
             "find",
             "add_to_watchlist",
             "get_price_history",
+            "score_quality",
             "scan_watchlist",
             "get_latest_scan",
         ] = Field(
@@ -43,6 +44,7 @@ def register_tools(mcp):
                 "find — search deals by term or category. "
                 "add_to_watchlist — batch via product_ids (max 30). "
                 "scan_watchlist — scans watchlist + favorites + low-pantry. "
+                "score_quality — rate one product's current deal vs. its 30-day price history. "
                 "get_price_history|get_latest_scan"
             )
         ),
@@ -212,7 +214,7 @@ def register_tools(mcp):
                 for query in search_queries:
                     try:
                         client = get_client_credentials_client()
-                        search_response = client.search_products(
+                        search_response = client.product.search_products(
                             term=query,
                             location_id=location_id,
                             limit=50,
@@ -357,7 +359,7 @@ def register_tools(mcp):
                             if loc_id:
                                 try:
                                     client = get_client_credentials_client()
-                                    product_response = client.get_product(
+                                    product_response = client.product.get_product(
                                         product_id=pid, location_id=loc_id
                                     )
                                     if product_response and "data" in product_response:
@@ -490,7 +492,7 @@ def register_tools(mcp):
                 try:
                     if loc_id:
                         client = get_client_credentials_client()
-                        product_response = client.get_product(
+                        product_response = client.product.get_product(
                             product_id=product_id, location_id=loc_id
                         )
                         if product_response and "data" in product_response:
@@ -518,6 +520,72 @@ def register_tools(mcp):
                     },
                     "price_timeline": timeline[:30],
                     "observations_count": stats["observations_count"],
+                }
+
+            case "score_quality":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+
+                loc_id = location_id or get_preferred_location_id()
+                try:
+                    client = get_client_credentials_client()
+                    product_response = client.product.get_product(
+                        product_id=product_id, location_id=loc_id
+                    )
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"Failed to fetch product {product_id}: {str(e)}",
+                    }
+
+                if not product_response or "data" not in product_response:
+                    return {
+                        "success": False,
+                        "error": f"Product {product_id} not found at location {loc_id}",
+                    }
+
+                product = product_response.get("data", {})
+                pricing = product.get("pricing", {})
+                regular = pricing.get("regular_price")
+                sale = pricing.get("sale_price")
+                savings_amount = (
+                    round(regular - sale, 2) if regular and sale and sale < regular else 0
+                )
+                savings_percent = (
+                    round((savings_amount / regular) * 100, 1) if regular and savings_amount else 0
+                )
+
+                price_stats = get_price_statistics(product_id, days=30, location_id=loc_id)
+                # score_deal_quality reads pricing.savings_percent; the Kroger API
+                # response doesn't include it, so we attach the computed value.
+                pricing_with_savings = {**pricing, "savings_percent": savings_percent}
+                quality = score_deal_quality(
+                    {
+                        "pricing": pricing_with_savings,
+                        "product_id": product_id,
+                        "regular_price": regular,
+                        "sale_price": sale,
+                        "savings_amount": savings_amount,
+                        "savings_percent": savings_percent,
+                    },
+                    price_stats if price_stats.get("has_data") else None,
+                )
+
+                return {
+                    "success": True,
+                    "product_id": product_id,
+                    "description": product.get("description"),
+                    "brand": product.get("brand"),
+                    "regular_price": regular,
+                    "sale_price": sale,
+                    "on_sale": pricing.get("on_sale", False),
+                    "savings_amount": savings_amount,
+                    "savings_percent": savings_percent,
+                    "quality_score": quality.get("quality_score"),
+                    "quality_label": quality.get("quality_label"),
+                    "urgency": quality.get("urgency"),
+                    "factors": quality.get("factors"),
+                    "price_history": price_stats if price_stats.get("has_data") else None,
                 }
 
             case "scan_watchlist":
@@ -617,7 +685,7 @@ def register_tools(mcp):
                 for item in watchlist:
                     try:
                         client = get_client_credentials_client()
-                        product_response = client.get_product(
+                        product_response = client.product.get_product(
                             product_id=item["product_id"], location_id=loc_id
                         )
 

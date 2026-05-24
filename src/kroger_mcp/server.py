@@ -82,6 +82,10 @@ def create_server() -> FastMCP:
         - Access chain and department information
         - User profile management
         - Purchase predictions and smart shopping suggestions
+        - Comprehensive recommendations combining pantry, deals, and predictions
+        - Recipe health scoring and per-location cost estimation
+        - Reports and data export (spending, predictions, patterns, pantry)
+        - Holiday-aware seasonal shopping
         - Item categorization (routine/regular/treat)
         - Ingredient safety filtering for health-optimized shopping
 
@@ -120,8 +124,35 @@ def create_server() -> FastMCP:
         - deals(action='get_price_history') - View price trends and best time to buy
         - deals(action='add_to_watchlist') - Track items for price drops
         - deals(action='scan_watchlist') - Check tracked items for current sales
+        - deals(action='score_quality', product_id=...) - Rate one product's current deal vs. 30-day history
         - deals(action='get_latest_scan') - View results from automated background scans
         - Savings summaries in cart views
+
+        Smart Recommendations:
+        Combine pantry status, deals, predictions, and favorites into one ranked list:
+        - predictions(action='get_smart_recommendations') - Tiered list (urgent / high-value / good-timing / nice-to-have)
+        - predictions(action='explain_recommendation', product_id=...) - Why one product was scored that way
+        - predictions(action='get_seasonal', holiday='thanksgiving') - Items associated with a holiday
+        - predictions(action='get_seasonal') - Upcoming seasonal items (no holiday filter)
+        - predictions(action='get_upcoming_holidays', days_ahead=30) - Holidays whose shop-by date is approaching
+
+        Recipe Analysis:
+        Every saved recipe links its ingredients to Kroger product IDs (or override=True for non-Kroger items):
+        - recipes(action='analyze', recipe_id=...) - Full report: health score, per-location cost, ingredient coverage
+        - recipes(action='preview_order', recipe_id=..., scale=2.0) - Preview what would be ordered (with pantry/skip awareness)
+        - recipes(action='add_to_cart', recipe_id=..., confirm=False) - Preview, then call again with confirm=True
+        - recipes(action='link_ingredient', links=[{recipe_id, ingredient_index, product_id}, ...]) - Batch link unlinked ingredients
+        - recipes.get and recipes.list also auto-include health_score / health_grade
+
+        Reports & Data Export:
+        - reports(action='get_analytics', report_type='spending', days_back=30)
+        - reports(action='get_analytics', report_type='predictions') - Prediction accuracy
+        - reports(action='get_analytics', report_type='patterns') - Purchase patterns
+        - reports(action='get_analytics', report_type='pantry') - Pantry inventory snapshot
+        - reports(action='export_data') - Full export (orders, products, pantry, recipes)
+        - reports(action='check_recipe_pantry', recipe_id=...) - What's needed vs. what's stocked
+        - reports(action='generate_shopping_list', recipe_ids=[...]) - Multi-recipe consolidated list
+        - reports(action='get_cookable_recipes') - Which saved recipes you can make right now
 
         Background Scanning (Optional):
         Configure automated deal scanning via launchd (Mon/Thu 9 AM):

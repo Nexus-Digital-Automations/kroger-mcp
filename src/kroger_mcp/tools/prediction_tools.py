@@ -24,6 +24,100 @@ def _get_session_id(ctx) -> str:
     return "default"
 
 
+def _build_recommendation_context(product_id: str) -> dict[str, Any] | None:
+    """Assemble the product_data dict that calculate_recommendation_score expects.
+
+    Mirrors the join performed inside get_comprehensive_recommendations so
+    explain_recommendation can score one product on demand without re-running
+    the full sweep. Returns None when the product has no purchase statistics.
+    """
+    from ..analytics.database import ensure_initialized, get_db_connection
+    from ..analytics.deals import get_price_statistics
+    from ..analytics.favorites import get_all_favorite_product_ids
+    from ..analytics.pantry import calculate_days_to_expiration
+    from ..analytics.predictions import predict_repurchase_date
+
+    ensure_initialized()
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            """
+            SELECT
+                ps.product_id,
+                p.description,
+                p.brand,
+                ps.total_purchases,
+                ps.avg_days_between_purchases,
+                ps.last_purchase_date,
+                ps.detected_category,
+                ps.purchase_frequency_score,
+                pi.level_percent AS pantry_level,
+                pi.expiration_date
+            FROM product_statistics ps
+            LEFT JOIN products p ON ps.product_id = p.product_id
+            LEFT JOIN pantry_items pi ON ps.product_id = pi.product_id
+            WHERE ps.product_id = ?
+            """,
+            (product_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+
+        favorite_ids = get_all_favorite_product_ids()
+        product_data: dict[str, Any] = {
+            "product_id": product_id,
+            "description": row["description"],
+            "brand": row["brand"],
+            "total_purchases": row["total_purchases"],
+            "avg_days_between": row["avg_days_between_purchases"],
+            "last_purchase_date": row["last_purchase_date"],
+            "category": row["detected_category"],
+            "purchase_frequency_score": row["purchase_frequency_score"] or 0,
+            "pantry_level": row["pantry_level"],
+            "in_favorites": product_id in favorite_ids,
+            "expiration_date": row["expiration_date"],
+            "days_to_expiration": calculate_days_to_expiration(row["expiration_date"]),
+        }
+
+        if row["last_purchase_date"]:
+            try:
+                last_purchase = datetime.fromisoformat(row["last_purchase_date"])
+                product_data["last_purchase_days_ago"] = (datetime.now() - last_purchase).days
+            except (ValueError, TypeError):
+                pass
+
+        prediction = predict_repurchase_date(
+            product_id,
+            {
+                "product_id": product_id,
+                "description": row["description"],
+                "total_purchases": row["total_purchases"],
+                "avg_days_between_purchases": row["avg_days_between_purchases"],
+                "last_purchase_date": row["last_purchase_date"],
+                "category_type": row["detected_category"],
+            },
+        )
+        product_data["predicted_date"] = (
+            prediction.predicted_date.isoformat() if prediction.predicted_date else None
+        )
+        product_data["days_until_purchase"] = prediction.days_until
+        product_data["prediction_confidence"] = prediction.confidence
+
+        price_stats = get_price_statistics(product_id)
+        if price_stats:
+            product_data["current_price"] = price_stats.get("current_price")
+            product_data["on_sale"] = price_stats.get("on_sale", False)
+            product_data["savings_percent"] = price_stats.get("savings_percent", 0)
+            product_data["savings_amount"] = price_stats.get("savings_amount", 0)
+            product_data["avg_price_30d"] = price_stats.get("avg_price_30d")
+            product_data["min_price_30d"] = price_stats.get("min_price_30d")
+
+        return product_data
+    finally:
+        conn.close()
+
+
 def register_tools(mcp):
     """Register prediction and analytics tools with the FastMCP server."""
 
@@ -449,7 +543,9 @@ def register_tools(mcp):
             "get_history",
             "get_suggestions",
             "get_smart_recommendations",
+            "explain_recommendation",
             "get_seasonal",
+            "get_upcoming_holidays",
             "migrate_data",
             "get_category_summary",
             "configure",
@@ -458,9 +554,12 @@ def register_tools(mcp):
         ] = Field(
             description=(
                 "get_smart_recommendations — combines pantry, deals, favorites, predictions. "
+                "explain_recommendation — why product_id was scored that way (factor breakdown). "
                 "get_predictions — when items need reordering. "
                 "categorize — set routine|regular|treat (batch: items, max 50). "
-                "Other: get_item_stats|get_by_category|get_history|get_suggestions|get_seasonal|migrate_data|get_category_summary|configure|get_config|reset_config"
+                "get_seasonal — items for holiday= (or upcoming seasonal if omitted). "
+                "get_upcoming_holidays — holidays whose shop-by date falls within days_ahead. "
+                "Other: get_item_stats|get_by_category|get_history|get_suggestions|migrate_data|get_category_summary|configure|get_config|reset_config"
             )
         ),
         days_ahead: int | None = Field(
@@ -978,6 +1077,58 @@ def register_tools(mcp):
                         }
                 except Exception as e:
                     return {"success": False, "error": f"Failed to get seasonal items: {str(e)}"}
+
+            case "get_upcoming_holidays":
+                try:
+                    from ..analytics.seasonal import get_upcoming_holidays
+
+                    _days = days_ahead if days_ahead is not None else 30
+                    upcoming = get_upcoming_holidays(_days)
+                    return {
+                        "success": True,
+                        "days_ahead": _days,
+                        "holidays": upcoming,
+                        "count": len(upcoming),
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"Failed to get upcoming holidays: {str(e)}",
+                    }
+
+            case "explain_recommendation":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+                try:
+                    from ..analytics.recommendations import (
+                        _build_reason_summary,
+                        calculate_recommendation_score,
+                        get_priority_tier,
+                    )
+
+                    product_data = _build_recommendation_context(product_id)
+                    if product_data is None:
+                        return {
+                            "success": False,
+                            "error": f"No purchase statistics for product {product_id}",
+                        }
+
+                    score, factors = calculate_recommendation_score(product_data)
+                    return {
+                        "success": True,
+                        "product_id": product_id,
+                        "description": product_data.get("description"),
+                        "score": score,
+                        "priority_tier": get_priority_tier(score),
+                        "reason_summary": _build_reason_summary(factors, product_data),
+                        "factors": factors,
+                        "context": product_data,
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"Failed to explain recommendation: {str(e)}",
+                    }
 
             case "migrate_data":
                 try:
