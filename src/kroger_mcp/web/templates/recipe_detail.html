@@ -8,11 +8,18 @@
 {% block content %}
 
 <style>
-  /* Click-to-edit affordance shared by header, ingredient cells, and steps.
-     We don't show a visible border by default (it'd be noisy) — just a
-     subtle hover background so the cursor reveals what's editable. */
-  .ss-inline-edit:hover { background: oklch(96% 0.012 80) !important; }
-  .ss-inline-edit:focus { background: oklch(95% 0.015 80) !important; box-shadow: 0 0 0 2px oklch(85% 0.05 145); }
+  /* Page mode: [data-recipe-mode="view"] is the default reading state,
+     [data-recipe-mode="edit"] reveals every editor affordance. Most
+     control-hiding happens here as a single CSS rule instead of dozens
+     of x-show bindings on the markup. */
+
+  [data-recipe-mode="view"] .edit-only { display: none !important; }
+  [data-recipe-mode="edit"] .view-only { display: none !important; }
+
+  /* Inline-edit hover/focus affordances only fire in edit mode.
+     Keep the empty-placeholder hint, but only when editing. */
+  [data-recipe-mode="edit"] .ss-inline-edit:hover { background: oklch(96% 0.012 80); }
+  [data-recipe-mode="edit"] .ss-inline-edit:focus { background: oklch(95% 0.015 80); box-shadow: 0 0 0 2px oklch(85% 0.05 145); }
   .ss-inline-edit[data-placeholder]:empty:before {
     content: attr(data-placeholder);
     color: var(--text-3);
@@ -20,6 +27,14 @@
     font-style: italic;
     pointer-events: none;
   }
+  [data-recipe-mode="view"] .ss-inline-edit[data-placeholder]:empty:before { content: none; }
+  [data-recipe-mode="view"] .ss-inline-edit { cursor: default; }
+  /* Collapse empty placeholder fields in view mode so they don't reserve
+     blank vertical space (e.g. a recipe with no description). */
+  [data-recipe-mode="view"] .ss-inline-edit[data-placeholder]:empty {
+    display: none;
+  }
+
   .ss-row-action {
     background: transparent;
     border: 1px solid transparent;
@@ -33,9 +48,157 @@
   }
   .ss-row-action:hover { color: var(--text-1); background: oklch(96% 0.012 80); border-color: var(--border); }
   .ss-row-action.is-danger:hover { color: oklch(45% 0.18 25); border-color: oklch(80% 0.08 25); background: oklch(96% 0.04 25); }
+
+  /* ─── Mode toggle button ──────────────────────────────────────────── */
+  .recipe-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 99px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-2);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s ease-out;
+    white-space: nowrap;
+  }
+  .recipe-mode-toggle:hover { color: var(--text-1); border-color: oklch(75% 0.04 60); }
+  [data-recipe-mode="edit"] .recipe-mode-toggle {
+    background: var(--green);
+    color: white;
+    border-color: var(--green);
+  }
+  [data-recipe-mode="edit"] .recipe-mode-toggle:hover { background: oklch(40% 0.1 155); border-color: oklch(40% 0.1 155); }
+  .recipe-mode-toggle svg { width: 0.7rem; height: 0.7rem; }
+
+  /* ─── View-mode ingredient row: flowing list, not a grid table ──── */
+  [data-recipe-mode="view"] [data-ingredient-row] {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.55rem 0 !important;
+    border-bottom: 1px solid oklch(94% 0.008 70) !important;
+  }
+  [data-recipe-mode="view"] .ing-qty {
+    min-width: 3.5rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-2);
+    font-size: 0.875rem;
+  }
+  [data-recipe-mode="view"] .ing-unit {
+    color: var(--text-3);
+    font-size: 0.8rem;
+  }
+  [data-recipe-mode="view"] .ing-unit:empty { display: none; }
+  [data-recipe-mode="view"] .ing-name {
+    flex: 1;
+    min-width: 12rem;
+    color: var(--text-1);
+    font-size: 0.9375rem;
+  }
+
+  /* Hide editor-only ingredient columns in view mode */
+  [data-recipe-mode="view"] .ing-columns,
+  [data-recipe-mode="view"] .ing-source-pill { display: none !important; }
+
+  /* Quiet the category band in view mode — it becomes a small caption,
+     not a colored pill. Distinct visual rhythm vs the bright editor band. */
+  [data-recipe-mode="view"] .ing-category-band {
+    background: transparent !important;
+    color: var(--text-3) !important;
+    font-size: 0.625rem !important;
+    letter-spacing: 0.14em !important;
+    padding: 0.85rem 0 0.25rem !important;
+    margin: 0 !important;
+    border-bottom: 1px solid oklch(94% 0.008 70);
+    border-radius: 0 !important;
+  }
+  [data-recipe-mode="view"] .ing-category-band .cat-dot { opacity: 0.6; }
+  [data-recipe-mode="view"] .ing-category-band .cat-count { display: none; }
+
+  /* ─── Compact badges in view mode ─────────────────────────────────── */
+  .badge-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    vertical-align: 0.05em;
+  }
+  .badge-dot.dot-ok     { background: oklch(60% 0.14 155); }
+  .badge-dot.dot-warn   { background: oklch(72% 0.15 75); }
+  .badge-dot.dot-danger { background: oklch(60% 0.18 25); }
+
+  .ing-grade-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 0.3rem;
+    font-family: 'Lora', serif;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    vertical-align: 0.1em;
+  }
+
+  .health-pill-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.4rem;
+    height: 1.4rem;
+    padding: 0 0.45rem;
+    border-radius: 0.3rem;
+    font-family: 'Lora', serif;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  [data-recipe-mode="view"] .health-pill-full { display: none; }
+  [data-recipe-mode="edit"] .health-pill-compact { display: none; }
+
+  /* ─── Instructions list in view mode: roomier, serif numbers ─────── */
+  [data-recipe-mode="view"] .step-row {
+    grid-template-columns: 1.75rem 1fr auto !important;
+    padding: 0.7rem 0 !important;
+    border-bottom: 1px solid oklch(94% 0.008 70) !important;
+    align-items: baseline;
+  }
+  [data-recipe-mode="view"] .step-number {
+    font-family: 'Lora', serif !important;
+    font-size: 1rem !important;
+    color: var(--text-3) !important;
+    font-style: italic;
+  }
+  [data-recipe-mode="view"] .step-text {
+    font-size: 0.9375rem !important;
+    line-height: 1.65 !important;
+    color: var(--text-1) !important;
+  }
+
+  /* ─── Header typography polish for view mode ─────────────────────── */
+  [data-recipe-mode="view"] .recipe-h1 { letter-spacing: -0.025em; }
 </style>
 
 {{ recipe_add_modal() }}
+
+<!-- Recipe page mode root. data-recipe-mode flips between "view" (default
+     reading state) and "edit" (full inline-editing UI). The CSS in <style>
+     reads this attribute to hide/show controls without per-element x-show. -->
+<div x-data
+     :data-recipe-mode="$store.recipeMode.editing ? 'edit' : 'view'"
+     @keydown.window.escape="$store.recipeMode.editing = false"
+     @keydown.window.e="!$store.recipeMode.editing && !['INPUT','TEXTAREA','SELECT'].includes(($event.target||{}).tagName) && !($event.target||{}).isContentEditable && ($store.recipeMode.editing = true)">
 
 <!-- Back link -->
 <a href="/recipes" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 mb-6 transition-colors">
@@ -107,16 +270,29 @@
   </div>
 
   <div class="flex items-start justify-between gap-4 mb-3">
-    <h2 class="font-bold text-gray-900 ss-inline-edit"
-      style="font-family:'Lora',serif; font-size:2rem; line-height:1.15; letter-spacing:-0.02em; flex:1; min-width:0; cursor:text; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; outline:none; transition:background 0.15s;"
-      contenteditable="plaintext-only" spellcheck="false"
-      title="Click to edit"
+    <h2 class="font-bold text-gray-900 ss-inline-edit recipe-h1"
+      style="font-family:'Lora',serif; font-size:2rem; line-height:1.15; letter-spacing:-0.02em; flex:1; min-width:0; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; outline:none; transition:background 0.15s;"
+      :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+      :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+      spellcheck="false"
+      :title="$store.recipeMode.editing ? 'Click to edit' : ''"
       @focus="$el.dataset.original = $el.innerText.trim(); $el.style.background='oklch(95% 0.015 80)';"
       @blur="$el.style.background=''; inlineEdit('name', $el)"
       @keydown.enter.prevent="$el.blur()"
       @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
     >{{ recipe.name }}</h2>
-    <div class="flex-shrink-0">
+    <div class="flex-shrink-0 flex items-center gap-2">
+      <button type="button" class="recipe-mode-toggle"
+        @click="$store.recipeMode.editing = !$store.recipeMode.editing"
+        :title="$store.recipeMode.editing ? 'Exit edit mode (Esc)' : 'Edit recipe (e)'">
+        <svg x-show="!$store.recipeMode.editing" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+        </svg>
+        <svg x-show="$store.recipeMode.editing" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span x-text="$store.recipeMode.editing ? 'Done' : 'Edit'"></span>
+      </button>
       {{ action_menu('recipe', item_expr=({"id": recipe.id, "name": recipe.name} | tojson)) }}
     </div>
   </div>
@@ -125,10 +301,12 @@
        prompting the user to click. The :empty:before CSS hook lives in
        base styles via the ss-inline-edit class. -->
   <p class="text-gray-600 mb-4 ss-inline-edit"
-    style="font-size:0.9375rem; line-height:1.55; max-width:62ch; cursor:text; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; min-height:1.55em; outline:none; transition:background 0.15s;"
+    style="font-size:0.9375rem; line-height:1.55; max-width:62ch; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; min-height:1.55em; outline:none; transition:background 0.15s;"
+    :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
     data-placeholder="Add a description…"
-    contenteditable="plaintext-only" spellcheck="false"
-    title="Click to edit"
+    :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+    spellcheck="false"
+    :title="$store.recipeMode.editing ? 'Click to edit' : ''"
     @focus="$el.dataset.original = $el.innerText.trim(); $el.style.background='oklch(95% 0.015 80)';"
     @blur="$el.style.background=''; inlineEdit('description', $el)"
     @keydown.enter.prevent="$el.blur()"
@@ -141,10 +319,12 @@
          which is the default the ingredient stepper starts at). -->
     <span style="display:inline-flex; align-items:baseline; gap:0.25rem;">
       <span class="ss-inline-edit"
-        style="cursor:text; border-radius:0.25rem; padding:0 0.25rem; outline:none; transition:background 0.15s; font-variant-numeric: tabular-nums;"
-        contenteditable="plaintext-only" spellcheck="false"
+        style="border-radius:0.25rem; padding:0 0.25rem; outline:none; transition:background 0.15s; font-variant-numeric: tabular-nums;"
+        :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+        :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+        spellcheck="false"
         inputmode="numeric"
-        title="Click to edit base servings"
+        :title="$store.recipeMode.editing ? 'Click to edit base servings' : ''"
         @focus="$el.dataset.original = $el.innerText.trim(); $el.style.background='oklch(95% 0.015 80)';"
         @blur="$el.style.background=''; inlineEdit('servings', $el)"
         @keydown.enter.prevent="$el.blur()"
@@ -158,7 +338,11 @@
     {% if _meta_items %}<span aria-hidden="true" style="color:var(--text-3); opacity:0.5;">·</span>{% endif %}
     <script id="health-init-data" type="application/json">{{ health_data | tojson }}</script>
     <div class="relative inline-block" x-data="healthBadge" @click.away="pop = false">
-      <button @click="pop = !pop" class="inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold cursor-pointer"
+      <button @click="pop = !pop" class="health-pill-compact"
+        :style="`background:${gc(hd.grade).bg}; color:${gc(hd.grade).t};`"
+        :title="'Health ' + hd.grade + ' · ' + hd.score + '/100'"
+        x-text="hd.grade"></button>
+      <button @click="pop = !pop" class="health-pill-full inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold cursor-pointer"
         style="font-size:0.75rem; letter-spacing:0.02em;"
         :style="`background:${gc(hd.grade).bg}; color:${gc(hd.grade).t};`"
         x-text="'Health ' + hd.grade + ' · ' + hd.score + '/100'"></button>
@@ -206,15 +390,15 @@
   <div x-data='{ "editingTags": false, "tagsDraft": {{ _tags_csv | tojson }} }' class="flex flex-wrap items-center gap-2">
     <template x-if="!editingTags">
       <div class="flex flex-wrap items-center gap-2"
-        style="cursor:text; min-height:1.5rem;"
-        title="Click to edit tags"
-        @click="editingTags = true; $nextTick(() => $refs.tagsInput.focus())">
+        :style="$store.recipeMode.editing ? 'cursor:text; min-height:1.5rem;' : 'min-height:1.5rem;'"
+        :title="$store.recipeMode.editing ? 'Click to edit tags' : ''"
+        @click="$store.recipeMode.editing && (editingTags = true, $nextTick(() => $refs.tagsInput.focus()))">
         {% if recipe.tags %}
           {% for tag in recipe.tags %}
           <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full">{{ tag }}</span>
           {% endfor %}
         {% else %}
-          <span class="text-xs text-gray-400 italic">+ Add tags</span>
+          <span x-show="$store.recipeMode.editing" class="text-xs text-gray-400 italic">+ Add tags</span>
         {% endif %}
       </div>
     </template>
@@ -333,7 +517,10 @@
       },
 
       get groups() {
-        if (this.ingView === 'usage') return [{ header: null, key: null, items: this.scaledIngs }];
+        // View mode reads as a single flowing list; category grouping is an
+        // edit-mode aid for organizing ingredients while authoring.
+        const editing = Alpine.store('recipeMode')?.editing;
+        if (!editing || this.ingView === 'usage') return [{ header: null, key: null, items: this.scaledIngs }];
         const map = {};
         this.scaledIngs.forEach(i => {
           const raw = ((i.category || '') + '').toLowerCase().trim();
@@ -439,8 +626,10 @@
       <div style="display:flex; align-items:center; gap:0.75rem; min-width:0; flex-wrap:wrap;">
         <h3 style="font-family:'Lora',serif; font-weight:600; font-size:0.9375rem; color:var(--text-1); letter-spacing:-0.01em; margin:0; white-space:nowrap;">Ingredients</h3>
 
-        <!-- Servings stepper pill -->
-        <div x-show="ings.length > 0"
+        <!-- Servings stepper — edit-only. View mode reads "N servings" from
+             the header meta strip; this stepper exists solely to scale during
+             editing/shopping prep. -->
+        <div x-show="ings.length > 0" class="edit-only"
           style="display:inline-flex; align-items:center; border:1px solid var(--border); border-radius:99px; overflow:hidden; background:var(--cream);">
           <button @click="dec()" :disabled="servings <= 1"
             style="width:1.875rem; height:1.75rem; display:flex; align-items:center; justify-content:center; border:none; background:transparent; color:var(--text-2); font-size:1.0625rem; line-height:1; padding:0; transition:all 0.12s;"
@@ -470,8 +659,8 @@
         </span>
       </div>
 
-      <!-- Right: view toggle -->
-      <div x-show="ings.length > 0"
+      <!-- Right: view toggle (edit-only — view mode forces "As listed") -->
+      <div x-show="ings.length > 0" class="edit-only"
         style="display:inline-flex; border:1px solid var(--border); border-radius:0.5rem; overflow:hidden; font-size:0.6875rem; padding:2px; gap:1px; background:var(--cream); flex-shrink:0;">
         <button @click="ingView='usage'"
           :style="ingView==='usage'
@@ -491,8 +680,8 @@
 
     </div>
     <div>
-      <!-- Column header (always shown so the Add row is visible on empty recipes) -->
-      <div class="grid pb-2 mb-1" style="grid-template-columns: 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; border-bottom: 1px solid oklch(90% 0.015 80); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
+      <!-- Column header — only shown in edit mode (view collapses the grid) -->
+      <div class="grid pb-2 mb-1 ing-columns" style="grid-template-columns: 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; border-bottom: 1px solid oklch(90% 0.015 80); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
         <span>Qty</span>
         <span>Unit</span>
         <span>Ingredient</span>
@@ -502,13 +691,15 @@
       </div>
       <template x-for="(group, gi) in groups" :key="gi">
         <div>
-          <!-- Category header band -->
-          <div x-show="group.header !== null"
+          <!-- Category header band. Loud colored pill in edit mode; in view
+               mode the CSS rule on .ing-category-band flattens it into a
+               quiet caption above the section. -->
+          <div x-show="group.header !== null" class="ing-category-band"
             :style="`background: ${(catColors[group.key]||catColors.other).pill}; color: ${(catColors[group.key]||catColors.other).text}; display: flex; align-items: center; gap: 0.5rem;`"
             style="margin:0.75rem -0.75rem 0.25rem; padding:0.35rem 0.75rem; border-radius:0.375rem; font-size:0.6875rem; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; font-family:'DM Sans',sans-serif;">
-            <span :style="`background: ${(catColors[group.key]||catColors.other).dot};`" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block;"></span>
+            <span class="cat-dot" :style="`background: ${(catColors[group.key]||catColors.other).dot};`" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block;"></span>
             <span x-text="group.header"></span>
-            <span style="font-weight:400; opacity:0.6; font-size:0.5625rem; margin-left:0.125rem;" x-text="'(' + group.items.length + ')'"></span>
+            <span class="cat-count" style="font-weight:400; opacity:0.6; font-size:0.5625rem; margin-left:0.125rem;" x-text="'(' + group.items.length + ')'"></span>
           </div>
           <template x-for="(ing, ii) in group.items" :key="ing._idx">
             <div class="grid items-baseline" data-ingredient-row
@@ -518,9 +709,10 @@
               <!-- Qty cell: shows scaled qty when idle; editing reverts to BASE qty
                    so the user is changing the canonical value, not the scaled view. -->
               <span x-show="!editQ"
-                @click="editQ = true; $nextTick(() => $refs['q' + ing._idx].focus())"
-                class="ss-inline-edit"
-                style="font-size: 0.8rem; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; cursor: text; min-height: 1.1rem; display: inline-block; padding: 0 0.25rem;"
+                @click="$store.recipeMode.editing && (editQ = true, $nextTick(() => $refs['q' + ing._idx].focus()))"
+                class="ss-inline-edit ing-qty"
+                style="font-size: 0.8rem; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; min-height: 1.1rem; display: inline-block; padding: 0 0.25rem;"
+                :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
                 x-text="fmtQty(ing.sq) || '—'"></span>
               <input x-show="editQ" x-cloak :x-ref="'q' + ing._idx" type="text" inputmode="decimal"
                 :value="ing.quantity ?? ''"
@@ -528,24 +720,28 @@
                 @keydown.enter.prevent="$event.target.blur()"
                 @keydown.escape.prevent="editQ = false"
                 style="font-size: 0.8rem; padding: 0.1rem 0.3rem; border: 1px solid var(--border); border-radius: 0.25rem; width: 100%; min-width: 0; font-variant-numeric: tabular-nums;"/>
-              <span class="ss-inline-edit"
-                contenteditable="plaintext-only" spellcheck="false"
-                style="font-size: 0.8rem; color: var(--text-3); cursor: text; padding: 0 0.25rem; min-height: 1.1rem; display: inline-block;"
+              <span class="ss-inline-edit ing-unit"
+                :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+                spellcheck="false"
+                style="font-size: 0.8rem; color: var(--text-3); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block;"
+                :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
                 data-placeholder="unit"
                 @focus="$el.dataset.original = $el.innerText.trim()"
                 @blur="saveIngredientField(ing._idx, 'unit', $el.innerText.trim(), $el)"
                 @keydown.enter.prevent="$el.blur()"
                 @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
                 x-text="ing.unit || ''"></span>
-              <span class="ss-inline-edit"
-                contenteditable="plaintext-only" spellcheck="false"
-                style="font-size: 0.875rem; color: var(--text-1); cursor: text; padding: 0 0.25rem; min-height: 1.1rem; display: inline-block;"
+              <span class="ss-inline-edit ing-name"
+                :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+                spellcheck="false"
+                style="font-size: 0.875rem; color: var(--text-1); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block;"
+                :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
                 @focus="$el.dataset.original = $el.innerText.trim()"
                 @blur="saveIngredientField(ing._idx, 'name', $el.innerText.trim(), $el)"
                 @keydown.enter.prevent="$el.blur()"
                 @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
                 x-text="ing.name"></span>
-              <span style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
+              <span class="ing-source-pill" style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
                 <span x-show="ing.override" style="font-size: 0.6875rem; background: oklch(92% 0.015 80); color: var(--text-2); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Manual</span>
                 <span x-show="!ing.override && ing.product_id" style="font-size: 0.6875rem; background: oklch(91% 0.1 145); color: oklch(30% 0.14 145); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Kroger</span>
                 <span x-show="!ing.override && !ing.product_id" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
@@ -563,6 +759,12 @@
                   </span>
                 </template>
               </span>
+              <!-- View-mode compact pantry dot — same data, less ink -->
+              <template x-if="ing.pantry">
+                <span x-show="!$store.recipeMode.editing" class="badge-dot"
+                  :class="ing.pantry.status === 'ok' ? 'dot-ok' : (ing.pantry.status === 'low' ? 'dot-warn' : 'dot-danger')"
+                  :title="'Pantry: ' + ing.pantry.level_percent + '%' + (ing.pantry.quantity_on_hand !== null ? (' · ' + ing.pantry.quantity_on_hand + (ing.pantry.unit ? ' ' + ing.pantry.unit : '')) : '')"></span>
+              </template>
               <div x-show="ing.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
                 <button @click.stop="pop = !pop"
                   :style="`background:${gradeColor(ing.safety_grade).bg}; color:${gradeColor(ing.safety_grade).text}; padding:0.1rem 0.45rem; border-radius:99px; font-size:0.6875rem; font-weight:700; letter-spacing:0.02em; cursor:pointer;`"
@@ -602,8 +804,8 @@
                     style="font-size:0.625rem; color:var(--text-3); font-style:italic;">No concerns.</p>
                 </div>
               </div>
-              <span x-show="!ing.safety_grade" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
-              <button class="ss-row-action is-danger"
+              <span x-show="!ing.safety_grade && $store.recipeMode.editing" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
+              <button class="ss-row-action is-danger edit-only"
                 title="Remove ingredient"
                 @click="removeIngredient(ing._idx)"
                 style="justify-self:end;">✕</button>
@@ -612,9 +814,9 @@
         </div>
       </template>
 
-      <!-- Add ingredient row -->
+      <!-- Add ingredient row — edit-only -->
       <div x-data="{ addQ: '', addU: '', addN: '' }"
-        class="grid items-baseline"
+        class="grid items-baseline edit-only"
         style="grid-template-columns: 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; padding: 0.55rem 0; border-top: 1px dashed oklch(88% 0.015 80); margin-top: 0.25rem;">
         <input x-model="addQ" type="text" inputmode="decimal" placeholder="qty"
           @keydown.enter.prevent="addIngredient(addQ, addU, addN); addQ=''; addU=''; addN='';"
@@ -651,20 +853,22 @@
 
     <ol class="space-y-1" style="list-style:none; padding:0; counter-reset:step;">
       <template x-for="(step, i) in steps" :key="i + ':' + step.slice(0,20)">
-        <li class="grid items-baseline"
+        <li class="grid items-baseline step-row"
           style="grid-template-columns: 1.75rem 1fr auto; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid oklch(95% 0.01 80);">
-          <span style="font-size:0.75rem; color:var(--text-3); font-variant-numeric:tabular-nums; padding-top:0.1rem;"
+          <span class="step-number" style="font-size:0.75rem; color:var(--text-3); font-variant-numeric:tabular-nums; padding-top:0.1rem;"
             x-text="(i + 1) + '.'"></span>
-          <span class="ss-inline-edit"
-            contenteditable="plaintext-only" spellcheck="false"
+          <span class="ss-inline-edit step-text"
+            :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+            spellcheck="false"
             data-placeholder="Step text…"
-            style="font-size: 0.875rem; color: var(--text-1); line-height: 1.55; cursor:text; padding:0.05rem 0.25rem; border-radius:0.25rem; outline:none;"
+            style="font-size: 0.875rem; color: var(--text-1); line-height: 1.55; padding:0.05rem 0.25rem; border-radius:0.25rem; outline:none;"
+            :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
             @focus="$el.dataset.original = $el.innerText.trim()"
             @blur="updateStep(i, $el.innerText.trim(), $el)"
             @keydown.enter.prevent="$el.blur()"
             @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
             x-text="step"></span>
-          <span style="display:inline-flex; gap:0.125rem; justify-self:end; align-self:start; padding-top:0.05rem;">
+          <span class="edit-only" style="display:inline-flex; gap:0.125rem; justify-self:end; align-self:start; padding-top:0.05rem;">
             <button class="ss-row-action" :disabled="i === 0"
               :style="i === 0 ? 'opacity:0.3; cursor:not-allowed;' : ''"
               @click="i > 0 && moveStep(i, -1)" title="Move up">↑</button>
@@ -677,7 +881,7 @@
       </template>
     </ol>
 
-    <div x-data="{ draft: '' }" class="flex items-center gap-2" style="margin-top:0.5rem; padding:0.4rem 0;">
+    <div x-data="{ draft: '' }" class="flex items-center gap-2 edit-only" style="margin-top:0.5rem; padding:0.4rem 0;">
       <input x-model="draft" type="text" placeholder="+ Add step…"
         @keydown.enter.prevent="addStep(draft); draft = ''"
         class="ss-input"
@@ -820,6 +1024,11 @@
 
 <script>
 document.addEventListener('alpine:init', () => {
+  // Recipe page mode store. View mode is the default reading state.
+  // Edit mode reveals every inline editor, add-row, and reorder control.
+  // Each page load starts in view mode by design — no localStorage.
+  Alpine.store('recipeMode', { editing: false });
+
   const _rd = JSON.parse(document.getElementById('recipe-init-data').textContent);
 
   const _hdEl = document.getElementById('health-init-data');
@@ -1035,5 +1244,7 @@ document.addEventListener('alpine:init', () => {
 
 });
 </script>
+
+</div><!-- /data-recipe-mode -->
 
 {% endblock %}
