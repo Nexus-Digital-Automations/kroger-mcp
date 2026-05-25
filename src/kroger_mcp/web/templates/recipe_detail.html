@@ -103,20 +103,79 @@
   /* ─── Autocomplete popover — anchored under the ingredient name field */
   .ss-autocomplete-popover {
     position: absolute; left: 0; top: calc(100% + 4px); z-index: 40;
-    min-width: 24rem; max-width: 32rem;
+    min-width: 30rem; max-width: 38rem;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 0.625rem; box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14);
-    padding: 0.25rem 0; max-height: 22rem; overflow-y: auto;
+    padding: 0.25rem 0; max-height: 30rem; overflow-y: auto;
   }
+  /* Grid: thumb · main (name/brand·size) · price column · grade · expand */
   .ss-autocomplete-row {
-    display: grid; grid-template-columns: 1fr auto auto;
-    gap: 0.5rem; align-items: center;
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr) auto auto 1.25rem;
+    gap: 0.55rem; align-items: center;
     padding: 0.45rem 0.75rem; cursor: pointer;
     border-bottom: 1px solid oklch(96% 0.008 70);
   }
   .ss-autocomplete-row:last-child { border-bottom: none; }
   .ss-autocomplete-row.active,
   .ss-autocomplete-row:hover { background: oklch(96% 0.015 80); }
+  .ss-autocomplete-thumb {
+    width: 2.5rem; height: 2.5rem; border-radius: 0.375rem;
+    background: oklch(96% 0.008 80); object-fit: cover;
+    display: block;
+  }
+  .ss-autocomplete-thumb-placeholder {
+    width: 2.5rem; height: 2.5rem; border-radius: 0.375rem;
+    background: oklch(95% 0.012 80); display: flex; align-items: center;
+    justify-content: center; color: var(--text-3); font-size: 0.875rem;
+  }
+  .ss-autocomplete-meta { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
+  .ss-autocomplete-name {
+    font-size: 0.8125rem; color: var(--text-1); line-height: 1.25;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ss-autocomplete-sub {
+    font-size: 0.6875rem; color: var(--text-3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ss-autocomplete-price { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+  .ss-autocomplete-price-main { font-size: 0.8125rem; color: var(--text-1); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .ss-autocomplete-price-strike { font-size: 0.625rem; color: var(--text-3); text-decoration: line-through; font-variant-numeric: tabular-nums; }
+  .ss-autocomplete-perunit { font-size: 0.625rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .ss-autocomplete-sale-pill {
+    font-size: 0.5625rem; font-weight: 700; padding: 0.05rem 0.3rem;
+    border-radius: 99px; background: oklch(91% 0.09 25); color: oklch(35% 0.16 25);
+    letter-spacing: 0.03em;
+  }
+  .ss-autocomplete-expand {
+    width: 1.25rem; height: 1.25rem; border-radius: 0.25rem;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-3); background: transparent; border: none;
+    cursor: pointer; font-size: 0.875rem; line-height: 1; padding: 0;
+  }
+  .ss-autocomplete-expand:hover { color: var(--text-1); background: oklch(94% 0.015 80); }
+  .ss-autocomplete-expand.open { transform: rotate(90deg); color: var(--text-1); }
+
+  .ss-autocomplete-detail {
+    padding: 0.55rem 0.85rem 0.75rem 0.85rem;
+    background: oklch(98% 0.008 80); border-bottom: 1px solid oklch(95% 0.01 80);
+    font-size: 0.6875rem; color: var(--text-2); line-height: 1.4;
+  }
+  .ss-autocomplete-detail h4 {
+    font-size: 0.625rem; font-weight: 700; color: var(--text-3);
+    letter-spacing: 0.06em; text-transform: uppercase; margin: 0.5rem 0 0.25rem 0;
+  }
+  .ss-autocomplete-detail h4:first-child { margin-top: 0; }
+  .ss-autocomplete-detail-row { display: flex; align-items: flex-start; gap: 0.4rem; padding: 0.15rem 0; }
+  .ss-autocomplete-detail-dot {
+    width: 0.4rem; height: 0.4rem; border-radius: 99px; margin-top: 0.4rem; flex-shrink: 0;
+  }
+  .ss-autocomplete-detail-name { font-size: 0.6875rem; color: var(--text-1); font-weight: 500; }
+  .ss-autocomplete-detail-reason { font-size: 0.625rem; color: var(--text-3); }
+  .ss-autocomplete-ingredients {
+    font-size: 0.625rem; color: var(--text-3); line-height: 1.4;
+    max-height: 4.5rem; overflow-y: auto;
+  }
   .ss-autocomplete-footer {
     padding: 0.4rem 0.75rem; font-size: 0.6875rem; color: var(--text-3);
     border-top: 1px solid var(--border); background: oklch(98% 0.005 80);
@@ -811,17 +870,26 @@
       // ── Product autocomplete (inline) ────────────────────────────────
       // Search /api/products/search with a 250ms debounce. Results carry
       // safety enrichment we re-use to colour the row chip on selection.
-      acState: { idx: null, query: '', results: [], active: 0, loading: false, debounce: null },
+      // detailCache survives across acOpenFor/acClose cycles intentionally —
+      // re-expanding a previously-seen product should not re-fetch.
+      acState: { idx: null, query: '', results: [], active: 0, loading: false, debounce: null,
+                 expanded: null, detailCache: {}, detailLoading: {}, detailError: {} },
       acOpenFor(idx, seed) {
-        this.acState = { idx, query: seed || '', results: [], active: 0, loading: false, debounce: null };
+        const cache = this.acState.detailCache || {};
+        this.acState = { idx, query: seed || '', results: [], active: 0, loading: false, debounce: null,
+                         expanded: null, detailCache: cache, detailLoading: {}, detailError: {} };
         if (this.acState.query.trim().length >= 2) this._acSearch(this.acState.query);
       },
-      acClose() { this.acState = { idx: null, query: '', results: [], active: 0, loading: false, debounce: null }; },
+      acClose() {
+        const cache = this.acState.detailCache || {};
+        this.acState = { idx: null, query: '', results: [], active: 0, loading: false, debounce: null,
+                         expanded: null, detailCache: cache, detailLoading: {}, detailError: {} };
+      },
       acType(text) {
         this.acState.query = text;
         if (this.acState.debounce) clearTimeout(this.acState.debounce);
         const q = (text || '').trim();
-        if (q.length < 2) { this.acState.results = []; return; }
+        if (q.length < 2) { this.acState.results = []; this.acState.expanded = null; return; }
         this.acState.debounce = setTimeout(() => this._acSearch(q), 250);
       },
       async _acSearch(q) {
@@ -833,6 +901,7 @@
           const list = Array.isArray(d) ? d : (d.products || d.results || []);
           this.acState.results = list;
           this.acState.active = 0;
+          this.acState.expanded = null;
         } catch (_) {
           this.acState.results = [];
         } finally {
@@ -843,6 +912,40 @@
         if (!this.acState.results.length) return;
         const n = this.acState.results.length;
         this.acState.active = (this.acState.active + dir + n) % n;
+      },
+      acToggleExpand(productId) {
+        if (!productId) return;
+        if (this.acState.expanded === productId) {
+          this.acState.expanded = null;
+          return;
+        }
+        this.acState.expanded = productId;
+        if (this.acState.detailCache[productId] || this.acState.detailLoading[productId]) return;
+        this._acFetchDetail(productId);
+      },
+      acToggleExpandActive() {
+        const p = this.acState.results[this.acState.active];
+        if (p && p.product_id) this.acToggleExpand(p.product_id);
+      },
+      async _acFetchDetail(productId) {
+        this.acState.detailLoading[productId] = true;
+        this.acState.detailError[productId] = null;
+        try {
+          const r = await fetch('/api/products/' + encodeURIComponent(productId));
+          if (!r.ok) {
+            this.acState.detailError[productId] = r.status === 404 ? 'Product not found' : 'Failed to load details';
+            return;
+          }
+          const detail = await r.json();
+          // Fall back to the search-row data for fields the detail endpoint
+          // might omit, so the panel never regresses what the row already shows.
+          const row = this.acState.results.find(x => x && x.product_id === productId) || {};
+          this.acState.detailCache[productId] = Object.assign({}, row, detail);
+        } catch (_) {
+          this.acState.detailError[productId] = 'Network error';
+        } finally {
+          this.acState.detailLoading[productId] = false;
+        }
       },
       acSelectActive() {
         const p = this.acState.results[this.acState.active];
@@ -1008,6 +1111,7 @@
                   @blur="setTimeout(() => { if (acState.idx === ing._idx) acClose(); }, 150); saveIngredientField(ing._idx, 'name', $el.innerText.trim(), $el)"
                   @keydown.arrow-down.prevent="acMove(1)"
                   @keydown.arrow-up.prevent="acMove(-1)"
+                  @keydown.arrow-right="if (acState.idx === ing._idx && acState.results.length) { $event.preventDefault(); acToggleExpandActive(); }"
                   @keydown.enter.prevent="if (acState.idx === ing._idx && acState.results.length) { acSelectActive(); $el.blur(); } else { $el.blur(); }"
                   @keydown.escape.prevent="acClose(); $el.innerText = $el.dataset.original || ''; $el.blur()"
                   x-text="ing.name"></span>
@@ -1094,19 +1198,125 @@
                      @mousedown.prevent>
                   <div x-show="acState.loading" style="padding:0.5rem 0.75rem; font-size:0.75rem; color:var(--text-3);">Searching…</div>
                   <template x-for="(p, pi) in acState.results" :key="p.product_id">
+                    <div>
                     <div class="ss-autocomplete-row"
                          :class="pi === acState.active ? 'active' : ''"
                          @mouseenter="acState.active = pi"
                          @click="acSelectActive()">
-                      <div style="min-width:0;">
-                        <div style="font-size:0.8125rem; color:var(--text-1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="p.description"></div>
-                        <div x-show="p.brand" style="font-size:0.6875rem; color:var(--text-3);" x-text="p.brand"></div>
+                      <template x-if="p.image_url">
+                        <img :src="p.image_url" :alt="p.description" loading="lazy" class="ss-autocomplete-thumb"
+                             @error="$el.style.display='none'"/>
+                      </template>
+                      <template x-if="!p.image_url">
+                        <div class="ss-autocomplete-thumb-placeholder" aria-hidden="true">·</div>
+                      </template>
+                      <div class="ss-autocomplete-meta">
+                        <div class="ss-autocomplete-name" x-text="p.description"></div>
+                        <div class="ss-autocomplete-sub">
+                          <span x-show="p.brand" x-text="p.brand"></span>
+                          <span x-show="p.brand && p.size" style="margin:0 0.25rem;">·</span>
+                          <span x-show="p.size" x-text="p.size"></span>
+                        </div>
                       </div>
-                      <span style="font-size:0.75rem; color:var(--text-2); font-variant-numeric:tabular-nums;"
-                            x-text="(p.sale_price || p.regular_price) ? '$' + (p.sale_price || p.regular_price).toFixed(2) : ''"></span>
+                      <div class="ss-autocomplete-price">
+                        <div style="display:flex; align-items:baseline; gap:0.3rem;">
+                          <span x-show="p.on_sale" class="ss-autocomplete-sale-pill"
+                                x-text="'-' + p.savings_percent + '%'"></span>
+                          <span class="ss-autocomplete-price-main"
+                                :style="p.on_sale ? 'color:oklch(40% 0.18 25);' : ''"
+                                x-text="(p.sale_price || p.regular_price) ? '$' + (p.sale_price || p.regular_price).toFixed(2) : ''"></span>
+                        </div>
+                        <span x-show="p.on_sale && p.regular_price" class="ss-autocomplete-price-strike"
+                              x-text="'$' + (p.regular_price || 0).toFixed(2)"></span>
+                        <span x-show="p.price_per_unit && p.price_per_unit.label" class="ss-autocomplete-perunit"
+                              x-text="p.price_per_unit && p.price_per_unit.label"></span>
+                      </div>
                       <span x-show="p.safety_grade"
                             :style="`background:${gradeColor(p.safety_grade).bg}; color:${gradeColor(p.safety_grade).text}; padding:0.1rem 0.4rem; border-radius:99px; font-size:0.625rem; font-weight:700;`"
                             x-text="p.safety_grade"></span>
+                      <button class="ss-autocomplete-expand"
+                              :class="acState.expanded === p.product_id ? 'open' : ''"
+                              @click.stop="acToggleExpand(p.product_id)"
+                              :title="acState.expanded === p.product_id ? 'Hide details' : 'Show details'"
+                              :aria-expanded="acState.expanded === p.product_id"
+                              aria-label="Toggle product details">›</button>
+                    </div>
+
+                    <!-- Expanded detail panel: lazy-fetched per product -->
+                    <div x-show="acState.expanded === p.product_id" x-cloak class="ss-autocomplete-detail"
+                         @click.stop>
+                      <template x-if="acState.detailLoading[p.product_id]">
+                        <div style="font-size:0.6875rem; color:var(--text-3); font-style:italic;">Loading details…</div>
+                      </template>
+                      <template x-if="!acState.detailLoading[p.product_id] && acState.detailError[p.product_id]">
+                        <div style="font-size:0.625rem; color:oklch(40% 0.16 25);"
+                             x-text="acState.detailError[p.product_id]"></div>
+                      </template>
+                      <template x-if="!acState.detailLoading[p.product_id] && acState.detailCache[p.product_id]">
+                        <div>
+                          <!-- Health summary -->
+                          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
+                            <span x-show="acState.detailCache[p.product_id].safety_grade"
+                                  style="font-weight:700; font-size:0.6875rem;"
+                                  :style="`color:${gradeColor(acState.detailCache[p.product_id].safety_grade).text};`"
+                                  x-text="'Health ' + acState.detailCache[p.product_id].safety_grade"></span>
+                            <span x-show="acState.detailCache[p.product_id].safety_score !== null && acState.detailCache[p.product_id].safety_score !== undefined"
+                                  style="font-size:0.625rem; color:var(--text-3);"
+                                  x-text="acState.detailCache[p.product_id].safety_score + '/100'"></span>
+                          </div>
+
+                          <template x-if="acState.detailCache[p.product_id].flagged_ingredients && acState.detailCache[p.product_id].flagged_ingredients.length > 0">
+                            <div>
+                              <h4>Flagged</h4>
+                              <template x-for="flag in acState.detailCache[p.product_id].flagged_ingredients" :key="flag.ingredient + flag.severity">
+                                <div class="ss-autocomplete-detail-row">
+                                  <span class="ss-autocomplete-detail-dot"
+                                        :style="`background:${flag.severity === 'critical' ? 'oklch(60% 0.20 25)' : flag.severity === 'warning' ? 'oklch(70% 0.16 70)' : 'oklch(70% 0.10 240)'};`"></span>
+                                  <div style="min-width:0;">
+                                    <div class="ss-autocomplete-detail-name" x-text="flag.ingredient"></div>
+                                    <div class="ss-autocomplete-detail-reason" x-text="flag.reason"></div>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+
+                          <template x-if="acState.detailCache[p.product_id].positive_attributes && acState.detailCache[p.product_id].positive_attributes.length > 0">
+                            <div>
+                              <h4>Positives</h4>
+                              <template x-for="attr in acState.detailCache[p.product_id].positive_attributes" :key="attr.attribute">
+                                <div style="display:flex; gap:0.3rem; padding:0.1rem 0; align-items:center;">
+                                  <span style="color:oklch(50% 0.18 145); font-weight:700; font-size:0.6875rem;">+<span x-text="attr.bonus"></span></span>
+                                  <span style="font-size:0.6875rem; color:oklch(40% 0.16 145);" x-text="attr.attribute"></span>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+
+                          <template x-if="(!acState.detailCache[p.product_id].flagged_ingredients || acState.detailCache[p.product_id].flagged_ingredients.length === 0) && (!acState.detailCache[p.product_id].positive_attributes || acState.detailCache[p.product_id].positive_attributes.length === 0)">
+                            <div style="font-size:0.625rem; color:var(--text-3); font-style:italic;">No flagged ingredients or notable attributes.</div>
+                          </template>
+
+                          <template x-if="acState.detailCache[p.product_id].ingredients_list">
+                            <div>
+                              <h4>Ingredients</h4>
+                              <div class="ss-autocomplete-ingredients" x-text="acState.detailCache[p.product_id].ingredients_list"></div>
+                            </div>
+                          </template>
+
+                          <template x-if="acState.detailCache[p.product_id].aisle || acState.detailCache[p.product_id].country_origin">
+                            <div style="display:flex; gap:0.75rem; margin-top:0.4rem; font-size:0.625rem; color:var(--text-3);">
+                              <span x-show="acState.detailCache[p.product_id].aisle">
+                                Aisle: <span style="color:var(--text-2);" x-text="acState.detailCache[p.product_id].aisle"></span>
+                              </span>
+                              <span x-show="acState.detailCache[p.product_id].country_origin">
+                                Origin: <span style="color:var(--text-2);" x-text="acState.detailCache[p.product_id].country_origin"></span>
+                              </span>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
                     </div>
                   </template>
                   <div x-show="!acState.loading && acState.results.length === 0 && acState.query.length >= 2"
