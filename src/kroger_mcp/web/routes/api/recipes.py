@@ -1,9 +1,10 @@
 """API routes for recipe write operations."""
 
 import json
+import uuid
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -33,8 +34,34 @@ class AddToCartBody(BaseModel):
     modality: str = "PICKUP"
 
 
+def _check_if_match(recipe: dict, if_match: str | None) -> JSONResponse | None:
+    """409 when the client's view of updated_at is stale.
+
+    Why: two tabs editing the same recipe last-write-wins on disk; the
+    optimistic-locking header lets the UI detect and recover instead of
+    silently clobbering a peer's save. Header is optional — calls without
+    it keep the legacy behavior.
+    """
+    if not if_match:
+        return None
+    current = (recipe.get("updated_at") or "") or ""
+    if if_match.strip('"') != current:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "Recipe was edited elsewhere — refresh to see latest.",
+                "current_updated_at": current,
+            },
+        )
+    return None
+
+
 @router.put("/api/recipes/{recipe_id}/ingredients")
-async def replace_recipe_ingredients(recipe_id: str, body: ReplaceIngredientsBody):
+async def replace_recipe_ingredients(
+    recipe_id: str,
+    body: ReplaceIngredientsBody,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+):
     """Replace the entire ingredient list for a recipe.
 
     Atomic alternative to the append-one POST endpoint. The recipe-detail
@@ -55,6 +82,9 @@ async def replace_recipe_ingredients(recipe_id: str, body: ReplaceIngredientsBod
                 status_code=404,
                 content={"error": f"Recipe '{recipe_id}' not found"},
             )
+        conflict = _check_if_match(recipe, if_match)
+        if conflict is not None:
+            return conflict
         recipe["ingredients"] = [
             {
                 "name": ing.name,
@@ -73,13 +103,18 @@ async def replace_recipe_ingredients(recipe_id: str, body: ReplaceIngredientsBod
             "success": True,
             "recipe_id": recipe_id,
             "ingredient_count": len(recipe["ingredients"]),
+            "updated_at": recipe["updated_at"],
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.put("/api/recipes/{recipe_id}/instructions")
-async def replace_recipe_instructions(recipe_id: str, body: ReplaceInstructionsBody):
+async def replace_recipe_instructions(
+    recipe_id: str,
+    body: ReplaceInstructionsBody,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+):
     """Replace the recipe's instruction steps.
 
     Stored as a JSON-encoded list so the existing `_parse_instructions`
@@ -99,11 +134,19 @@ async def replace_recipe_instructions(recipe_id: str, body: ReplaceInstructionsB
                 status_code=404,
                 content={"error": f"Recipe '{recipe_id}' not found"},
             )
+        conflict = _check_if_match(recipe, if_match)
+        if conflict is not None:
+            return conflict
         steps = [s.strip() for s in body.instructions if s and s.strip()]
         recipe["instructions"] = json.dumps(steps)
         recipe["updated_at"] = datetime.now().isoformat()
         _save_recipes(store)
-        return {"success": True, "recipe_id": recipe_id, "step_count": len(steps)}
+        return {
+            "success": True,
+            "recipe_id": recipe_id,
+            "step_count": len(steps),
+            "updated_at": recipe["updated_at"],
+        }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
@@ -197,7 +240,11 @@ async def add_ingredient_to_recipe(recipe_id: str, body: AddIngredientBody):
 
 
 @router.patch("/api/recipes/{recipe_id}")
-async def update_recipe(recipe_id: str, body: UpdateRecipeBody):
+async def update_recipe(
+    recipe_id: str,
+    body: UpdateRecipeBody,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+):
     """Update recipe metadata (name, description, tags, servings)."""
     try:
         from kroger_mcp.tools.recipe_tools import _load_recipes, _save_recipes
@@ -212,6 +259,9 @@ async def update_recipe(recipe_id: str, body: UpdateRecipeBody):
                 status_code=404,
                 content={"error": f"Recipe '{recipe_id}' not found"},
             )
+        conflict = _check_if_match(recipe, if_match)
+        if conflict is not None:
+            return conflict
         if body.name is not None:
             recipe["name"] = body.name
         if body.description is not None:
@@ -222,7 +272,113 @@ async def update_recipe(recipe_id: str, body: UpdateRecipeBody):
             recipe["servings"] = body.servings
         recipe["updated_at"] = datetime.now().isoformat()
         _save_recipes(data)
-        return {"success": True, "recipe_id": recipe_id}
+        return {
+            "success": True,
+            "recipe_id": recipe_id,
+            "updated_at": recipe["updated_at"],
+        }
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+class CreateRecipeBody(BaseModel):
+    name: str = "Untitled recipe"
+    description: str | None = None
+    servings: int = 4
+    tags: list[str] = []
+    ingredients: list[IngredientIn] = []
+    instructions: list[str] = []
+    source: str | None = "user provided"
+
+
+@router.post("/api/recipes")
+async def create_recipe(request: Request, body: CreateRecipeBody):
+    """Create a new recipe and return its id.
+
+    Browser "New Recipe" flow: POST with no ingredients/instructions to
+    get an empty draft, then edit inline. When ingredients are present,
+    they go through the same product_id-or-override validation as the
+    MCP `recipes(action='save')` tool — single source of truth.
+    """
+    try:
+        from kroger_mcp.tools.recipe_tools import (
+            _load_recipes,
+            _normalize_ingredients,
+            _save_recipes,
+            _trigger_notion_sync,
+            _validate_ingredients,
+        )
+
+        ingredient_dicts = [ing.model_dump() for ing in body.ingredients]
+        if ingredient_dicts:
+            errors = _validate_ingredients(ingredient_dicts)
+            if errors:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "Recipe ingredients require Kroger product IDs",
+                        "validation_errors": errors,
+                    },
+                )
+        recipe_id = str(uuid.uuid4())[:8]
+        now = datetime.now().isoformat()
+        recipe = {
+            "id": recipe_id,
+            "name": body.name.strip() or "Untitled recipe",
+            "description": body.description,
+            "servings": body.servings,
+            "ingredients": _normalize_ingredients(ingredient_dicts),
+            "instructions": (
+                json.dumps([s.strip() for s in body.instructions if s and s.strip()])
+                if body.instructions
+                else None
+            ),
+            "source": body.source or "user provided",
+            "tags": body.tags,
+            "created_at": now,
+            "updated_at": now,
+            "last_ordered_at": None,
+            "times_ordered": 0,
+        }
+        store = _load_recipes()
+        store.setdefault("recipes", []).append(recipe)
+        _save_recipes(store)
+        _trigger_notion_sync("push", recipe)
+        return {"success": True, "recipe_id": recipe_id, "updated_at": now}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/recipes/{recipe_id}/ingredients")
+async def get_recipe_ingredients(request: Request, recipe_id: str):
+    """Return the recipe's ingredients with safety + pantry enrichment.
+
+    Powers the post-save refresh used by the inline editor: cheaper than
+    re-rendering the whole HTML page and avoids losing scroll position.
+    Re-uses the same enrichment the page route computes so the response
+    shape is identical to what the template received on first paint.
+    """
+    try:
+        from kroger_mcp.tools.recipe_tools import _find_recipe
+        from kroger_mcp.web.routes.recipes import enrich_ingredients_for_view
+
+        recipe = _find_recipe(recipe_id)
+        if not recipe:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Recipe '{recipe_id}' not found"},
+            )
+        ingredients = recipe.get("ingredients", []) or []
+        for ing in ingredients:
+            ing.setdefault("product_id", None)
+            ing.setdefault("override", False)
+        enriched = enrich_ingredients_for_view(request, ingredients)
+        return {
+            "success": True,
+            "recipe_id": recipe_id,
+            "ingredients": enriched,
+            "updated_at": recipe.get("updated_at"),
+        }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 

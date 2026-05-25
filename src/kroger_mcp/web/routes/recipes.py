@@ -149,7 +149,9 @@ async def recipes_list(request: Request):
         ]
     )
 
-    return templates.TemplateResponse(request, "recipes.html",
+    return templates.TemplateResponse(
+        request,
+        "recipes.html",
         {
             "active_page": "recipes",
             "recipes": recipes,
@@ -161,39 +163,37 @@ async def recipes_list(request: Request):
     )
 
 
-@router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
-async def recipe_detail(request: Request, recipe_id: str):
-    recipe = _find_recipe(recipe_id)
-    if not recipe:
-        raise HTTPException(status_code=404, detail="Recipe not found")
+_ATTR_TO_CATEGORY = {
+    "Fresh Produce": "produce",
+    "Fresh Fruit": "produce",
+    "Lean Protein": "meat",
+    "Healthy Fat": "pantry",
+    "Whole Grain": "pantry",
+    "Herb or Spice": "produce",
+    "Natural Dairy": "dairy",
+    "Pantry Staple": "pantry",
+}
 
-    # Normalize tags
-    if isinstance(recipe.get("tags"), str):
-        recipe["tags"] = [t.strip() for t in recipe["tags"].split(",") if t.strip()]
-    elif not recipe.get("tags"):
-        recipe["tags"] = []
 
-    # Normalize ingredients
-    ingredients = recipe.get("ingredients", [])
-    for ing in ingredients:
-        ing.setdefault("product_id", None)
-        ing.setdefault("override", False)
+def enrich_ingredients_for_view(request: Request, ingredients: list[dict]) -> list[dict]:
+    """Decorate ingredient dicts with safety, inferred category, and pantry status.
 
-    instruction_groups = _parse_instructions(recipe.get("instructions") or "")
+    Single source of truth for both the page-render route and the JSON
+    refresh endpoint. Mutates in place AND returns the list — callers
+    that already hold the same list reference get both behaviors.
+    Failures are non-fatal; missing chips simply don't render.
+    """
+    _annotate_safety(ingredients)
+    _infer_categories_from_safety(ingredients)
+    _annotate_pantry(request, ingredients)
+    return ingredients
 
-    # Overall recipe health score
-    health_data = None
-    try:
-        health_data = calculate_health_score(recipe)
-    except Exception:
-        pass
 
-    # Per-ingredient safety — use product descriptions from DB when available
+def _annotate_safety(ingredients: list[dict]) -> None:
     try:
         from kroger_mcp.analytics.database import get_db_connection
         from kroger_mcp.analytics.ingredients import check_product_safety
 
-        # Batch-load product descriptions for linked ingredients
         product_descs: dict[str, str] = {}
         linked_ids = [ing["product_id"] for ing in ingredients if ing.get("product_id")]
         if linked_ids:
@@ -239,36 +239,26 @@ async def recipe_detail(request: Request, recipe_id: str):
     except Exception:
         pass
 
-    # Auto-infer category from safety positive attributes when missing
-    _attr_to_cat = {
-        "Fresh Produce": "produce",
-        "Fresh Fruit": "produce",
-        "Lean Protein": "meat",
-        "Healthy Fat": "pantry",
-        "Whole Grain": "pantry",
-        "Herb or Spice": "produce",
-        "Natural Dairy": "dairy",
-        "Pantry Staple": "pantry",
-    }
-    for ing in ingredients:
-        if not ing.get("category"):
-            for pos in ing.get("safety_positives", []):
-                cat = _attr_to_cat.get(pos.get("attribute"))
-                if cat:
-                    ing["category"] = cat
-                    break
 
-    # Pantry-availability badges per ingredient so the user sees what's already
-    # in stock without opening the pantry page first.
+def _infer_categories_from_safety(ingredients: list[dict]) -> None:
+    for ing in ingredients:
+        if ing.get("category"):
+            continue
+        for pos in ing.get("safety_positives", []) or []:
+            cat = _ATTR_TO_CATEGORY.get(pos.get("attribute"))
+            if cat:
+                ing["category"] = cat
+                break
+
+
+def _annotate_pantry(request: Request, ingredients: list[dict]) -> None:
     try:
         from kroger_mcp.analytics.pantry import get_pantry_status
         from kroger_mcp.auth.dependencies import current_user_id
 
         pantry_lookup = {
             item["product_id"]: item
-            for item in get_pantry_status(
-                apply_depletion=True, user_id=current_user_id(request)
-            )
+            for item in get_pantry_status(apply_depletion=True, user_id=current_user_id(request))
         }
         for ing in ingredients:
             pid = ing.get("product_id")
@@ -289,7 +279,36 @@ async def recipe_detail(request: Request, recipe_id: str):
         for ing in ingredients:
             ing.setdefault("pantry", None)
 
-    return templates.TemplateResponse(request, "recipe_detail.html",
+
+@router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
+async def recipe_detail(request: Request, recipe_id: str):
+    recipe = _find_recipe(recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    if isinstance(recipe.get("tags"), str):
+        recipe["tags"] = [t.strip() for t in recipe["tags"].split(",") if t.strip()]
+    elif not recipe.get("tags"):
+        recipe["tags"] = []
+
+    ingredients = recipe.get("ingredients", [])
+    for ing in ingredients:
+        ing.setdefault("product_id", None)
+        ing.setdefault("override", False)
+
+    instruction_groups = _parse_instructions(recipe.get("instructions") or "")
+
+    health_data = None
+    try:
+        health_data = calculate_health_score(recipe)
+    except Exception:
+        pass
+
+    enrich_ingredients_for_view(request, ingredients)
+
+    return templates.TemplateResponse(
+        request,
+        "recipe_detail.html",
         {
             "active_page": "recipes",
             "recipe": recipe,

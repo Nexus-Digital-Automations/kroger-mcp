@@ -49,18 +49,20 @@
   .ss-row-action:hover { color: var(--text-1); background: oklch(96% 0.012 80); border-color: var(--border); }
   .ss-row-action.is-danger:hover { color: oklch(45% 0.18 25); border-color: oklch(80% 0.08 25); background: oklch(96% 0.04 25); }
 
-  /* ─── Mode toggle button ──────────────────────────────────────────── */
+  /* ─── Mode toggle button — repurposed as a read-only lock ────────────
+     Edit is the default. The toggle now flips the page into a read-only
+     state for screenshot/share use; it no longer gates editing. */
   .recipe-mode-toggle {
     display: inline-flex;
     align-items: center;
     gap: 0.375rem;
-    padding: 0.35rem 0.85rem;
+    padding: 0.35rem 0.75rem;
     border-radius: 99px;
     border: 1px solid var(--border);
     background: transparent;
-    color: var(--text-2);
+    color: var(--text-3);
     font-family: 'DM Sans', sans-serif;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     cursor: pointer;
@@ -68,13 +70,81 @@
     white-space: nowrap;
   }
   .recipe-mode-toggle:hover { color: var(--text-1); border-color: oklch(75% 0.04 60); }
-  [data-recipe-mode="edit"] .recipe-mode-toggle {
-    background: var(--green);
-    color: white;
-    border-color: var(--green);
+  [data-recipe-mode="view"] .recipe-mode-toggle {
+    background: oklch(94% 0.012 80);
+    color: var(--text-2);
+    border-color: var(--border);
   }
-  [data-recipe-mode="edit"] .recipe-mode-toggle:hover { background: oklch(40% 0.1 155); border-color: oklch(40% 0.1 155); }
   .recipe-mode-toggle svg { width: 0.7rem; height: 0.7rem; }
+
+  /* ─── Saved pulse — flashes a row's left edge after a successful save */
+  @keyframes ss-saved-pulse {
+    0%   { box-shadow: inset 3px 0 0 oklch(60% 0.18 145); }
+    100% { box-shadow: inset 3px 0 0 transparent; }
+  }
+  .ss-saved-pulse { animation: ss-saved-pulse 0.6s ease-out; }
+
+  /* ─── Drag handle — visible on row hover in edit mode */
+  .ss-drag-handle {
+    cursor: grab; opacity: 0;
+    color: var(--text-3); font-size: 0.875rem; line-height: 1;
+    padding: 0 0.125rem; transition: opacity 0.12s, color 0.12s;
+    user-select: none;
+  }
+  [data-recipe-mode="edit"] [data-ingredient-row]:hover .ss-drag-handle,
+  [data-recipe-mode="edit"] .step-row:hover .ss-drag-handle { opacity: 0.7; }
+  .ss-drag-handle:hover { opacity: 1 !important; color: var(--text-1); }
+  .ss-drag-handle:active { cursor: grabbing; }
+  [data-recipe-mode="edit"] [data-ingredient-row].dragging,
+  [data-recipe-mode="edit"] .step-row.dragging { opacity: 0.4; }
+  [data-recipe-mode="edit"] [data-ingredient-row].drag-over,
+  [data-recipe-mode="edit"] .step-row.drag-over { background: oklch(96% 0.04 145) !important; }
+
+  /* ─── Autocomplete popover — anchored under the ingredient name field */
+  .ss-autocomplete-popover {
+    position: absolute; left: 0; top: calc(100% + 4px); z-index: 40;
+    min-width: 24rem; max-width: 32rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 0.625rem; box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14);
+    padding: 0.25rem 0; max-height: 22rem; overflow-y: auto;
+  }
+  .ss-autocomplete-row {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 0.5rem; align-items: center;
+    padding: 0.45rem 0.75rem; cursor: pointer;
+    border-bottom: 1px solid oklch(96% 0.008 70);
+  }
+  .ss-autocomplete-row:last-child { border-bottom: none; }
+  .ss-autocomplete-row.active,
+  .ss-autocomplete-row:hover { background: oklch(96% 0.015 80); }
+  .ss-autocomplete-footer {
+    padding: 0.4rem 0.75rem; font-size: 0.6875rem; color: var(--text-3);
+    border-top: 1px solid var(--border); background: oklch(98% 0.005 80);
+    cursor: pointer;
+  }
+  .ss-autocomplete-footer:hover { background: oklch(95% 0.012 80); color: var(--text-1); }
+
+  /* ─── Mobile (≤480px): keep popover within viewport, collapse drag-only
+     affordances since dragging via touch isn't supported here yet, and let
+     the ingredient grid wrap the source/health chips below the name. */
+  @media (max-width: 480px) {
+    .ss-autocomplete-popover {
+      min-width: 0;
+      width: calc(100vw - 2rem);
+      max-width: calc(100vw - 2rem);
+      left: auto;
+      right: 0;
+    }
+    [data-recipe-mode="edit"] .ss-drag-handle { display: none; }
+    [data-recipe-mode="edit"] [data-ingredient-row],
+    [data-recipe-mode="edit"] .ing-columns {
+      grid-template-columns: 3.5rem 3rem 1fr 2rem !important;
+    }
+    [data-recipe-mode="edit"] [data-ingredient-row] .ing-source-pill,
+    [data-recipe-mode="edit"] [data-ingredient-row] .ing-grade-chip,
+    [data-recipe-mode="edit"] .ing-columns > span:nth-child(5),
+    [data-recipe-mode="edit"] .ing-columns > span:nth-child(6) { display: none; }
+  }
 
   /* ─── View-mode ingredient row: flowing list, not a grid table ──── */
   [data-recipe-mode="view"] [data-ingredient-row] {
@@ -192,13 +262,10 @@
 
 {{ recipe_add_modal() }}
 
-<!-- Recipe page mode root. data-recipe-mode flips between "view" (default
-     reading state) and "edit" (full inline-editing UI). The CSS in <style>
-     reads this attribute to hide/show controls without per-element x-show. -->
-<div x-data
-     :data-recipe-mode="$store.recipeMode.editing ? 'edit' : 'view'"
-     @keydown.window.escape="$store.recipeMode.editing = false"
-     @keydown.window.e="!$store.recipeMode.editing && !['INPUT','TEXTAREA','SELECT'].includes(($event.target||{}).tagName) && !($event.target||{}).isContentEditable && ($store.recipeMode.editing = true)">
+<!-- Recipe page mode root. Edit is the default; the toggle now flips into a
+     read-only "share" mode (no edit affordances, useful for screenshots).
+     CSS reads data-recipe-mode to drive the entire UI shift. -->
+<div x-data :data-recipe-mode="$store.recipeMode.editing ? 'edit' : 'view'">
 
 <!-- Back link -->
 <a href="/recipes" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 mb-6 transition-colors">
@@ -213,61 +280,10 @@
 {{ {"id": recipe.id, "name": recipe.name, "description": recipe.description or "", "servings": recipe.servings, "tags": recipe.tags or []} | tojson }}
 </script>
 <div x-data="recipeHeader"
-  @action-menu:edit.window="editOpen = true"
   @action-menu:shopping-add.window="$store.recipePreview.openModal(recipeId, $store.recipeServings.value || baseServings)"
   @action-menu:meal-plan-add.window="$dispatch('open-meal-panel', {recipeId: recipeId, recipeName: recipeName})"
   @action-menu:delete.window="deleteRecipe()"
   class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 mb-6">
-
-  <!-- Edit Recipe Modal -->
-  <div x-show="editOpen" x-cloak
-    class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-    @click.self="editOpen = false">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-gray-900">Edit Recipe</h3>
-        <button @click="editOpen = false" class="text-gray-400 hover:text-gray-600">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-          </svg>
-        </button>
-      </div>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Name <span class="text-red-500">*</span></label>
-          <input x-model="editName" type="text"
-            class="ss-input w-full"/>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
-          <textarea x-model="editDescription" rows="2"
-            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"></textarea>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">Servings</label>
-            <input x-model.number="editServings" type="number" min="1" max="50"
-              class="ss-input w-full"/>
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">Tags (comma-separated)</label>
-            <input x-model="editTags" type="text" placeholder="e.g. dinner, healthy"
-              class="ss-input w-full"/>
-          </div>
-        </div>
-        <p x-show="editError" class="text-xs text-red-600" x-text="editError"></p>
-      </div>
-      <div class="flex justify-end gap-3 mt-6">
-        <button @click="editOpen = false; editError = '';"
-          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
-        <button @click="saveEdit()" :disabled="editLoading"
-          class="ss-btn-primary">
-          <span x-show="!editLoading">Save Changes</span>
-          <span x-show="editLoading">Saving...</span>
-        </button>
-      </div>
-    </div>
-  </div>
 
   <div class="flex items-start justify-between gap-4 mb-3">
     <h2 class="font-bold text-gray-900 ss-inline-edit recipe-h1"
@@ -284,14 +300,14 @@
     <div class="flex-shrink-0 flex items-center gap-2">
       <button type="button" class="recipe-mode-toggle"
         @click="$store.recipeMode.editing = !$store.recipeMode.editing"
-        :title="$store.recipeMode.editing ? 'Exit edit mode (Esc)' : 'Edit recipe (e)'">
+        :title="$store.recipeMode.editing ? 'Lock for read-only view' : 'Unlock to edit'">
+        <svg x-show="$store.recipeMode.editing" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/>
+        </svg>
         <svg x-show="!$store.recipeMode.editing" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 018 0v4m-9 0h10a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2z"/>
         </svg>
-        <svg x-show="$store.recipeMode.editing" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-        </svg>
-        <span x-text="$store.recipeMode.editing ? 'Done' : 'Edit'"></span>
+        <span x-text="$store.recipeMode.editing ? 'Editing' : 'Read-only'"></span>
       </button>
       {{ action_menu('recipe', item_expr=({"id": recipe.id, "name": recipe.name} | tojson)) }}
     </div>
@@ -315,9 +331,15 @@
 
   <!-- Meta strip: quick facts demoted to bullet-separated text; health stays as a popover pill -->
   <div class="flex flex-wrap items-center mb-4" style="gap:0.5rem 0.625rem; font-size:0.8125rem; color:var(--text-3); font-family:'DM Sans',sans-serif;">
-    <!-- Servings count is click-to-edit (changes the recipe's *base* servings,
-         which is the default the ingredient stepper starts at). -->
-    <span style="display:inline-flex; align-items:baseline; gap:0.25rem;">
+    <!-- Servings stepper. The number stays click-to-edit (typing is fastest
+         for big jumps); ±  buttons live alongside for quick nudges. Both
+         persist via PATCH and reflect into baseServings on success. -->
+    <span style="display:inline-flex; align-items:center; gap:0.25rem;">
+      <button x-show="$store.recipeMode.editing"
+        @click="bumpServings(-1)"
+        :disabled="baseServings <= 1"
+        aria-label="Decrease servings"
+        style="width:1.25rem; height:1.25rem; border:1px solid var(--border); background:var(--cream); border-radius:0.25rem; cursor:pointer; color:var(--text-2); font-size:0.875rem; line-height:1; display:inline-flex; align-items:center; justify-content:center;">−</button>
       <span class="ss-inline-edit"
         style="border-radius:0.25rem; padding:0 0.25rem; outline:none; transition:background 0.15s; font-variant-numeric: tabular-nums;"
         :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
@@ -329,7 +351,13 @@
         @blur="$el.style.background=''; inlineEdit('servings', $el)"
         @keydown.enter.prevent="$el.blur()"
         @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+        x-text="baseServings"
       >{{ recipe.servings or 4 }}</span>
+      <button x-show="$store.recipeMode.editing"
+        @click="bumpServings(1)"
+        :disabled="baseServings >= 50"
+        aria-label="Increase servings"
+        style="width:1.25rem; height:1.25rem; border:1px solid var(--border); background:var(--cream); border-radius:0.25rem; cursor:pointer; color:var(--text-2); font-size:0.875rem; line-height:1; display:inline-flex; align-items:center; justify-content:center;">+</button>
       <span>servings</span>
     </span>
     {% if recipe.times_ordered %}<span aria-hidden="true" style="color:var(--text-3); opacity:0.5;">·</span><span>Ordered {{ recipe.times_ordered }}×</span>{% endif %}
@@ -383,34 +411,30 @@
     {% endif %}
   </div>
 
-  <!-- Tags: click the row to edit as a comma-separated list. The initial
-       draft is the existing tags joined with ', ' — pre-rendered server-side
-       so we don't have to escape a JS array literal inside an HTML attr. -->
-  {% set _tags_csv = (recipe.tags or []) | join(', ') %}
-  <div x-data='{ "editingTags": false, "tagsDraft": {{ _tags_csv | tojson }} }' class="flex flex-wrap items-center gap-2">
-    <template x-if="!editingTags">
-      <div class="flex flex-wrap items-center gap-2"
-        :style="$store.recipeMode.editing ? 'cursor:text; min-height:1.5rem;' : 'min-height:1.5rem;'"
-        :title="$store.recipeMode.editing ? 'Click to edit tags' : ''"
-        @click="$store.recipeMode.editing && (editingTags = true, $nextTick(() => $refs.tagsInput.focus()))">
-        {% if recipe.tags %}
-          {% for tag in recipe.tags %}
-          <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded-full">{{ tag }}</span>
-          {% endfor %}
-        {% else %}
-          <span x-show="$store.recipeMode.editing" class="text-xs text-gray-400 italic">+ Add tags</span>
-        {% endif %}
-      </div>
+  <!-- Tags: pill row. Each pill carries an inline ✕ in edit mode. The
+       trailing input commits on Enter/comma. Backspace on an empty input
+       removes the last pill so the keyboard never leaves the input. -->
+  <div class="flex flex-wrap items-center gap-1.5" x-data="{ draft: '' }">
+    <template x-for="(tag, idx) in currentTags" :key="tag + ':' + idx">
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full"
+        style="background:oklch(94% 0.012 80); color:var(--text-2); font-size:0.75rem;">
+        <span x-text="tag"></span>
+        <button x-show="$store.recipeMode.editing"
+          @click="removeTag(idx)"
+          aria-label="Remove tag"
+          style="background:transparent; border:none; color:var(--text-3); font-size:0.875rem; line-height:1; cursor:pointer; padding:0 0.125rem;">×</button>
+      </span>
     </template>
-    <template x-if="editingTags">
-      <input x-ref="tagsInput" x-model="tagsDraft" type="text"
-        placeholder="dinner, healthy, italian"
-        class="ss-input"
-        style="font-size:0.75rem; padding:0.25rem 0.5rem; width:24rem; max-width:100%;"
-        @keydown.enter.prevent="saveTags(tagsDraft); editingTags = false"
-        @keydown.escape.prevent="editingTags = false"
-        @blur="saveTags(tagsDraft); editingTags = false"/>
-    </template>
+    <input x-show="$store.recipeMode.editing"
+      x-model="draft"
+      type="text"
+      placeholder="+ Add tag"
+      class="ss-input"
+      style="font-size:0.75rem; padding:0.2rem 0.5rem; width:8rem;"
+      @keydown.enter.prevent="addTag(draft); draft = ''"
+      @keydown="if ($event.key === ',') { $event.preventDefault(); addTag(draft); draft = ''; }"
+      @keydown.backspace="if (!draft && currentTags.length) removeTag(currentTags.length - 1)"
+      @blur="if (draft.trim()) { addTag(draft); draft = ''; }"/>
   </div>
 </div>
 
@@ -531,25 +555,69 @@
       },
 
       // ── Inline ingredient editing ─────────────────────────────────────
-      // All mutations go through PUT /api/recipes/{id}/ingredients with the
-      // full list (atomic). On success we reload so safety/health scoring
-      // are recomputed server-side.
+      // All mutations go through PUT /api/recipes/{id}/ingredients atomically.
+      // After success we silently refetch the enriched ingredient list so
+      // safety/pantry chips reflect the server's recomputed view without
+      // a full HTML reload. Concurrent rapid edits are debounced (600ms)
+      // and a monotonic _saveSeq drops stale responses from racing
+      // earlier in-flight saves.
       _recipeId() {
         const el = document.getElementById('recipe-init-data');
         return el ? JSON.parse(el.textContent).id : null;
       },
-      async _putIngredients(next) {
+      _saveSeq: 0,
+      _debounceTimer: null,
+      _pendingNext: null,
+      _flashRow(idx) {
+        const row = document.querySelector('[data-ingredient-idx="' + idx + '"]');
+        if (!row) return;
+        row.classList.remove('ss-saved-pulse');
+        void row.offsetWidth;
+        row.classList.add('ss-saved-pulse');
+      },
+      async _putIngredientsNow(next, opts) {
+        const seq = ++this._saveSeq;
+        const flashIdx = opts && opts.flashIdx;
+        const label = (opts && opts.label) || 'ingredient';
         try {
-          const r = await fetch('/api/recipes/' + this._recipeId() + '/ingredients', {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ ingredients: next })
-          });
+          const payload = await window._ssRecipeSave(
+            'PUT',
+            '/api/recipes/' + this._recipeId() + '/ingredients',
+            { ingredients: next }
+          );
+          if (seq !== this._saveSeq) return false;
+          await this._refreshEnriched();
+          if (flashIdx !== undefined) this._flashRow(flashIdx);
+          window._ssToast('Saved ' + label);
+          return true;
+        } catch (e) {
+          if (seq === this._saveSeq) {
+            this.ings = (typeof _initIngs === 'function') ? _initIngs() : this.ings;
+          }
+          return false;
+        }
+      },
+      _putIngredientsDebounced(next, opts) {
+        this._pendingNext = next;
+        const flashIdx = opts && opts.flashIdx;
+        const label = opts && opts.label;
+        if (this._debounceTimer) clearTimeout(this._debounceTimer);
+        this._debounceTimer = setTimeout(() => {
+          const toSend = this._pendingNext;
+          this._pendingNext = null;
+          this._debounceTimer = null;
+          this._putIngredientsNow(toSend, { flashIdx, label });
+        }, 600);
+      },
+      async _refreshEnriched() {
+        try {
+          const r = await fetch('/api/recipes/' + this._recipeId() + '/ingredients');
+          if (!r.ok) return;
           const d = await r.json();
-          if (r.ok && d.success) { window.location.reload(); return true; }
-          alert((d && d.error) || 'Failed to save ingredients');
-        } catch(e) { alert('Network error'); }
-        return false;
+          if (d && d.success && Array.isArray(d.ingredients)) {
+            this.ings = d.ingredients;
+          }
+        } catch (_) { /* refresh is best-effort; the next save will retry */ }
       },
       _serialize(ings) {
         return ings.map(i => ({
@@ -562,7 +630,7 @@
           override_reason: i.override_reason,
         }));
       },
-      async saveIngredientField(idx, field, raw, $el) {
+      saveIngredientField(idx, field, raw, $el) {
         const current = this.ings[idx];
         if (!current) return;
         let value = raw;
@@ -582,16 +650,61 @@
           return;
         }
         if (value === current[field]) return;
+        this.ings[idx][field] = value;  // optimistic
         const next = this._serialize(this.ings);
-        next[idx][field] = value;
-        await this._putIngredients(next);
+        this._putIngredientsDebounced(next, { flashIdx: idx, label: field });
       },
-      async removeIngredient(idx) {
+      linkProduct(idx, product) {
+        // Wires a Kroger product into an ingredient row, flipping it out of
+        // override and refreshing safety/pantry. Used by the autocomplete
+        // popover and the "Manual" pill picker.
+        if (!product) return;
+        const row = this.ings[idx]; if (!row) return;
+        row.name = product.description || row.name;
+        row.product_id = product.product_id;
+        row.override = false;
+        row.override_reason = null;
+        if (!row.category && product.category) row.category = product.category;
+        this._putIngredientsNow(this._serialize(this.ings),
+          { flashIdx: idx, label: 'Kroger link' });
+      },
+      unlinkProduct(idx) {
+        const row = this.ings[idx]; if (!row) return;
+        row.product_id = null;
+        row.override = true;
+        row.override_reason = 'Unlinked from Kroger product';
+        this._putIngredientsNow(this._serialize(this.ings),
+          { flashIdx: idx, label: 'unlink' });
+      },
+      removeIngredient(idx) {
         const target = this.ings[idx];
         if (!target) return;
-        if (!confirm('Remove "' + (target.name || 'this ingredient') + '"?')) return;
-        const next = this._serialize(this.ings).filter((_, i) => i !== idx);
-        await this._putIngredients(next);
+        // Optimistic remove + 5s undo via toast action. The "snapshot"
+        // captures the entire current list so an Undo restores the row at
+        // the same position even after subsequent edits.
+        const snapshot = this._serialize(this.ings);
+        const next = snapshot.filter((_, i) => i !== idx);
+        const targetName = target.name || 'ingredient';
+        this.ings.splice(idx, 1);
+        this._putIngredientsNow(next, { label: 'removal' }).then(ok => {
+          if (!ok) return;
+          window._ssToast('Removed “' + targetName + '”', {
+            action: {
+              label: 'Undo',
+              onClick: () => this._putIngredientsNow(snapshot, { label: 'restore' }),
+            },
+          });
+        });
+      },
+      reorderIngredient(fromIdx, toIdx) {
+        if (fromIdx === toIdx) return;
+        if (fromIdx < 0 || toIdx < 0) return;
+        if (fromIdx >= this.ings.length || toIdx > this.ings.length) return;
+        const next = this._serialize(this.ings);
+        const [moved] = next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, moved);
+        this.ings = next;
+        this._putIngredientsNow(next, { label: 'reorder' });
       },
       async addIngredient(rawQty, rawUnit, rawName) {
         const name = (rawName || '').trim();
@@ -603,15 +716,69 @@
           if (!isNaN(n) && n >= 0) qty = n;
         }
         const unit = (rawUnit || '').trim() || null;
-        // Manual entry without a Kroger product_id: the API requires either
-        // a product_id or override=true. New rows default to override so
-        // they're accepted; users can later link a real product.
         const next = this._serialize(this.ings).concat([{
           name, quantity: qty, unit, category: null,
           product_id: null, override: true,
           override_reason: 'Added inline; not yet linked to Kroger product'
         }]);
-        await this._putIngredients(next);
+        this.ings = next;  // optimistic
+        return this._putIngredientsNow(next, { label: 'new ingredient' });
+      },
+
+      // ── Product autocomplete (inline) ────────────────────────────────
+      // Search /api/products/search with a 250ms debounce. Results carry
+      // safety enrichment we re-use to colour the row chip on selection.
+      acState: { idx: null, query: '', results: [], active: 0, loading: false, debounce: null },
+      acOpenFor(idx, seed) {
+        this.acState = { idx, query: seed || '', results: [], active: 0, loading: false, debounce: null };
+        if (this.acState.query.trim().length >= 2) this._acSearch(this.acState.query);
+      },
+      acClose() { this.acState = { idx: null, query: '', results: [], active: 0, loading: false, debounce: null }; },
+      acType(text) {
+        this.acState.query = text;
+        if (this.acState.debounce) clearTimeout(this.acState.debounce);
+        const q = (text || '').trim();
+        if (q.length < 2) { this.acState.results = []; return; }
+        this.acState.debounce = setTimeout(() => this._acSearch(q), 250);
+      },
+      async _acSearch(q) {
+        this.acState.loading = true;
+        try {
+          const r = await fetch('/api/products/search?q=' + encodeURIComponent(q) + '&limit=6');
+          if (!r.ok) { this.acState.results = []; return; }
+          const d = await r.json();
+          const list = Array.isArray(d) ? d : (d.products || d.results || []);
+          this.acState.results = list;
+          this.acState.active = 0;
+        } catch (_) {
+          this.acState.results = [];
+        } finally {
+          this.acState.loading = false;
+        }
+      },
+      acMove(dir) {
+        if (!this.acState.results.length) return;
+        const n = this.acState.results.length;
+        this.acState.active = (this.acState.active + dir + n) % n;
+      },
+      acSelectActive() {
+        const p = this.acState.results[this.acState.active];
+        if (!p) return;
+        const idx = this.acState.idx;
+        this.acClose();
+        this.linkProduct(idx, p);
+      },
+      acUseManual(text) {
+        const idx = this.acState.idx;
+        this.acClose();
+        if (idx === null || idx === undefined) return;
+        const row = this.ings[idx]; if (!row) return;
+        row.name = (text || row.name).trim();
+        row.product_id = null;
+        row.override = true;
+        row.override_reason = row.override_reason || 'Manual entry';
+        this._putIngredientsNow(this._serialize(this.ings),
+          { flashIdx: idx, label: 'manual entry' });
       },
 
     }));
@@ -680,8 +847,10 @@
 
     </div>
     <div>
-      <!-- Column header — only shown in edit mode (view collapses the grid) -->
-      <div class="grid pb-2 mb-1 ing-columns" style="grid-template-columns: 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; border-bottom: 1px solid oklch(90% 0.015 80); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
+      <!-- Column header — only shown in edit mode (view collapses the grid).
+           First column is the drag handle gutter (no label). -->
+      <div class="grid pb-2 mb-1 ing-columns" style="grid-template-columns: 1rem 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; border-bottom: 1px solid oklch(90% 0.015 80); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
+        <span></span>
         <span>Qty</span>
         <span>Unit</span>
         <span>Ingredient</span>
@@ -704,8 +873,15 @@
           <template x-for="(ing, ii) in group.items" :key="ing._idx">
             <div class="grid items-baseline" data-ingredient-row
               :data-ingredient-idx="ing._idx"
-              style="grid-template-columns: 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px solid oklch(93% 0.01 80);"
+              :draggable="$store.recipeMode.editing"
+              @dragstart="$event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', String(ing._idx)); $el.classList.add('dragging');"
+              @dragend="$el.classList.remove('dragging'); document.querySelectorAll('[data-ingredient-row].drag-over').forEach(el => el.classList.remove('drag-over'));"
+              @dragover.prevent="$el.classList.add('drag-over'); $event.dataTransfer.dropEffect='move';"
+              @dragleave="$el.classList.remove('drag-over');"
+              @drop.prevent="$el.classList.remove('drag-over'); reorderIngredient(parseInt($event.dataTransfer.getData('text/plain'), 10), ing._idx);"
+              style="grid-template-columns: 1rem 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px solid oklch(93% 0.01 80);"
               x-data="{ editQ: false }">
+              <span class="ss-drag-handle edit-only" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
               <!-- Qty cell: shows scaled qty when idle; editing reverts to BASE qty
                    so the user is changing the canonical value, not the scaled view. -->
               <span x-show="!editQ"
@@ -731,19 +907,61 @@
                 @keydown.enter.prevent="$el.blur()"
                 @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
                 x-text="ing.unit || ''"></span>
-              <span class="ss-inline-edit ing-name"
-                :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
-                spellcheck="false"
-                style="font-size: 0.875rem; color: var(--text-1); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block;"
-                :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
-                @focus="$el.dataset.original = $el.innerText.trim()"
-                @blur="saveIngredientField(ing._idx, 'name', $el.innerText.trim(), $el)"
-                @keydown.enter.prevent="$el.blur()"
-                @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
-                x-text="ing.name"></span>
+              <!-- Name field with inline product autocomplete. The popover is
+                   anchored relative to this wrapper; click-away closes via the
+                   focusout/keyboard handlers on the contenteditable span. -->
+              <span class="relative" style="position:relative;">
+                <span class="ss-inline-edit ing-name"
+                  :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+                  spellcheck="false"
+                  style="font-size: 0.875rem; color: var(--text-1); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block; width:100%;"
+                  :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+                  @focus="$el.dataset.original = $el.innerText.trim(); acOpenFor(ing._idx, $el.innerText.trim());"
+                  @input="acType($el.innerText.trim())"
+                  @blur="setTimeout(() => { if (acState.idx === ing._idx) acClose(); }, 150); saveIngredientField(ing._idx, 'name', $el.innerText.trim(), $el)"
+                  @keydown.arrow-down.prevent="acMove(1)"
+                  @keydown.arrow-up.prevent="acMove(-1)"
+                  @keydown.enter.prevent="if (acState.idx === ing._idx && acState.results.length) { acSelectActive(); $el.blur(); } else { $el.blur(); }"
+                  @keydown.escape.prevent="acClose(); $el.innerText = $el.dataset.original || ''; $el.blur()"
+                  x-text="ing.name"></span>
+                <div x-show="acState.idx === ing._idx && (acState.results.length > 0 || acState.loading || acState.query.length >= 2)"
+                     x-cloak class="ss-autocomplete-popover"
+                     @mousedown.prevent>
+                  <div x-show="acState.loading" style="padding:0.5rem 0.75rem; font-size:0.75rem; color:var(--text-3);">Searching…</div>
+                  <template x-for="(p, pi) in acState.results" :key="p.product_id">
+                    <div class="ss-autocomplete-row"
+                         :class="pi === acState.active ? 'active' : ''"
+                         @mouseenter="acState.active = pi"
+                         @click="acSelectActive()">
+                      <div style="min-width:0;">
+                        <div style="font-size:0.8125rem; color:var(--text-1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="p.description"></div>
+                        <div x-show="p.brand" style="font-size:0.6875rem; color:var(--text-3);" x-text="p.brand"></div>
+                      </div>
+                      <span style="font-size:0.75rem; color:var(--text-2); font-variant-numeric:tabular-nums;"
+                            x-text="(p.sale_price || p.regular_price) ? '$' + (p.sale_price || p.regular_price).toFixed(2) : ''"></span>
+                      <span x-show="p.safety_grade"
+                            :style="`background:${gradeColor(p.safety_grade).bg}; color:${gradeColor(p.safety_grade).text}; padding:0.1rem 0.4rem; border-radius:99px; font-size:0.625rem; font-weight:700;`"
+                            x-text="p.safety_grade"></span>
+                    </div>
+                  </template>
+                  <div x-show="!acState.loading && acState.results.length === 0 && acState.query.length >= 2"
+                       style="padding:0.5rem 0.75rem; font-size:0.75rem; color:var(--text-3);">No Kroger matches.</div>
+                  <div class="ss-autocomplete-footer" @click="acUseManual(acState.query)">
+                    Use “<span x-text="acState.query"></span>” as manual entry
+                  </div>
+                </div>
+              </span>
               <span class="ing-source-pill" style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
-                <span x-show="ing.override" style="font-size: 0.6875rem; background: oklch(92% 0.015 80); color: var(--text-2); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Manual</span>
-                <span x-show="!ing.override && ing.product_id" style="font-size: 0.6875rem; background: oklch(91% 0.1 145); color: oklch(30% 0.14 145); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500;">Kroger</span>
+                <button x-show="ing.override"
+                  @click="acOpenFor(ing._idx, ing.name)"
+                  :disabled="!$store.recipeMode.editing"
+                  title="Click to link a Kroger product"
+                  style="font-size: 0.6875rem; background: oklch(92% 0.015 80); color: var(--text-2); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500; border:none; cursor:pointer;">Manual</button>
+                <button x-show="!ing.override && ing.product_id"
+                  @click="if ($store.recipeMode.editing && confirm('Unlink Kroger product? Ingredient will become manual.')) unlinkProduct(ing._idx);"
+                  :disabled="!$store.recipeMode.editing"
+                  title="Click to unlink"
+                  style="font-size: 0.6875rem; background: oklch(91% 0.1 145); color: oklch(30% 0.14 145); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500; border:none; cursor:pointer;">Kroger</button>
                 <span x-show="!ing.override && !ing.product_id" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
                 <template x-if="ing.pantry">
                   <span class="ss-badge"
@@ -814,24 +1032,29 @@
         </div>
       </template>
 
-      <!-- Add ingredient row — edit-only -->
+      <!-- Add ingredient row. Drag column stays empty (the new row isn't
+           draggable). Empty-state copy nudges toward Kroger search; pressing
+           Enter on the name triggers the add and the autocomplete popover
+           opens on the new row immediately so linking is one keystroke away. -->
       <div x-data="{ addQ: '', addU: '', addN: '' }"
         class="grid items-baseline edit-only"
-        style="grid-template-columns: 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; padding: 0.55rem 0; border-top: 1px dashed oklch(88% 0.015 80); margin-top: 0.25rem;">
+        style="grid-template-columns: 1rem 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; padding: 0.55rem 0; border-top: 1px dashed oklch(88% 0.015 80); margin-top: 0.25rem;">
+        <span></span>
         <input x-model="addQ" type="text" inputmode="decimal" placeholder="qty"
-          @keydown.enter.prevent="addIngredient(addQ, addU, addN); addQ=''; addU=''; addN='';"
+          @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
           style="font-size: 0.8rem; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; min-width: 0; font-variant-numeric: tabular-nums;"/>
         <input x-model="addU" type="text" placeholder="unit"
-          @keydown.enter.prevent="addIngredient(addQ, addU, addN); addQ=''; addU=''; addN='';"
+          @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
           style="font-size: 0.8rem; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; min-width: 0;"/>
-        <input x-model="addN" type="text" placeholder="+ Add ingredient (name)…"
-          @keydown.enter.prevent="addIngredient(addQ, addU, addN); addQ=''; addU=''; addN='';"
+        <input x-model="addN" type="text"
+          :placeholder="ings.length === 0 ? 'Search Kroger or type and press Enter…' : '+ Add ingredient (name)…'"
+          @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
           style="font-size: 0.875rem; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; min-width: 0;"/>
         <span></span>
         <span></span>
         <button class="ss-row-action"
           :disabled="!addN.trim()"
-          @click="addIngredient(addQ, addU, addN); addQ=''; addU=''; addN='';"
+          @click="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
           title="Add ingredient"
           style="justify-self:end; color: var(--green);">+</button>
       </div>
@@ -851,10 +1074,21 @@
   <div class="ss-card p-6" x-data="instructionsEditor">
     <h3 style="font-family:'Lora',serif; font-weight:600; font-size:0.9375rem; color:var(--text-1); letter-spacing:-0.01em; margin:0 0 0.875rem; padding-bottom:0.875rem; border-bottom:1px solid var(--border);">Instructions</h3>
 
+    <p x-show="steps.length === 0" class="edit-only"
+       style="font-size:0.8125rem; color:var(--text-3); font-style:italic; padding:0.5rem 0 0.25rem;">
+      Click below to add your first step…
+    </p>
     <ol class="space-y-1" style="list-style:none; padding:0; counter-reset:step;">
       <template x-for="(step, i) in steps" :key="i + ':' + step.slice(0,20)">
         <li class="grid items-baseline step-row"
-          style="grid-template-columns: 1.75rem 1fr auto; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid oklch(95% 0.01 80);">
+          :draggable="$store.recipeMode.editing"
+          @dragstart="$event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', String(i)); $el.classList.add('dragging');"
+          @dragend="$el.classList.remove('dragging'); document.querySelectorAll('.step-row.drag-over').forEach(el => el.classList.remove('drag-over'));"
+          @dragover.prevent="$el.classList.add('drag-over'); $event.dataTransfer.dropEffect='move';"
+          @dragleave="$el.classList.remove('drag-over');"
+          @drop.prevent="$el.classList.remove('drag-over'); reorderStep(parseInt($event.dataTransfer.getData('text/plain'), 10), i);"
+          style="grid-template-columns: 1rem 1.75rem 1fr auto; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid oklch(95% 0.01 80);">
+          <span class="ss-drag-handle edit-only" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
           <span class="step-number" style="font-size:0.75rem; color:var(--text-3); font-variant-numeric:tabular-nums; padding-top:0.1rem;"
             x-text="(i + 1) + '.'"></span>
           <span class="ss-inline-edit step-text"
@@ -869,12 +1103,6 @@
             @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
             x-text="step"></span>
           <span class="edit-only" style="display:inline-flex; gap:0.125rem; justify-self:end; align-self:start; padding-top:0.05rem;">
-            <button class="ss-row-action" :disabled="i === 0"
-              :style="i === 0 ? 'opacity:0.3; cursor:not-allowed;' : ''"
-              @click="i > 0 && moveStep(i, -1)" title="Move up">↑</button>
-            <button class="ss-row-action" :disabled="i === steps.length - 1"
-              :style="i === steps.length - 1 ? 'opacity:0.3; cursor:not-allowed;' : ''"
-              @click="i < steps.length - 1 && moveStep(i, 1)" title="Move down">↓</button>
             <button class="ss-row-action is-danger" @click="removeStep(i)" title="Remove step">✕</button>
           </span>
         </li>
@@ -1024,10 +1252,54 @@
 
 <script>
 document.addEventListener('alpine:init', () => {
-  // Recipe page mode store. View mode is the default reading state.
-  // Edit mode reveals every inline editor, add-row, and reorder control.
-  // Each page load starts in view mode by design — no localStorage.
-  Alpine.store('recipeMode', { editing: false });
+  // Edit is the default; the toggle button locks the page into a
+  // read-only view for share/screenshot use. No localStorage — every
+  // load starts editable.
+  Alpine.store('recipeMode', { editing: true });
+
+  // Optimistic-locking version stamp shared by every mutating call.
+  // Server returns a fresh updated_at on each success; subsequent PUT/
+  // PATCH ship it back as If-Match so peer edits surface as 409.
+  Alpine.store('recipeVersion', {
+    value: {{ (recipe.updated_at or recipe.created_at or '') | tojson }},
+    bump(v) { if (v) this.value = v; },
+  });
+
+  // Centralized save helper: dispatches a toast on success, surfaces
+  // server-side validation/409 conflicts, advances the version stamp.
+  // Replaces every legacy `window.location.reload()` after a save.
+  window._ssToast = (message, opts) => {
+    window.dispatchEvent(new CustomEvent('toast:show', {
+      detail: Object.assign({ message }, opts || {})
+    }));
+  };
+  window._ssRecipeSave = async (method, path, body) => {
+    const opts = { method, headers: {'Content-Type': 'application/json'} };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    const ver = Alpine.store('recipeVersion').value;
+    if (ver) opts.headers['If-Match'] = ver;
+    let res;
+    try {
+      res = await fetch(path, opts);
+    } catch (e) {
+      window._ssToast('Network error — change not saved', { level: 'error' });
+      throw e;
+    }
+    let payload = null;
+    try { payload = await res.json(); } catch (_) { payload = null; }
+    if (res.status === 409) {
+      window._ssToast('Someone else edited this recipe — refresh to merge.',
+        { level: 'warn', action: { label: 'Reload', onClick: () => window.location.reload() } });
+      throw new Error('conflict');
+    }
+    if (!res.ok || !payload || payload.success !== true) {
+      const msg = (payload && (payload.error || payload.detail)) || 'Save failed';
+      window._ssToast(msg, { level: 'error' });
+      throw new Error(msg);
+    }
+    Alpine.store('recipeVersion').bump(payload.updated_at);
+    return payload;
+  };
 
   const _rd = JSON.parse(document.getElementById('recipe-init-data').textContent);
 
@@ -1053,48 +1325,21 @@ document.addEventListener('alpine:init', () => {
     recipeId: _rd.id,
     recipeName: _rd.name,
     baseServings: _rd.servings || 4,
-    editOpen: false,
-    editName: _rd.name,
-    editDescription: _rd.description,
-    editServings: _rd.servings,
-    editTags: (_rd.tags || []).join(', '),
-    editLoading: false,
-    editError: '',
+    currentTags: (_rd.tags || []).slice(),
+
     async deleteRecipe() {
       if (!confirm('Delete this recipe? This cannot be undone.')) return;
       try {
         const r = await fetch('/api/recipes/' + _rd.id, {method: 'DELETE'});
         if (r.ok) { window.location.href = '/recipes'; }
-        else { alert('Failed to delete recipe'); }
-      } catch(e) { alert('Network error'); }
-    },
-    async saveEdit() {
-      if (!this.editName.trim()) { this.editError = 'Name is required'; return; }
-      this.editLoading = true; this.editError = '';
-      const tags = this.editTags.split(',').map(t => t.trim()).filter(t => t.length > 0);
-      try {
-        const r = await fetch('/api/recipes/' + _rd.id, {
-          method: 'PATCH',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            name: this.editName.trim(),
-            description: this.editDescription.trim() || null,
-            tags: tags,
-            servings: this.editServings ? parseInt(this.editServings) : null
-          })
-        });
-        const d = await r.json();
-        if (r.ok && d.success) { window.location.reload(); }
-        else { this.editError = d.error || 'Failed to save changes'; }
-      } catch(e) { this.editError = 'Network error'; }
-      this.editLoading = false;
+        else { window._ssToast('Failed to delete recipe', { level: 'error' }); }
+      } catch(e) { window._ssToast('Network error', { level: 'error' }); }
     },
 
-    // ── Inline (click-to-edit) field saves ────────────────────────────
-    // Each editable element captures its current text into dataset.original
-    // on focus and calls inlineEdit(field, $el) on blur. We only PATCH when
-    // the value actually changed, then reload so the page rerenders with
-    // server-canonical state (incl. recomputed health/safety scoring).
+    // Click-to-edit field saves: each editable element captures its current
+    // value into dataset.original on focus and calls inlineEdit on blur. We
+    // only PATCH when the value actually changed, and we reflect server
+    // success via toast instead of reloading the page.
     async inlineEdit(field, $el) {
       const orig = ($el.dataset.original ?? '').trim();
       const next = $el.innerText.trim();
@@ -1103,33 +1348,48 @@ document.addEventListener('alpine:init', () => {
       if (field === 'servings') {
         const n = parseInt(next, 10);
         if (isNaN(n) || n < 1 || n > 50) { $el.innerText = orig; return; }
-        return this._patchRecipe({ servings: n }, $el, orig);
+        return this._patchRecipe({ servings: n }, $el, orig, 'servings');
       }
       if (field === 'description') {
-        return this._patchRecipe({ description: next || null }, $el, orig);
+        return this._patchRecipe({ description: next || null }, $el, orig, 'description');
       }
-      return this._patchRecipe({ [field]: next }, $el, orig);
+      if (field === 'name') {
+        this.recipeName = next;
+      }
+      return this._patchRecipe({ [field]: next }, $el, orig, field);
     },
-    async saveTags(rawCsv) {
-      const tags = (rawCsv || '').split(',').map(t => t.trim()).filter(Boolean);
-      const current = (_rd.tags || []);
-      if (tags.length === current.length && tags.every((t, i) => t === current[i])) return;
-      return this._patchRecipe({ tags }, null, null);
+    addTag(raw) {
+      const t = (raw || '').trim();
+      if (!t) return;
+      if (this.currentTags.includes(t)) return;
+      const next = this.currentTags.concat([t]);
+      this._patchRecipe({ tags: next }, null, null, 'tags')
+        .then(() => { this.currentTags = next; });
     },
-    async _patchRecipe(body, $el, orig) {
-      try {
-        const r = await fetch('/api/recipes/' + _rd.id, {
-          method: 'PATCH',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(body)
+    removeTag(idx) {
+      const removed = this.currentTags[idx];
+      const next = this.currentTags.slice();
+      next.splice(idx, 1);
+      this._patchRecipe({ tags: next }, null, null, 'tags')
+        .then(() => {
+          this.currentTags = next;
+          window._ssToast('Removed “' + removed + '”', {
+            action: { label: 'Undo', onClick: () => this.addTag(removed) },
+          });
         });
-        const d = await r.json();
-        if (r.ok && d.success) { window.location.reload(); return; }
-        if ($el && orig !== null) $el.innerText = orig;
-        alert((d && d.error) || 'Failed to save changes');
-      } catch(e) {
-        if ($el && orig !== null) $el.innerText = orig;
-        alert('Network error');
+    },
+    bumpServings(delta) {
+      const next = Math.max(1, Math.min(50, this.baseServings + delta));
+      if (next === this.baseServings) return;
+      this._patchRecipe({ servings: next }, null, null, 'servings')
+        .then(() => { this.baseServings = next; });
+    },
+    async _patchRecipe(body, $el, orig, label) {
+      try {
+        await window._ssRecipeSave('PATCH', '/api/recipes/' + _rd.id, body);
+        window._ssToast('Saved ' + (label || 'change'));
+      } catch (e) {
+        if ($el && orig !== null && orig !== undefined) $el.innerText = orig;
       }
     }
   }));
@@ -1141,46 +1401,52 @@ document.addEventListener('alpine:init', () => {
   const _instrFlat = _instrEl ? JSON.parse(_instrEl.textContent) : [];
   Alpine.data('instructionsEditor', () => ({
     steps: [..._instrFlat],
-    async _putSteps(next) {
+    async _putSteps(next, label) {
       try {
-        const r = await fetch('/api/recipes/' + _rd.id + '/instructions', {
-          method: 'PUT',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ instructions: next })
-        });
-        const d = await r.json();
-        if (r.ok && d.success) { window.location.reload(); return; }
-        alert((d && d.error) || 'Failed to save instructions');
-      } catch(e) { alert('Network error'); }
+        await window._ssRecipeSave('PUT',
+          '/api/recipes/' + _rd.id + '/instructions',
+          { instructions: next });
+        this.steps = next;
+        window._ssToast('Saved ' + (label || 'step'));
+        return true;
+      } catch (_) { return false; }
     },
-    async updateStep(idx, text, $el) {
+    updateStep(idx, text, $el) {
       const orig = ($el.dataset.original || '').trim();
       if (text === orig) return;
       if (!text) {
-        if (!confirm('Remove this step?')) { $el.innerText = orig; return; }
-        const next = this.steps.slice(); next.splice(idx, 1);
-        return this._putSteps(next);
+        this.removeStep(idx);
+        return;
       }
       const next = this.steps.slice(); next[idx] = text;
-      return this._putSteps(next);
+      this._putSteps(next, 'step edit');
     },
-    async moveStep(idx, dir) {
-      const j = idx + dir;
-      if (j < 0 || j >= this.steps.length) return;
+    reorderStep(fromIdx, toIdx) {
+      if (fromIdx === toIdx) return;
+      if (fromIdx < 0 || toIdx < 0) return;
       const next = this.steps.slice();
-      [next[idx], next[j]] = [next[j], next[idx]];
-      return this._putSteps(next);
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      this._putSteps(next, 'step reorder');
     },
-    async removeStep(idx) {
+    removeStep(idx) {
       const target = this.steps[idx];
-      if (!confirm('Remove step ' + (idx + 1) + (target ? ': "' + target.slice(0, 60) + '"?' : '?'))) return;
-      const next = this.steps.slice(); next.splice(idx, 1);
-      return this._putSteps(next);
+      const snapshot = this.steps.slice();
+      const next = snapshot.slice(); next.splice(idx, 1);
+      this._putSteps(next, 'step removal').then(ok => {
+        if (!ok) return;
+        window._ssToast('Removed step ' + (idx + 1), {
+          action: {
+            label: 'Undo',
+            onClick: () => this._putSteps(snapshot, 'step restore'),
+          },
+        });
+      });
     },
-    async addStep(text) {
+    addStep(text) {
       const s = (text || '').trim();
       if (!s) return;
-      return this._putSteps([...this.steps, s]);
+      this._putSteps([...this.steps, s], 'new step');
     }
   }));
 

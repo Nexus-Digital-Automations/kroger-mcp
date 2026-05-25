@@ -62,7 +62,7 @@
           this.sortStack = parsed
             .filter((i) => i && typeof i.v === 'string' && optionByKey.has(i.v))
             .map((i) => ({ v: i.v, dir: i.dir === 'desc' ? 'desc' : 'asc' }));
-        } catch (e) {
+        } catch {
           /* corrupt JSON → ignore, fall through to default */
         }
       },
@@ -73,7 +73,7 @@
         this._sortSaveTimer = setTimeout(() => {
           try {
             localStorage.setItem(storageKey, JSON.stringify(snapshot));
-          } catch (e) {
+          } catch {
             /* quota or disabled → silent; in-memory state still works */
           }
         }, PERSIST_DELAY_MS);

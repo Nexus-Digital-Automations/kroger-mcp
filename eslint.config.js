@@ -32,6 +32,8 @@ const browserGlobals = {
   FormData: 'readonly',
   AbortController: 'readonly',
   getComputedStyle: 'readonly',
+  requestAnimationFrame: 'readonly',
+  cancelAnimationFrame: 'readonly',
 };
 
 const nodeGlobals = {
