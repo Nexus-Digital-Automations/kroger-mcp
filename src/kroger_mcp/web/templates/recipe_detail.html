@@ -124,9 +124,9 @@
   }
   .ss-autocomplete-footer:hover { background: oklch(95% 0.012 80); color: var(--text-1); }
 
-  /* ─── Mobile (≤480px): keep popover within viewport, collapse drag-only
-     affordances since dragging via touch isn't supported here yet, and let
-     the ingredient grid wrap the source/health chips below the name. */
+  /* ─── Mobile (≤480px): drag column collapses; everything else holds. The
+     5-column grid is already tight, so we just hide the drag gutter and
+     reflow the popover within the viewport. */
   @media (max-width: 480px) {
     .ss-autocomplete-popover {
       min-width: 0;
@@ -138,13 +138,87 @@
     [data-recipe-mode="edit"] .ss-drag-handle { display: none; }
     [data-recipe-mode="edit"] [data-ingredient-row],
     [data-recipe-mode="edit"] .ing-columns {
-      grid-template-columns: 3.5rem 3rem 1fr 2rem !important;
+      grid-template-columns: 3.5rem 2.5rem 1fr 1.5rem !important;
     }
-    [data-recipe-mode="edit"] [data-ingredient-row] .ing-source-pill,
-    [data-recipe-mode="edit"] [data-ingredient-row] .ing-grade-chip,
-    [data-recipe-mode="edit"] .ing-columns > span:nth-child(5),
-    [data-recipe-mode="edit"] .ing-columns > span:nth-child(6) { display: none; }
+    [data-recipe-mode="edit"] .ing-columns > span:first-child { display: none; }
   }
+
+  /* ─── Ingredient row — refined arrangement ─────────────────────────────
+     Row hover lifts a faint background so the eye knows which row is active;
+     status dots stay always-visible at low contrast; the ✕ control fades in
+     only on hover so it doesn't compete with content at rest. */
+  .ing-row:hover { background: oklch(98% 0.008 75); }
+
+  .ing-name-cell { min-width: 0; }
+
+  /* Status indicators are inline, never wrap, never push the ✕ around. */
+  .ing-status > * { flex-shrink: 0; }
+
+  .src-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    padding: 0;
+    cursor: pointer;
+    background: transparent;
+    transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
+  }
+  .src-dot:disabled { cursor: default; }
+  .src-dot:not(:disabled):hover { transform: scale(1.4); }
+  .src-manual { background: oklch(72% 0.04 75); }
+  .src-kroger { background: var(--green); box-shadow: 0 0 0 1.5px oklch(94% 0.04 145); }
+  .src-empty  { background: transparent; border-color: oklch(82% 0.02 70); cursor: default; }
+
+  .pantry-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-block;
+  }
+  .pantry-dot.dot-ok     { background: oklch(60% 0.14 155); }
+  .pantry-dot.dot-warn   { background: oklch(72% 0.15 75); }
+  .pantry-dot.dot-danger { background: oklch(60% 0.18 25); }
+
+  .grade-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 0.3rem;
+    border: none;
+    font-family: 'Lora', serif;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+  .grade-chip:hover { filter: brightness(0.97); }
+
+  /* Delete control: opacity 0 at rest, fades in on row hover so the chrome
+     doesn't shout. Always pinned right via grid placement. */
+  .ing-remove {
+    justify-self: end;
+    align-self: center;
+    width: 1.5rem; height: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-3);
+    border-radius: 0.3rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease-out, color 0.12s, background 0.12s;
+  }
+  .ing-row:hover .ing-remove,
+  .ing-remove:focus-visible { opacity: 1; }
+  .ing-remove:hover { color: oklch(45% 0.18 25); background: oklch(96% 0.04 25); }
+  .ing-remove:disabled { opacity: 0.3; cursor: not-allowed; }
 
   /* ─── View-mode ingredient row: flowing list, not a grid table ──── */
   [data-recipe-mode="view"] [data-ingredient-row] {
@@ -848,14 +922,14 @@
     </div>
     <div>
       <!-- Column header — only shown in edit mode (view collapses the grid).
-           First column is the drag handle gutter (no label). -->
-      <div class="grid pb-2 mb-1 ing-columns" style="grid-template-columns: 1rem 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; border-bottom: 1px solid oklch(90% 0.015 80); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
+           Five columns: drag · qty · unit · name+status · delete. Source/grade
+           status dots are inlined into the name cell instead of separate
+           columns; that keeps the row single-line and ✕ pinned right. -->
+      <div class="grid pb-2 mb-2 ing-columns" style="grid-template-columns: 1rem 3.75rem 3rem 1fr 1.5rem; gap: 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
         <span></span>
         <span>Qty</span>
         <span>Unit</span>
         <span>Ingredient</span>
-        <span>Source</span>
-        <span>Health</span>
         <span></span>
       </div>
       <template x-for="(group, gi) in groups" :key="gi">
@@ -871,7 +945,7 @@
             <span class="cat-count" style="font-weight:400; opacity:0.6; font-size:0.5625rem; margin-left:0.125rem;" x-text="'(' + group.items.length + ')'"></span>
           </div>
           <template x-for="(ing, ii) in group.items" :key="ing._idx">
-            <div class="grid items-baseline" data-ingredient-row
+            <div class="grid items-baseline ing-row" data-ingredient-row
               :data-ingredient-idx="ing._idx"
               :draggable="$store.recipeMode.editing"
               @dragstart="$event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', String(ing._idx)); $el.classList.add('dragging');"
@@ -879,7 +953,7 @@
               @dragover.prevent="$el.classList.add('drag-over'); $event.dataTransfer.dropEffect='move';"
               @dragleave="$el.classList.remove('drag-over');"
               @drop.prevent="$el.classList.remove('drag-over'); reorderIngredient(parseInt($event.dataTransfer.getData('text/plain'), 10), ing._idx);"
-              style="grid-template-columns: 1rem 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; padding: 0.45rem 0; border-bottom: 1px solid oklch(93% 0.01 80);"
+              style="grid-template-columns: 1rem 3.75rem 3rem 1fr 1.5rem; gap: 0.75rem; padding: 0.65rem 0; border-bottom: 1px solid oklch(94% 0.008 70);"
               x-data="{ editQ: false }">
               <span class="ss-drag-handle edit-only" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
               <!-- Qty cell: shows scaled qty when idle; editing reverts to BASE qty
@@ -907,14 +981,17 @@
                 @keydown.enter.prevent="$el.blur()"
                 @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
                 x-text="ing.unit || ''"></span>
-              <!-- Name field with inline product autocomplete. The popover is
-                   anchored relative to this wrapper; click-away closes via the
-                   focusout/keyboard handlers on the contenteditable span. -->
-              <span class="relative" style="position:relative;">
+              <!-- Name cell folds source/pantry/grade chips inline so the
+                   parent grid stays exactly 5 columns wide regardless of how
+                   many badges this ingredient earns. Status indicators are
+                   small dots; the loud "Manual / Kroger / X cups in pantry"
+                   text pills are gone — full detail lives in title= tooltips
+                   and the safety popover. -->
+              <span class="ing-name-cell" style="position:relative; display:flex; align-items:center; gap:0.5rem; min-width:0;">
                 <span class="ss-inline-edit ing-name"
                   :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
                   spellcheck="false"
-                  style="font-size: 0.875rem; color: var(--text-1); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block; width:100%;"
+                  style="font-size: 0.9375rem; color: var(--text-1); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block; flex:1; min-width:0; line-height:1.4;"
                   :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
                   @focus="$el.dataset.original = $el.innerText.trim(); acOpenFor(ing._idx, $el.innerText.trim());"
                   @input="acType($el.innerText.trim())"
@@ -924,6 +1001,84 @@
                   @keydown.enter.prevent="if (acState.idx === ing._idx && acState.results.length) { acSelectActive(); $el.blur(); } else { $el.blur(); }"
                   @keydown.escape.prevent="acClose(); $el.innerText = $el.dataset.original || ''; $el.blur()"
                   x-text="ing.name"></span>
+
+                <!-- Inline status dots — fixed-width strip so the row never
+                     wraps. Each is a 6–7px disc; tooltips carry the full text. -->
+                <span class="ing-status" style="display:inline-flex; align-items:center; gap:0.375rem; flex-shrink:0;">
+                  <!-- Source indicator: muted dot for Manual, sage dot for Kroger,
+                       hollow ring when neither product nor override is set. -->
+                  <button x-show="ing.override"
+                    @click="acOpenFor(ing._idx, ing.name)"
+                    :disabled="!$store.recipeMode.editing"
+                    class="src-dot src-manual"
+                    title="Manual — click to link a Kroger product"
+                    aria-label="Manual ingredient"></button>
+                  <button x-show="!ing.override && ing.product_id"
+                    @click="if ($store.recipeMode.editing && confirm('Unlink Kroger product? Ingredient will become manual.')) unlinkProduct(ing._idx);"
+                    :disabled="!$store.recipeMode.editing"
+                    class="src-dot src-kroger"
+                    title="Linked to a Kroger product — click to unlink"
+                    aria-label="Kroger-linked ingredient"></button>
+                  <span x-show="!ing.override && !ing.product_id"
+                    class="src-dot src-empty"
+                    title="Unlinked — open the ingredient name to search Kroger"
+                    aria-hidden="true"></span>
+
+                  <!-- Pantry dot: color encodes status. No more inline text. -->
+                  <template x-if="ing.pantry">
+                    <span class="pantry-dot"
+                      :class="ing.pantry.status === 'ok' ? 'dot-ok' : (ing.pantry.status === 'low' ? 'dot-warn' : 'dot-danger')"
+                      :title="'Pantry: ' + ing.pantry.level_percent + '%' + (ing.pantry.quantity_on_hand !== null ? (' · ' + ing.pantry.quantity_on_hand + (ing.pantry.unit ? ' ' + ing.pantry.unit : '')) : '')"
+                      aria-label="Pantry status"></span>
+                  </template>
+
+                  <!-- Safety grade: a single letter chip, restrained palette.
+                       Click opens the same popover as before. -->
+                  <div x-show="ing.safety_grade" class="relative" x-data="{ pop: false }" @click.away="pop = false">
+                    <button @click.stop="pop = !pop"
+                      class="grade-chip"
+                      :style="`background:${gradeColor(ing.safety_grade).bg}; color:${gradeColor(ing.safety_grade).text};`"
+                      :title="'Safety ' + ing.safety_grade + ((ing.safety_score ?? null) !== null ? ' · ' + ing.safety_score + '/100' : '')"
+                      x-text="ing.safety_grade"></button>
+                    <div x-show="pop" x-transition x-cloak
+                      class="absolute bottom-full mb-1 right-0 z-50 w-56 bg-white rounded-xl shadow-lg border border-gray-200 p-2.5 text-left"
+                      @click.stop>
+                      <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-gray-100">
+                        <span style="font-size:0.6875rem; font-weight:700;" :style="`color:${gradeColor(ing.safety_grade).text};`" x-text="'Safety ' + ing.safety_grade"></span>
+                        <span style="font-size:0.5625rem; color:var(--text-3);" x-text="(ing.safety_score ?? '?') + '/100'"></span>
+                      </div>
+                      <template x-if="ing.safety_flags && ing.safety_flags.length > 0">
+                        <div class="mb-1">
+                          <template x-for="flag in ing.safety_flags" :key="flag.ingredient + flag.severity">
+                            <div style="padding:0.2rem 0; border-bottom:1px solid oklch(95% 0.01 80);">
+                              <div class="flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                                  :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
+                                <span style="font-size:0.625rem; font-weight:500; color:var(--text-1);" x-text="flag.ingredient"></span>
+                              </div>
+                              <p style="font-size:0.5625rem; color:var(--text-3); margin-left:0.625rem; line-height:1.3;" x-text="flag.reason"></p>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                      <template x-if="ing.safety_positives && ing.safety_positives.length > 0">
+                        <div>
+                          <template x-for="attr in ing.safety_positives" :key="attr.attribute">
+                            <div class="flex items-center gap-1 py-0.5">
+                              <span style="color:var(--green); font-size:0.625rem; font-weight:700;">+</span>
+                              <span style="font-size:0.625rem; color:var(--green);" x-text="attr.attribute"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                      <p x-show="(!ing.safety_flags || ing.safety_flags.length === 0) && (!ing.safety_positives || ing.safety_positives.length === 0)"
+                        style="font-size:0.625rem; color:var(--text-3); font-style:italic;">No concerns.</p>
+                    </div>
+                  </div>
+                </span>
+
+                <!-- Autocomplete popover anchored to the entire name cell so it
+                     spans the chips without overlapping. -->
                 <div x-show="acState.idx === ing._idx && (acState.results.length > 0 || acState.loading || acState.query.length >= 2)"
                      x-cloak class="ss-autocomplete-popover"
                      @mousedown.prevent>
@@ -951,82 +1106,11 @@
                   </div>
                 </div>
               </span>
-              <span class="ing-source-pill" style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
-                <button x-show="ing.override"
-                  @click="acOpenFor(ing._idx, ing.name)"
-                  :disabled="!$store.recipeMode.editing"
-                  title="Click to link a Kroger product"
-                  style="font-size: 0.6875rem; background: oklch(92% 0.015 80); color: var(--text-2); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500; border:none; cursor:pointer;">Manual</button>
-                <button x-show="!ing.override && ing.product_id"
-                  @click="if ($store.recipeMode.editing && confirm('Unlink Kroger product? Ingredient will become manual.')) unlinkProduct(ing._idx);"
-                  :disabled="!$store.recipeMode.editing"
-                  title="Click to unlink"
-                  style="font-size: 0.6875rem; background: oklch(91% 0.1 145); color: oklch(30% 0.14 145); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 500; border:none; cursor:pointer;">Kroger</button>
-                <span x-show="!ing.override && !ing.product_id" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
-                <template x-if="ing.pantry">
-                  <span class="ss-badge"
-                        :class="ing.pantry.status === 'ok' ? 'ss-badge-ok' : (ing.pantry.status === 'low' ? 'ss-badge-warning' : 'ss-badge-danger')"
-                        :title="'Pantry level: ' + ing.pantry.level_percent + '%' + (ing.pantry.quantity_on_hand !== null ? (' · ' + ing.pantry.quantity_on_hand + (ing.pantry.unit ? ' ' + ing.pantry.unit : '')) : '')"
-                        style="font-size: 0.625rem;">
-                    <template x-if="ing.pantry.quantity_on_hand !== null">
-                      <span><span x-text="ing.pantry.quantity_on_hand"></span><template x-if="ing.pantry.unit"><span> <span x-text="ing.pantry.unit"></span></span></template> in pantry</span>
-                    </template>
-                    <template x-if="ing.pantry.quantity_on_hand === null">
-                      <span>Pantry <span x-text="ing.pantry.level_percent"></span>%</span>
-                    </template>
-                  </span>
-                </template>
-              </span>
-              <!-- View-mode compact pantry dot — same data, less ink -->
-              <template x-if="ing.pantry">
-                <span x-show="!$store.recipeMode.editing" class="badge-dot"
-                  :class="ing.pantry.status === 'ok' ? 'dot-ok' : (ing.pantry.status === 'low' ? 'dot-warn' : 'dot-danger')"
-                  :title="'Pantry: ' + ing.pantry.level_percent + '%' + (ing.pantry.quantity_on_hand !== null ? (' · ' + ing.pantry.quantity_on_hand + (ing.pantry.unit ? ' ' + ing.pantry.unit : '')) : '')"></span>
-              </template>
-              <div x-show="ing.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
-                <button @click.stop="pop = !pop"
-                  :style="`background:${gradeColor(ing.safety_grade).bg}; color:${gradeColor(ing.safety_grade).text}; padding:0.1rem 0.45rem; border-radius:99px; font-size:0.6875rem; font-weight:700; letter-spacing:0.02em; cursor:pointer;`"
-                  x-text="ing.safety_grade"></button>
-                <div x-show="pop" x-transition x-cloak
-                  class="absolute bottom-full mb-1 right-0 z-50 w-56 bg-white rounded-xl shadow-lg border border-gray-200 p-2.5 text-left"
-                  @click.stop>
-                  <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-gray-100">
-                    <span style="font-size:0.6875rem; font-weight:700;" :style="`color:${gradeColor(ing.safety_grade).text};`" x-text="ing.safety_grade"></span>
-                    <span style="font-size:0.5625rem; color:var(--text-3);" x-text="(ing.safety_score ?? '?') + '/100'"></span>
-                  </div>
-                  <template x-if="ing.safety_flags && ing.safety_flags.length > 0">
-                    <div class="mb-1">
-                      <template x-for="flag in ing.safety_flags" :key="flag.ingredient + flag.severity">
-                        <div style="padding:0.2rem 0; border-bottom:1px solid oklch(95% 0.01 80);">
-                          <div class="flex items-center gap-1">
-                            <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                              :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
-                            <span style="font-size:0.625rem; font-weight:500; color:var(--text-1);" x-text="flag.ingredient"></span>
-                          </div>
-                          <p style="font-size:0.5625rem; color:var(--text-3); margin-left:0.625rem; line-height:1.3;" x-text="flag.reason"></p>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-                  <template x-if="ing.safety_positives && ing.safety_positives.length > 0">
-                    <div>
-                      <template x-for="attr in ing.safety_positives" :key="attr.attribute">
-                        <div class="flex items-center gap-1 py-0.5">
-                          <span style="color:var(--green); font-size:0.625rem; font-weight:700;">+</span>
-                          <span style="font-size:0.625rem; color:var(--green);" x-text="attr.attribute"></span>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-                  <p x-show="(!ing.safety_flags || ing.safety_flags.length === 0) && (!ing.safety_positives || ing.safety_positives.length === 0)"
-                    style="font-size:0.625rem; color:var(--text-3); font-style:italic;">No concerns.</p>
-                </div>
-              </div>
-              <span x-show="!ing.safety_grade && $store.recipeMode.editing" style="font-size: 0.6875rem; color: var(--text-3);">—</span>
-              <button class="ss-row-action is-danger edit-only"
+
+              <button class="ing-remove edit-only"
                 title="Remove ingredient"
                 @click="removeIngredient(ing._idx)"
-                style="justify-self:end;">✕</button>
+                aria-label="Remove ingredient">✕</button>
             </div>
           </template>
         </div>
@@ -1038,25 +1122,24 @@
            opens on the new row immediately so linking is one keystroke away. -->
       <div x-data="{ addQ: '', addU: '', addN: '' }"
         class="grid items-baseline edit-only"
-        style="grid-template-columns: 1rem 4.5rem 4rem 1fr auto auto 2rem; gap: 0.5rem; padding: 0.55rem 0; border-top: 1px dashed oklch(88% 0.015 80); margin-top: 0.25rem;">
+        style="grid-template-columns: 1rem 3.75rem 3rem 1fr 1.5rem; gap: 0.75rem; padding: 0.7rem 0 0.4rem; border-top: 1px dashed oklch(90% 0.015 80); margin-top: 0.5rem;">
         <span></span>
         <input x-model="addQ" type="text" inputmode="decimal" placeholder="qty"
           @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
-          style="font-size: 0.8rem; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; min-width: 0; font-variant-numeric: tabular-nums;"/>
+          style="font-size: 0.8rem; padding: 0.25rem 0.45rem; border: 1px solid var(--border); border-radius: 0.3rem; min-width: 0; font-variant-numeric: tabular-nums; background: var(--surface);"/>
         <input x-model="addU" type="text" placeholder="unit"
           @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
-          style="font-size: 0.8rem; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; min-width: 0;"/>
+          style="font-size: 0.8rem; padding: 0.25rem 0.45rem; border: 1px solid var(--border); border-radius: 0.3rem; min-width: 0; background: var(--surface);"/>
         <input x-model="addN" type="text"
           :placeholder="ings.length === 0 ? 'Search Kroger or type and press Enter…' : '+ Add ingredient (name)…'"
           @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
-          style="font-size: 0.875rem; padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: 0.25rem; min-width: 0;"/>
-        <span></span>
-        <span></span>
-        <button class="ss-row-action"
+          style="font-size: 0.875rem; padding: 0.25rem 0.5rem; border: 1px solid var(--border); border-radius: 0.3rem; min-width: 0; background: var(--surface);"/>
+        <button class="ing-remove"
           :disabled="!addN.trim()"
           @click="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
           title="Add ingredient"
-          style="justify-self:end; color: var(--green);">+</button>
+          style="color: var(--green); opacity: 1;"
+          aria-label="Add ingredient">+</button>
       </div>
     </div>
   </div>
