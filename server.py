@@ -3,8 +3,8 @@
 Backward compatibility entry point for Kroger MCP server
 """
 
-import sys
 import os
+import sys
 
 # Add src directory to path for development
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
