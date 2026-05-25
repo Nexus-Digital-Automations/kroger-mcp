@@ -47,6 +47,8 @@ async def settings_page(
         else:
             auth_status = "not_configured"
 
+    user = getattr(request.state, "user", None)
+
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -58,6 +60,7 @@ async def settings_page(
             "auth_status": auth_status,
             "oauth_result": oauth or "",
             "oauth_detail": detail or "",
+            "user": user,
         },
     )
 
