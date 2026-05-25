@@ -657,8 +657,7 @@ def run_schema_migrations() -> None:
             "ON pending_gaps(user_id, resolved_at)"
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_pending_gaps_product "
-            "ON pending_gaps(product_id)"
+            "CREATE INDEX IF NOT EXISTS idx_pending_gaps_product " "ON pending_gaps(product_id)"
         )
 
         # Migrate favorite_list_items table - add minimum stock tracking

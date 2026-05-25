@@ -32,6 +32,7 @@ def _resolve_user_id(user_id: str | None) -> str:
     """
     return user_id if user_id is not None else mcp_user_id()
 
+
 VALID_MEAL_SLOTS = {"breakfast", "lunch", "dinner", "snack"}
 VALID_PLAN_TYPES = {"weekly", "monthly", "custom"}
 RECIPES_FILE = "kroger_recipes.json"
@@ -486,9 +487,7 @@ def delete_meal_plan(plan_id: str, user_id: str | None = None) -> dict[str, Any]
         meal_count = cursor.fetchone()[0]
 
         # Delete (CASCADE removes meal_entries via plan_id FK)
-        conn.execute(
-            "DELETE FROM meal_plans WHERE id = ? AND user_id = ?", (plan_id, owner)
-        )
+        conn.execute("DELETE FROM meal_plans WHERE id = ? AND user_id = ?", (plan_id, owner))
         conn.commit()
 
         return {
@@ -1513,9 +1512,7 @@ def check_meal_pantry_availability(
 # ============== Utility Functions ==============
 
 
-def get_week_view(
-    start_date: str | None = None, user_id: str | None = None
-) -> dict[str, Any]:
+def get_week_view(start_date: str | None = None, user_id: str | None = None) -> dict[str, Any]:
     """
     Get a calendar-style view of `user_id`'s meals for a week.
 
@@ -1597,9 +1594,7 @@ def get_week_view(
     }
 
 
-def get_meal_plan_summary(
-    plan_id: str, user_id: str | None = None
-) -> dict[str, Any]:
+def get_meal_plan_summary(plan_id: str, user_id: str | None = None) -> dict[str, Any]:
     """
     Get summary statistics for a meal plan owned by `user_id`.
 
@@ -1966,9 +1961,7 @@ def get_meal_history(
         conn.close()
 
 
-def cleanup_expired_plans(
-    retention_days: int = 90, user_id: str | None = None
-) -> dict[str, Any]:
+def cleanup_expired_plans(retention_days: int = 90, user_id: str | None = None) -> dict[str, Any]:
     """
     Delete `user_id`'s meal plans whose end_date is more than retention_days ago.
 
@@ -2029,9 +2022,7 @@ def cleanup_expired_plans(
         conn.close()
 
 
-def get_plan_summary_stats(
-    plan_id: str, user_id: str | None = None
-) -> dict[str, Any]:
+def get_plan_summary_stats(plan_id: str, user_id: str | None = None) -> dict[str, Any]:
     """
     Lightweight stats for the bottom stats bar, scoped to `user_id`'s rows.
 

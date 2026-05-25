@@ -754,16 +754,12 @@ def register_tools(mcp):
                         on_hand = pantry.get("quantity_on_hand")
                         stored_unit = pantry.get("unit")
                         unit_match = (
-                            stored_unit is not None
-                            and unit
-                            and stored_unit.lower() == unit.lower()
+                            stored_unit is not None and unit and stored_unit.lower() == unit.lower()
                         )
                         # Partial fulfillment is only safe when units match;
                         # otherwise we fall back to % heuristics.
                         on_hand_usable = (
-                            float(on_hand)
-                            if (on_hand is not None and unit_match)
-                            else None
+                            float(on_hand) if (on_hand is not None and unit_match) else None
                         )
 
                         from_pantry_qty = 0

@@ -108,7 +108,9 @@ def _email_exists(email: str) -> bool:
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse(request, "login.html",
+    return templates.TemplateResponse(
+        request,
+        "login.html",
         {"request": request, "active_page": "login", "error": None},
     )
 
@@ -120,7 +122,9 @@ async def login_submit(request: Request):
     password = form.get("password") or ""
 
     if not email or not password:
-        return templates.TemplateResponse(request, "login.html",
+        return templates.TemplateResponse(
+            request,
+            "login.html",
             {
                 "active_page": "login",
                 "error": "Email and password are required.",
@@ -130,7 +134,9 @@ async def login_submit(request: Request):
 
     user = _get_user_by_email(email)
     if not user or not verify_password(password, user["password_hash"]):
-        return templates.TemplateResponse(request, "login.html",
+        return templates.TemplateResponse(
+            request,
+            "login.html",
             {"request": request, "active_page": "login", "error": "Invalid email or password."},
             status_code=401,
         )
@@ -152,7 +158,9 @@ async def login_submit(request: Request):
 
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
-    return templates.TemplateResponse(request, "register.html",
+    return templates.TemplateResponse(
+        request,
+        "register.html",
         {"request": request, "active_page": "register", "error": None},
     )
 
@@ -179,7 +187,9 @@ async def register_submit(request: Request):
         errors.append("An account with this email already exists.")
 
     if errors:
-        return templates.TemplateResponse(request, "register.html",
+        return templates.TemplateResponse(
+            request,
+            "register.html",
             {"request": request, "active_page": "register", "error": " ".join(errors)},
             status_code=400,
         )

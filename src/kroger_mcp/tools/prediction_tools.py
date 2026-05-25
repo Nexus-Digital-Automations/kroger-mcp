@@ -182,9 +182,7 @@ def register_tools(mcp):
             default=None,
             description="pending_gaps row id (resolve_gap)",
         ),
-        resolution: Literal[
-            "pantry_covered", "user_skipped", "manual_acquired"
-        ] | None = Field(
+        resolution: Literal["pantry_covered", "user_skipped", "manual_acquired"] | None = Field(
             default=None,
             description="How the gap was resolved (resolve_gap)",
         ),
@@ -356,9 +354,7 @@ def register_tools(mcp):
                     results = {}
                     for pid in ids:
                         try:
-                            results[pid] = restock_item(
-                                pid, _level, quantity=quantity, unit=unit
-                            )
+                            results[pid] = restock_item(pid, _level, quantity=quantity, unit=unit)
                         except Exception as e:
                             results[pid] = {
                                 "success": False,

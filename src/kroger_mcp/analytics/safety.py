@@ -134,9 +134,7 @@ def get_safety_settings(user_id: str | None = None) -> dict[str, Any]:
     _ensure_default_safety_settings_for_user(resolved)
 
     with get_db_cursor() as cursor:
-        cursor.execute(
-            "SELECT key, value FROM safety_settings WHERE user_id = ?", (resolved,)
-        )
+        cursor.execute("SELECT key, value FROM safety_settings WHERE user_id = ?", (resolved,))
         rows = cursor.fetchall()
 
     settings = {
@@ -303,9 +301,7 @@ def get_safe_products(user_id: str | None = None) -> list[dict[str, Any]]:
 # ============== Blocked Products Management ==============
 
 
-def is_product_blocked(
-    product_id: str, user_id: str | None = None
-) -> tuple[bool, str | None]:
+def is_product_blocked(product_id: str, user_id: str | None = None) -> tuple[bool, str | None]:
     """Check if a product is on the blocked list for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)
@@ -377,9 +373,7 @@ def add_to_blocked_list(
     }
 
 
-def remove_from_blocked_list(
-    product_id: str, user_id: str | None = None
-) -> dict[str, Any]:
+def remove_from_blocked_list(product_id: str, user_id: str | None = None) -> dict[str, Any]:
     """Remove a product from the blocked list for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)

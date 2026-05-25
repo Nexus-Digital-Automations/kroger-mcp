@@ -149,9 +149,7 @@ def run():
     # 0.0.0.0 bind is intentional — this is a local dev/single-user tool meant
     # to be reachable from any interface on the host (e.g. companion phone on
     # the LAN). bandit B104 flagged.
-    uvicorn.run(
-        "kroger_mcp.web.app:app", host="0.0.0.0", port=PORT, reload=False  # nosec B104
-    )
+    uvicorn.run("kroger_mcp.web.app:app", host="0.0.0.0", port=PORT, reload=False)  # nosec B104
 
 
 def stop():

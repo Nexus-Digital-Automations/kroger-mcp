@@ -51,9 +51,7 @@ def _round_scaled_qty(raw: float) -> float:
     return 1.0
 
 
-def _build_recipe_preview(
-    recipe: dict, servings: int, pantry: dict[str, int]
-) -> dict:
+def _build_recipe_preview(recipe: dict, servings: int, pantry: dict[str, int]) -> dict:
     """
     Compute what `add_recipe` would write, without writing.
 
@@ -80,35 +78,41 @@ def _build_recipe_preview(
         scaled_qty = _round_scaled_qty(qty_num * scale_factor)
 
         if is_override:
-            manual_purchase.append({
-                "name": name,
-                "unit": unit,
-                "quantity": scaled_qty,
-                "original_quantity": ing.get("quantity"),
-                "notes": ing.get("override_reason", "Not from Kroger"),
-            })
+            manual_purchase.append(
+                {
+                    "name": name,
+                    "unit": unit,
+                    "quantity": scaled_qty,
+                    "original_quantity": ing.get("quantity"),
+                    "notes": ing.get("override_reason", "Not from Kroger"),
+                }
+            )
             continue
 
         pantry_level = pantry.get(product_id) if product_id else None
         if product_id and pantry_level is not None and pantry_level >= 30:
-            items_to_skip.append({
+            items_to_skip.append(
+                {
+                    "name": name,
+                    "product_id": product_id,
+                    "quantity": scaled_qty,
+                    "unit": unit,
+                    "pantry_level": pantry_level,
+                    "reason": f"Pantry at {pantry_level}%",
+                }
+            )
+            continue
+
+        items_to_add.append(
+            {
                 "name": name,
                 "product_id": product_id,
                 "quantity": scaled_qty,
                 "unit": unit,
+                "original_quantity": ing.get("quantity"),
                 "pantry_level": pantry_level,
-                "reason": f"Pantry at {pantry_level}%",
-            })
-            continue
-
-        items_to_add.append({
-            "name": name,
-            "product_id": product_id,
-            "quantity": scaled_qty,
-            "unit": unit,
-            "original_quantity": ing.get("quantity"),
-            "pantry_level": pantry_level,
-        })
+            }
+        )
 
     return {
         "items_to_add": items_to_add,
@@ -187,25 +191,29 @@ def _commit_recipe_items(
     listing = _load_shopping_list()
     now_iso = datetime.now().isoformat()
     for sel in selections:
-        listing["items"].append({
-            "id": _generate_list_item_id(),
-            "product_id": None if sel["override"] else sel["product_id"],
-            "ingredient_name": sel["name"],
-            "name": sel["name"],
-            "quantity": sel["quantity"],
-            "unit": sel.get("unit") or "",
-            "sources": [{
-                "recipe_id": recipe_id,
+        listing["items"].append(
+            {
+                "id": _generate_list_item_id(),
+                "product_id": None if sel["override"] else sel["product_id"],
+                "ingredient_name": sel["name"],
+                "name": sel["name"],
+                "quantity": sel["quantity"],
+                "unit": sel.get("unit") or "",
+                "sources": [
+                    {
+                        "recipe_id": recipe_id,
+                        "recipe_name": recipe.get("name"),
+                        "servings_used": servings,
+                        "original_quantity": sel.get("original_quantity"),
+                        "scaled_quantity": sel["quantity"],
+                    }
+                ],
+                "added_at": now_iso,
+                "notes": "Manual purchase" if sel["override"] else None,
+                "manual_purchase": sel["override"],
                 "recipe_name": recipe.get("name"),
-                "servings_used": servings,
-                "original_quantity": sel.get("original_quantity"),
-                "scaled_quantity": sel["quantity"],
-            }],
-            "added_at": now_iso,
-            "notes": "Manual purchase" if sel["override"] else None,
-            "manual_purchase": sel["override"],
-            "recipe_name": recipe.get("name"),
-        })
+            }
+        )
     listing["items"] = _consolidate_items(listing["items"])
     _save_shopping_list(listing)
     return len(listing["items"])
@@ -231,21 +239,23 @@ async def add_recipe_to_list(body: AddRecipeBody):
         preview = _build_recipe_preview(recipe, servings, _pantry_levels())
 
         if not body.confirm:
-            return JSONResponse(content={
-                "success": True,
-                "confirmation_required": True,
-                "recipe_id": body.recipe_id,
-                "recipe_name": recipe.get("name"),
-                "servings": servings,
-                "items_to_add": preview["items_to_add"],
-                "items_to_skip": preview["items_to_skip"],
-                "manual_purchase": preview["manual_purchase"],
-                "summary": {
-                    "to_add": len(preview["items_to_add"]),
-                    "to_skip": len(preview["items_to_skip"]),
-                    "manual": len(preview["manual_purchase"]),
-                },
-            })
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "confirmation_required": True,
+                    "recipe_id": body.recipe_id,
+                    "recipe_name": recipe.get("name"),
+                    "servings": servings,
+                    "items_to_add": preview["items_to_add"],
+                    "items_to_skip": preview["items_to_skip"],
+                    "manual_purchase": preview["manual_purchase"],
+                    "summary": {
+                        "to_add": len(preview["items_to_add"]),
+                        "to_skip": len(preview["items_to_skip"]),
+                        "manual": len(preview["manual_purchase"]),
+                    },
+                }
+            )
 
         if body.selections is None:
             chosen = [
@@ -271,17 +281,19 @@ async def add_recipe_to_list(body: AddRecipeBody):
             items_skipped = 0
 
         total = _commit_recipe_items(chosen, recipe, body.recipe_id, servings)
-        return JSONResponse(content={
-            "success": True,
-            "recipe_name": recipe.get("name"),
-            "items_added": len(chosen),
-            "items_skipped": items_skipped,
-            "total_items": total,
-            "message": (
-                f"Added {len(chosen)} ingredients from '{recipe.get('name')}' "
-                f"(scaled to {servings} servings)"
-            ),
-        })
+        return JSONResponse(
+            content={
+                "success": True,
+                "recipe_name": recipe.get("name"),
+                "items_added": len(chosen),
+                "items_skipped": items_skipped,
+                "total_items": total,
+                "message": (
+                    f"Added {len(chosen)} ingredients from '{recipe.get('name')}' "
+                    f"(scaled to {servings} servings)"
+                ),
+            }
+        )
 
     except Exception as exc:
         logger.exception("add_recipe_to_list failed")
@@ -325,11 +337,13 @@ async def add_shopping_list_item(body: AddItemBody, request: Request):
         listing["items"].append(new_item)
         listing["items"] = _consolidate_items(listing["items"])
         _save_shopping_list(listing, user_id=user_id)
-        return JSONResponse(content={
-            "success": True,
-            "item_id": new_item["id"],
-            "total_items": len(listing["items"]),
-        })
+        return JSONResponse(
+            content={
+                "success": True,
+                "item_id": new_item["id"],
+                "total_items": len(listing["items"]),
+            }
+        )
     except Exception as exc:
         logger.exception("add_shopping_list_item failed")
         return JSONResponse(
@@ -559,9 +573,7 @@ async def shopping_list_to_cart(body: AddToCartBody):
                 "quantity": max(1, round(item.get("quantity", 1))),
                 "recipe_name": item.get("recipe_name")
                 or (
-                    item.get("sources", [{}])[0].get("recipe_name")
-                    if item.get("sources")
-                    else None
+                    item.get("sources", [{}])[0].get("recipe_name") if item.get("sources") else None
                 ),
             }
 
@@ -599,12 +611,14 @@ async def shopping_list_to_cart(body: AddToCartBody):
         if spice_id_set:
             for spice in items_spices:
                 if spice["product_id"] in spice_id_set:
-                    items_to_add.append({
-                        "product_id": spice["product_id"],
-                        "name": spice["name"],
-                        "quantity": spice["quantity"],
-                        "recipe_name": spice.get("recipe_name"),
-                    })
+                    items_to_add.append(
+                        {
+                            "product_id": spice["product_id"],
+                            "name": spice["name"],
+                            "quantity": spice["quantity"],
+                            "recipe_name": spice.get("recipe_name"),
+                        }
+                    )
 
         if body.selections is not None:
             items_to_add = _apply_cart_selections(items_to_add, body.selections)

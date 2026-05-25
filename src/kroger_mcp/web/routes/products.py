@@ -39,7 +39,9 @@ async def products_page(request: Request):
     except Exception:
         pass
 
-    return templates.TemplateResponse(request, "products.html",
+    return templates.TemplateResponse(
+        request,
+        "products.html",
         {
             "active_page": "products",
             "location_id": location_id,

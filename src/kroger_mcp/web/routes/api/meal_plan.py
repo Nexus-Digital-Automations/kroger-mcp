@@ -124,9 +124,7 @@ async def add_meal_to_plan(plan_id: str, body: AddMealBody, request: Request):
 
 
 @router.delete("/api/meal-plan/{plan_id}/meals")
-async def remove_meal_from_plan(
-    plan_id: str, meal_date: str, meal_slot: str, request: Request
-):
+async def remove_meal_from_plan(plan_id: str, meal_date: str, meal_slot: str, request: Request):
     """Remove a recipe from a specific meal slot."""
     user_id = current_user_id(request)
     try:
@@ -165,9 +163,7 @@ async def list_plans(
     try:
         from kroger_mcp.analytics.meal_planning import list_plans_for_api
 
-        return list_plans_for_api(
-            include_templates=include_templates, limit=limit, user_id=user_id
-        )
+        return list_plans_for_api(include_templates=include_templates, limit=limit, user_id=user_id)
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 

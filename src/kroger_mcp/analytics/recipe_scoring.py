@@ -242,17 +242,49 @@ SUGAR_KEYWORDS: list[str] = [
 # Excluded from the quality-ratio denominator so they don't drag the score
 # down when paired with otherwise-healthy ingredients.
 NEUTRAL_STAPLES: list[str] = [
-    "salt", "pepper", "black pepper", "white pepper", "water", "ice",
-    "vinegar", "rice vinegar", "balsamic", "apple cider vinegar",
-    "soy sauce", "tamari", "fish sauce", "worcestershire",
-    "broth", "stock", "bouillon",
-    "lemon juice", "lime juice", "orange juice",
-    "mustard", "dijon", "ketchup", "hot sauce", "sriracha", "tabasco",
-    "honey", "maple syrup",
-    "yogurt", "greek yogurt", "milk", "butter", "cream", "cheese",
-    "flour", "cornstarch", "baking soda", "baking powder", "yeast",
-    "egg white", "egg yolk",
-    "vanilla", "vanilla extract",
+    "salt",
+    "pepper",
+    "black pepper",
+    "white pepper",
+    "water",
+    "ice",
+    "vinegar",
+    "rice vinegar",
+    "balsamic",
+    "apple cider vinegar",
+    "soy sauce",
+    "tamari",
+    "fish sauce",
+    "worcestershire",
+    "broth",
+    "stock",
+    "bouillon",
+    "lemon juice",
+    "lime juice",
+    "orange juice",
+    "mustard",
+    "dijon",
+    "ketchup",
+    "hot sauce",
+    "sriracha",
+    "tabasco",
+    "honey",
+    "maple syrup",
+    "yogurt",
+    "greek yogurt",
+    "milk",
+    "butter",
+    "cream",
+    "cheese",
+    "flour",
+    "cornstarch",
+    "baking soda",
+    "baking powder",
+    "yeast",
+    "egg white",
+    "egg yolk",
+    "vanilla",
+    "vanilla extract",
 ]
 
 
@@ -406,13 +438,10 @@ def calculate_health_score(
     # pantry items from dragging the ratio down on otherwise-clean recipes.
     all_keywords = [kw for kws in HEALTHY_CATEGORIES.values() for kw in kws]
     non_staple = [
-        name for name in ing_names_lower
-        if not any(staple in name for staple in NEUTRAL_STAPLES)
+        name for name in ing_names_lower if not any(staple in name for staple in NEUTRAL_STAPLES)
     ]
     denom = max(1, len(non_staple))
-    quality_hits = sum(
-        1 for name in non_staple if any(kw in name for kw in all_keywords)
-    )
+    quality_hits = sum(1 for name in non_staple if any(kw in name for kw in all_keywords))
     quality_score = round((quality_hits / denom) * 30)
 
     # 3. Whole food signals: small bonus when authors explicitly say

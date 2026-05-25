@@ -52,7 +52,7 @@ def _save_sync_state(state: dict[str, Any]) -> None:
         with open(NOTION_SYNC_FILE, "w") as f:
             json.dump(state, f, indent=2)
     except Exception as e:
-        logger.warning('Could not save Notion sync state: %s', e)
+        logger.warning("Could not save Notion sync state: %s", e)
 
 
 # ---------------------------------------------------------------------------

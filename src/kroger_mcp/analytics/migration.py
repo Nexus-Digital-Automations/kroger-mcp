@@ -115,7 +115,7 @@ def migrate_json_to_sqlite() -> dict[str, Any]:
                         migrated["items"] += 1
 
             except (OSError, json.JSONDecodeError) as e:
-                logger.warning('Could not read order history: %s', e)
+                logger.warning("Could not read order history: %s", e)
 
         # Migrate current cart (as cart_add events)
         if os.path.exists(CART_FILE):
@@ -155,7 +155,7 @@ def migrate_json_to_sqlite() -> dict[str, Any]:
                     )
 
             except (OSError, json.JSONDecodeError) as e:
-                logger.warning('Could not read cart data: %s', e)
+                logger.warning("Could not read cart data: %s", e)
 
         conn.commit()
 
@@ -221,13 +221,13 @@ def _update_migrated_stats(product_ids: list) -> None:
             update_product_stats(product_id)
             update_seasonal_patterns(product_id)
         except Exception as e:
-            logger.warning('Could not update stats for %s: %s', product_id, e)
+            logger.warning("Could not update stats for %s: %s", product_id, e)
 
     # Run auto-categorization
     try:
         auto_categorize_all()
     except Exception as e:
-        logger.warning('Could not auto-categorize: %s', e)
+        logger.warning("Could not auto-categorize: %s", e)
 
 
 def get_migration_status() -> dict[str, Any]:

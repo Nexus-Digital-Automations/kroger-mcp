@@ -172,7 +172,9 @@ async def meal_plan_page(request: Request, plan_id: str | None = None, week: int
     today = datetime.now().date()
     recipes = recipe_data.get("recipes", [])
 
-    return templates.TemplateResponse(request, "meal_plan.html",
+    return templates.TemplateResponse(
+        request,
+        "meal_plan.html",
         {
             "active_page": "meal_plan",
             "plans": plans,

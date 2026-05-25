@@ -46,7 +46,9 @@ async def favorites_list(request: Request):
             }
         )
 
-    return templates.TemplateResponse(request, "favorites.html",
+    return templates.TemplateResponse(
+        request,
+        "favorites.html",
         {
             "active_page": "favorites",
             "lists": annotated,
@@ -56,9 +58,7 @@ async def favorites_list(request: Request):
 
 @router.get("/favorites/{list_id}", response_class=HTMLResponse)
 async def favorites_detail(request: Request, list_id: str):
-    result = get_list_items(
-        list_id, include_pantry_status=True, user_id=current_user_id(request)
-    )
+    result = get_list_items(list_id, include_pantry_status=True, user_id=current_user_id(request))
 
     if not result.get("success", True) and "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
@@ -83,7 +83,9 @@ async def favorites_detail(request: Request, list_id: str):
     reorder_status = lst.get("reorder_status", {})
     badge_label, badge_color = _reorder_badge(reorder_status)
 
-    return templates.TemplateResponse(request, "favorites_detail.html",
+    return templates.TemplateResponse(
+        request,
+        "favorites_detail.html",
         {
             "active_page": "favorites",
             "lst": lst,

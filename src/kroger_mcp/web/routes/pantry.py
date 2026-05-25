@@ -29,7 +29,9 @@ async def pantry_page(request: Request):
         i for i in items if i.get("days_to_expiration") is not None and i["days_to_expiration"] <= 7
     ]
 
-    return templates.TemplateResponse(request, "pantry.html",
+    return templates.TemplateResponse(
+        request,
+        "pantry.html",
         {
             "active_page": "pantry",
             "all_items": items,

@@ -109,9 +109,7 @@ async def rename_list(list_id: str, body: RenameListBody, request: Request):
 
             # 0 means "disable schedule", positive int means set schedule
             weeks = None if body.reorder_weeks == 0 else body.reorder_weeks
-            rw_result = update_list_schedule(
-                list_id=list_id, reorder_weeks=weeks, user_id=owner
-            )
+            rw_result = update_list_schedule(list_id=list_id, reorder_weeks=weeks, user_id=owner)
             if not rw_result.get("success"):
                 errors.append(rw_result.get("error", "Schedule update failed"))
 

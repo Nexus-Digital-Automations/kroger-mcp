@@ -296,9 +296,7 @@ def register_tools(mcp):
                 if len(ids) == 1:
                     return _safety.remove_from_safe_list(ids[0], user_id=user_id)
 
-                results = {
-                    pid: _safety.remove_from_safe_list(pid, user_id=user_id) for pid in ids
-                }
+                results = {pid: _safety.remove_from_safe_list(pid, user_id=user_id) for pid in ids}
                 removed = sum(1 for r in results.values() if r.get("success"))
                 return {"success": True, "removed": removed, "total": len(ids), "results": results}
 

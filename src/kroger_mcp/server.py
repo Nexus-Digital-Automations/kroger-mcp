@@ -47,6 +47,7 @@ from .tools import (
 
 logger = logging.getLogger(__name__)
 
+
 async def _cleanup_stale_sessions():
     """Background task to cleanup stale sessions."""
     session_manager = get_session_manager()

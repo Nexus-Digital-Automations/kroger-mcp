@@ -626,9 +626,7 @@ def register_tools(mcp):
                     }
 
             case "get_week_view":
-                return meal_planning.get_week_view(
-                    start_date=week_start_date, user_id=user_id
-                )
+                return meal_planning.get_week_view(start_date=week_start_date, user_id=user_id)
 
             case "get_summary":
                 if not plan_id:

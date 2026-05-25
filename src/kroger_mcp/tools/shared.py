@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 _authenticated_client: KrogerAPI | None = None
 _client_credentials_client: KrogerAPI | None = None
 
+
 def get_client_credentials_client() -> KrogerAPI:
     """Get or create a client credentials authenticated client for public data"""
     global _client_credentials_client

@@ -42,9 +42,7 @@ async def safety_page(request: Request):
         from kroger_mcp.analytics.database import get_db_connection
 
         conn = get_db_connection()
-        r1 = conn.execute(
-            "SELECT COUNT(*) as cnt FROM safe_products WHERE user_id = ?", (user_id,)
-        )
+        r1 = conn.execute("SELECT COUNT(*) as cnt FROM safe_products WHERE user_id = ?", (user_id,))
         safe_count = r1.fetchone()["cnt"]
         r2 = conn.execute(
             "SELECT COUNT(*) as cnt FROM blocked_products WHERE user_id = ?", (user_id,)
@@ -71,7 +69,9 @@ async def safety_page(request: Request):
     except Exception:
         pass
 
-    return templates.TemplateResponse(request, "safety.html",
+    return templates.TemplateResponse(
+        request,
+        "safety.html",
         {
             "active_page": "safety",
             "settings": settings,

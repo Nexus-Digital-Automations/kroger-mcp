@@ -106,8 +106,7 @@ def _get_meal_plan_count(user_id: str):
     conn = get_db_connection()
     try:
         cursor = conn.execute(
-            "SELECT COUNT(*) as cnt FROM meal_plans "
-            "WHERE is_template = 0 AND user_id = ?",
+            "SELECT COUNT(*) as cnt FROM meal_plans " "WHERE is_template = 0 AND user_id = ?",
             (user_id,),
         )
         row = cursor.fetchone()
@@ -156,7 +155,9 @@ async def dashboard_page(request: Request):
             meals_by_date[date_str] = []
         meals_by_date[date_str].append(f"{meal['slot'].title()}: {meal['recipe_name']}")
 
-    return templates.TemplateResponse(request, "dashboard.html",
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
         {
             "active_page": "dashboard",
             "recipe_count": len(recipes),

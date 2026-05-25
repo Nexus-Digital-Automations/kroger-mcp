@@ -213,7 +213,7 @@ def _restock_pantry_items(cart_items: list[dict[str, Any]]) -> None:
                 # Not yet tracked — add to pantry at 100%
                 add_to_pantry(product_id=product_id, description=description, level=100)
     except Exception as e:
-        logger.warning('Could not restock pantry items: %s', e, exc_info=True)
+        logger.warning("Could not restock pantry items: %s", e, exc_info=True)
 
 
 def get_purchase_events(

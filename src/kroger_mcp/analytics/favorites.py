@@ -24,6 +24,7 @@ def _resolve_user_id(user_id: str | None) -> str:
     """
     return user_id if user_id is not None else mcp_user_id()
 
+
 # ========== Helper Functions ==========
 
 
@@ -227,9 +228,7 @@ def get_lists(user_id: str | None = None) -> list[dict[str, Any]]:
 def _ensure_default_list_for_user(user_id: str) -> None:
     """Lazily create 'My Favorites' for a user that has no lists yet."""
     with get_db_cursor() as cursor:
-        cursor.execute(
-            "SELECT COUNT(*) AS cnt FROM favorite_lists WHERE user_id = ?", (user_id,)
-        )
+        cursor.execute("SELECT COUNT(*) AS cnt FROM favorite_lists WHERE user_id = ?", (user_id,))
         if cursor.fetchone()["cnt"] > 0:
             return
         new_id = f"default-{uuid.uuid4().hex[:8]}"
@@ -365,9 +364,7 @@ def delete_list(list_id: str, user_id: str | None = None) -> dict[str, Any]:
         )
         item_count = cursor.fetchone()["cnt"]
 
-        cursor.execute(
-            "DELETE FROM favorite_lists WHERE id = ? AND user_id = ?", (list_id, owner)
-        )
+        cursor.execute("DELETE FROM favorite_lists WHERE id = ? AND user_id = ?", (list_id, owner))
 
         if cursor.rowcount == 0:
             return {"success": False, "error": f"List '{list_id}' not found"}

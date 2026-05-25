@@ -27,6 +27,7 @@ def _resolve_user_id(user_id: str | None) -> str:
     """
     return user_id if user_id is not None else mcp_user_id()
 
+
 # Shelf life in days for common categories
 CATEGORY_SHELF_LIFE = {
     "routine": {
@@ -379,9 +380,7 @@ def restock_item(
         conn.close()
 
 
-def update_pantry_level(
-    product_id: str, level: int, user_id: str | None = None
-) -> dict[str, Any]:
+def update_pantry_level(product_id: str, level: int, user_id: str | None = None) -> dict[str, Any]:
     """
     Manually set pantry level for an item owned by `user_id`.
 
@@ -1126,9 +1125,7 @@ def resolve_gap(
     to a 400.
     """
     if resolution not in _VALID_GAP_RESOLUTIONS:
-        raise ValueError(
-            f"resolution must be one of {_VALID_GAP_RESOLUTIONS}, got {resolution!r}"
-        )
+        raise ValueError(f"resolution must be one of {_VALID_GAP_RESOLUTIONS}, got {resolution!r}")
 
     ensure_initialized()
     owner = _resolve_user_id(user_id)
