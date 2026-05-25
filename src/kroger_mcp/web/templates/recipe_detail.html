@@ -138,7 +138,7 @@
     [data-recipe-mode="edit"] .ss-drag-handle { display: none; }
     [data-recipe-mode="edit"] [data-ingredient-row],
     [data-recipe-mode="edit"] .ing-columns {
-      grid-template-columns: 3.5rem 2.5rem 1fr 1.5rem !important;
+      grid-template-columns: 2.75rem 3.5rem 1fr 1.5rem !important;
     }
     [data-recipe-mode="edit"] .ing-columns > span:first-child { display: none; }
   }
@@ -150,6 +150,15 @@
   .ing-row:hover { background: oklch(98% 0.008 75); }
 
   .ing-name-cell { min-width: 0; }
+
+  /* Unit cell truncates long strings (e.g. "tablespoons") and exposes the
+     full text in the title= tooltip. On focus the row's @focus handler
+     temporarily lifts the clip so editing the full value is possible. */
+  .ing-unit {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   /* Status indicators are inline, never wrap, never push the ✕ around. */
   .ing-status > * { flex-shrink: 0; }
@@ -925,7 +934,7 @@
            Five columns: drag · qty · unit · name+status · delete. Source/grade
            status dots are inlined into the name cell instead of separate
            columns; that keeps the row single-line and ✕ pinned right. -->
-      <div class="grid pb-2 mb-2 ing-columns" style="grid-template-columns: 1rem 3.75rem 3rem 1fr 1.5rem; gap: 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
+      <div class="grid pb-2 mb-2 ing-columns" style="grid-template-columns: 0.5rem 2.25rem 4.5rem 1fr 1.5rem; gap: 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
         <span></span>
         <span>Qty</span>
         <span>Unit</span>
@@ -953,7 +962,7 @@
               @dragover.prevent="$el.classList.add('drag-over'); $event.dataTransfer.dropEffect='move';"
               @dragleave="$el.classList.remove('drag-over');"
               @drop.prevent="$el.classList.remove('drag-over'); reorderIngredient(parseInt($event.dataTransfer.getData('text/plain'), 10), ing._idx);"
-              style="grid-template-columns: 1rem 3.75rem 3rem 1fr 1.5rem; gap: 0.75rem; padding: 0.65rem 0; border-bottom: 1px solid oklch(94% 0.008 70);"
+              style="grid-template-columns: 0.5rem 2.25rem 4.5rem 1fr 1.5rem; gap: 0.75rem; padding: 0.65rem 0; border-bottom: 1px solid oklch(94% 0.008 70);"
               x-data="{ editQ: false }">
               <span class="ss-drag-handle edit-only" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
               <!-- Qty cell: shows scaled qty when idle; editing reverts to BASE qty
@@ -973,11 +982,12 @@
               <span class="ss-inline-edit ing-unit"
                 :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
                 spellcheck="false"
-                style="font-size: 0.8rem; color: var(--text-3); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block;"
+                style="font-size: 0.8rem; color: var(--text-3); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block; width: 100%; min-width: 0;"
                 :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
                 data-placeholder="unit"
-                @focus="$el.dataset.original = $el.innerText.trim()"
-                @blur="saveIngredientField(ing._idx, 'unit', $el.innerText.trim(), $el)"
+                :title="ing.unit || ''"
+                @focus="$el.dataset.original = $el.innerText.trim(); $el.style.overflow='visible'; $el.style.whiteSpace='normal';"
+                @blur="$el.style.overflow=''; $el.style.whiteSpace=''; saveIngredientField(ing._idx, 'unit', $el.innerText.trim(), $el)"
                 @keydown.enter.prevent="$el.blur()"
                 @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
                 x-text="ing.unit || ''"></span>
@@ -1122,7 +1132,7 @@
            opens on the new row immediately so linking is one keystroke away. -->
       <div x-data="{ addQ: '', addU: '', addN: '' }"
         class="grid items-baseline edit-only"
-        style="grid-template-columns: 1rem 3.75rem 3rem 1fr 1.5rem; gap: 0.75rem; padding: 0.7rem 0 0.4rem; border-top: 1px dashed oklch(90% 0.015 80); margin-top: 0.5rem;">
+        style="grid-template-columns: 0.5rem 2.25rem 4.5rem 1fr 1.5rem; gap: 0.75rem; padding: 0.7rem 0 0.4rem; border-top: 1px dashed oklch(90% 0.015 80); margin-top: 0.5rem;">
         <span></span>
         <input x-model="addQ" type="text" inputmode="decimal" placeholder="qty"
           @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
