@@ -100,18 +100,21 @@
   [data-recipe-mode="edit"] [data-ingredient-row].drag-over,
   [data-recipe-mode="edit"] .step-row.drag-over { background: oklch(96% 0.04 145) !important; }
 
-  /* ─── Autocomplete popover — anchored under the ingredient name field */
+  /* ─── Autocomplete popover — anchored under the ingredient name field.
+     Right-anchored so it expands left, keeping it inside the ingredients
+     column rather than overflowing onto the Instructions pane next door. */
   .ss-autocomplete-popover {
-    position: absolute; left: 0; top: calc(100% + 4px); z-index: 40;
-    min-width: 30rem; max-width: 38rem;
+    position: absolute; right: 0; left: auto; top: calc(100% + 4px); z-index: 40;
+    width: 22rem; max-width: calc(100vw - 2rem);
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 0.625rem; box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14);
-    padding: 0.25rem 0; max-height: 30rem; overflow-y: auto;
+    padding: 0.25rem 0; max-height: 28rem; overflow-y: auto;
   }
-  /* Grid: thumb · main (name/brand·size) · price column · grade · expand */
+  /* Compact row: meta | price stack | grade | expand. Thumbnail moves into the
+     expanded panel so the row stays narrow enough for a 22rem popover. */
   .ss-autocomplete-row {
     display: grid;
-    grid-template-columns: 2.5rem minmax(0, 1fr) auto auto 1.25rem;
+    grid-template-columns: minmax(0, 1fr) auto auto 1.25rem;
     gap: 0.55rem; align-items: center;
     padding: 0.45rem 0.75rem; cursor: pointer;
     border-bottom: 1px solid oklch(96% 0.008 70);
@@ -119,15 +122,16 @@
   .ss-autocomplete-row:last-child { border-bottom: none; }
   .ss-autocomplete-row.active,
   .ss-autocomplete-row:hover { background: oklch(96% 0.015 80); }
-  .ss-autocomplete-thumb {
-    width: 2.5rem; height: 2.5rem; border-radius: 0.375rem;
+  .ss-autocomplete-detail-thumb {
+    width: 4rem; height: 4rem; border-radius: 0.5rem;
     background: oklch(96% 0.008 80); object-fit: cover;
-    display: block;
+    display: block; flex-shrink: 0;
   }
-  .ss-autocomplete-thumb-placeholder {
-    width: 2.5rem; height: 2.5rem; border-radius: 0.375rem;
+  .ss-autocomplete-detail-thumb-placeholder {
+    width: 4rem; height: 4rem; border-radius: 0.5rem;
     background: oklch(95% 0.012 80); display: flex; align-items: center;
-    justify-content: center; color: var(--text-3); font-size: 0.875rem;
+    justify-content: center; color: var(--text-3); font-size: 1.25rem;
+    flex-shrink: 0;
   }
   .ss-autocomplete-meta { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
   .ss-autocomplete-name {
@@ -1203,19 +1207,16 @@
                          :class="pi === acState.active ? 'active' : ''"
                          @mouseenter="acState.active = pi"
                          @click="acSelectActive()">
-                      <template x-if="p.image_url">
-                        <img :src="p.image_url" :alt="p.description" loading="lazy" class="ss-autocomplete-thumb"
-                             @error="$el.style.display='none'"/>
-                      </template>
-                      <template x-if="!p.image_url">
-                        <div class="ss-autocomplete-thumb-placeholder" aria-hidden="true">·</div>
-                      </template>
                       <div class="ss-autocomplete-meta">
                         <div class="ss-autocomplete-name" x-text="p.description"></div>
                         <div class="ss-autocomplete-sub">
                           <span x-show="p.brand" x-text="p.brand"></span>
                           <span x-show="p.brand && p.size" style="margin:0 0.25rem;">·</span>
                           <span x-show="p.size" x-text="p.size"></span>
+                          <span x-show="(p.brand || p.size) && p.price_per_unit && p.price_per_unit.label" style="margin:0 0.25rem;">·</span>
+                          <span x-show="p.price_per_unit && p.price_per_unit.label"
+                                style="font-variant-numeric:tabular-nums;"
+                                x-text="p.price_per_unit && p.price_per_unit.label"></span>
                         </div>
                       </div>
                       <div class="ss-autocomplete-price">
@@ -1228,8 +1229,6 @@
                         </div>
                         <span x-show="p.on_sale && p.regular_price" class="ss-autocomplete-price-strike"
                               x-text="'$' + (p.regular_price || 0).toFixed(2)"></span>
-                        <span x-show="p.price_per_unit && p.price_per_unit.label" class="ss-autocomplete-perunit"
-                              x-text="p.price_per_unit && p.price_per_unit.label"></span>
                       </div>
                       <span x-show="p.safety_grade"
                             :style="`background:${gradeColor(p.safety_grade).bg}; color:${gradeColor(p.safety_grade).text}; padding:0.1rem 0.4rem; border-radius:99px; font-size:0.625rem; font-weight:700;`"
@@ -1254,6 +1253,27 @@
                       </template>
                       <template x-if="!acState.detailLoading[p.product_id] && acState.detailCache[p.product_id]">
                         <div>
+                          <!-- Top strip: thumbnail + name/brand/size -->
+                          <div style="display:flex; gap:0.6rem; align-items:flex-start; margin-bottom:0.5rem;">
+                            <template x-if="acState.detailCache[p.product_id].image_url">
+                              <img :src="acState.detailCache[p.product_id].image_url"
+                                   :alt="acState.detailCache[p.product_id].description"
+                                   loading="lazy" class="ss-autocomplete-detail-thumb"
+                                   @error="$el.style.display='none'"/>
+                            </template>
+                            <template x-if="!acState.detailCache[p.product_id].image_url">
+                              <div class="ss-autocomplete-detail-thumb-placeholder" aria-hidden="true">·</div>
+                            </template>
+                            <div style="min-width:0; flex:1;">
+                              <div style="font-size:0.75rem; color:var(--text-1); font-weight:600; line-height:1.25;"
+                                   x-text="acState.detailCache[p.product_id].description"></div>
+                              <div style="font-size:0.625rem; color:var(--text-3); margin-top:0.15rem;">
+                                <span x-show="acState.detailCache[p.product_id].brand" x-text="acState.detailCache[p.product_id].brand"></span>
+                                <span x-show="acState.detailCache[p.product_id].brand && acState.detailCache[p.product_id].size" style="margin:0 0.25rem;">·</span>
+                                <span x-show="acState.detailCache[p.product_id].size" x-text="acState.detailCache[p.product_id].size"></span>
+                              </div>
+                            </div>
+                          </div>
                           <!-- Health summary -->
                           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
                             <span x-show="acState.detailCache[p.product_id].safety_grade"
