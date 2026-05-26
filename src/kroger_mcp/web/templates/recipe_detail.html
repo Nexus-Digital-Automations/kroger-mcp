@@ -100,11 +100,11 @@
   [data-recipe-mode="edit"] [data-ingredient-row].drag-over,
   [data-recipe-mode="edit"] .step-row.drag-over { background: oklch(96% 0.04 145) !important; }
 
-  /* ─── Autocomplete popover — anchored under the ingredient name field.
-     Right-anchored so it expands left, keeping it inside the ingredients
-     column rather than overflowing onto the Instructions pane next door. */
+  /* Popover lives inside .ss-autocomplete-anchor (which is itself absolute
+     and zero-sized at the cell's right edge), so it cannot affect the
+     parent grid. Positioned with right:0 to grow left. */
   .ss-autocomplete-popover {
-    position: absolute; right: 0; left: auto; top: calc(100% + 4px); z-index: 40;
+    position: absolute; right: 0; top: 0.25rem; z-index: 40;
     width: 22rem; max-width: calc(100vw - 2rem);
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 0.625rem; box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14);
@@ -212,7 +212,18 @@
      only on hover so it doesn't compete with content at rest. */
   .ing-row:hover { background: oklch(98% 0.008 75); }
 
-  .ing-name-cell { min-width: 0; }
+  /* contain: layout isolates the cell from its descendants so the absolute
+     popover's `width: 22rem` cannot leak into the parent grid track sizing.
+     Without this, some Chrome layout paths were widening column 4, pushing
+     the name + remove button outside the Ingredients card. */
+  .ing-name-cell { min-width: 0; contain: layout; }
+  /* Zero-sized anchor for the popover. Sits at the right edge of the cell
+     with no width or height of its own, so its descendants can never
+     contribute to ancestor sizing. The popover positions inside it. */
+  .ss-autocomplete-anchor {
+    position: absolute; right: 0; top: 100%;
+    width: 0; height: 0;
+  }
 
   /* Unit cell truncates long strings (e.g. "tablespoons") and exposes the
      full text in the title= tooltip. On focus the row's @focus handler
@@ -1195,8 +1206,9 @@
                   </div>
                 </span>
 
-                <!-- Autocomplete popover anchored to the entire name cell so it
-                     spans the chips without overlapping. -->
+                <!-- Zero-size positioning anchor. The popover lives inside it so
+                     its 22rem width cannot affect the parent grid track sizing. -->
+                <div class="ss-autocomplete-anchor" aria-hidden="true">
                 <div x-show="acState.idx === ing._idx && (acState.results.length > 0 || acState.loading || acState.query.length >= 2)"
                      x-cloak class="ss-autocomplete-popover"
                      @mousedown.prevent>
@@ -1345,6 +1357,7 @@
                     Use “<span x-text="acState.query"></span>” as manual entry
                   </div>
                 </div>
+                </div><!-- /ss-autocomplete-anchor -->
               </span>
 
               <button class="ing-remove edit-only"
