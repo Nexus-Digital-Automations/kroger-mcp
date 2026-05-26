@@ -293,35 +293,36 @@
   .ing-remove:hover { color: oklch(45% 0.18 25); background: oklch(96% 0.04 25); }
   .ing-remove:disabled { opacity: 0.3; cursor: not-allowed; }
 
-  /* ─── View-mode ingredient row: flowing list, not a grid table ──── */
+  /* ─── View-mode ingredient row: same grid as edit mode, minus the chrome.
+     Drag + remove tracks (0.5rem and 1.5rem) stay reserved so QTY / UNIT /
+     INGREDIENT line up under the column headers. */
   [data-recipe-mode="view"] [data-ingredient-row] {
-    display: flex !important;
-    flex-wrap: wrap;
     align-items: baseline;
-    gap: 0.5rem;
     padding: 0.55rem 0 !important;
     border-bottom: 1px solid oklch(94% 0.008 70) !important;
   }
+  /* Explicit grid-column pins so view-mode rows line up under the header
+     even when edit-only items (drag, ✕, qty-input) are display:none and
+     auto-placement would otherwise pack remaining items into cols 1–3. */
   [data-recipe-mode="view"] .ing-qty {
-    min-width: 3.5rem;
+    grid-column: 2;
     font-variant-numeric: tabular-nums;
     color: var(--text-2);
     font-size: 0.875rem;
   }
   [data-recipe-mode="view"] .ing-unit {
+    grid-column: 3;
     color: var(--text-3);
     font-size: 0.8rem;
   }
-  [data-recipe-mode="view"] .ing-unit:empty { display: none; }
+  [data-recipe-mode="view"] .ing-name-cell { grid-column: 4; }
   [data-recipe-mode="view"] .ing-name {
-    flex: 1;
-    min-width: 12rem;
     color: var(--text-1);
     font-size: 0.9375rem;
   }
 
-  /* Hide editor-only ingredient columns in view mode */
-  [data-recipe-mode="view"] .ing-columns,
+  /* Hide only the source pill in view mode; the column header strip stays
+     visible so the user reads with the same labelled-table look as editing. */
   [data-recipe-mode="view"] .ing-source-pill { display: none !important; }
 
   /* Quiet the category band in view mode — it becomes a small caption,
