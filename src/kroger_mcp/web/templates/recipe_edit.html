@@ -1,0 +1,1870 @@
+{% extends "base.html" %}
+{% from "_macros/recipe_add_modal.html" import recipe_add_modal %}
+{% from "_macros/action_menu.html" import action_menu %}
+
+{% block title %}{{ recipe.name }} — Smart Shopper{% endblock %}
+{% block heading %}Recipe{% endblock %}
+
+{% block content %}
+
+<style>
+  /* Page mode: [data-recipe-mode="view"] is the default reading state,
+     [data-recipe-mode="edit"] reveals every editor affordance. Most
+     control-hiding happens here as a single CSS rule instead of dozens
+     of x-show bindings on the markup. */
+
+  [data-recipe-mode="view"] .edit-only { display: none !important; }
+  [data-recipe-mode="edit"] .view-only { display: none !important; }
+
+  /* Inline-edit hover/focus affordances only fire in edit mode.
+     Keep the empty-placeholder hint, but only when editing. */
+  [data-recipe-mode="edit"] .ss-inline-edit:hover { background: oklch(96% 0.012 80); }
+  [data-recipe-mode="edit"] .ss-inline-edit:focus { background: oklch(95% 0.015 80); box-shadow: 0 0 0 2px oklch(85% 0.05 145); }
+  .ss-inline-edit[data-placeholder]:empty:before {
+    content: attr(data-placeholder);
+    color: var(--text-3);
+    opacity: 0.55;
+    font-style: italic;
+    pointer-events: none;
+  }
+  [data-recipe-mode="view"] .ss-inline-edit[data-placeholder]:empty:before { content: none; }
+  [data-recipe-mode="view"] .ss-inline-edit { cursor: default; }
+  /* Collapse empty placeholder fields in view mode so they don't reserve
+     blank vertical space (e.g. a recipe with no description). */
+  [data-recipe-mode="view"] .ss-inline-edit[data-placeholder]:empty {
+    display: none;
+  }
+
+  .ss-row-action {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    padding: 0.15rem 0.4rem;
+    color: var(--text-3);
+    font-size: 0.75rem;
+    cursor: pointer;
+    line-height: 1;
+    transition: all 0.12s;
+  }
+  .ss-row-action:hover { color: var(--text-1); background: oklch(96% 0.012 80); border-color: var(--border); }
+  .ss-row-action.is-danger:hover { color: oklch(45% 0.18 25); border-color: oklch(80% 0.08 25); background: oklch(96% 0.04 25); }
+
+  /* ─── Mode toggle button — repurposed as a read-only lock ────────────
+     Edit is the default. The toggle now flips the page into a read-only
+     state for screenshot/share use; it no longer gates editing. */
+  .recipe-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 99px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-3);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s ease-out;
+    white-space: nowrap;
+  }
+  .recipe-mode-toggle:hover { color: var(--text-1); border-color: oklch(75% 0.04 60); }
+  [data-recipe-mode="view"] .recipe-mode-toggle {
+    background: oklch(94% 0.012 80);
+    color: var(--text-2);
+    border-color: var(--border);
+  }
+  .recipe-mode-toggle svg { width: 0.7rem; height: 0.7rem; }
+
+  /* ─── Saved pulse — flashes a row's left edge after a successful save */
+  @keyframes ss-saved-pulse {
+    0%   { box-shadow: inset 3px 0 0 oklch(60% 0.18 145); }
+    100% { box-shadow: inset 3px 0 0 transparent; }
+  }
+  .ss-saved-pulse { animation: ss-saved-pulse 0.6s ease-out; }
+
+  /* ─── Drag handle — visible on row hover in edit mode */
+  .ss-drag-handle {
+    cursor: grab; opacity: 0;
+    color: var(--text-3); font-size: 0.875rem; line-height: 1;
+    padding: 0 0.125rem; transition: opacity 0.12s, color 0.12s;
+    user-select: none;
+  }
+  [data-recipe-mode="edit"] [data-ingredient-row]:hover .ss-drag-handle,
+  [data-recipe-mode="edit"] .step-row:hover .ss-drag-handle { opacity: 0.7; }
+  .ss-drag-handle:hover { opacity: 1 !important; color: var(--text-1); }
+  .ss-drag-handle:active { cursor: grabbing; }
+  [data-recipe-mode="edit"] [data-ingredient-row].dragging,
+  [data-recipe-mode="edit"] .step-row.dragging { opacity: 0.4; }
+  [data-recipe-mode="edit"] [data-ingredient-row].drag-over,
+  [data-recipe-mode="edit"] .step-row.drag-over { background: oklch(96% 0.04 145) !important; }
+
+  /* Popover lives as a child of #ingredients-card (NOT inside any row), so
+     its 22rem width cannot perturb the row's grid track sizing. Inline
+     left/top come from acPopoverStyle in the Alpine VM; max-width keeps
+     it inside the card edge even when the card is narrow. */
+  .ss-autocomplete-popover {
+    position: absolute; z-index: 40;
+    width: 22rem; max-width: calc(100% - 1rem);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 0.625rem; box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14);
+    padding: 0.25rem 0; max-height: 28rem; overflow-y: auto;
+  }
+  /* Compact row: meta | price stack | grade | expand. Thumbnail moves into the
+     expanded panel so the row stays narrow enough for a 22rem popover. */
+  .ss-autocomplete-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto 1.25rem;
+    gap: 0.55rem; align-items: center;
+    padding: 0.45rem 0.75rem; cursor: pointer;
+    border-bottom: 1px solid oklch(96% 0.008 70);
+  }
+  .ss-autocomplete-row:last-child { border-bottom: none; }
+  .ss-autocomplete-row.active,
+  .ss-autocomplete-row:hover { background: oklch(96% 0.015 80); }
+  .ss-autocomplete-detail-thumb {
+    width: 4rem; height: 4rem; border-radius: 0.5rem;
+    background: oklch(96% 0.008 80); object-fit: cover;
+    display: block; flex-shrink: 0;
+  }
+  .ss-autocomplete-detail-thumb-placeholder {
+    width: 4rem; height: 4rem; border-radius: 0.5rem;
+    background: oklch(95% 0.012 80); display: flex; align-items: center;
+    justify-content: center; color: var(--text-3); font-size: 1.25rem;
+    flex-shrink: 0;
+  }
+  .ss-autocomplete-meta { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
+  .ss-autocomplete-name {
+    font-size: 0.8125rem; color: var(--text-1); line-height: 1.25;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ss-autocomplete-sub {
+    font-size: 0.6875rem; color: var(--text-3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ss-autocomplete-price { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+  .ss-autocomplete-price-main { font-size: 0.8125rem; color: var(--text-1); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .ss-autocomplete-price-strike { font-size: 0.625rem; color: var(--text-3); text-decoration: line-through; font-variant-numeric: tabular-nums; }
+  .ss-autocomplete-perunit { font-size: 0.625rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .ss-autocomplete-sale-pill {
+    font-size: 0.5625rem; font-weight: 700; padding: 0.05rem 0.3rem;
+    border-radius: 99px; background: oklch(91% 0.09 25); color: oklch(35% 0.16 25);
+    letter-spacing: 0.03em;
+  }
+  .ss-autocomplete-expand {
+    width: 1.25rem; height: 1.25rem; border-radius: 0.25rem;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-3); background: transparent; border: none;
+    cursor: pointer; font-size: 0.875rem; line-height: 1; padding: 0;
+  }
+  .ss-autocomplete-expand:hover { color: var(--text-1); background: oklch(94% 0.015 80); }
+  .ss-autocomplete-expand.open { transform: rotate(90deg); color: var(--text-1); }
+
+  .ss-autocomplete-detail {
+    padding: 0.55rem 0.85rem 0.75rem 0.85rem;
+    background: oklch(98% 0.008 80); border-bottom: 1px solid oklch(95% 0.01 80);
+    font-size: 0.6875rem; color: var(--text-2); line-height: 1.4;
+  }
+  .ss-autocomplete-detail h4 {
+    font-size: 0.625rem; font-weight: 700; color: var(--text-3);
+    letter-spacing: 0.06em; text-transform: uppercase; margin: 0.5rem 0 0.25rem 0;
+  }
+  .ss-autocomplete-detail h4:first-child { margin-top: 0; }
+  .ss-autocomplete-detail-row { display: flex; align-items: flex-start; gap: 0.4rem; padding: 0.15rem 0; }
+  .ss-autocomplete-detail-dot {
+    width: 0.4rem; height: 0.4rem; border-radius: 99px; margin-top: 0.4rem; flex-shrink: 0;
+  }
+  .ss-autocomplete-detail-name { font-size: 0.6875rem; color: var(--text-1); font-weight: 500; }
+  .ss-autocomplete-detail-reason { font-size: 0.625rem; color: var(--text-3); }
+  .ss-autocomplete-ingredients {
+    font-size: 0.625rem; color: var(--text-3); line-height: 1.4;
+    max-height: 4.5rem; overflow-y: auto;
+  }
+  .ss-autocomplete-footer {
+    padding: 0.4rem 0.75rem; font-size: 0.6875rem; color: var(--text-3);
+    border-top: 1px solid var(--border); background: oklch(98% 0.005 80);
+    cursor: pointer;
+  }
+  .ss-autocomplete-footer:hover { background: oklch(95% 0.012 80); color: var(--text-1); }
+
+  /* ─── Mobile (≤480px): drag column collapses; everything else holds. The
+     5-column grid is already tight, so we just hide the drag gutter and
+     reflow the popover within the viewport. */
+  @media (max-width: 480px) {
+    .ss-autocomplete-popover {
+      min-width: 0;
+      width: calc(100vw - 2rem);
+      max-width: calc(100vw - 2rem);
+      left: auto;
+      right: 0;
+    }
+    [data-recipe-mode="edit"] .ss-drag-handle { display: none; }
+    [data-recipe-mode="edit"] [data-ingredient-row],
+    [data-recipe-mode="edit"] .ing-columns {
+      grid-template-columns: 2.75rem 3.5rem 1fr 1.5rem !important;
+    }
+    [data-recipe-mode="edit"] .ing-columns > span:first-child { display: none; }
+  }
+
+  /* ─── Ingredient row — refined arrangement ─────────────────────────────
+     Row hover lifts a faint background so the eye knows which row is active;
+     status dots stay always-visible at low contrast; the ✕ control fades in
+     only on hover so it doesn't compete with content at rest. */
+  .ing-row:hover { background: oklch(98% 0.008 75); }
+
+  .ing-name-cell { min-width: 0; }
+
+  /* Unit cell truncates long strings (e.g. "tablespoons") and exposes the
+     full text in the title= tooltip. On focus the row's @focus handler
+     temporarily lifts the clip so editing the full value is possible. */
+  .ing-unit {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Status indicators are inline, never wrap, never push the ✕ around. */
+  .ing-status > * { flex-shrink: 0; }
+
+  .src-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    padding: 0;
+    cursor: pointer;
+    background: transparent;
+    transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
+  }
+  .src-dot:disabled { cursor: default; }
+  .src-dot:not(:disabled):hover { transform: scale(1.4); }
+  .src-manual { background: oklch(72% 0.04 75); }
+  .src-kroger { background: var(--green); box-shadow: 0 0 0 1.5px oklch(94% 0.04 145); }
+  .src-empty  { background: transparent; border-color: oklch(82% 0.02 70); cursor: default; }
+
+  .pantry-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-block;
+  }
+  .pantry-dot.dot-ok     { background: oklch(60% 0.14 155); }
+  .pantry-dot.dot-warn   { background: oklch(72% 0.15 75); }
+  .pantry-dot.dot-danger { background: oklch(60% 0.18 25); }
+
+  .grade-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 0.3rem;
+    border: none;
+    font-family: 'Lora', serif;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+  .grade-chip:hover { filter: brightness(0.97); }
+
+  /* Delete control: opacity 0 at rest, fades in on row hover so the chrome
+     doesn't shout. Always pinned right via grid placement. */
+  .ing-remove {
+    justify-self: end;
+    align-self: center;
+    width: 1.5rem; height: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-3);
+    border-radius: 0.3rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease-out, color 0.12s, background 0.12s;
+  }
+  .ing-row:hover .ing-remove,
+  .ing-remove:focus-visible { opacity: 1; }
+  .ing-remove:hover { color: oklch(45% 0.18 25); background: oklch(96% 0.04 25); }
+  .ing-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* ─── View-mode ingredient row: same grid as edit mode, minus the chrome.
+     Drag + remove tracks (0.5rem and 1.5rem) stay reserved so QTY / UNIT /
+     INGREDIENT line up under the column headers. */
+  [data-recipe-mode="view"] [data-ingredient-row] {
+    align-items: baseline;
+    padding: 0.55rem 0 !important;
+    border-bottom: 1px solid oklch(94% 0.008 70) !important;
+  }
+  /* Explicit grid-column pins so view-mode rows line up under the header
+     even when edit-only items (drag, ✕, qty-input) are display:none and
+     auto-placement would otherwise pack remaining items into cols 1–3. */
+  [data-recipe-mode="view"] .ing-qty {
+    grid-column: 2;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-2);
+    font-size: 0.875rem;
+  }
+  [data-recipe-mode="view"] .ing-unit {
+    grid-column: 3;
+    color: var(--text-3);
+    font-size: 0.8rem;
+  }
+  [data-recipe-mode="view"] .ing-name-cell { grid-column: 4; }
+  [data-recipe-mode="view"] .ing-name {
+    color: var(--text-1);
+    font-size: 0.9375rem;
+  }
+
+  /* Hide only the source pill in view mode; the column header strip stays
+     visible so the user reads with the same labelled-table look as editing. */
+  [data-recipe-mode="view"] .ing-source-pill { display: none !important; }
+
+  /* Quiet the category band in view mode — it becomes a small caption,
+     not a colored pill. Distinct visual rhythm vs the bright editor band. */
+  [data-recipe-mode="view"] .ing-category-band {
+    background: transparent !important;
+    color: var(--text-3) !important;
+    font-size: 0.625rem !important;
+    letter-spacing: 0.14em !important;
+    padding: 0.85rem 0 0.25rem !important;
+    margin: 0 !important;
+    border-bottom: 1px solid oklch(94% 0.008 70);
+    border-radius: 0 !important;
+  }
+  [data-recipe-mode="view"] .ing-category-band .cat-dot { opacity: 0.6; }
+  [data-recipe-mode="view"] .ing-category-band .cat-count { display: none; }
+
+  /* ─── Compact badges in view mode ─────────────────────────────────── */
+  .badge-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    vertical-align: 0.05em;
+  }
+  .badge-dot.dot-ok     { background: oklch(60% 0.14 155); }
+  .badge-dot.dot-warn   { background: oklch(72% 0.15 75); }
+  .badge-dot.dot-danger { background: oklch(60% 0.18 25); }
+
+  .ing-grade-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 0.3rem;
+    font-family: 'Lora', serif;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    vertical-align: 0.1em;
+  }
+
+  .health-pill-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.4rem;
+    height: 1.4rem;
+    padding: 0 0.45rem;
+    border-radius: 0.3rem;
+    font-family: 'Lora', serif;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  [data-recipe-mode="view"] .health-pill-full { display: none; }
+  [data-recipe-mode="edit"] .health-pill-compact { display: none; }
+
+  /* ─── Instructions list in view mode: roomier, serif numbers ─────── */
+  [data-recipe-mode="view"] .step-row {
+    grid-template-columns: 1.75rem 1fr auto !important;
+    padding: 0.7rem 0 !important;
+    border-bottom: 1px solid oklch(94% 0.008 70) !important;
+    align-items: baseline;
+  }
+  [data-recipe-mode="view"] .step-number {
+    font-family: 'Lora', serif !important;
+    font-size: 1rem !important;
+    color: var(--text-3) !important;
+    font-style: italic;
+  }
+  [data-recipe-mode="view"] .step-text {
+    font-size: 0.9375rem !important;
+    line-height: 1.65 !important;
+    color: var(--text-1) !important;
+  }
+
+  /* ─── Header typography polish for view mode ─────────────────────── */
+  [data-recipe-mode="view"] .recipe-h1 { letter-spacing: -0.025em; }
+</style>
+
+{{ recipe_add_modal() }}
+
+<!-- Recipe page mode root. Edit is the default; the toggle now flips into a
+     read-only "share" mode (no edit affordances, useful for screenshots).
+     CSS reads data-recipe-mode to drive the entire UI shift. -->
+<div x-data :data-recipe-mode="$store.recipeMode.editing ? 'edit' : 'view'">
+
+<!-- Back link -->
+<a href="/recipes" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 mb-6 transition-colors">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+  </svg>
+  Back to Recipes
+</a>
+
+<!-- Header -->
+<script id="recipe-init-data" type="application/json">
+{{ {"id": recipe.id, "name": recipe.name, "description": recipe.description or "", "servings": recipe.servings, "tags": recipe.tags or []} | tojson }}
+</script>
+<div x-data="recipeHeader"
+  @action-menu:shopping-add.window="$store.recipePreview.openModal(recipeId, $store.recipeServings.value || baseServings)"
+  @action-menu:meal-plan-add.window="$dispatch('open-meal-panel', {recipeId: recipeId, recipeName: recipeName})"
+  @action-menu:delete.window="deleteRecipe()"
+  class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 mb-6">
+
+  <div class="flex items-start justify-between gap-4 mb-3">
+    <h2 class="font-bold text-gray-900 ss-inline-edit recipe-h1"
+      style="font-family:'Lora',serif; font-size:2rem; line-height:1.15; letter-spacing:-0.02em; flex:1; min-width:0; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; outline:none; transition:background 0.15s;"
+      :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+      :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+      spellcheck="false"
+      :title="$store.recipeMode.editing ? 'Click to edit' : ''"
+      @focus="$el.dataset.original = $el.innerText.trim(); $el.style.background='oklch(95% 0.015 80)';"
+      @blur="$el.style.background=''; inlineEdit('name', $el)"
+      @keydown.enter.prevent="$el.blur()"
+      @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+    >{{ recipe.name }}</h2>
+    <div class="flex-shrink-0 flex items-center gap-2">
+      <a href="/recipes/{{ recipe.id }}"
+         class="recipe-mode-toggle"
+         title="Return to the read-only view">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span>Done</span>
+      </a>
+      {{ action_menu('recipe', item_expr=({"id": recipe.id, "name": recipe.name} | tojson)) }}
+    </div>
+  </div>
+
+  <!-- Description: always rendered so an empty recipe shows a placeholder
+       prompting the user to click. The :empty:before CSS hook lives in
+       base styles via the ss-inline-edit class. -->
+  <p class="text-gray-600 mb-4 ss-inline-edit"
+    style="font-size:0.9375rem; line-height:1.55; max-width:62ch; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; min-height:1.55em; outline:none; transition:background 0.15s;"
+    :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+    data-placeholder="Add a description…"
+    :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+    spellcheck="false"
+    :title="$store.recipeMode.editing ? 'Click to edit' : ''"
+    @focus="$el.dataset.original = $el.innerText.trim(); $el.style.background='oklch(95% 0.015 80)';"
+    @blur="$el.style.background=''; inlineEdit('description', $el)"
+    @keydown.enter.prevent="$el.blur()"
+    @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+  >{{ recipe.description or '' }}</p>
+
+  <!-- Meta strip: quick facts demoted to bullet-separated text; health stays as a popover pill -->
+  <div class="flex flex-wrap items-center mb-4" style="gap:0.5rem 0.625rem; font-size:0.8125rem; color:var(--text-3); font-family:'DM Sans',sans-serif;">
+    <!-- Servings stepper. The number stays click-to-edit (typing is fastest
+         for big jumps); ±  buttons live alongside for quick nudges. Both
+         persist via PATCH and reflect into baseServings on success. -->
+    <span style="display:inline-flex; align-items:center; gap:0.25rem;">
+      <button x-show="$store.recipeMode.editing"
+        @click="bumpServings(-1)"
+        :disabled="baseServings <= 1"
+        aria-label="Decrease servings"
+        style="width:1.25rem; height:1.25rem; border:1px solid var(--border); background:var(--cream); border-radius:0.25rem; cursor:pointer; color:var(--text-2); font-size:0.875rem; line-height:1; display:inline-flex; align-items:center; justify-content:center;">−</button>
+      <span class="ss-inline-edit"
+        style="border-radius:0.25rem; padding:0 0.25rem; outline:none; transition:background 0.15s; font-variant-numeric: tabular-nums;"
+        :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+        :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+        spellcheck="false"
+        inputmode="numeric"
+        :title="$store.recipeMode.editing ? 'Click to edit base servings' : ''"
+        @focus="$el.dataset.original = $el.innerText.trim(); $el.style.background='oklch(95% 0.015 80)';"
+        @blur="$el.style.background=''; inlineEdit('servings', $el)"
+        @keydown.enter.prevent="$el.blur()"
+        @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+        x-text="baseServings"
+      >{{ recipe.servings or 4 }}</span>
+      <button x-show="$store.recipeMode.editing"
+        @click="bumpServings(1)"
+        :disabled="baseServings >= 50"
+        aria-label="Increase servings"
+        style="width:1.25rem; height:1.25rem; border:1px solid var(--border); background:var(--cream); border-radius:0.25rem; cursor:pointer; color:var(--text-2); font-size:0.875rem; line-height:1; display:inline-flex; align-items:center; justify-content:center;">+</button>
+      <span>servings</span>
+    </span>
+    {% if recipe.times_ordered %}<span aria-hidden="true" style="color:var(--text-3); opacity:0.5;">·</span><span>Ordered {{ recipe.times_ordered }}×</span>{% endif %}
+    {% if recipe.source %}<span aria-hidden="true" style="color:var(--text-3); opacity:0.5;">·</span><span>{{ recipe.source }}</span>{% endif %}
+    {% if health_data %}
+    {% if _meta_items %}<span aria-hidden="true" style="color:var(--text-3); opacity:0.5;">·</span>{% endif %}
+    <script id="health-init-data" type="application/json">{{ health_data | tojson }}</script>
+    <div class="relative inline-block" x-data="healthBadge" @click.away="pop = false">
+      <button @click="pop = !pop" class="health-pill-compact"
+        :style="`background:${gc(hd.grade).bg}; color:${gc(hd.grade).t};`"
+        :title="'Health ' + hd.grade + ' · ' + hd.score + '/100'"
+        x-text="hd.grade"></button>
+      <button @click="pop = !pop" class="health-pill-full inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold cursor-pointer"
+        style="font-size:0.75rem; letter-spacing:0.02em;"
+        :style="`background:${gc(hd.grade).bg}; color:${gc(hd.grade).t};`"
+        x-text="'Health ' + hd.grade + ' · ' + hd.score + '/100'"></button>
+      <div x-show="pop" x-transition x-cloak
+        class="absolute top-full mt-1 left-0 z-50 w-72 bg-white rounded-xl shadow-lg border border-gray-200 p-3 text-left">
+        <div class="flex items-center justify-between mb-2 pb-2 border-b border-gray-100">
+          <span class="text-xs font-bold" :style="`color:${gc(hd.grade).t};`" x-text="'Health: ' + hd.grade"></span>
+          <span class="text-[10px] text-gray-400" x-text="hd.score + '/100 (' + hd.confidence + ')'"></span>
+        </div>
+        <template x-if="hd.flags && hd.flags.length > 0">
+          <div class="mb-2">
+            <template x-for="flag in hd.flags" :key="(flag.ingredient||'') + (flag.flag||'')">
+              <div class="py-1 border-b border-gray-50 last:border-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
+                  <span class="text-[11px] font-medium text-gray-800" x-text="flag.ingredient"></span>
+                  <span class="text-[9px] text-gray-400" x-text="'(' + flag.severity + ')'"></span>
+                </div>
+                <p class="text-[10px] text-gray-500 ml-3 leading-tight" x-text="flag.reason"></p>
+              </div>
+            </template>
+          </div>
+        </template>
+        <template x-if="hd.categories_detected && hd.categories_detected.length > 0">
+          <div class="flex flex-wrap gap-1 mb-1">
+            <template x-for="cat in hd.categories_detected" :key="cat">
+              <span class="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full"
+                x-text="cat.replace('_', ' ')"></span>
+            </template>
+            <span x-show="hd.bonus_applied > 0" class="text-[10px] text-emerald-600" x-text="'(+' + hd.bonus_applied + ' bonus)'"></span>
+          </div>
+        </template>
+        <p x-show="(!hd.flags || hd.flags.length === 0) && (!hd.categories_detected || hd.categories_detected.length === 0)"
+          class="text-[11px] text-gray-400 italic">No flagged ingredients detected.</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Tags: pill row. Each pill carries an inline ✕ in edit mode. The
+       trailing input commits on Enter/comma. Backspace on an empty input
+       removes the last pill so the keyboard never leaves the input. -->
+  <div class="flex flex-wrap items-center gap-1.5" x-data="{ draft: '' }">
+    <template x-for="(tag, idx) in currentTags" :key="tag + ':' + idx">
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full"
+        style="background:oklch(94% 0.012 80); color:var(--text-2); font-size:0.75rem;">
+        <span x-text="tag"></span>
+        <button x-show="$store.recipeMode.editing"
+          @click="removeTag(idx)"
+          aria-label="Remove tag"
+          style="background:transparent; border:none; color:var(--text-3); font-size:0.875rem; line-height:1; cursor:pointer; padding:0 0.125rem;">×</button>
+      </span>
+    </template>
+    <input x-show="$store.recipeMode.editing"
+      x-model="draft"
+      type="text"
+      placeholder="+ Add tag"
+      class="ss-input"
+      style="font-size:0.75rem; padding:0.2rem 0.5rem; width:8rem;"
+      @keydown.enter.prevent="addTag(draft); draft = ''"
+      @keydown="if ($event.key === ',') { $event.preventDefault(); addTag(draft); draft = ''; }"
+      @keydown.backspace="if (!draft && currentTags.length) removeTag(currentTags.length - 1)"
+      @blur="if (draft.trim()) { addTag(draft); draft = ''; }"/>
+  </div>
+</div>
+
+<!-- Two-column: Ingredients + Instructions -->
+<div class="grid grid-cols-2 gap-6">
+
+  <!-- Ingredients -->
+  <script>
+  document.addEventListener('alpine:init', () => {
+    // Bridge: the header "Add to List" button lives outside the ingredients
+    // panel that owns the servings stepper. This store carries the live
+    // servings count across so the preview modal opens with the user's
+    // current scaling. ingredientPanel.init() writes on every change.
+    Alpine.store('recipeServings', { value: 0 });
+
+    Alpine.data('ingredientPanel', () => ({
+      ingView: 'usage',
+      ings: {{ ingredients | tojson }},
+      baseServings: {{ recipe.servings or 4 }},
+      servings: {{ recipe.servings or 4 }},
+
+      init() {
+        // Mirror servings into the shared store so the header button
+        // opens the preview at the value the user currently sees on the stepper.
+        this.$watch('servings', v => Alpine.store('recipeServings').value = v);
+        Alpine.store('recipeServings').value = this.servings;
+      },
+      gradeColor(g) {
+        const m = {
+          A: {bg:'oklch(91% 0.1 145)',  text:'oklch(30% 0.14 145)'},
+          B: {bg:'oklch(91% 0.08 175)', text:'oklch(30% 0.12 175)'},
+          C: {bg:'oklch(92% 0.1 80)',   text:'oklch(35% 0.12 75)'},
+          D: {bg:'oklch(92% 0.1 50)',   text:'oklch(33% 0.14 40)'},
+          F: {bg:'oklch(92% 0.08 25)',  text:'oklch(33% 0.14 25)'},
+        };
+        return m[g] || m.C;
+      },
+      catLabels: { produce: 'Produce', meat: 'Meat', seafood: 'Seafood', dairy: 'Dairy', frozen: 'Frozen', pantry: 'Pantry', beverages: 'Beverages', bakery: 'Bakery', other: 'Other' },
+      catOrder: ['produce', 'meat', 'seafood', 'dairy', 'frozen', 'pantry', 'beverages', 'bakery', 'other'],
+      catNorm: { vegetables: 'produce', aromatics: 'produce', greens: 'produce', herbs: 'produce', protein: 'meat', poultry: 'meat', baking: 'pantry', 'canned goods': 'pantry', condiments: 'pantry', grains: 'pantry', oil: 'pantry', oils: 'pantry', sauce: 'pantry', sauces: 'pantry', spices: 'pantry', acid: 'pantry', seasoning: 'pantry' },
+      catColors: {
+        produce:   { pill: 'oklch(91% 0.1 145)',  text: 'oklch(28% 0.14 145)', dot: 'oklch(50% 0.19 145)' },
+        meat:      { pill: 'oklch(92% 0.08 22)',   text: 'oklch(30% 0.14 22)',  dot: 'oklch(50% 0.18 22)'  },
+        seafood:   { pill: 'oklch(91% 0.08 220)',  text: 'oklch(30% 0.13 220)', dot: 'oklch(50% 0.16 220)' },
+        dairy:     { pill: 'oklch(92% 0.06 240)',  text: 'oklch(32% 0.11 240)', dot: 'oklch(54% 0.14 240)' },
+        frozen:    { pill: 'oklch(91% 0.09 268)',  text: 'oklch(30% 0.13 268)', dot: 'oklch(50% 0.16 268)' },
+        pantry:    { pill: 'oklch(92% 0.1 72)',    text: 'oklch(30% 0.16 68)',  dot: 'oklch(56% 0.19 70)'  },
+        beverages: { pill: 'oklch(91% 0.08 300)',  text: 'oklch(30% 0.11 300)', dot: 'oklch(50% 0.14 300)' },
+        bakery:    { pill: 'oklch(92% 0.09 52)',   text: 'oklch(30% 0.14 48)',  dot: 'oklch(56% 0.18 52)'  },
+        other:     { pill: 'oklch(92% 0.018 80)',  text: 'oklch(38% 0.03 80)',  dot: 'oklch(55% 0.05 80)'  },
+      },
+
+      inc() { if (this.servings < 50) this.servings++; },
+      dec() { if (this.servings > 1)  this.servings--; },
+
+      // Display a scaled quantity. Returns '' only when there is genuinely
+      // nothing to show (null/NaN). Never silently emits an empty string
+      // for a *positive* result \u2014 that used to mask scaling bugs by falling
+      // back to the unscaled value in the template.
+      fmtQty(raw) {
+        if (raw === null || raw === undefined) return '';
+        const n = parseFloat(raw);
+        if (isNaN(n)) return '';
+        if (n === 0) return '0';
+        // Snap to integer only when the rounded value is non-zero — otherwise
+        // 0.001 would silently become '0', resurrecting the silent-zero bug.
+        const _rnd = Math.round(n);
+        if (_rnd !== 0 && Math.abs(n - _rnd) < 0.005) return String(_rnd);
+        const sign  = n < 0 ? '-' : '';
+        const abs   = Math.abs(n);
+        const whole = Math.floor(abs);
+        const frac  = abs - whole;
+        const table = [
+          [0.0625, '\u2009\u00b9\u2044\u2081\u2086'], // 1/16 \u2014 fall back to literal when no precomposed glyph exists
+          [0.125, '\u215b'],   // \u215b
+          [0.1667, '\u2009\u00b9\u2044\u2086'], // 1/6
+          [0.25, '\u00bc'],    // \u00bc
+          [0.333, '\u2153'],   // \u2153
+          [0.375, '\u215c'],   // \u215c
+          [0.5, '\u00bd'],     // \u00bd
+          [0.625, '\u215d'],   // \u215d
+          [0.667, '\u2154'],   // \u2154
+          [0.75, '\u00be'],    // \u00be
+          [0.833, '\u2009\u2075\u2044\u2086'], // 5/6
+          [0.875, '\u215e'],   // \u215e
+        ];
+        for (const [v, sym] of table) {
+          if (Math.abs(frac - v) < 0.02) return sign + (whole ? whole + '\u2009' : '') + sym;
+        }
+        // Decimal fallback \u2014 never round a positive value to '0'.
+        if (abs < 0.05) return sign + abs.toFixed(2);
+        const r = Math.round(abs * 10) / 10;
+        if (r === Math.floor(r)) return sign + String(Math.floor(r));
+        return sign + r.toFixed(1);
+      },
+
+      get scaledIngs() {
+        const f = this.servings / this.baseServings;
+        return this.ings.map((i, idx) => ({
+          ...i,
+          _idx: idx,
+          sq: (i.quantity !== null && i.quantity !== undefined) ? i.quantity * f : null
+        }));
+      },
+
+      get groups() {
+        // View mode reads as a single flowing list; category grouping is an
+        // edit-mode aid for organizing ingredients while authoring.
+        const editing = Alpine.store('recipeMode')?.editing;
+        if (!editing || this.ingView === 'usage') return [{ header: null, key: null, items: this.scaledIngs }];
+        const map = {};
+        this.scaledIngs.forEach(i => {
+          const raw = ((i.category || '') + '').toLowerCase().trim();
+          const key = this.catOrder.includes(this.catNorm[raw] || raw) ? (this.catNorm[raw] || raw) : 'other';
+          (map[key] = map[key] || []).push(i);
+        });
+        return this.catOrder.filter(k => map[k]).map(k => ({ header: this.catLabels[k], key: k, items: map[k] }));
+      },
+
+      // ── Inline ingredient editing ─────────────────────────────────────
+      // All mutations go through PUT /api/recipes/{id}/ingredients atomically.
+      // After success we silently refetch the enriched ingredient list so
+      // safety/pantry chips reflect the server's recomputed view without
+      // a full HTML reload. Concurrent rapid edits are debounced (600ms)
+      // and a monotonic _saveSeq drops stale responses from racing
+      // earlier in-flight saves.
+      _recipeId() {
+        const el = document.getElementById('recipe-init-data');
+        return el ? JSON.parse(el.textContent).id : null;
+      },
+      _saveSeq: 0,
+      _debounceTimer: null,
+      _pendingNext: null,
+      _flashRow(idx) {
+        const row = document.querySelector('[data-ingredient-idx="' + idx + '"]');
+        if (!row) return;
+        row.classList.remove('ss-saved-pulse');
+        void row.offsetWidth;
+        row.classList.add('ss-saved-pulse');
+      },
+      async _putIngredientsNow(next, opts) {
+        const seq = ++this._saveSeq;
+        const flashIdx = opts && opts.flashIdx;
+        const label = (opts && opts.label) || 'ingredient';
+        try {
+          const payload = await window._ssRecipeSave(
+            'PUT',
+            '/api/recipes/' + this._recipeId() + '/ingredients',
+            { ingredients: next }
+          );
+          if (seq !== this._saveSeq) return false;
+          await this._refreshEnriched();
+          if (flashIdx !== undefined) this._flashRow(flashIdx);
+          window._ssToast('Saved ' + label);
+          return true;
+        } catch (e) {
+          if (seq === this._saveSeq) {
+            this.ings = (typeof _initIngs === 'function') ? _initIngs() : this.ings;
+          }
+          return false;
+        }
+      },
+      _putIngredientsDebounced(next, opts) {
+        this._pendingNext = next;
+        const flashIdx = opts && opts.flashIdx;
+        const label = opts && opts.label;
+        if (this._debounceTimer) clearTimeout(this._debounceTimer);
+        this._debounceTimer = setTimeout(() => {
+          const toSend = this._pendingNext;
+          this._pendingNext = null;
+          this._debounceTimer = null;
+          this._putIngredientsNow(toSend, { flashIdx, label });
+        }, 600);
+      },
+      async _refreshEnriched() {
+        try {
+          const r = await fetch('/api/recipes/' + this._recipeId() + '/ingredients');
+          if (!r.ok) return;
+          const d = await r.json();
+          if (d && d.success && Array.isArray(d.ingredients)) {
+            this.ings = d.ingredients;
+          }
+        } catch (_) { /* refresh is best-effort; the next save will retry */ }
+      },
+      _serialize(ings) {
+        return ings.map(i => ({
+          name: i.name,
+          quantity: i.quantity,
+          unit: i.unit,
+          category: i.category,
+          product_id: i.product_id,
+          override: !!i.override,
+          override_reason: i.override_reason,
+        }));
+      },
+      saveIngredientField(idx, field, raw, $el) {
+        const current = this.ings[idx];
+        if (!current) return;
+        let value = raw;
+        if (field === 'quantity') {
+          const trimmed = String(raw).trim();
+          if (trimmed === '') { value = null; }
+          else {
+            const n = parseFloat(trimmed);
+            if (isNaN(n) || n < 0) { if ($el) $el.innerText = String(current.quantity ?? ''); return; }
+            value = n;
+          }
+        } else {
+          value = (raw ?? '').trim() || null;
+        }
+        if (field === 'name' && !value) {
+          if ($el) $el.innerText = current.name;
+          return;
+        }
+        if (value === current[field]) return;
+        this.ings[idx][field] = value;  // optimistic
+        const next = this._serialize(this.ings);
+        this._putIngredientsDebounced(next, { flashIdx: idx, label: field });
+      },
+      linkProduct(idx, product) {
+        // Wires a Kroger product into an ingredient row, flipping it out of
+        // override and refreshing safety/pantry. Used by the autocomplete
+        // popover and the "Manual" pill picker.
+        if (!product) return;
+        const row = this.ings[idx]; if (!row) return;
+        row.name = product.description || row.name;
+        row.product_id = product.product_id;
+        row.override = false;
+        row.override_reason = null;
+        if (!row.category && product.category) row.category = product.category;
+        this._putIngredientsNow(this._serialize(this.ings),
+          { flashIdx: idx, label: 'Kroger link' });
+      },
+      unlinkProduct(idx) {
+        const row = this.ings[idx]; if (!row) return;
+        row.product_id = null;
+        row.override = true;
+        row.override_reason = 'Unlinked from Kroger product';
+        this._putIngredientsNow(this._serialize(this.ings),
+          { flashIdx: idx, label: 'unlink' });
+      },
+      removeIngredient(idx) {
+        const target = this.ings[idx];
+        if (!target) return;
+        // Optimistic remove + 5s undo via toast action. The "snapshot"
+        // captures the entire current list so an Undo restores the row at
+        // the same position even after subsequent edits.
+        const snapshot = this._serialize(this.ings);
+        const next = snapshot.filter((_, i) => i !== idx);
+        const targetName = target.name || 'ingredient';
+        this.ings.splice(idx, 1);
+        this._putIngredientsNow(next, { label: 'removal' }).then(ok => {
+          if (!ok) return;
+          window._ssToast('Removed “' + targetName + '”', {
+            action: {
+              label: 'Undo',
+              onClick: () => this._putIngredientsNow(snapshot, { label: 'restore' }),
+            },
+          });
+        });
+      },
+      reorderIngredient(fromIdx, toIdx) {
+        if (fromIdx === toIdx) return;
+        if (fromIdx < 0 || toIdx < 0) return;
+        if (fromIdx >= this.ings.length || toIdx > this.ings.length) return;
+        const next = this._serialize(this.ings);
+        const [moved] = next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, moved);
+        this.ings = next;
+        this._putIngredientsNow(next, { label: 'reorder' });
+      },
+      async addIngredient(rawQty, rawUnit, rawName) {
+        const name = (rawName || '').trim();
+        if (!name) return;
+        let qty = null;
+        const tq = String(rawQty || '').trim();
+        if (tq) {
+          const n = parseFloat(tq);
+          if (!isNaN(n) && n >= 0) qty = n;
+        }
+        const unit = (rawUnit || '').trim() || null;
+        const next = this._serialize(this.ings).concat([{
+          name, quantity: qty, unit, category: null,
+          product_id: null, override: true,
+          override_reason: 'Added inline; not yet linked to Kroger product'
+        }]);
+        this.ings = next;  // optimistic
+        return this._putIngredientsNow(next, { label: 'new ingredient' });
+      },
+
+      // ── Product autocomplete (inline) ────────────────────────────────
+      // Search /api/products/search with a 250ms debounce. Results carry
+      // safety enrichment we re-use to colour the row chip on selection.
+      // detailCache survives across acOpenFor/acClose cycles intentionally —
+      // re-expanding a previously-seen product should not re-fetch.
+      // anchorPos is {left, top} in pixels relative to #ingredients-card;
+      // the popover lives as a child of that card and reads anchorPos via
+      // acPopoverStyle. Anchor element is stored unreactively (_anchorEl)
+      // so the DOM ref doesn't end up in Alpine's proxy machinery.
+      acState: { idx: null, query: '', results: [], active: 0, loading: false, debounce: null,
+                 expanded: null, detailCache: {}, detailLoading: {}, detailError: {},
+                 anchorPos: { left: 0, top: 0 } },
+      _anchorEl: null,
+      _onAcReposition: null,
+      get acPopoverStyle() {
+        const p = this.acState.anchorPos || { left: 0, top: 0 };
+        return `left:${p.left}px; top:${p.top}px;`;
+      },
+      _acReposition() {
+        if (!this._anchorEl) return;
+        const card = document.getElementById('ingredients-card');
+        if (!card) return;
+        const a = this._anchorEl.getBoundingClientRect();
+        const c = card.getBoundingClientRect();
+        // Anchor under the bottom-left of the name cell, +4px gap.
+        this.acState.anchorPos = { left: Math.round(a.left - c.left), top: Math.round(a.bottom - c.top + 4) };
+      },
+      acOpenFor(idx, seed, anchorEl) {
+        const cache = this.acState.detailCache || {};
+        this._anchorEl = anchorEl || null;
+        this.acState = { idx, query: seed || '', results: [], active: 0, loading: false, debounce: null,
+                         expanded: null, detailCache: cache, detailLoading: {}, detailError: {},
+                         anchorPos: { left: 0, top: 0 } };
+        this._acReposition();
+        // Recompute on scroll/resize so the popover tracks its anchor.
+        if (!this._onAcReposition) {
+          this._onAcReposition = () => this._acReposition();
+          window.addEventListener('scroll', this._onAcReposition, true);
+          window.addEventListener('resize', this._onAcReposition);
+        }
+        if (this.acState.query.trim().length >= 2) this._acSearch(this.acState.query);
+      },
+      acClose() {
+        const cache = this.acState.detailCache || {};
+        this.acState = { idx: null, query: '', results: [], active: 0, loading: false, debounce: null,
+                         expanded: null, detailCache: cache, detailLoading: {}, detailError: {},
+                         anchorPos: { left: 0, top: 0 } };
+        this._anchorEl = null;
+        if (this._onAcReposition) {
+          window.removeEventListener('scroll', this._onAcReposition, true);
+          window.removeEventListener('resize', this._onAcReposition);
+          this._onAcReposition = null;
+        }
+      },
+      acType(text) {
+        this.acState.query = text;
+        if (this.acState.debounce) clearTimeout(this.acState.debounce);
+        const q = (text || '').trim();
+        if (q.length < 2) { this.acState.results = []; this.acState.expanded = null; return; }
+        this.acState.debounce = setTimeout(() => this._acSearch(q), 250);
+      },
+      async _acSearch(q) {
+        this.acState.loading = true;
+        try {
+          const r = await fetch('/api/products/search?q=' + encodeURIComponent(q) + '&limit=6');
+          if (!r.ok) { this.acState.results = []; return; }
+          const d = await r.json();
+          const list = Array.isArray(d) ? d : (d.products || d.results || []);
+          this.acState.results = list;
+          this.acState.active = 0;
+          this.acState.expanded = null;
+        } catch (_) {
+          this.acState.results = [];
+        } finally {
+          this.acState.loading = false;
+        }
+      },
+      acMove(dir) {
+        if (!this.acState.results.length) return;
+        const n = this.acState.results.length;
+        this.acState.active = (this.acState.active + dir + n) % n;
+      },
+      acToggleExpand(productId) {
+        if (!productId) return;
+        if (this.acState.expanded === productId) {
+          this.acState.expanded = null;
+          return;
+        }
+        this.acState.expanded = productId;
+        if (this.acState.detailCache[productId] || this.acState.detailLoading[productId]) return;
+        this._acFetchDetail(productId);
+      },
+      acToggleExpandActive() {
+        const p = this.acState.results[this.acState.active];
+        if (p && p.product_id) this.acToggleExpand(p.product_id);
+      },
+      async _acFetchDetail(productId) {
+        this.acState.detailLoading[productId] = true;
+        this.acState.detailError[productId] = null;
+        try {
+          const r = await fetch('/api/products/' + encodeURIComponent(productId));
+          if (!r.ok) {
+            this.acState.detailError[productId] = r.status === 404 ? 'Product not found' : 'Failed to load details';
+            return;
+          }
+          const detail = await r.json();
+          // Fall back to the search-row data for fields the detail endpoint
+          // might omit, so the panel never regresses what the row already shows.
+          const row = this.acState.results.find(x => x && x.product_id === productId) || {};
+          this.acState.detailCache[productId] = Object.assign({}, row, detail);
+        } catch (_) {
+          this.acState.detailError[productId] = 'Network error';
+        } finally {
+          this.acState.detailLoading[productId] = false;
+        }
+      },
+      acSelectActive() {
+        const p = this.acState.results[this.acState.active];
+        if (!p) return;
+        const idx = this.acState.idx;
+        this.acClose();
+        this.linkProduct(idx, p);
+      },
+      acUseManual(text) {
+        const idx = this.acState.idx;
+        this.acClose();
+        if (idx === null || idx === undefined) return;
+        const row = this.ings[idx]; if (!row) return;
+        row.name = (text || row.name).trim();
+        row.product_id = null;
+        row.override = true;
+        row.override_reason = row.override_reason || 'Manual entry';
+        this._putIngredientsNow(this._serialize(this.ings),
+          { flashIdx: idx, label: 'manual entry' });
+      },
+
+    }));
+  });
+  </script>
+  <div id="ingredients-card" class="ss-card p-6" x-data="ingredientPanel()" style="position:relative;">
+
+    <!-- Card header: title + stepper + view toggle -->
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.875rem; padding-bottom:0.875rem; border-bottom:1px solid var(--border);">
+
+      <!-- Left: title + compact servings stepper -->
+      <div style="display:flex; align-items:center; gap:0.75rem; min-width:0; flex-wrap:wrap;">
+        <h3 style="font-family:'Lora',serif; font-weight:600; font-size:0.9375rem; color:var(--text-1); letter-spacing:-0.01em; margin:0; white-space:nowrap;">Ingredients</h3>
+
+        <!-- Servings stepper — edit-only. View mode reads "N servings" from
+             the header meta strip; this stepper exists solely to scale during
+             editing/shopping prep. -->
+        <div x-show="ings.length > 0" class="edit-only"
+          style="display:inline-flex; align-items:center; border:1px solid var(--border); border-radius:99px; overflow:hidden; background:var(--cream);">
+          <button @click="dec()" :disabled="servings <= 1"
+            style="width:1.875rem; height:1.75rem; display:flex; align-items:center; justify-content:center; border:none; background:transparent; color:var(--text-2); font-size:1.0625rem; line-height:1; padding:0; transition:all 0.12s;"
+            :style="servings <= 1 ? 'opacity:0.3; cursor:not-allowed;' : 'cursor:pointer;'"
+            @mouseenter="if(servings>1){$el.style.background='oklch(91% 0.02 80)'; $el.style.color='var(--text-1)';}"
+            @mouseleave="$el.style.background='transparent'; $el.style.color='var(--text-2)';">−</button>
+          <span style="min-width:2.5rem; text-align:center; font-family:'Lora',serif; font-size:0.9375rem; font-weight:600; color:var(--text-1); border-left:1px solid var(--border); border-right:1px solid var(--border); padding:0.2rem 0.25rem; user-select:none; line-height:1.3;"
+            x-text="servings"></span>
+          <button @click="inc()" :disabled="servings >= 50"
+            style="width:1.875rem; height:1.75rem; display:flex; align-items:center; justify-content:center; border:none; background:transparent; color:var(--text-2); font-size:1.0625rem; line-height:1; padding:0; transition:all 0.12s;"
+            :style="servings >= 50 ? 'opacity:0.3; cursor:not-allowed;' : 'cursor:pointer;'"
+            @mouseenter="if(servings<50){$el.style.background='oklch(91% 0.02 80)'; $el.style.color='var(--text-1)';}"
+            @mouseleave="$el.style.background='transparent'; $el.style.color='var(--text-2)';">+</button>
+        </div>
+
+        <!-- Multiplier badge + reset (only when scaled away from base) -->
+        <span x-show="ings.length > 0 && servings !== baseServings" x-cloak
+          x-transition:enter="transition ease-out duration-150"
+          x-transition:enter-start="opacity-0 scale-95"
+          x-transition:enter-end="opacity-100 scale-100"
+          style="display:inline-flex; align-items:center; gap:0.375rem; white-space:nowrap;">
+          <span style="font-size:0.6875rem; color:var(--text-3); font-style:italic;"
+            x-text="'\u00d7\u2009' + (servings / baseServings % 1 === 0 ? Math.floor(servings / baseServings) : parseFloat((servings / baseServings).toFixed(2))) + ' of base'"></span>
+          <button @click="servings = baseServings"
+            title="Reset to base servings"
+            style="font-size:0.625rem; color:var(--green); background:transparent; border:1px solid var(--border); border-radius:99px; padding:0.1rem 0.5rem; cursor:pointer; font-family:'DM Sans',sans-serif; letter-spacing:0.02em;">Reset</button>
+        </span>
+      </div>
+
+      <!-- Right: view toggle (edit-only — view mode forces "As listed") -->
+      <div x-show="ings.length > 0" class="edit-only"
+        style="display:inline-flex; border:1px solid var(--border); border-radius:0.5rem; overflow:hidden; font-size:0.6875rem; padding:2px; gap:1px; background:var(--cream); flex-shrink:0;">
+        <button @click="ingView='usage'"
+          :style="ingView==='usage'
+            ? 'background:var(--green); color:white; box-shadow:0 1px 3px oklch(18% 0.025 80 / 0.1);'
+            : 'background:transparent; color:var(--text-3);'"
+          style="padding:0.3rem 0.75rem; border-radius:0.375rem; transition:all 0.15s; font-weight:500; font-family:'DM Sans',sans-serif; cursor:pointer; border:none; letter-spacing:0.01em;"
+          @mouseenter="if(ingView!=='usage') $el.style.color='var(--text-1)';"
+          @mouseleave="if(ingView!=='usage') $el.style.color='var(--text-3)';">As listed</button>
+        <button @click="ingView='category'"
+          :style="ingView==='category'
+            ? 'background:var(--green); color:white; box-shadow:0 1px 3px oklch(18% 0.025 80 / 0.1);'
+            : 'background:transparent; color:var(--text-3);'"
+          style="padding:0.3rem 0.75rem; border-radius:0.375rem; transition:all 0.15s; font-weight:500; font-family:'DM Sans',sans-serif; cursor:pointer; border:none; letter-spacing:0.01em;"
+          @mouseenter="if(ingView!=='category') $el.style.color='var(--text-1)';"
+          @mouseleave="if(ingView!=='category') $el.style.color='var(--text-3)';">By category</button>
+      </div>
+
+    </div>
+    <div>
+      <!-- Column header — only shown in edit mode (view collapses the grid).
+           Five columns: drag · qty · unit · name+status · delete. Source/grade
+           status dots are inlined into the name cell instead of separate
+           columns; that keeps the row single-line and ✕ pinned right. -->
+      <div class="grid pb-2 mb-2 ing-columns" style="grid-template-columns: 0.5rem 2.25rem 4.5rem 1fr 1.5rem; gap: 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.625rem; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); font-family: 'DM Sans', sans-serif;">
+        <span></span>
+        <span>Qty</span>
+        <span>Unit</span>
+        <span>Ingredient</span>
+        <span></span>
+      </div>
+      <template x-for="(group, gi) in groups" :key="gi">
+        <div>
+          <!-- Category header band. Loud colored pill in edit mode; in view
+               mode the CSS rule on .ing-category-band flattens it into a
+               quiet caption above the section. -->
+          <div x-show="group.header !== null" class="ing-category-band"
+            :style="`background: ${(catColors[group.key]||catColors.other).pill}; color: ${(catColors[group.key]||catColors.other).text};`"
+            style="display: flex; align-items: center; gap: 0.5rem; margin:0.75rem -0.75rem 0.25rem; padding:0.35rem 0.75rem; border-radius:0.375rem; font-size:0.6875rem; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; font-family:'DM Sans',sans-serif;">
+            <span class="cat-dot" :style="`background: ${(catColors[group.key]||catColors.other).dot};`" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block;"></span>
+            <span x-text="group.header"></span>
+            <span class="cat-count" style="font-weight:400; opacity:0.6; font-size:0.5625rem; margin-left:0.125rem;" x-text="'(' + group.items.length + ')'"></span>
+          </div>
+          <template x-for="(ing, ii) in group.items" :key="ing._idx">
+            <div class="grid items-baseline ing-row" data-ingredient-row
+              :data-ingredient-idx="ing._idx"
+              :draggable="$store.recipeMode.editing"
+              @dragstart="$event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', String(ing._idx)); $el.classList.add('dragging');"
+              @dragend="$el.classList.remove('dragging'); document.querySelectorAll('[data-ingredient-row].drag-over').forEach(el => el.classList.remove('drag-over'));"
+              @dragover.prevent="$el.classList.add('drag-over'); $event.dataTransfer.dropEffect='move';"
+              @dragleave="$el.classList.remove('drag-over');"
+              @drop.prevent="$el.classList.remove('drag-over'); reorderIngredient(parseInt($event.dataTransfer.getData('text/plain'), 10), ing._idx);"
+              style="grid-template-columns: 0.5rem 2.25rem 4.5rem 1fr 1.5rem; gap: 0.75rem; padding: 0.65rem 0; border-bottom: 1px solid oklch(94% 0.008 70);"
+              x-data="{ editQ: false }">
+              <span class="ss-drag-handle edit-only" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
+              <!-- Qty cell: shows scaled qty when idle; editing reverts to BASE qty
+                   so the user is changing the canonical value, not the scaled view. -->
+              <span x-show="!editQ"
+                @click="$store.recipeMode.editing && (editQ = true, $nextTick(() => $refs['q' + ing._idx].focus()))"
+                class="ss-inline-edit ing-qty"
+                style="font-size: 0.8rem; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; min-height: 1.1rem; display: inline-block; padding: 0 0.25rem;"
+                :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+                x-text="fmtQty(ing.sq) || '—'"></span>
+              <input x-show="editQ" x-cloak :x-ref="'q' + ing._idx" type="text" inputmode="decimal"
+                :value="ing.quantity ?? ''"
+                @blur="editQ = false; saveIngredientField(ing._idx, 'quantity', $event.target.value)"
+                @keydown.enter.prevent="$event.target.blur()"
+                @keydown.escape.prevent="editQ = false"
+                style="font-size: 0.8rem; padding: 0.1rem 0.3rem; border: 1px solid var(--border); border-radius: 0.25rem; width: 100%; min-width: 0; font-variant-numeric: tabular-nums;"/>
+              <span class="ss-inline-edit ing-unit"
+                :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+                spellcheck="false"
+                style="font-size: 0.8rem; color: var(--text-3); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block; width: 100%; min-width: 0;"
+                :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+                data-placeholder="unit"
+                :title="ing.unit || ''"
+                @focus="$el.dataset.original = $el.innerText.trim(); $el.style.overflow='visible'; $el.style.whiteSpace='normal';"
+                @blur="$el.style.overflow=''; $el.style.whiteSpace=''; saveIngredientField(ing._idx, 'unit', $el.innerText.trim(), $el)"
+                @keydown.enter.prevent="$el.blur()"
+                @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+                x-text="ing.unit || ''"></span>
+              <!-- Name cell folds source/pantry/grade chips inline so the
+                   parent grid stays exactly 5 columns wide regardless of how
+                   many badges this ingredient earns. Status indicators are
+                   small dots; the loud "Manual / Kroger / X cups in pantry"
+                   text pills are gone — full detail lives in title= tooltips
+                   and the safety popover. -->
+              <span class="ing-name-cell" style="position:relative; display:flex; align-items:center; gap:0.5rem; min-width:0;">
+                <span class="ss-inline-edit ing-name"
+                  :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+                  spellcheck="false"
+                  style="font-size: 0.9375rem; color: var(--text-1); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block; flex:1; min-width:0; line-height:1.4;"
+                  :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+                  @focus="$el.dataset.original = $el.innerText.trim(); acOpenFor(ing._idx, $el.innerText.trim(), $el);"
+                  @input="acType($el.innerText.trim())"
+                  @blur="setTimeout(() => { if (acState.idx === ing._idx) acClose(); }, 150); saveIngredientField(ing._idx, 'name', $el.innerText.trim(), $el)"
+                  @keydown.arrow-down.prevent="acMove(1)"
+                  @keydown.arrow-up.prevent="acMove(-1)"
+                  @keydown.arrow-right="if (acState.idx === ing._idx && acState.results.length) { $event.preventDefault(); acToggleExpandActive(); }"
+                  @keydown.enter.prevent="if (acState.idx === ing._idx && acState.results.length) { acSelectActive(); $el.blur(); } else { $el.blur(); }"
+                  @keydown.escape.prevent="acClose(); $el.innerText = $el.dataset.original || ''; $el.blur()"
+                  x-text="ing.name"></span>
+
+                <!-- Inline status dots — fixed-width strip so the row never
+                     wraps. Each is a 6–7px disc; tooltips carry the full text. -->
+                <span class="ing-status" style="display:inline-flex; align-items:center; gap:0.375rem; flex-shrink:0;">
+                  <!-- Source indicator: muted dot for Manual, sage dot for Kroger,
+                       hollow ring when neither product nor override is set. -->
+                  <button x-show="ing.override"
+                    @click="acOpenFor(ing._idx, ing.name, $el.closest('.ing-name-cell')?.querySelector('.ing-name'))"
+                    :disabled="!$store.recipeMode.editing"
+                    class="src-dot src-manual"
+                    title="Manual — click to link a Kroger product"
+                    aria-label="Manual ingredient"></button>
+                  <button x-show="!ing.override && ing.product_id"
+                    @click="if ($store.recipeMode.editing && confirm('Unlink Kroger product? Ingredient will become manual.')) unlinkProduct(ing._idx);"
+                    :disabled="!$store.recipeMode.editing"
+                    class="src-dot src-kroger"
+                    title="Linked to a Kroger product — click to unlink"
+                    aria-label="Kroger-linked ingredient"></button>
+                  <span x-show="!ing.override && !ing.product_id"
+                    class="src-dot src-empty"
+                    title="Unlinked — open the ingredient name to search Kroger"
+                    aria-hidden="true"></span>
+
+                  <!-- Pantry dot: color encodes status. No more inline text. -->
+                  <template x-if="ing.pantry">
+                    <span class="pantry-dot"
+                      :class="ing.pantry.status === 'ok' ? 'dot-ok' : (ing.pantry.status === 'low' ? 'dot-warn' : 'dot-danger')"
+                      :title="'Pantry: ' + ing.pantry.level_percent + '%' + (ing.pantry.quantity_on_hand !== null ? (' · ' + ing.pantry.quantity_on_hand + (ing.pantry.unit ? ' ' + ing.pantry.unit : '')) : '')"
+                      aria-label="Pantry status"></span>
+                  </template>
+
+                  <!-- Safety grade: a single letter chip, restrained palette.
+                       Click opens the same popover as before. -->
+                  <div x-show="ing.safety_grade" class="relative" x-data="{ pop: false }" @click.away="pop = false">
+                    <button @click.stop="pop = !pop"
+                      class="grade-chip"
+                      :style="`background:${gradeColor(ing.safety_grade).bg}; color:${gradeColor(ing.safety_grade).text};`"
+                      :title="'Safety ' + ing.safety_grade + ((ing.safety_score ?? null) !== null ? ' · ' + ing.safety_score + '/100' : '')"
+                      x-text="ing.safety_grade"></button>
+                    <div x-show="pop" x-transition x-cloak
+                      class="absolute bottom-full mb-1 right-0 z-50 w-56 bg-white rounded-xl shadow-lg border border-gray-200 p-2.5 text-left"
+                      @click.stop>
+                      <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-gray-100">
+                        <span style="font-size:0.6875rem; font-weight:700;" :style="`color:${gradeColor(ing.safety_grade).text};`" x-text="'Safety ' + ing.safety_grade"></span>
+                        <span style="font-size:0.5625rem; color:var(--text-3);" x-text="(ing.safety_score ?? '?') + '/100'"></span>
+                      </div>
+                      <template x-if="ing.safety_flags && ing.safety_flags.length > 0">
+                        <div class="mb-1">
+                          <template x-for="flag in ing.safety_flags" :key="flag.ingredient + flag.severity">
+                            <div style="padding:0.2rem 0; border-bottom:1px solid oklch(95% 0.01 80);">
+                              <div class="flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                                  :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
+                                <span style="font-size:0.625rem; font-weight:500; color:var(--text-1);" x-text="flag.ingredient"></span>
+                              </div>
+                              <p style="font-size:0.5625rem; color:var(--text-3); margin-left:0.625rem; line-height:1.3;" x-text="flag.reason"></p>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                      <template x-if="ing.safety_positives && ing.safety_positives.length > 0">
+                        <div>
+                          <template x-for="attr in ing.safety_positives" :key="attr.attribute">
+                            <div class="flex items-center gap-1 py-0.5">
+                              <span style="color:var(--green); font-size:0.625rem; font-weight:700;">+</span>
+                              <span style="font-size:0.625rem; color:var(--green);" x-text="attr.attribute"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                      <p x-show="(!ing.safety_flags || ing.safety_flags.length === 0) && (!ing.safety_positives || ing.safety_positives.length === 0)"
+                        style="font-size:0.625rem; color:var(--text-3); font-style:italic;">No concerns.</p>
+                    </div>
+                  </div>
+                </span>
+
+              </span>
+
+              <button class="ing-remove edit-only"
+                title="Remove ingredient"
+                @click="removeIngredient(ing._idx)"
+                aria-label="Remove ingredient">✕</button>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Add ingredient row. Drag column stays empty (the new row isn't
+           draggable). Empty-state copy nudges toward Kroger search; pressing
+           Enter on the name triggers the add and the autocomplete popover
+           opens on the new row immediately so linking is one keystroke away. -->
+      <div x-data="{ addQ: '', addU: '', addN: '' }"
+        class="grid items-baseline edit-only"
+        style="grid-template-columns: 0.5rem 2.25rem 4.5rem 1fr 1.5rem; gap: 0.75rem; padding: 0.7rem 0 0.4rem; border-top: 1px dashed oklch(90% 0.015 80); margin-top: 0.5rem;">
+        <span></span>
+        <input x-model="addQ" type="text" inputmode="decimal" placeholder="qty"
+          @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
+          style="font-size: 0.8rem; padding: 0.25rem 0.45rem; border: 1px solid var(--border); border-radius: 0.3rem; min-width: 0; font-variant-numeric: tabular-nums; background: var(--surface);"/>
+        <input x-model="addU" type="text" placeholder="unit"
+          @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
+          style="font-size: 0.8rem; padding: 0.25rem 0.45rem; border: 1px solid var(--border); border-radius: 0.3rem; min-width: 0; background: var(--surface);"/>
+        <input x-model="addN" type="text"
+          :placeholder="ings.length === 0 ? 'Search Kroger or type and press Enter…' : '+ Add ingredient (name)…'"
+          @keydown.enter.prevent="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
+          style="font-size: 0.875rem; padding: 0.25rem 0.5rem; border: 1px solid var(--border); border-radius: 0.3rem; min-width: 0; background: var(--surface);"/>
+        <button class="ing-remove"
+          :disabled="!addN.trim()"
+          @click="addIngredient(addQ, addU, addN).then(() => { addQ=''; addU=''; addN=''; });"
+          title="Add ingredient"
+          style="color: var(--green); opacity: 1;"
+          aria-label="Add ingredient">+</button>
+      </div>
+    </div>
+
+    <!-- Hoisted autocomplete popover. One instance, positioned inside the
+         Ingredients card via acPopoverStyle. Lives outside the row grid so
+         its width never perturbs the ingredient row's columns or the outer
+         two-column recipe layout. -->
+    <div x-show="acState.idx !== null && (acState.results.length > 0 || acState.loading || acState.query.length >= 2)"
+         x-cloak class="ss-autocomplete-popover"
+         :style="acPopoverStyle"
+         @mousedown.prevent>
+      <div x-show="acState.loading" style="padding:0.5rem 0.75rem; font-size:0.75rem; color:var(--text-3);">Searching…</div>
+      <template x-for="(p, pi) in acState.results" :key="p.product_id">
+        <div>
+        <div class="ss-autocomplete-row"
+             :class="pi === acState.active ? 'active' : ''"
+             @mouseenter="acState.active = pi"
+             @click="acSelectActive()">
+          <div class="ss-autocomplete-meta">
+            <div class="ss-autocomplete-name" x-text="p.description"></div>
+            <div class="ss-autocomplete-sub">
+              <span x-show="p.brand" x-text="p.brand"></span>
+              <span x-show="p.brand && p.size" style="margin:0 0.25rem;">·</span>
+              <span x-show="p.size" x-text="p.size"></span>
+              <span x-show="(p.brand || p.size) && p.price_per_unit && p.price_per_unit.label" style="margin:0 0.25rem;">·</span>
+              <span x-show="p.price_per_unit && p.price_per_unit.label"
+                    style="font-variant-numeric:tabular-nums;"
+                    x-text="p.price_per_unit && p.price_per_unit.label"></span>
+            </div>
+          </div>
+          <div class="ss-autocomplete-price">
+            <div style="display:flex; align-items:baseline; gap:0.3rem;">
+              <span x-show="p.on_sale" class="ss-autocomplete-sale-pill"
+                    x-text="'-' + p.savings_percent + '%'"></span>
+              <span class="ss-autocomplete-price-main"
+                    :style="p.on_sale ? 'color:oklch(40% 0.18 25);' : ''"
+                    x-text="(p.sale_price || p.regular_price) ? '$' + (p.sale_price || p.regular_price).toFixed(2) : ''"></span>
+            </div>
+            <span x-show="p.on_sale && p.regular_price" class="ss-autocomplete-price-strike"
+                  x-text="'$' + (p.regular_price || 0).toFixed(2)"></span>
+          </div>
+          <span x-show="p.safety_grade"
+                :style="`background:${gradeColor(p.safety_grade).bg}; color:${gradeColor(p.safety_grade).text}; padding:0.1rem 0.4rem; border-radius:99px; font-size:0.625rem; font-weight:700;`"
+                x-text="p.safety_grade"></span>
+          <button class="ss-autocomplete-expand"
+                  :class="acState.expanded === p.product_id ? 'open' : ''"
+                  @click.stop="acToggleExpand(p.product_id)"
+                  :title="acState.expanded === p.product_id ? 'Hide details' : 'Show details'"
+                  :aria-expanded="acState.expanded === p.product_id"
+                  aria-label="Toggle product details">›</button>
+        </div>
+
+        <div x-show="acState.expanded === p.product_id" x-cloak class="ss-autocomplete-detail"
+             @click.stop>
+          <template x-if="acState.detailLoading[p.product_id]">
+            <div style="font-size:0.6875rem; color:var(--text-3); font-style:italic;">Loading details…</div>
+          </template>
+          <template x-if="!acState.detailLoading[p.product_id] && acState.detailError[p.product_id]">
+            <div style="font-size:0.625rem; color:oklch(40% 0.16 25);"
+                 x-text="acState.detailError[p.product_id]"></div>
+          </template>
+          <template x-if="!acState.detailLoading[p.product_id] && acState.detailCache[p.product_id]">
+            <div>
+              <div style="display:flex; gap:0.6rem; align-items:flex-start; margin-bottom:0.5rem;">
+                <template x-if="acState.detailCache[p.product_id].image_url">
+                  <img :src="acState.detailCache[p.product_id].image_url"
+                       :alt="acState.detailCache[p.product_id].description"
+                       loading="lazy" class="ss-autocomplete-detail-thumb"
+                       @error="$el.style.display='none'"/>
+                </template>
+                <template x-if="!acState.detailCache[p.product_id].image_url">
+                  <div class="ss-autocomplete-detail-thumb-placeholder" aria-hidden="true">·</div>
+                </template>
+                <div style="min-width:0; flex:1;">
+                  <div style="font-size:0.75rem; color:var(--text-1); font-weight:600; line-height:1.25;"
+                       x-text="acState.detailCache[p.product_id].description"></div>
+                  <div style="font-size:0.625rem; color:var(--text-3); margin-top:0.15rem;">
+                    <span x-show="acState.detailCache[p.product_id].brand" x-text="acState.detailCache[p.product_id].brand"></span>
+                    <span x-show="acState.detailCache[p.product_id].brand && acState.detailCache[p.product_id].size" style="margin:0 0.25rem;">·</span>
+                    <span x-show="acState.detailCache[p.product_id].size" x-text="acState.detailCache[p.product_id].size"></span>
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
+                <span x-show="acState.detailCache[p.product_id].safety_grade"
+                      style="font-weight:700; font-size:0.6875rem;"
+                      :style="`color:${gradeColor(acState.detailCache[p.product_id].safety_grade).text};`"
+                      x-text="'Health ' + acState.detailCache[p.product_id].safety_grade"></span>
+                <span x-show="acState.detailCache[p.product_id].safety_score !== null && acState.detailCache[p.product_id].safety_score !== undefined"
+                      style="font-size:0.625rem; color:var(--text-3);"
+                      x-text="acState.detailCache[p.product_id].safety_score + '/100'"></span>
+              </div>
+              <template x-if="acState.detailCache[p.product_id].flagged_ingredients && acState.detailCache[p.product_id].flagged_ingredients.length > 0">
+                <div>
+                  <h4>Flagged</h4>
+                  <template x-for="flag in acState.detailCache[p.product_id].flagged_ingredients" :key="flag.ingredient + flag.severity">
+                    <div class="ss-autocomplete-detail-row">
+                      <span class="ss-autocomplete-detail-dot"
+                            :style="`background:${flag.severity === 'critical' ? 'oklch(60% 0.20 25)' : flag.severity === 'warning' ? 'oklch(70% 0.16 70)' : 'oklch(70% 0.10 240)'};`"></span>
+                      <div style="min-width:0;">
+                        <div class="ss-autocomplete-detail-name" x-text="flag.ingredient"></div>
+                        <div class="ss-autocomplete-detail-reason" x-text="flag.reason"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <template x-if="acState.detailCache[p.product_id].positive_attributes && acState.detailCache[p.product_id].positive_attributes.length > 0">
+                <div>
+                  <h4>Positives</h4>
+                  <template x-for="attr in acState.detailCache[p.product_id].positive_attributes" :key="attr.attribute">
+                    <div style="display:flex; gap:0.3rem; padding:0.1rem 0; align-items:center;">
+                      <span style="color:oklch(50% 0.18 145); font-weight:700; font-size:0.6875rem;">+<span x-text="attr.bonus"></span></span>
+                      <span style="font-size:0.6875rem; color:oklch(40% 0.16 145);" x-text="attr.attribute"></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <template x-if="(!acState.detailCache[p.product_id].flagged_ingredients || acState.detailCache[p.product_id].flagged_ingredients.length === 0) && (!acState.detailCache[p.product_id].positive_attributes || acState.detailCache[p.product_id].positive_attributes.length === 0)">
+                <div style="font-size:0.625rem; color:var(--text-3); font-style:italic;">No flagged ingredients or notable attributes.</div>
+              </template>
+              <template x-if="acState.detailCache[p.product_id].ingredients_list">
+                <div>
+                  <h4>Ingredients</h4>
+                  <div class="ss-autocomplete-ingredients" x-text="acState.detailCache[p.product_id].ingredients_list"></div>
+                </div>
+              </template>
+              <template x-if="acState.detailCache[p.product_id].aisle || acState.detailCache[p.product_id].country_origin">
+                <div style="display:flex; gap:0.75rem; margin-top:0.4rem; font-size:0.625rem; color:var(--text-3);">
+                  <span x-show="acState.detailCache[p.product_id].aisle">
+                    Aisle: <span style="color:var(--text-2);" x-text="acState.detailCache[p.product_id].aisle"></span>
+                  </span>
+                  <span x-show="acState.detailCache[p.product_id].country_origin">
+                    Origin: <span style="color:var(--text-2);" x-text="acState.detailCache[p.product_id].country_origin"></span>
+                  </span>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+        </div>
+      </template>
+      <div x-show="!acState.loading && acState.results.length === 0 && acState.query.length >= 2"
+           style="padding:0.5rem 0.75rem; font-size:0.75rem; color:var(--text-3);">No Kroger matches.</div>
+      <div class="ss-autocomplete-footer" @click="acUseManual(acState.query)">
+        Use “<span x-text="acState.query"></span>” as manual entry
+      </div>
+    </div>
+  </div>
+
+  <!-- Instructions: inline-editable, reorderable, deletable.
+       We flatten any group headers into the step list on first edit —
+       the editor is intentionally a simple ordered list of strings,
+       matching the JSON-array storage form. -->
+  {% set _flat_steps = [] %}
+  {% for _grp in instruction_groups %}
+    {% if _grp.header %}{% set _ = _flat_steps.append(_grp.header) %}{% endif %}
+    {% for _stp in _grp.steps %}{% set _ = _flat_steps.append(_stp) %}{% endfor %}
+  {% endfor %}
+  <script id="instructions-init-data" type="application/json">{{ _flat_steps | tojson }}</script>
+  <div class="ss-card p-6" x-data="instructionsEditor">
+    <h3 style="font-family:'Lora',serif; font-weight:600; font-size:0.9375rem; color:var(--text-1); letter-spacing:-0.01em; margin:0 0 0.875rem; padding-bottom:0.875rem; border-bottom:1px solid var(--border);">Instructions</h3>
+
+    <p x-show="steps.length === 0" class="edit-only"
+       style="font-size:0.8125rem; color:var(--text-3); font-style:italic; padding:0.5rem 0 0.25rem;">
+      Click below to add your first step…
+    </p>
+    <ol class="space-y-1" style="list-style:none; padding:0; counter-reset:step;">
+      <template x-for="(step, i) in steps" :key="i + ':' + step.slice(0,20)">
+        <li class="grid items-baseline step-row"
+          :draggable="$store.recipeMode.editing"
+          @dragstart="$event.dataTransfer.effectAllowed='move'; $event.dataTransfer.setData('text/plain', String(i)); $el.classList.add('dragging');"
+          @dragend="$el.classList.remove('dragging'); document.querySelectorAll('.step-row.drag-over').forEach(el => el.classList.remove('drag-over'));"
+          @dragover.prevent="$el.classList.add('drag-over'); $event.dataTransfer.dropEffect='move';"
+          @dragleave="$el.classList.remove('drag-over');"
+          @drop.prevent="$el.classList.remove('drag-over'); reorderStep(parseInt($event.dataTransfer.getData('text/plain'), 10), i);"
+          style="grid-template-columns: 1rem 1.75rem 1fr auto; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid oklch(95% 0.01 80);">
+          <span class="ss-drag-handle edit-only" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
+          <span class="step-number" style="font-size:0.75rem; color:var(--text-3); font-variant-numeric:tabular-nums; padding-top:0.1rem;"
+            x-text="(i + 1) + '.'"></span>
+          <span class="ss-inline-edit step-text"
+            :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
+            spellcheck="false"
+            data-placeholder="Step text…"
+            style="font-size: 0.875rem; color: var(--text-1); line-height: 1.55; padding:0.05rem 0.25rem; border-radius:0.25rem; outline:none;"
+            :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
+            @focus="$el.dataset.original = $el.innerText.trim()"
+            @blur="updateStep(i, $el.innerText.trim(), $el)"
+            @keydown.enter.prevent="$el.blur()"
+            @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
+            x-text="step"></span>
+          <span class="edit-only" style="display:inline-flex; gap:0.125rem; justify-self:end; align-self:start; padding-top:0.05rem;">
+            <button class="ss-row-action is-danger" @click="removeStep(i)" title="Remove step">✕</button>
+          </span>
+        </li>
+      </template>
+    </ol>
+
+    <div x-data="{ draft: '' }" class="flex items-center gap-2 edit-only" style="margin-top:0.5rem; padding:0.4rem 0;">
+      <input x-model="draft" type="text" placeholder="+ Add step…"
+        @keydown.enter.prevent="addStep(draft); draft = ''"
+        class="ss-input"
+        style="flex:1; font-size:0.875rem; padding:0.3rem 0.6rem;"/>
+      <button class="ss-row-action"
+        :disabled="!draft.trim()"
+        @click="addStep(draft); draft = ''"
+        style="color: var(--green);">+ Add</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Footer metadata -->
+<div class="mt-6 flex flex-wrap items-center justify-end gap-x-4 gap-y-1" style="font-size:0.6875rem; color:var(--text-3); opacity:0.75; font-family:'DM Sans',sans-serif; letter-spacing:0.02em;">
+  {% if recipe.created_at %}
+  <span>Created {{ recipe.created_at[:10] }}</span>
+  {% endif %}
+  {% if recipe.last_ordered_at %}
+  <span>Last ordered {{ recipe.last_ordered_at[:10] }}</span>
+  {% endif %}
+</div>
+
+<!-- ── Meal Plan Slide-Out Panel ── -->
+<div x-data="recipeDetailMealPanel">
+
+  <!-- Overlay -->
+  <div x-show="open" x-cloak @click.self="open = false"
+    class="fixed inset-0 bg-black/20 z-40"></div>
+
+  <!-- Panel -->
+  <div x-show="open" x-cloak
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="translate-x-full"
+    x-transition:enter-end="translate-x-0"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="translate-x-0"
+    x-transition:leave-end="translate-x-full"
+    class="fixed inset-y-0 right-0 w-96 bg-white shadow-2xl z-50 flex flex-col">
+
+    <!-- Header -->
+    <div class="p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+      <div class="min-w-0">
+        <div class="text-xs text-gray-500">Adding to plan:</div>
+        <div class="font-medium text-gray-900 truncate text-sm" x-text="recipeName"></div>
+      </div>
+      <button @click="open = false" class="ml-3 text-gray-400 hover:text-gray-600 flex-shrink-0">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- No plans state -->
+    <div x-show="plans.length === 0" class="flex-1 flex items-center justify-center p-6 text-center">
+      <div>
+        <p class="text-sm text-gray-500 mb-3">No meal plans yet.</p>
+        <a href="/meal-plan" class="text-sm text-emerald-600 hover:underline">Create a plan →</a>
+      </div>
+    </div>
+
+    <!-- Plan content -->
+    <div x-show="plans.length > 0" class="flex flex-col flex-1 min-h-0">
+
+      <!-- Plan selector -->
+      <div class="px-4 pt-3 pb-2 flex-shrink-0">
+        <select x-model="planId" @change="weekOffset=0; success=''; loadWeek()"
+          class="ss-input w-full">
+          <template x-for="p in plans" :key="p.id">
+            <option :value="p.id" x-text="p.name"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- Week nav -->
+      <div class="px-4 pb-2 flex items-center gap-2 flex-shrink-0">
+        <button @click="weekOffset--; success=''; loadWeek()"
+          class="p-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors text-xs">‹</button>
+        <span class="flex-1 text-center text-xs text-gray-600" x-text="weekData?.week_label || '—'"></span>
+        <button @click="weekOffset++; success=''; loadWeek()"
+          class="p-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors text-xs">›</button>
+      </div>
+
+      <!-- Mini calendar grid -->
+      <div class="flex-1 overflow-auto px-4 pb-4">
+        <div x-show="loading" class="flex justify-center py-6">
+          <div class="animate-spin w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+        </div>
+
+        <div x-show="!loading && weekData" class="text-xs">
+          <!-- Header row: blank + day initials -->
+          <div class="grid gap-0.5 mb-1" style="grid-template-columns: 60px repeat(7, 1fr)">
+            <div></div>
+            <template x-for="day in (weekData?.days || [])" :key="day.date">
+              <div class="text-center text-gray-400 font-medium py-1" x-text="day.day_short"></div>
+            </template>
+          </div>
+
+          <!-- 4 slot rows -->
+          <template x-for="slot in slots" :key="slot">
+            <div class="grid gap-0.5 mb-0.5" style="grid-template-columns: 60px repeat(7, 1fr)">
+              <div class="flex items-center pr-1">
+                <span class="text-gray-400 capitalize text-xs truncate" x-text="slot.slice(0,3)"></span>
+              </div>
+              <template x-for="day in (weekData?.days || [])" :key="day.date + slot">
+                <div>
+                  <template x-if="day.slots[slot]">
+                    <div class="rounded p-1 bg-gray-50 border border-gray-100 min-h-7 flex items-center"
+                      :title="day.slots[slot].recipe_name">
+                      <span class="text-gray-400 truncate text-xs leading-tight"
+                        x-text="(day.slots[slot].recipe_name || '').slice(0, 8) + ((day.slots[slot].recipe_name || '').length > 8 ? '…' : '')">
+                      </span>
+                    </div>
+                  </template>
+                  <template x-if="!day.slots[slot]">
+                    <button @click="assignToSlot(day.date, slot)"
+                      class="w-full rounded p-1 min-h-7 border border-transparent
+                             hover:bg-emerald-50 hover:border-emerald-200 transition-colors
+                             flex items-center justify-center text-emerald-300 hover:text-emerald-500">
+                      <span>+</span>
+                    </button>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <p x-show="!loading && !weekData" class="text-xs text-gray-400 text-center py-4">No data</p>
+      </div>
+
+      <!-- Success toast -->
+      <div x-show="success" x-transition
+        class="mx-4 mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700 flex-shrink-0"
+        x-text="success"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+  // This template renders the always-on editor for a recipe; viewing happens
+  // at /recipes/{id} which renders the sibling template. Store stays so the
+  // shared edit affordances continue to read $store.recipeMode.editing.
+  Alpine.store('recipeMode', { editing: true });
+
+  // Optimistic-locking version stamp shared by every mutating call.
+  // Server returns a fresh updated_at on each success; subsequent PUT/
+  // PATCH ship it back as If-Match so peer edits surface as 409.
+  Alpine.store('recipeVersion', {
+    value: {{ (recipe.updated_at or recipe.created_at or '') | tojson }},
+    bump(v) { if (v) this.value = v; },
+  });
+
+  // Centralized save helper: dispatches a toast on success, surfaces
+  // server-side validation/409 conflicts, advances the version stamp.
+  // Replaces every legacy `window.location.reload()` after a save.
+  window._ssToast = (message, opts) => {
+    window.dispatchEvent(new CustomEvent('toast:show', {
+      detail: Object.assign({ message }, opts || {})
+    }));
+  };
+  window._ssRecipeSave = async (method, path, body) => {
+    const opts = { method, headers: {'Content-Type': 'application/json'} };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    const ver = Alpine.store('recipeVersion').value;
+    if (ver) opts.headers['If-Match'] = ver;
+    let res;
+    try {
+      res = await fetch(path, opts);
+    } catch (e) {
+      window._ssToast('Network error — change not saved', { level: 'error' });
+      throw e;
+    }
+    let payload = null;
+    try { payload = await res.json(); } catch (_) { payload = null; }
+    if (res.status === 409) {
+      window._ssToast('Someone else edited this recipe — refresh to merge.',
+        { level: 'warn', action: { label: 'Reload', onClick: () => window.location.reload() } });
+      throw new Error('conflict');
+    }
+    if (!res.ok || !payload || payload.success !== true) {
+      const msg = (payload && (payload.error || payload.detail)) || 'Save failed';
+      window._ssToast(msg, { level: 'error' });
+      throw new Error(msg);
+    }
+    Alpine.store('recipeVersion').bump(payload.updated_at);
+    return payload;
+  };
+
+  const _rd = JSON.parse(document.getElementById('recipe-init-data').textContent);
+
+  const _hdEl = document.getElementById('health-init-data');
+  const _hd = _hdEl ? JSON.parse(_hdEl.textContent) : null;
+
+  Alpine.data('healthBadge', () => ({
+    pop: false,
+    hd: _hd || {},
+    gc(g) {
+      const m = {
+        A: {bg:'oklch(91% 0.1 145)', t:'oklch(30% 0.14 145)'},
+        B: {bg:'oklch(91% 0.08 175)', t:'oklch(30% 0.12 175)'},
+        C: {bg:'oklch(92% 0.1 80)', t:'oklch(35% 0.12 75)'},
+        D: {bg:'oklch(92% 0.1 50)', t:'oklch(33% 0.14 40)'},
+        F: {bg:'oklch(92% 0.08 25)', t:'oklch(33% 0.14 25)'},
+      };
+      return m[g] || m.C;
+    },
+  }));
+
+  Alpine.data('recipeHeader', () => ({
+    recipeId: _rd.id,
+    recipeName: _rd.name,
+    baseServings: _rd.servings || 4,
+    currentTags: (_rd.tags || []).slice(),
+
+    async deleteRecipe() {
+      if (!confirm('Delete this recipe? This cannot be undone.')) return;
+      try {
+        const r = await fetch('/api/recipes/' + _rd.id, {method: 'DELETE'});
+        if (r.ok) { window.location.href = '/recipes'; }
+        else { window._ssToast('Failed to delete recipe', { level: 'error' }); }
+      } catch(e) { window._ssToast('Network error', { level: 'error' }); }
+    },
+
+    // Click-to-edit field saves: each editable element captures its current
+    // value into dataset.original on focus and calls inlineEdit on blur. We
+    // only PATCH when the value actually changed, and we reflect server
+    // success via toast instead of reloading the page.
+    async inlineEdit(field, $el) {
+      const orig = ($el.dataset.original ?? '').trim();
+      const next = $el.innerText.trim();
+      if (next === orig) return;
+      if (field === 'name' && !next) { $el.innerText = orig; return; }
+      if (field === 'servings') {
+        const n = parseInt(next, 10);
+        if (isNaN(n) || n < 1 || n > 50) { $el.innerText = orig; return; }
+        return this._patchRecipe({ servings: n }, $el, orig, 'servings');
+      }
+      if (field === 'description') {
+        return this._patchRecipe({ description: next || null }, $el, orig, 'description');
+      }
+      if (field === 'name') {
+        this.recipeName = next;
+      }
+      return this._patchRecipe({ [field]: next }, $el, orig, field);
+    },
+    addTag(raw) {
+      const t = (raw || '').trim();
+      if (!t) return;
+      if (this.currentTags.includes(t)) return;
+      const next = this.currentTags.concat([t]);
+      this._patchRecipe({ tags: next }, null, null, 'tags')
+        .then(() => { this.currentTags = next; });
+    },
+    removeTag(idx) {
+      const removed = this.currentTags[idx];
+      const next = this.currentTags.slice();
+      next.splice(idx, 1);
+      this._patchRecipe({ tags: next }, null, null, 'tags')
+        .then(() => {
+          this.currentTags = next;
+          window._ssToast('Removed “' + removed + '”', {
+            action: { label: 'Undo', onClick: () => this.addTag(removed) },
+          });
+        });
+    },
+    bumpServings(delta) {
+      const next = Math.max(1, Math.min(50, this.baseServings + delta));
+      if (next === this.baseServings) return;
+      this._patchRecipe({ servings: next }, null, null, 'servings')
+        .then(() => { this.baseServings = next; });
+    },
+    async _patchRecipe(body, $el, orig, label) {
+      try {
+        await window._ssRecipeSave('PATCH', '/api/recipes/' + _rd.id, body);
+        window._ssToast('Saved ' + (label || 'change'));
+      } catch (e) {
+        if ($el && orig !== null && orig !== undefined) $el.innerText = orig;
+      }
+    }
+  }));
+
+  // Instructions editor — flat list of step strings. Saved as a JSON array
+  // via PUT /api/recipes/{id}/instructions. Group headers from the
+  // legacy free-text form are flattened on first read.
+  const _instrEl = document.getElementById('instructions-init-data');
+  const _instrFlat = _instrEl ? JSON.parse(_instrEl.textContent) : [];
+  Alpine.data('instructionsEditor', () => ({
+    steps: [..._instrFlat],
+    async _putSteps(next, label) {
+      try {
+        await window._ssRecipeSave('PUT',
+          '/api/recipes/' + _rd.id + '/instructions',
+          { instructions: next });
+        this.steps = next;
+        window._ssToast('Saved ' + (label || 'step'));
+        return true;
+      } catch (_) { return false; }
+    },
+    updateStep(idx, text, $el) {
+      const orig = ($el.dataset.original || '').trim();
+      if (text === orig) return;
+      if (!text) {
+        this.removeStep(idx);
+        return;
+      }
+      const next = this.steps.slice(); next[idx] = text;
+      this._putSteps(next, 'step edit');
+    },
+    reorderStep(fromIdx, toIdx) {
+      if (fromIdx === toIdx) return;
+      if (fromIdx < 0 || toIdx < 0) return;
+      const next = this.steps.slice();
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      this._putSteps(next, 'step reorder');
+    },
+    removeStep(idx) {
+      const target = this.steps[idx];
+      const snapshot = this.steps.slice();
+      const next = snapshot.slice(); next.splice(idx, 1);
+      this._putSteps(next, 'step removal').then(ok => {
+        if (!ok) return;
+        window._ssToast('Removed step ' + (idx + 1), {
+          action: {
+            label: 'Undo',
+            onClick: () => this._putSteps(snapshot, 'step restore'),
+          },
+        });
+      });
+    },
+    addStep(text) {
+      const s = (text || '').trim();
+      if (!s) return;
+      this._putSteps([...this.steps, s], 'new step');
+    }
+  }));
+
+  Alpine.data('recipeDetailMealPanel', () => ({
+    open: false,
+    recipeId: _rd.id,
+    recipeName: _rd.name,
+    plans: [],
+    planId: '',
+    weekOffset: 0,
+    weekData: null,
+    loading: false,
+    success: '',
+    slots: ['breakfast', 'lunch', 'dinner', 'snack'],
+
+    async init() {
+      try {
+        const r = await fetch('/api/meal-plan/list');
+        const d = await r.json();
+        this.plans = d.plans || [];
+        if (this.plans.length) this.planId = this.plans[0].id;
+      } catch(e) {}
+      document.addEventListener('open-meal-panel', (e) => {
+        this.recipeId = e.detail.recipeId;
+        this.recipeName = e.detail.recipeName;
+        this.openPanel();
+      });
+    },
+
+    async openPanel() {
+      this.weekOffset = 0;
+      this.success = '';
+      this.weekData = null;
+      if (this.plans.length && this.planId) await this.loadWeek();
+      this.open = true;
+    },
+
+    async loadWeek() {
+      if (!this.planId) return;
+      this.loading = true;
+      try {
+        const r = await fetch('/api/meal-plan/' + this.planId + '/week?week_offset=' + this.weekOffset);
+        this.weekData = await r.json();
+      } catch(e) { this.weekData = null; }
+      this.loading = false;
+    },
+
+    async assignToSlot(date, slot) {
+      const r = await fetch('/api/meal-plan/' + this.planId + '/meals', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({recipe_id: this.recipeId, meal_date: date, meal_slot: slot})
+      });
+      const d = await r.json();
+      if (r.ok) {
+        this.success = slot.charAt(0).toUpperCase() + slot.slice(1) + ' on ' + date + ' \u2014 added!';
+        await this.loadWeek();
+      }
+    }
+  }));
+
+});
+</script>
+
+</div><!-- /data-recipe-mode -->
+
+{% endblock %}

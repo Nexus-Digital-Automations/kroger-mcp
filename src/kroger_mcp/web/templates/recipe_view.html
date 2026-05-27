@@ -446,23 +446,13 @@
       @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
     >{{ recipe.name }}</h2>
     <div class="flex-shrink-0 flex items-center gap-2">
-      <a x-show="!$store.recipeMode.editing"
-         href="/recipes/{{ recipe.id }}/edit"
+      <a href="/recipes/{{ recipe.id }}/edit"
          class="recipe-mode-toggle"
          title="Open the editor for this recipe">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
         </svg>
         <span>Edit recipe</span>
-      </a>
-      <a x-show="$store.recipeMode.editing"
-         href="/recipes/{{ recipe.id }}"
-         class="recipe-mode-toggle"
-         title="Return to the read-only view">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-        </svg>
-        <span>Done</span>
       </a>
       {{ action_menu('recipe', item_expr=({"id": recipe.id, "name": recipe.name} | tojson)) }}
     </div>
@@ -1616,10 +1606,10 @@
 
 <script>
 document.addEventListener('alpine:init', () => {
-  // Initial editing state is driven by the URL: /recipes/{id} → false,
-  // /recipes/{id}/edit → true. The toggle button still flips between
-  // them in place (and the new Edit/Done buttons navigate cleanly).
-  Alpine.store('recipeMode', { editing: {{ (initial_editing | default(true)) | tojson }} });
+  // This template renders the read-only view of a recipe; editing happens
+  // at /recipes/{id}/edit which renders the sibling template. Store stays
+  // for compatibility with any inline-edit chrome that hasn't been stripped.
+  Alpine.store('recipeMode', { editing: false });
 
   // Optimistic-locking version stamp shared by every mutating call.
   // Server returns a fresh updated_at on each success; subsequent PUT/
