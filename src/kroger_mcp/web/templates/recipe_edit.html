@@ -583,8 +583,11 @@
   </div>
 </div>
 
-<!-- Two-column: Ingredients + Instructions -->
-<div class="grid grid-cols-2 gap-6">
+<!-- Two-column at ≥1280px; stack vertically below so each card has room
+     for ingredient names + instruction text without per-word wrapping.
+     Tailwind's `xl` was chosen over `lg` because at 1024–1279px the
+     ingredient name column (1fr after 4 fixed columns) still collapses. -->
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
   <!-- Ingredients -->
   <script>
