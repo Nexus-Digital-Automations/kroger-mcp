@@ -324,11 +324,11 @@ def _build_recipe_context(request: Request, recipe_id: str) -> dict:
 async def recipe_detail(request: Request, recipe_id: str):
     context = _build_recipe_context(request, recipe_id)
     context["initial_editing"] = False
-    return templates.TemplateResponse(request, "recipe_detail.html", context)
+    return templates.TemplateResponse(request, "recipe_view.html", context)
 
 
 @router.get("/recipes/{recipe_id}/edit", response_class=HTMLResponse)
 async def recipe_edit(request: Request, recipe_id: str):
     context = _build_recipe_context(request, recipe_id)
     context["initial_editing"] = True
-    return templates.TemplateResponse(request, "recipe_detail.html", context)
+    return templates.TemplateResponse(request, "recipe_edit.html", context)
