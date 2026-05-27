@@ -446,17 +446,24 @@
       @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
     >{{ recipe.name }}</h2>
     <div class="flex-shrink-0 flex items-center gap-2">
-      <button type="button" class="recipe-mode-toggle"
-        @click="$store.recipeMode.editing = !$store.recipeMode.editing"
-        :title="$store.recipeMode.editing ? 'Lock for read-only view' : 'Unlock to edit'">
-        <svg x-show="$store.recipeMode.editing" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/>
+      <a x-show="!$store.recipeMode.editing"
+         href="/recipes/{{ recipe.id }}/edit"
+         class="recipe-mode-toggle"
+         title="Open the editor for this recipe">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
         </svg>
-        <svg x-show="!$store.recipeMode.editing" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 018 0v4m-9 0h10a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2z"/>
+        <span>Edit recipe</span>
+      </a>
+      <a x-show="$store.recipeMode.editing"
+         href="/recipes/{{ recipe.id }}"
+         class="recipe-mode-toggle"
+         title="Return to the read-only view">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
         </svg>
-        <span x-text="$store.recipeMode.editing ? 'Editing' : 'Read-only'"></span>
-      </button>
+        <span>Done</span>
+      </a>
       {{ action_menu('recipe', item_expr=({"id": recipe.id, "name": recipe.name} | tojson)) }}
     </div>
   </div>
@@ -1609,10 +1616,10 @@
 
 <script>
 document.addEventListener('alpine:init', () => {
-  // Edit is the default; the toggle button locks the page into a
-  // read-only view for share/screenshot use. No localStorage — every
-  // load starts editable.
-  Alpine.store('recipeMode', { editing: true });
+  // Initial editing state is driven by the URL: /recipes/{id} → false,
+  // /recipes/{id}/edit → true. The toggle button still flips between
+  // them in place (and the new Edit/Done buttons navigate cleanly).
+  Alpine.store('recipeMode', { editing: {{ (initial_editing | default(true)) | tojson }} });
 
   // Optimistic-locking version stamp shared by every mutating call.
   // Server returns a fresh updated_at on each success; subsequent PUT/

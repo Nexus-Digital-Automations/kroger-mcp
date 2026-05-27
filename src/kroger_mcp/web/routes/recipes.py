@@ -280,8 +280,12 @@ def _annotate_pantry(request: Request, ingredients: list[dict]) -> None:
             ing.setdefault("pantry", None)
 
 
-@router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
-async def recipe_detail(request: Request, recipe_id: str):
+def _build_recipe_context(request: Request, recipe_id: str) -> dict:
+    """Load + shape the recipe context shared by the view and edit routes.
+
+    Failure modes: HTTPException(404) when the recipe id is unknown; health
+    score and ingredient enrichment are best-effort and never raise.
+    """
     recipe = _find_recipe(recipe_id)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -306,15 +310,25 @@ async def recipe_detail(request: Request, recipe_id: str):
 
     enrich_ingredients_for_view(request, ingredients)
 
-    return templates.TemplateResponse(
-        request,
-        "recipe_detail.html",
-        {
-            "active_page": "recipes",
-            "recipe": recipe,
-            "ingredients": ingredients,
-            "instruction_groups": instruction_groups,
-            "health_data": health_data,
-            **action_menu_context(),
-        },
-    )
+    return {
+        "active_page": "recipes",
+        "recipe": recipe,
+        "ingredients": ingredients,
+        "instruction_groups": instruction_groups,
+        "health_data": health_data,
+        **action_menu_context(),
+    }
+
+
+@router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
+async def recipe_detail(request: Request, recipe_id: str):
+    context = _build_recipe_context(request, recipe_id)
+    context["initial_editing"] = False
+    return templates.TemplateResponse(request, "recipe_detail.html", context)
+
+
+@router.get("/recipes/{recipe_id}/edit", response_class=HTMLResponse)
+async def recipe_edit(request: Request, recipe_id: str):
+    context = _build_recipe_context(request, recipe_id)
+    context["initial_editing"] = True
+    return templates.TemplateResponse(request, "recipe_detail.html", context)
