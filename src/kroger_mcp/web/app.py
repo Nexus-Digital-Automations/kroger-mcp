@@ -94,6 +94,20 @@ from kroger_mcp.auth.middleware import AuthMiddleware
 
 app.add_middleware(AuthMiddleware)
 
+
+# Templates change in development without anything bumping the static URL,
+# so a normal browser cache happily serves stale HTML after a deploy. Tell
+# browsers not to reuse the rendered HTML so template edits land on the
+# next plain refresh. Static assets keep their own cache headers from
+# StaticFiles and are unaffected.
+@app.middleware("http")
+async def _no_store_for_html(request, call_next):
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if ct.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Auth routes (login, register, logout)
