@@ -54,6 +54,24 @@ def _trigger_notion_sync(op: str, data) -> None:
         pass  # Never block recipe operations
 
 
+def _remember_ingredient_link(raw_name: str, product_id: str) -> None:
+    """Teach the chef's account link memory when an ingredient is linked.
+
+    Fire-and-forget: the chef acts as ``mcp_user_id()`` (its bound account), so
+    links made in chat feed the same per-account "your usuals" memory the web
+    popup reads. Never blocks or fails the link operation.
+    """
+    try:
+        from ..analytics.ingredient_links import record_link
+        from ..auth.dependencies import mcp_user_id
+
+        # raw_name doubles as the display description — it's the ingredient label
+        # the chef linked, which is the most recognizable thing for "your usuals".
+        record_link(mcp_user_id(), raw_name, product_id, raw_name)
+    except Exception:
+        logger.warning("ingredient_link.remember_failed product=%s", product_id, exc_info=True)
+
+
 def _load_recipes() -> dict[str, Any]:
     return _recipes_store.load()
 
@@ -642,6 +660,7 @@ def register_tools(mcp):
                             recipe_ings[idx]["product_id"] = pid
                             recipe_ings[idx]["override"] = False
                             recipe_ings[idx]["override_reason"] = None
+                            _remember_ingredient_link(recipe_ings[idx].get("name", ""), pid)
                             updated_recipes.add(rid)
                             results.append(
                                 {
@@ -691,6 +710,9 @@ def register_tools(mcp):
                             recipe_ings[ingredient_index]["override_reason"] = None
                             recipe["updated_at"] = datetime.now().isoformat()
                             _save_recipes(data)
+                            _remember_ingredient_link(
+                                recipe_ings[ingredient_index].get("name", ""), product_id
+                            )
                             return {
                                 "success": True,
                                 "message": (

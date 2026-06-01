@@ -370,6 +370,23 @@ def initialize_database() -> None:
                 notes TEXT
             );
 
+            -- Per-account ingredient->product link memory. Powers smart
+            -- auto-linking and learned name standardization. norm_name is the
+            -- mechanical grouping key; raw_name is kept verbatim so the most-used
+            -- surface form can be surfaced as the account's canonical name.
+            CREATE TABLE IF NOT EXISTS ingredient_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                norm_name TEXT NOT NULL,
+                raw_name TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                product_description TEXT,
+                times_linked INTEGER NOT NULL DEFAULT 1,
+                last_linked_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, norm_name, product_id)
+            );
+
             -- Create default favorites list
             INSERT OR IGNORE INTO favorite_lists (id, name, description, list_type)
             VALUES ('default', 'My Favorites', 'Default favorites list', 'custom');
@@ -403,6 +420,10 @@ def initialize_database() -> None:
                 ON ingredient_overrides(ingredient_name COLLATE NOCASE);
             CREATE INDEX IF NOT EXISTS idx_ingredient_overrides_hidden
                 ON ingredient_overrides(is_hidden);
+            CREATE INDEX IF NOT EXISTS idx_ingredient_links_lookup
+                ON ingredient_links(user_id, norm_name);
+            CREATE INDEX IF NOT EXISTS idx_ingredient_links_canonical
+                ON ingredient_links(user_id, norm_name, raw_name);
             CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe
                 ON recipe_ingredients(recipe_id);
             CREATE INDEX IF NOT EXISTS idx_pantry_items_product
@@ -553,6 +574,7 @@ def get_table_counts() -> dict:
             "deal_watchlist",
             "whole_foods_catalog",
             "deal_scan_results",
+            "ingredient_links",
         ]:
             cursor = conn.execute(f"SELECT COUNT(*) FROM {table}")
             counts[table] = cursor.fetchone()[0]

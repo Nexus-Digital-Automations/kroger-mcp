@@ -1,11 +1,18 @@
 """Products API endpoints — search, single-product detail, and cart add."""
 
+import logging
 import re
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from kroger_mcp.analytics.ingredient_links import (
+    best_guess,
+    get_canonical_name,
+    suggest_products_for_ingredient,
+)
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.shared import (
     get_authenticated_client,
     get_client_credentials_client,
@@ -13,6 +20,7 @@ from kroger_mcp.tools.shared import (
 )
 
 router = APIRouter()
+logger = logging.getLogger("kroger_mcp.web.products")
 
 
 # Pre-compiled. The size grammar Kroger returns is short and stable
@@ -264,6 +272,54 @@ async def search_products(
             status_code=500,
             content={"error": f"Product search failed: {str(e)}"},
         )
+
+
+@router.get("/api/ingredients/suggest")
+async def suggest_ingredient_products(request: Request, name: str = "", limit: int = 6):
+    """The calling account's "usual" products for a typed ingredient name.
+
+    Powers the popover's smart auto-link: a learned canonical name, a
+    pre-selectable best guess, and a ranked "your usuals" list — all scoped to
+    this account (recipes stay global; the memory is per-user). Suggestion rows
+    carry product_id + description + reason only; the popover lazy-loads price /
+    safety / image via /api/products/{id} on expand, keeping this path cheap.
+
+    Cold start (no history) returns empty suggestions with best_guess=null and
+    HTTP 200. 401 when unauthenticated.
+    """
+    term = (name or "").strip()
+    if not term:
+        return JSONResponse(
+            status_code=400, content={"error": "Provide an ingredient name"}
+        )
+
+    user_id = current_user_id(request)
+    try:
+        suggestions = suggest_products_for_ingredient(user_id, term, limit=limit)
+        canonical = get_canonical_name(user_id, term)
+        guess = best_guess(suggestions)
+    except Exception as exc:
+        # Suggestions are an enhancement; surface a clean empty result, not 500.
+        logger.warning("ingredient_suggest_failed name=%r", term, exc_info=True)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "canonical_name": None,
+                "canonical_confidence": None,
+                "best_guess": None,
+                "suggestions": [],
+                "error": str(exc),
+            },
+        )
+
+    return JSONResponse(
+        content={
+            "canonical_name": canonical["canonical_name"] if canonical else None,
+            "canonical_confidence": canonical["confidence"] if canonical else None,
+            "best_guess": guess,
+            "suggestions": suggestions,
+        }
+    )
 
 
 @router.get("/api/products/{product_id}")
