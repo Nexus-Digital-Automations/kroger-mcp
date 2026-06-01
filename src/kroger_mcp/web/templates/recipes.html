@@ -97,9 +97,9 @@
   <div class="grid grid-cols-3 gap-4">
     <template x-for="recipe in filtered" :key="recipe.id">
       <div class="relative flex flex-col"
-        style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.875rem; border-left: 3.5px solid var(--terra); box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.04); transition: box-shadow 0.2s, border-color 0.2s, transform 0.15s;"
-        @mouseenter="$el.style.boxShadow='0 6px 20px oklch(20% 0.02 55 / 0.1)'; $el.style.borderLeftColor='var(--amber)'; $el.style.transform='translateY(-2px)';"
-        @mouseleave="$el.style.boxShadow='0 1px 3px oklch(20% 0.02 55 / 0.04)'; $el.style.borderLeftColor='var(--terra)'; $el.style.transform='';">
+        style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.875rem; border-left: 3.5px solid var(--terra); box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.04); transition: box-shadow 0.2s, border-color 0.2s;"
+        @mouseenter="$el.style.boxShadow='0 6px 20px oklch(20% 0.02 55 / 0.1)'; $el.style.borderLeftColor='var(--amber)';"
+        @mouseleave="$el.style.boxShadow='0 1px 3px oklch(20% 0.02 55 / 0.04)'; $el.style.borderLeftColor='var(--terra)';">
 
         <a :href="'/recipes/' + recipe.id" class="block p-5 flex-1">
           <div class="mb-2 pr-6">
