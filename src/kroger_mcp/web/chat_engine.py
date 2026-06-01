@@ -1,13 +1,15 @@
 """
-DeepSeek-powered chat engine for Smart Shopper.
+Multi-provider chat engine for Smart Shopper.
 
 Provides:
 - Tool registry mapping function names to handlers with read/write classification
-- DeepSeek Chat V3 API client (OpenAI-compatible function calling)
+- A generic OpenAI-compatible client + provider registry (DeepSeek, OpenAI,
+  OpenRouter, Groq, Together, Mistral) with per-provider env-var API keys
 - Conversation orchestrator with approval flow for mutating actions
 """
 
 import json
+import logging
 import os
 import re
 import uuid
@@ -41,19 +43,75 @@ Guidelines:
 - When listing products, include price and brand"""
 
 # ---------------------------------------------------------------------------
-# DeepSeek API client
+# LLM providers (OpenAI-compatible /chat/completions)
 # ---------------------------------------------------------------------------
 
-DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
-DEEPSEEK_MODEL = "deepseek-chat"
+logger = logging.getLogger(__name__)
+
 MAX_HISTORY_MESSAGES = 30  # Truncate to prevent token overflow
 
+# Every preset below speaks the OpenAI-compatible chat-completions schema, so a
+# single client serves all of them. Adding a provider = one entry here. Default
+# models are the cheapest option per provider that reliably supports the tool
+# calling this assistant depends on.
+PROVIDER_REGISTRY: dict[str, dict[str, str]] = {
+    "deepseek": {
+        "label": "DeepSeek",
+        "base_url": "https://api.deepseek.com/chat/completions",
+        "model": "deepseek-chat",
+        "api_key_env": "DEEPSEEK_API_KEY",
+    },
+    "openai": {
+        "label": "OpenAI",
+        "base_url": "https://api.openai.com/v1/chat/completions",
+        "model": "gpt-4o-mini",
+        "api_key_env": "OPENAI_API_KEY",
+    },
+    "openrouter": {
+        "label": "OpenRouter",
+        "base_url": "https://openrouter.ai/api/v1/chat/completions",
+        "model": "deepseek/deepseek-chat",
+        "api_key_env": "OPENROUTER_API_KEY",
+    },
+    "groq": {
+        "label": "Groq",
+        "base_url": "https://api.groq.com/openai/v1/chat/completions",
+        "model": "llama-3.3-70b-versatile",
+        "api_key_env": "GROQ_API_KEY",
+    },
+    "together": {
+        "label": "Together",
+        "base_url": "https://api.together.xyz/v1/chat/completions",
+        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "api_key_env": "TOGETHER_API_KEY",
+    },
+    "mistral": {
+        "label": "Mistral",
+        "base_url": "https://api.mistral.ai/v1/chat/completions",
+        "model": "mistral-small-latest",
+        "api_key_env": "MISTRAL_API_KEY",
+    },
+}
 
-class DeepSeekClient:
-    """Thin wrapper around the DeepSeek chat completions API."""
+DEFAULT_PROVIDER = "deepseek"
 
-    def __init__(self):
-        self.api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+
+class OpenAICompatibleClient:
+    """Chat-completions client for any OpenAI-compatible provider.
+
+    Failure modes: returns {"error": True, "message": ...} (never raises) for a
+    missing key, non-200 response, timeout, or connection error, so callers can
+    surface the message to the user unchanged.
+    """
+
+    def __init__(self, provider_id: str):
+        preset = PROVIDER_REGISTRY[provider_id]  # caller guarantees a valid id
+        self.provider_id = provider_id
+        self.label = preset["label"]
+        self.api_url = preset["base_url"]
+        self.model = preset["model"]
+        self._key_env = preset["api_key_env"]
+        self.api_key = os.environ.get(self._key_env, "")
 
     def chat(
         self,
@@ -61,13 +119,21 @@ class DeepSeekClient:
         tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if not self.api_key:
+            logger.warning(
+                "chat requested for provider=%s but %s is not set",
+                self.provider_id,
+                self._key_env,
+            )
             return {
                 "error": True,
-                "message": "DeepSeek API key not configured. Add DEEPSEEK_API_KEY to your .env file.",
+                "message": (
+                    f"{self.label} API key not configured. "
+                    f"Add {self._key_env} to your .env file."
+                ),
             }
 
         payload: dict[str, Any] = {
-            "model": DEEPSEEK_MODEL,
+            "model": self.model,
             "messages": messages,
         }
         if tools:
@@ -76,7 +142,7 @@ class DeepSeekClient:
 
         try:
             resp = requests.post(
-                DEEPSEEK_API_URL,
+                self.api_url,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
@@ -86,23 +152,65 @@ class DeepSeekClient:
             )
             if resp.status_code != 200:
                 body = resp.text[:300]
+                logger.error(
+                    "provider=%s model=%s http=%s body=%s",
+                    self.provider_id,
+                    self.model,
+                    resp.status_code,
+                    body,
+                )
                 return {
                     "error": True,
-                    "message": f"DeepSeek API error ({resp.status_code}): {body}",
+                    "message": f"{self.label} API error ({resp.status_code}): {body}",
                 }
             return resp.json()
         except requests.Timeout:
-            return {"error": True, "message": "DeepSeek API request timed out. Please try again."}
-        except requests.ConnectionError:
+            logger.error("provider=%s request timed out", self.provider_id)
             return {
                 "error": True,
-                "message": "Could not connect to DeepSeek API. Check your internet connection.",
+                "message": f"{self.label} API request timed out. Please try again.",
+            }
+        except requests.ConnectionError:
+            logger.error("provider=%s connection error", self.provider_id)
+            return {
+                "error": True,
+                "message": f"Could not connect to {self.label} API. Check your internet connection.",
             }
         except Exception as exc:
-            return {"error": True, "message": f"DeepSeek request failed: {str(exc)[:200]}"}
+            logger.error(
+                "provider=%s request failed: %s",
+                self.provider_id,
+                exc,
+                exc_info=True,
+            )
+            return {"error": True, "message": f"{self.label} request failed: {str(exc)[:200]}"}
 
 
-_client = DeepSeekClient()
+_client_cache: dict[str, OpenAICompatibleClient] = {}
+
+
+def get_client(provider_id: str | None = None) -> OpenAICompatibleClient:
+    """Return a cached client for provider_id, falling back to DEFAULT_PROVIDER.
+
+    An unknown id is treated as the default (logged at WARNING) so a stale or
+    malformed frontend selection degrades gracefully instead of erroring.
+    """
+    pid = provider_id or DEFAULT_PROVIDER
+    if pid not in PROVIDER_REGISTRY:
+        logger.warning("unknown provider=%r; falling back to %s", pid, DEFAULT_PROVIDER)
+        pid = DEFAULT_PROVIDER
+    if pid not in _client_cache:
+        _client_cache[pid] = OpenAICompatibleClient(pid)
+    return _client_cache[pid]
+
+
+def list_available_providers() -> list[dict[str, str]]:
+    """Providers whose API key is configured. Never exposes the keys themselves."""
+    available: list[dict[str, str]] = []
+    for pid, preset in PROVIDER_REGISTRY.items():
+        if os.environ.get(preset["api_key_env"], "").strip():
+            available.append({"id": pid, "label": preset["label"], "model": preset["model"]})
+    return available
 
 
 # ---------------------------------------------------------------------------
@@ -978,13 +1086,15 @@ def _truncate_history(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def process_message(
     messages: list[dict[str, Any]],
     user_message: str,
+    provider: str | None = None,
 ) -> dict[str, Any]:
     """
-    Process a chat message through DeepSeek with tool calling.
+    Process a chat message through the selected LLM provider with tool calling.
 
     Args:
         messages: Conversation history (role/content dicts).
         user_message: The new user message.
+        provider: Provider id (see PROVIDER_REGISTRY); None → DEFAULT_PROVIDER.
 
     Returns:
         {
@@ -993,6 +1103,9 @@ def process_message(
             pending_action: {...}|None  # Mutating action awaiting approval
         }
     """
+    client = get_client(provider)
+    logger.info("process_message provider=%s model=%s", client.provider_id, client.model)
+
     # Build full message list with system prompt
     full_messages: list[dict[str, Any]] = []
 
@@ -1014,7 +1127,7 @@ def process_message(
     full_messages = _truncate_history(full_messages)
 
     # Call DeepSeek
-    result = _client.chat(full_messages, tools=_TOOLS_ARRAY)
+    result = client.chat(full_messages, tools=_TOOLS_ARRAY)
 
     if result.get("error"):
         error_msg = result.get("message", "Unknown error")
@@ -1029,7 +1142,7 @@ def process_message(
     try:
         choice = result["choices"][0]["message"]
     except (KeyError, IndexError):
-        err = "Unexpected response format from DeepSeek."
+        err = f"Unexpected response format from {client.label}."
         full_messages.append({"role": "assistant", "content": err})
         return {"response": err, "messages": full_messages, "pending_action": None}
 
@@ -1118,7 +1231,7 @@ def process_message(
 
     # If there's a pending action, ask DeepSeek to describe it
     if pending_action:
-        follow_up = _client.chat(full_messages, tools=_TOOLS_ARRAY)
+        follow_up = client.chat(full_messages, tools=_TOOLS_ARRAY)
         if not follow_up.get("error"):
             try:
                 follow_content = follow_up["choices"][0]["message"].get("content", "")
@@ -1137,7 +1250,7 @@ def process_message(
         return {"response": desc, "messages": full_messages, "pending_action": pending_action}
 
     # No pending action — call DeepSeek again to summarize tool results
-    follow_up = _client.chat(full_messages, tools=_TOOLS_ARRAY)
+    follow_up = client.chat(full_messages, tools=_TOOLS_ARRAY)
     if follow_up.get("error"):
         fallback = "I found some results but had trouble generating a summary."
         full_messages.append({"role": "assistant", "content": fallback})

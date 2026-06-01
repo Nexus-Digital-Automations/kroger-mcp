@@ -1,4 +1,4 @@
-"""Chat API endpoints — DeepSeek-powered grocery assistant."""
+"""Chat API endpoints — multi-provider grocery assistant."""
 
 from typing import Any
 
@@ -7,7 +7,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from kroger_mcp.web.chat_engine import (
+    DEFAULT_PROVIDER,
     execute_approved_action,
+    list_available_providers,
     process_message,
 )
 
@@ -29,6 +31,7 @@ class ChatMessage(BaseModel):
 class ChatMessageRequest(BaseModel):
     messages: list[dict[str, Any]] = []
     user_message: str
+    provider: str | None = None  # None → server default (DeepSeek)
 
 
 class ChatApproveRequest(BaseModel):
@@ -44,6 +47,20 @@ class ChatRejectRequest(BaseModel):
 # -------------------------------------------------------------------
 # Endpoints
 # -------------------------------------------------------------------
+
+
+@router.get("/api/chat/providers")
+async def chat_providers():
+    """List selectable LLM providers (only those with a configured API key).
+
+    API keys are read server-side and never included in the response.
+    """
+    return JSONResponse(
+        content={
+            "providers": list_available_providers(),
+            "default": DEFAULT_PROVIDER,
+        }
+    )
 
 
 @router.post("/api/chat/message")
@@ -63,6 +80,7 @@ async def chat_message(body: ChatMessageRequest):
         result = process_message(
             messages=body.messages,
             user_message=body.user_message.strip(),
+            provider=body.provider,
         )
         return JSONResponse(content=result)
     except Exception as exc:

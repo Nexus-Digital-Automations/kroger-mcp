@@ -503,7 +503,7 @@
   </script>
 
   <!-- ── Chat Widget ──────────────────────────────────────────────── -->
-  <div x-data="chatWidget()" @keydown.escape.window="open = false" class="fixed bottom-6 right-6 z-50" style="font-family: 'DM Sans', sans-serif;">
+  <div x-data="chatWidget()" x-init="init()" @keydown.escape.window="open = false" class="fixed bottom-6 right-6 z-50" style="font-family: 'DM Sans', sans-serif;">
 
     <!-- Floating button -->
     <button
@@ -545,11 +545,25 @@
           </div>
           <span class="chat-header-title">Smart Shopper Chat</span>
         </div>
-        <button @click="open = false" class="chat-close-btn" aria-label="Close chat">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-          </svg>
-        </button>
+        <div class="flex items-center gap-2">
+          <!-- Model picker: only shown when more than one provider has a configured key -->
+          <select
+            x-show="providers.length > 1"
+            x-model="provider"
+            @change="persistProvider()"
+            class="chat-provider-select"
+            aria-label="Select AI model"
+          >
+            <template x-for="p in providers" :key="p.id">
+              <option :value="p.id" x-text="p.label"></option>
+            </template>
+          </select>
+          <button @click="open = false" class="chat-close-btn" aria-label="Close chat">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <!-- Messages -->
@@ -720,6 +734,22 @@
       font-size: 0.8125rem;
       color: oklch(92% 0.035 150);
       letter-spacing: -0.01em;
+    }
+    .chat-provider-select {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.6875rem;
+      color: var(--sidebar-link);
+      background: var(--sidebar-hover-bg);
+      border: 1px solid transparent;
+      border-radius: 0.3rem;
+      padding: 0.15rem 0.35rem;
+      cursor: pointer;
+      max-width: 7.5rem;
+      transition: color 0.12s, border-color 0.12s;
+    }
+    .chat-provider-select:hover {
+      color: var(--sidebar-hover);
+      border-color: var(--sidebar-link);
     }
     .chat-close-btn {
       background: none;
@@ -1029,6 +1059,34 @@
         loading: false,
         pendingAction: null,
         approving: false,
+        providers: [],
+        provider: null,
+
+        async init() {
+          // Load only providers whose API key is configured server-side.
+          const saved = localStorage.getItem('ss_chat_provider');
+          try {
+            const res = await fetch('/api/chat/providers');
+            const data = await res.json();
+            this.providers = data.providers || [];
+            const ids = this.providers.map(p => p.id);
+            if (saved && ids.includes(saved)) {
+              this.provider = saved;
+            } else if (ids.includes(data.default)) {
+              this.provider = data.default;
+            } else {
+              this.provider = ids[0] || null;
+            }
+          } catch (err) {
+            // No selector; backend falls back to its default provider.
+            this.providers = [];
+            this.provider = null;
+          }
+        },
+
+        persistProvider() {
+          if (this.provider) localStorage.setItem('ss_chat_provider', this.provider);
+        },
 
         get displayMessages() {
           return this.messages.filter(
@@ -1065,6 +1123,7 @@
               body: JSON.stringify({
                 messages: this.messages,
                 user_message: text,
+                ...(this.provider ? { provider: this.provider } : {}),
               }),
             });
             const data = await res.json();
