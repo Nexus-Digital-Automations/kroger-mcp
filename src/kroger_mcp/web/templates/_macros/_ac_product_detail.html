@@ -1,0 +1,95 @@
+{# Expanded product detail panel for the linking popover.
+
+   Shared by both the "your usuals" suggestion rows and the live Kroger search
+   rows — both iterate with loop variable `p` and only require `p.product_id`;
+   every field below reads from acState.detailCache[p.product_id], lazy-loaded
+   via /api/products/{id} on expand. Keep this the single source for the panel
+   so suggestions and search results never drift. #}
+<div x-show="acState.expanded === p.product_id" x-cloak class="ss-autocomplete-detail"
+     @click.stop>
+  <template x-if="acState.detailLoading[p.product_id]">
+    <div style="font-size:0.6875rem; color:var(--text-3); font-style:italic;">Loading details…</div>
+  </template>
+  <template x-if="!acState.detailLoading[p.product_id] && acState.detailError[p.product_id]">
+    <div style="font-size:0.625rem; color:oklch(40% 0.16 25);"
+         x-text="acState.detailError[p.product_id]"></div>
+  </template>
+  <template x-if="!acState.detailLoading[p.product_id] && acState.detailCache[p.product_id]">
+    <div>
+      <div style="display:flex; gap:0.6rem; align-items:flex-start; margin-bottom:0.5rem;">
+        <template x-if="acState.detailCache[p.product_id].image_url">
+          <img :src="acState.detailCache[p.product_id].image_url"
+               :alt="acState.detailCache[p.product_id].description"
+               loading="lazy" class="ss-autocomplete-detail-thumb"
+               @error="$el.style.display='none'"/>
+        </template>
+        <template x-if="!acState.detailCache[p.product_id].image_url">
+          <div class="ss-autocomplete-detail-thumb-placeholder" aria-hidden="true">·</div>
+        </template>
+        <div style="min-width:0; flex:1;">
+          <div style="font-size:0.75rem; color:var(--text-1); font-weight:600; line-height:1.25;"
+               x-text="acState.detailCache[p.product_id].description"></div>
+          <div style="font-size:0.625rem; color:var(--text-3); margin-top:0.15rem;">
+            <span x-show="acState.detailCache[p.product_id].brand" x-text="acState.detailCache[p.product_id].brand"></span>
+            <span x-show="acState.detailCache[p.product_id].brand && acState.detailCache[p.product_id].size" style="margin:0 0.25rem;">·</span>
+            <span x-show="acState.detailCache[p.product_id].size" x-text="acState.detailCache[p.product_id].size"></span>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
+        <span x-show="acState.detailCache[p.product_id].safety_grade"
+              style="font-weight:700; font-size:0.6875rem;"
+              :style="`color:${gradeColor(acState.detailCache[p.product_id].safety_grade).text};`"
+              x-text="'Health ' + acState.detailCache[p.product_id].safety_grade"></span>
+        <span x-show="acState.detailCache[p.product_id].safety_score !== null && acState.detailCache[p.product_id].safety_score !== undefined"
+              style="font-size:0.625rem; color:var(--text-3);"
+              x-text="acState.detailCache[p.product_id].safety_score + '/100'"></span>
+      </div>
+      <template x-if="acState.detailCache[p.product_id].flagged_ingredients && acState.detailCache[p.product_id].flagged_ingredients.length > 0">
+        <div>
+          <h4>Flagged</h4>
+          <template x-for="flag in acState.detailCache[p.product_id].flagged_ingredients" :key="flag.ingredient + flag.severity">
+            <div class="ss-autocomplete-detail-row">
+              <span class="ss-autocomplete-detail-dot"
+                    :style="`background:${flag.severity === 'critical' ? 'oklch(60% 0.20 25)' : flag.severity === 'warning' ? 'oklch(70% 0.16 70)' : 'oklch(70% 0.10 240)'};`"></span>
+              <div style="min-width:0;">
+                <div class="ss-autocomplete-detail-name" x-text="flag.ingredient"></div>
+                <div class="ss-autocomplete-detail-reason" x-text="flag.reason"></div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+      <template x-if="acState.detailCache[p.product_id].positive_attributes && acState.detailCache[p.product_id].positive_attributes.length > 0">
+        <div>
+          <h4>Positives</h4>
+          <template x-for="attr in acState.detailCache[p.product_id].positive_attributes" :key="attr.attribute">
+            <div style="display:flex; gap:0.3rem; padding:0.1rem 0; align-items:center;">
+              <span style="color:oklch(50% 0.18 145); font-weight:700; font-size:0.6875rem;">+<span x-text="attr.bonus"></span></span>
+              <span style="font-size:0.6875rem; color:oklch(40% 0.16 145);" x-text="attr.attribute"></span>
+            </div>
+          </template>
+        </div>
+      </template>
+      <template x-if="(!acState.detailCache[p.product_id].flagged_ingredients || acState.detailCache[p.product_id].flagged_ingredients.length === 0) && (!acState.detailCache[p.product_id].positive_attributes || acState.detailCache[p.product_id].positive_attributes.length === 0)">
+        <div style="font-size:0.625rem; color:var(--text-3); font-style:italic;">No flagged ingredients or notable attributes.</div>
+      </template>
+      <template x-if="acState.detailCache[p.product_id].ingredients_list">
+        <div>
+          <h4>Ingredients</h4>
+          <div class="ss-autocomplete-ingredients" x-text="acState.detailCache[p.product_id].ingredients_list"></div>
+        </div>
+      </template>
+      <template x-if="acState.detailCache[p.product_id].aisle || acState.detailCache[p.product_id].country_origin">
+        <div style="display:flex; gap:0.75rem; margin-top:0.4rem; font-size:0.625rem; color:var(--text-3);">
+          <span x-show="acState.detailCache[p.product_id].aisle">
+            Aisle: <span style="color:var(--text-2);" x-text="acState.detailCache[p.product_id].aisle"></span>
+          </span>
+          <span x-show="acState.detailCache[p.product_id].country_origin">
+            Origin: <span style="color:var(--text-2);" x-text="acState.detailCache[p.product_id].country_origin"></span>
+          </span>
+        </div>
+      </template>
+    </div>
+  </template>
+</div>

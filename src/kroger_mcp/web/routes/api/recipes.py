@@ -1,6 +1,9 @@
 """API routes for recipe write operations."""
 
+from __future__ import annotations
+
 import json
+import logging
 import uuid
 from datetime import datetime
 
@@ -8,7 +11,55 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from kroger_mcp.analytics.ingredient_links import (
+    normalize_ingredient_name,
+    record_link,
+)
+from kroger_mcp.auth.dependencies import current_user_id
+
 router = APIRouter()
+logger = logging.getLogger("kroger_mcp.web.recipes")
+
+
+def _record_ingredient_links(
+    user_id: str, before: list[dict], after: list[IngredientIn]
+) -> None:
+    """Teach the per-account link memory from a recipe's ingredient save.
+
+    Records only links that are new or changed since `before` — an ingredient
+    whose (normalized name, product_id) pair wasn't already on the recipe — so
+    ordinary re-saves don't inflate link counts. Best-effort; record_link
+    itself never raises.
+    """
+    prior = {
+        (normalize_ingredient_name(ing.get("name", "")), ing.get("product_id"))
+        for ing in before
+        if ing.get("product_id")
+    }
+    for ing in after:
+        if not ing.product_id:
+            continue
+        if (normalize_ingredient_name(ing.name), ing.product_id) in prior:
+            continue
+        # ing.name is the best human-readable label we have here: after a popover
+        # link it holds the Kroger product description; the payload carries no
+        # separate description field. (Category is NOT a description.)
+        record_link(user_id, ing.name, ing.product_id, ing.name)
+
+
+def _teach_link_memory(
+    request: Request, before: list[dict], after: list[IngredientIn]
+) -> None:
+    """Resolve the account and record new links — fully best-effort.
+
+    Runs after the save has already succeeded, so neither an unauthenticated
+    request (401 from current_user_id) nor any memory failure may surface as an
+    error to the caller. The recipe is saved regardless.
+    """
+    try:
+        _record_ingredient_links(current_user_id(request), before, after)
+    except Exception:
+        logger.warning("ingredient_link.teach_skipped", exc_info=True)
 
 
 class IngredientIn(BaseModel):
@@ -60,6 +111,7 @@ def _check_if_match(recipe: dict, if_match: str | None) -> JSONResponse | None:
 async def replace_recipe_ingredients(
     recipe_id: str,
     body: ReplaceIngredientsBody,
+    request: Request,
     if_match: str | None = Header(default=None, alias="If-Match"),
 ):
     """Replace the entire ingredient list for a recipe.
@@ -68,6 +120,9 @@ async def replace_recipe_ingredients(
     inline editor uses this so add/edit/remove/reorder flow through a
     single round-trip. Safety scoring is re-derived at render time, so we
     do not persist it here.
+
+    The recipe itself stays global, but any newly-linked ingredient teaches
+    the calling account's private link memory (smart auto-link / "your usuals").
     """
     try:
         from kroger_mcp.tools.recipe_tools import _load_recipes, _save_recipes
@@ -85,6 +140,7 @@ async def replace_recipe_ingredients(
         conflict = _check_if_match(recipe, if_match)
         if conflict is not None:
             return conflict
+        before = list(recipe.get("ingredients") or [])
         recipe["ingredients"] = [
             {
                 "name": ing.name,
@@ -99,6 +155,7 @@ async def replace_recipe_ingredients(
         ]
         recipe["updated_at"] = datetime.now().isoformat()
         _save_recipes(store)
+        _teach_link_memory(request, before, body.ingredients)
         return {
             "success": True,
             "recipe_id": recipe_id,

@@ -1,0 +1,112 @@
+{# Hoisted ingredient-linking popover. One instance, positioned inside the
+   Ingredients card via acPopoverStyle. Lives outside the row grid so its width
+   never perturbs the ingredient row's columns or the outer two-column layout.
+
+   Single source for both recipe_view.html and recipe_edit.html (whose Alpine
+   `ingredientPanel` components are identical). Three stacked regions:
+     1. "Standardize to X?" chip — learned canonical name (acSuggest.canonical).
+     2. "Your usuals" — account's prior links / purchases (acSuggest.items),
+        best guess pre-highlighted for one-tap linking.
+     3. Live Kroger search results (acState.results) — unchanged behavior.
+   Region 1+2 are empty on cold start, so the popover degrades to plain search. #}
+<div x-show="acState.idx !== null && (acState.results.length > 0 || acState.loading || acState.query.length >= 2 || acSuggest.items.length > 0 || acSuggest.canonical)"
+     x-cloak class="ss-autocomplete-popover"
+     :style="acPopoverStyle"
+     @mousedown.prevent>
+
+  {# 1 ─ Learned name standardization chip #}
+  <div x-show="acSuggest.canonical" x-cloak class="ss-standardize-chip">
+    <span class="ss-standardize-text">
+      Standardize to “<span x-text="acSuggest.canonical"></span>”?
+    </span>
+    <button type="button" class="ss-standardize-accept" @click="acAcceptCanonical()">Rename</button>
+    <button type="button" class="ss-standardize-dismiss" @click="acSuggest.canonical = null"
+            aria-label="Dismiss name suggestion">✕</button>
+  </div>
+
+  {# 2 ─ "Your usuals": account-scoped prior links / purchases #}
+  <template x-if="acSuggest.items.length > 0">
+    <div class="ss-usuals">
+      <div class="ss-usuals-head">
+        <span>Your usuals</span>
+        <span x-show="acSuggest.loading" class="ss-usuals-loading">…</span>
+      </div>
+      <template x-for="(p, pi) in acSuggest.items" :key="'sug-' + p.product_id">
+        <div>
+          <div class="ss-autocomplete-row ss-usual-row"
+               :class="acIsBestGuess(p) ? 'best-guess' : ''"
+               @click="acSelectSuggestion(p)">
+            <div class="ss-autocomplete-meta">
+              <div class="ss-autocomplete-name"
+                   x-text="p.product_description || ('Product ' + p.product_id)"></div>
+              <div class="ss-autocomplete-sub">
+                <span class="ss-usual-reason" x-text="p.reason"></span>
+              </div>
+            </div>
+            <span x-show="acIsBestGuess(p)" class="ss-best-tag">Best match</span>
+            <button type="button" class="ss-autocomplete-expand"
+                    :class="acState.expanded === p.product_id ? 'open' : ''"
+                    @click.stop="acToggleExpand(p.product_id)"
+                    :title="acState.expanded === p.product_id ? 'Hide details' : 'Show details'"
+                    :aria-expanded="acState.expanded === p.product_id"
+                    aria-label="Toggle product details">›</button>
+          </div>
+          {% include "_macros/_ac_product_detail.html" %}
+        </div>
+      </template>
+      <div x-show="acState.query.length >= 2" class="ss-usuals-divider">
+        <span>or search Kroger</span>
+      </div>
+    </div>
+  </template>
+
+  {# 3 ─ Live Kroger search results (existing behavior) #}
+  <div x-show="acState.loading" style="padding:0.5rem 0.75rem; font-size:0.75rem; color:var(--text-3);">Searching…</div>
+  <template x-for="(p, pi) in acState.results" :key="p.product_id">
+    <div>
+    <div class="ss-autocomplete-row"
+         :class="pi === acState.active ? 'active' : ''"
+         @mouseenter="acState.active = pi"
+         @click="acSelectActive()">
+      <div class="ss-autocomplete-meta">
+        <div class="ss-autocomplete-name" x-text="p.description"></div>
+        <div class="ss-autocomplete-sub">
+          <span x-show="p.brand" x-text="p.brand"></span>
+          <span x-show="p.brand && p.size" style="margin:0 0.25rem;">·</span>
+          <span x-show="p.size" x-text="p.size"></span>
+          <span x-show="(p.brand || p.size) && p.price_per_unit && p.price_per_unit.label" style="margin:0 0.25rem;">·</span>
+          <span x-show="p.price_per_unit && p.price_per_unit.label"
+                style="font-variant-numeric:tabular-nums;"
+                x-text="p.price_per_unit && p.price_per_unit.label"></span>
+        </div>
+      </div>
+      <div class="ss-autocomplete-price">
+        <div style="display:flex; align-items:baseline; gap:0.3rem;">
+          <span x-show="p.on_sale" class="ss-autocomplete-sale-pill"
+                x-text="'-' + p.savings_percent + '%'"></span>
+          <span class="ss-autocomplete-price-main"
+                :style="p.on_sale ? 'color:oklch(40% 0.18 25);' : ''"
+                x-text="(p.sale_price || p.regular_price) ? '$' + (p.sale_price || p.regular_price).toFixed(2) : ''"></span>
+        </div>
+        <span x-show="p.on_sale && p.regular_price" class="ss-autocomplete-price-strike"
+              x-text="'$' + (p.regular_price || 0).toFixed(2)"></span>
+      </div>
+      <span x-show="p.safety_grade"
+            :style="`background:${gradeColor(p.safety_grade).bg}; color:${gradeColor(p.safety_grade).text}; padding:0.1rem 0.4rem; border-radius:99px; font-size:0.625rem; font-weight:700;`"
+            x-text="p.safety_grade"></span>
+      <button class="ss-autocomplete-expand"
+              :class="acState.expanded === p.product_id ? 'open' : ''"
+              @click.stop="acToggleExpand(p.product_id)"
+              :title="acState.expanded === p.product_id ? 'Hide details' : 'Show details'"
+              :aria-expanded="acState.expanded === p.product_id"
+              aria-label="Toggle product details">›</button>
+    </div>
+    {% include "_macros/_ac_product_detail.html" %}
+    </div>
+  </template>
+  <div x-show="!acState.loading && acState.results.length === 0 && acState.query.length >= 2"
+       style="padding:0.5rem 0.75rem; font-size:0.75rem; color:var(--text-3);">No Kroger matches.</div>
+  <div class="ss-autocomplete-footer" @click="acUseManual(acState.query)">
+    Use “<span x-text="acState.query"></span>” as manual entry
+  </div>
+</div>
