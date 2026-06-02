@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros/action_menu.html" import action_menu %}
 {% from "_macros/recipe_add_modal.html" import recipe_add_modal %}
+{% from "_macros/recipe_plan_date_modal.html" import recipe_plan_date_modal %}
 {% from "_macros/sort_rank.html" import sort_rank %}
 
 {% block title %}Recipes — Smart Shopper{% endblock %}
@@ -477,5 +478,6 @@ document.addEventListener('alpine:init', () => {
 </script>
 
 {{ recipe_add_modal() }}
+{{ recipe_plan_date_modal() }}
 
 {% endblock %}

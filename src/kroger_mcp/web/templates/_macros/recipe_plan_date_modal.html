@@ -1,0 +1,163 @@
+{#
+  Recipe → Meal Plan scheduling popup.
+
+  OWNS: the "When will you make this?" modal DOM and the
+  `Alpine.store('recipePlanDate')` open/close/submit state machine. POSTs to
+  /api/meal-plan/schedule-recipe, which find-or-creates the week's plan and
+  assigns the meal. Final confirmation uses the global toast (base.html).
+
+  CALLED BY: recipe_add_modal.html submit() success branch chains here right
+  after a recipe is added to the shopping list, so the two flows are connected.
+  Included once on recipes.html and recipe_view.html (anywhere recipe_add_modal
+  can fire).
+
+  Usage on host page:
+    (1) from "_macros/recipe_plan_date_modal.html" import recipe_plan_date_modal
+    (2) call recipe_plan_date_modal() once near the end of the content block
+
+  State diagram:
+    closed → open(pick date + slot) → submitting → closed (toast)
+                  ↑ "Not now" closes with no API call
+#}
+
+{% macro recipe_plan_date_modal() %}
+<script>
+document.addEventListener('alpine:init', () => {
+  // Local-time ISO (YYYY-MM-DD). NOT toISOString() — that converts to UTC and
+  // can shift the day backward for users behind UTC.
+  const localISO = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d; };
+
+  Alpine.store('recipePlanDate', {
+    open: false,
+    submitting: false,
+    error: '',
+    recipeId: '',
+    recipeName: '',
+    plannedDate: '',
+    mealSlot: '',  // no default — the user must choose a slot
+
+    openModal(recipeId, recipeName) {
+      this.recipeId = recipeId;
+      this.recipeName = recipeName || 'this recipe';
+      this.plannedDate = localISO(addDays(7));  // same weekday next week
+      this.mealSlot = '';
+      this.error = '';
+      this.open = true;
+    },
+
+    minDate() { return localISO(addDays(1)); },  // tomorrow onward
+
+    close() {
+      if (this.submitting) return;
+      this.open = false;
+    },
+
+    _label() {
+      const d = new Date(this.plannedDate + 'T00:00:00');
+      const date = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      return `${date} · ${this.mealSlot}`;
+    },
+
+    async submit() {
+      if (this.submitting) return;
+      if (!this.mealSlot) { this.error = 'Pick a meal slot.'; return; }
+      if (!this.plannedDate) { this.error = 'Pick a date.'; return; }
+      this.submitting = true;
+      this.error = '';
+      try {
+        const res = await window.api.post('/api/meal-plan/schedule-recipe', {
+          recipe_id: this.recipeId,
+          meal_date: this.plannedDate,
+          meal_slot: this.mealSlot,
+        });
+        const where = this._label();
+        const message = res.overwrote && res.displaced_recipe_name
+          ? `Scheduled · ${where} (replaced ${res.displaced_recipe_name})`
+          : `Scheduled · ${where}`;
+        window.dispatchEvent(new CustomEvent('toast:show', { detail: {
+          message,
+          level: res.overwrote ? 'warn' : 'ok',
+          action: { label: 'View plan', onClick: () => { window.location.href = '/meal-plan'; } },
+        }}));
+        this.open = false;
+      } catch (e) {
+        this.error = (e && e.message) || 'Failed to schedule recipe';
+      }
+      this.submitting = false;
+    },
+  });
+});
+</script>
+
+<div x-cloak x-data
+  x-show="$store.recipePlanDate.open"
+  @keydown.escape.window="$store.recipePlanDate.close()"
+  class="fixed inset-0 z-50 flex items-center justify-center p-4"
+  style="background: rgba(0,0,0,0.45);">
+  <div @click.self="$store.recipePlanDate.close()" class="absolute inset-0"></div>
+
+  <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-sm flex flex-col">
+    <div class="flex items-center justify-between p-4 border-b border-gray-100 flex-shrink-0">
+      <div>
+        <h3 style="font-family: 'Lora', serif; font-weight: 600; font-size: 1rem; color: var(--text-1);">
+          When will you make this?
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5" x-text="$store.recipePlanDate.recipeName"></p>
+      </div>
+      <button @click="$store.recipePlanDate.close()" :disabled="$store.recipePlanDate.submitting"
+        class="text-gray-400 hover:text-gray-600 disabled:opacity-50" aria-label="Close">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="p-4 flex-1">
+      <div x-show="$store.recipePlanDate.error" x-cloak
+        class="mb-3 p-2 rounded text-xs"
+        style="background: oklch(96% 0.02 25); border: 1px solid var(--danger); color: var(--danger);"
+        x-text="$store.recipePlanDate.error"></div>
+
+      <label class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 block">Date</label>
+      <input type="date"
+        x-model="$store.recipePlanDate.plannedDate"
+        :min="$store.recipePlanDate.minDate()"
+        :disabled="$store.recipePlanDate.submitting"
+        class="ss-input w-full mb-4"/>
+
+      <label class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 block">Meal</label>
+      <div class="grid grid-cols-2 gap-2">
+        <template x-for="slot in ['breakfast', 'lunch', 'dinner', 'snack']" :key="slot">
+          <button type="button"
+            @click="$store.recipePlanDate.mealSlot = slot"
+            :disabled="$store.recipePlanDate.submitting"
+            class="capitalize text-sm rounded-lg py-2 border transition-colors disabled:opacity-50"
+            :style="$store.recipePlanDate.mealSlot === slot
+              ? 'background: var(--green); color: white; border-color: var(--green);'
+              : 'background: white; color: var(--text-1); border-color: var(--border);'"
+            x-text="slot"></button>
+        </template>
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-2 p-4 border-t border-gray-100 flex-shrink-0">
+      <button @click="$store.recipePlanDate.close()" :disabled="$store.recipePlanDate.submitting"
+        class="ss-btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+        Not now
+      </button>
+      <button @click="$store.recipePlanDate.submit()"
+        :disabled="$store.recipePlanDate.submitting || !$store.recipePlanDate.mealSlot"
+        class="ss-btn-primary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+        <span x-show="!$store.recipePlanDate.submitting">Schedule</span>
+        <span x-show="$store.recipePlanDate.submitting" x-cloak>Scheduling…</span>
+      </button>
+    </div>
+  </div>
+</div>
+{% endmacro %}

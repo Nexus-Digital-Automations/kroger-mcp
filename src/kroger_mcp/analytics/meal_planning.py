@@ -273,6 +273,39 @@ def get_meal_plans(
         conn.close()
 
 
+def find_plan_covering_date(
+    meal_date: str, user_id: str | None = None
+) -> dict[str, Any] | None:
+    """
+    Return the user's non-template plan whose date range contains `meal_date`,
+    or None if no such plan exists.
+
+    Dates are stored as zero-padded YYYY-MM-DD, so lexical SQL comparison is
+    correct (same idiom as get_meal_plans/assign_meal). When several plans
+    overlap a date (e.g. a monthly plan spanning a weekly one), the most
+    recently-started plan wins so the choice is deterministic.
+
+    Returns:
+        {id, start_date, end_date} for the covering plan, or None.
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "SELECT id, start_date, end_date FROM meal_plans "
+            "WHERE user_id = ? AND is_template = 0 "
+            "AND start_date <= ? AND end_date >= ? "
+            "ORDER BY start_date DESC LIMIT 1",
+            (owner, meal_date, meal_date),
+        )
+        row = cursor.fetchone()
+
+    if not row:
+        return None
+    return {"id": row[0], "start_date": row[1], "end_date": row[2]}
+
+
 def get_meal_plan(
     plan_id: str,
     include_recipe_details: bool = True,

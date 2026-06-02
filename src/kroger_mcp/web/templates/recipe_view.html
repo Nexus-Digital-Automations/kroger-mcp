@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros/recipe_add_modal.html" import recipe_add_modal %}
+{% from "_macros/recipe_plan_date_modal.html" import recipe_plan_date_modal %}
 {% from "_macros/action_menu.html" import action_menu %}
 
 {% block title %}{{ recipe.name }} — Smart Shopper{% endblock %}
@@ -446,6 +447,7 @@
 </style>
 
 {{ recipe_add_modal() }}
+{{ recipe_plan_date_modal() }}
 
 <!-- Recipe page mode root. Edit is the default; the toggle now flips into a
      read-only "share" mode (no edit affordances, useful for screenshots).
