@@ -1,0 +1,330 @@
+{#
+  Cook → editable pantry deduction popup.
+
+  OWNS: the cook modal DOM and the `Alpine.store('cookPreview')` state machine.
+  Two modes: 'meal' (a scheduled meal_entry) and 'recipe' (ad-hoc "I made this").
+  Flow: open → GET cook-preview (prefill scaled amounts + current pantry levels)
+  → user confirms/edits actual amounts → POST deducts → results view shows new
+  remaining levels, flags low/out items (one-tap add-to-list), offers Undo.
+
+  CALLED BY:
+    - meal_plan.html: the cooked checkbox opens openModal('meal', {...}).
+    - recipe_view.html: the "I made this" button opens openModal('recipe', {...}).
+
+  Usage on host page:
+    (1) from "_macros/cook_modal.html" import cook_modal
+    (2) call cook_modal() once near the end of the content block
+
+  State diagram:
+    closed → loading → edit → submitting → results → closed
+                                             ↓ (Undo) reverses deduction
+#}
+
+{% macro cook_modal() %}
+<script>
+document.addEventListener('alpine:init', () => {
+  Alpine.store('cookPreview', {
+    open: false,
+    loading: false,
+    submitting: false,
+    error: '',
+    phase: 'edit',              // 'edit' | 'results'
+    mode: 'meal',               // 'meal' | 'recipe'
+    edited: false,
+    // meal context
+    planId: '', mealDate: '', mealSlot: '',
+    // recipe context
+    recipeId: '', recipeName: '', servings: 0,
+    // data
+    ingredients: [],
+    qty: {},
+    results: null,              // {deductions, deduction_errors, skipped_no_product_id}
+    cookEventId: '',            // ad-hoc undo handle
+    addedToList: {},            // product_id -> true once added
+
+    _key(it) { return it.product_id || ('m:' + it.name); },
+
+    async openModal(mode, ctx) {
+      if (this.loading || this.submitting) return;
+      this.mode = mode;
+      this.phase = 'edit';
+      this.edited = false;
+      this.error = '';
+      this.results = null;
+      this.cookEventId = '';
+      this.addedToList = {};
+      this.ingredients = [];
+      this.qty = {};
+      this.open = true;
+      this.loading = true;
+      let url;
+      if (mode === 'meal') {
+        this.planId = ctx.planId; this.mealDate = ctx.date; this.mealSlot = ctx.slot;
+        url = `/api/meal-plan/${ctx.planId}/meals/${ctx.date}/${ctx.slot}/cook-preview`;
+      } else {
+        this.recipeId = ctx.recipeId; this.servings = ctx.servings || 0;
+        url = `/api/recipes/${ctx.recipeId}/cook-preview` + (ctx.servings ? `?servings_override=${ctx.servings}` : '');
+      }
+      try {
+        const d = await window.api.get(url);
+        this.recipeName = d.recipe_name || this.recipeName;
+        this.servings = d.servings || this.servings;
+        this.ingredients = d.ingredients || [];
+        const q = {};
+        for (const it of this.ingredients) q[this._key(it)] = it.scaled_quantity;
+        this.qty = q;
+        if (d.already_deducted) {
+          this.error = 'This meal was already marked cooked — its ingredients are already deducted.';
+        }
+      } catch (e) {
+        this.error = (e && e.message) || 'Failed to load ingredients';
+      }
+      this.loading = false;
+    },
+
+    close() {
+      if (this.submitting) return;
+      const committed = this.phase === 'results' && this.mode === 'meal';
+      this.open = false;
+      // A committed meal cook changes the grid's cooked styling — refresh it.
+      if (committed) window.location.reload();
+    },
+
+    stepQty(it, delta) {
+      const k = this._key(it);
+      const step = (this.qty[k] || 0) >= 1 ? 0.5 : 0.25;
+      const next = Math.max(0, (this.qty[k] || 0) + delta * step);
+      this.qty[k] = Math.round(next * 4) / 4;
+      this.edited = true;
+    },
+
+    setQty(it, val) {
+      const k = this._key(it);
+      const n = parseFloat(val);
+      this.qty[k] = isFinite(n) && n >= 0 ? n : 0;
+      this.edited = true;
+    },
+
+    _actuals() {
+      const out = [];
+      for (const it of this.ingredients) {
+        if (!it.product_id) continue;
+        out.push({ product_id: it.product_id, name: it.name, quantity: this.qty[this._key(it)], unit: it.unit || '' });
+      }
+      return out;
+    },
+
+    async submit() {
+      if (this.submitting) return;
+      this.submitting = true;
+      this.error = '';
+      const actuals = this._actuals();
+      try {
+        let res;
+        if (this.mode === 'meal') {
+          res = await window.api.patch(
+            `/api/meal-plan/${this.planId}/meals/${this.mealDate}/${this.mealSlot}/cooked`,
+            { cooked: true, deduct: true, actuals });
+        } else {
+          res = await window.api.post(`/api/recipes/${this.recipeId}/cooked`,
+            { servings_override: this.servings || null, deduct: true, actuals });
+          this.cookEventId = res.cook_event_id || '';
+        }
+        this.results = {
+          deductions: res.deductions || [],
+          deduction_errors: res.deduction_errors || [],
+          skipped: res.skipped_no_product_id || [],
+        };
+        this.phase = 'results';
+        const n = this.results.deductions.length;
+        const lowCount = this.results.deductions.filter(d => d.now_low || d.now_out).length;
+        window.dispatchEvent(new CustomEvent('toast:show', { detail: {
+          message: `Cooked ${this.recipeName} · deducted ${n} ingredient${n === 1 ? '' : 's'}` + (lowCount ? ` · ${lowCount} now low` : ''),
+          level: lowCount ? 'warn' : 'ok',
+        }}));
+      } catch (e) {
+        this.error = (e && e.message) || 'Failed to deduct from pantry';
+      }
+      this.submitting = false;
+    },
+
+    async addToList(d) {
+      try {
+        await window.api.post('/api/shopping-list/items',
+          { product_id: d.product_id, name: d.ingredient, quantity: 1, unit: d.unit || '' });
+        this.addedToList[d.product_id] = true;
+        window.dispatchEvent(new CustomEvent('toast:show', { detail: { message: `Added ${d.ingredient} to shopping list`, level: 'ok' } }));
+      } catch (e) {
+        /* window.api already surfaced an error toast */
+      }
+    },
+
+    async undo() {
+      if (this.submitting) return;
+      this.submitting = true;
+      try {
+        if (this.mode === 'meal') {
+          await window.api.patch(
+            `/api/meal-plan/${this.planId}/meals/${this.mealDate}/${this.mealSlot}/cooked`,
+            { cooked: false });
+        } else {
+          await window.api.post(`/api/recipes/cooked/${this.cookEventId}/undo`, {});
+        }
+        window.dispatchEvent(new CustomEvent('toast:show', { detail: { message: 'Cook undone — pantry restored', level: 'ok' } }));
+        this.submitting = false;
+        // Reset phase so close() doesn't double-reload as a "committed" cook.
+        this.phase = 'edit';
+        this.open = false;
+        if (this.mode === 'meal') window.location.reload();
+      } catch (e) {
+        this.error = (e && e.message) || 'Failed to undo';
+        this.submitting = false;
+      }
+    },
+  });
+});
+</script>
+
+<div x-cloak x-data
+  x-show="$store.cookPreview.open"
+  @keydown.escape.window="$store.cookPreview.close()"
+  class="fixed inset-0 z-50 flex items-center justify-center p-4"
+  style="background: rgba(0,0,0,0.45);">
+  <div @click.self="$store.cookPreview.close()" class="absolute inset-0"></div>
+
+  <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+    <div class="flex items-center justify-between p-4 border-b border-gray-100 flex-shrink-0">
+      <div>
+        <h3 style="font-family: 'Lora', serif; font-weight: 600; font-size: 1rem; color: var(--text-1);"
+          x-text="$store.cookPreview.phase === 'results' ? 'Cooked — pantry updated' : 'How much did you use?'"></h3>
+        <p class="text-xs text-gray-500 mt-0.5"
+          x-text="$store.cookPreview.recipeName + ($store.cookPreview.servings ? ' · ' + $store.cookPreview.servings + ' servings' : '')"></p>
+      </div>
+      <button @click="$store.cookPreview.close()" :disabled="$store.cookPreview.submitting"
+        class="text-gray-400 hover:text-gray-600 disabled:opacity-50" aria-label="Close">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="p-4 overflow-y-auto flex-1">
+      <div x-show="$store.cookPreview.loading" class="text-center py-8 text-sm text-gray-500">Loading ingredients…</div>
+
+      <div x-show="$store.cookPreview.error" x-cloak class="mb-3 p-2 rounded text-xs"
+        style="background: oklch(96% 0.02 25); border: 1px solid var(--danger); color: var(--danger);"
+        x-text="$store.cookPreview.error"></div>
+
+      <!-- EDIT phase: per-ingredient amount + current level -->
+      <template x-if="!$store.cookPreview.loading && $store.cookPreview.phase === 'edit'">
+        <div>
+          <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+            Ingredients used <span class="text-gray-400">(estimated remaining shown)</span>
+          </div>
+          <template x-if="$store.cookPreview.ingredients.length === 0">
+            <p class="text-xs text-gray-400 italic">No ingredients to deduct.</p>
+          </template>
+          <ul class="space-y-1.5">
+            <template x-for="it in $store.cookPreview.ingredients" :key="$store.cookPreview._key(it)">
+              <li class="flex items-center gap-2 py-1 border-b border-gray-50">
+                <label class="flex-1 text-sm min-w-0" style="color: var(--text-1);">
+                  <span x-text="it.name"></span>
+                  <span class="block text-xs mt-0.5">
+                    <span x-show="it.status === 'untracked'" class="text-gray-400">not tracked in pantry</span>
+                    <span x-show="it.status !== 'untracked'" class="text-gray-400">
+                      have <span x-text="it.current_level_display"></span>
+                    </span>
+                    <span x-show="it.status === 'low'" class="ml-1" style="color: var(--amber); font-weight:600;">low</span>
+                    <span x-show="it.status === 'out'" class="ml-1" style="color: var(--danger); font-weight:600;">out</span>
+                  </span>
+                </label>
+                <div class="inline-flex items-center border border-gray-200 rounded-md text-sm flex-shrink-0"
+                  :style="it.status === 'untracked' ? 'opacity:0.4;' : ''">
+                  <button type="button" @click="$store.cookPreview.stepQty(it, -1)"
+                    class="px-2 py-0.5" aria-label="Decrease">−</button>
+                  <input type="number" min="0" step="0.25"
+                    :value="$store.cookPreview.qty[$store.cookPreview._key(it)]"
+                    @input="$store.cookPreview.setQty(it, $event.target.value)"
+                    class="w-14 text-center border-l border-r border-gray-200 py-0.5" aria-label="Amount used"/>
+                  <button type="button" @click="$store.cookPreview.stepQty(it, 1)"
+                    class="px-2 py-0.5" aria-label="Increase">+</button>
+                </div>
+                <span class="text-gray-400 text-xs w-10 flex-shrink-0" x-text="it.unit"></span>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
+
+      <!-- RESULTS phase: new remaining levels + low/out flags + add-to-list -->
+      <template x-if="!$store.cookPreview.loading && $store.cookPreview.phase === 'results' && $store.cookPreview.results">
+        <div>
+          <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">What's left</div>
+          <ul class="space-y-1.5">
+            <template x-for="d in $store.cookPreview.results.deductions" :key="d.product_id">
+              <li class="flex items-center gap-2 py-1 border-b border-gray-50">
+                <div class="flex-1 text-sm min-w-0" style="color: var(--text-1);">
+                  <span x-text="d.ingredient"></span>
+                  <span class="block text-xs text-gray-400">
+                    used <span x-text="d.consumed"></span> <span x-text="d.unit"></span> ·
+                    now <span x-text="d.remaining_display"></span>
+                  </span>
+                </div>
+                <template x-if="d.now_out || d.now_low">
+                  <span class="text-xs font-semibold flex-shrink-0"
+                    :style="d.now_out ? 'color: var(--danger);' : 'color: var(--amber);'"
+                    x-text="d.now_out ? 'out' : 'low'"></span>
+                </template>
+                <template x-if="(d.now_out || d.now_low) && !$store.cookPreview.addedToList[d.product_id]">
+                  <button @click="$store.cookPreview.addToList(d)"
+                    class="ss-btn-secondary flex-shrink-0" style="padding: 0.25rem 0.5rem; font-size: 0.6875rem;">
+                    + List
+                  </button>
+                </template>
+                <template x-if="$store.cookPreview.addedToList[d.product_id]">
+                  <span class="text-xs flex-shrink-0" style="color: var(--green);">added ✓</span>
+                </template>
+              </li>
+            </template>
+          </ul>
+          <template x-if="$store.cookPreview.results.skipped.length > 0">
+            <p class="text-xs text-gray-400 mt-2">
+              Not tracked: <span x-text="$store.cookPreview.results.skipped.join(', ')"></span>
+            </p>
+          </template>
+          <template x-if="$store.cookPreview.results.deduction_errors.length > 0">
+            <p class="text-xs mt-2" style="color: var(--danger);">
+              Couldn't deduct <span x-text="$store.cookPreview.results.deduction_errors.length"></span> item(s).
+            </p>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <!-- EDIT footer -->
+    <div x-show="$store.cookPreview.phase === 'edit'"
+      class="flex justify-end gap-2 p-4 border-t border-gray-100 flex-shrink-0">
+      <button @click="$store.cookPreview.close()" :disabled="$store.cookPreview.submitting"
+        class="ss-btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">Cancel</button>
+      <button @click="$store.cookPreview.submit()"
+        :disabled="$store.cookPreview.submitting || $store.cookPreview.loading || $store.cookPreview.ingredients.length === 0"
+        class="ss-btn-primary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+        <span x-show="!$store.cookPreview.submitting" x-text="$store.cookPreview.edited ? 'Confirm amounts' : 'Used as planned'"></span>
+        <span x-show="$store.cookPreview.submitting" x-cloak>Deducting…</span>
+      </button>
+    </div>
+
+    <!-- RESULTS footer -->
+    <div x-show="$store.cookPreview.phase === 'results'"
+      class="flex justify-between gap-2 p-4 border-t border-gray-100 flex-shrink-0">
+      <button @click="$store.cookPreview.undo()" :disabled="$store.cookPreview.submitting"
+        class="ss-btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+        <span x-show="!$store.cookPreview.submitting">Undo</span>
+        <span x-show="$store.cookPreview.submitting" x-cloak>Undoing…</span>
+      </button>
+      <button @click="$store.cookPreview.close()" :disabled="$store.cookPreview.submitting"
+        class="ss-btn-primary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">Done</button>
+    </div>
+  </div>
+</div>
+{% endmacro %}

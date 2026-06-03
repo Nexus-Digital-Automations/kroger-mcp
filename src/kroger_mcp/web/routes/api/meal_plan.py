@@ -51,8 +51,17 @@ class FromTemplateBody(BaseModel):
     new_start_date: str
 
 
+class ActualIngredient(BaseModel):
+    product_id: str
+    name: str = ""
+    quantity: float
+    unit: str = ""
+
+
 class MarkCookedBody(BaseModel):
     cooked: bool = True
+    deduct: bool = True
+    actuals: list[ActualIngredient] | None = None
 
 
 class ToggleTemplateBody(BaseModel):
@@ -424,40 +433,54 @@ async def mark_meal_cooked(
     body: MarkCookedBody,
     request: Request,
 ):
-    """Mark or unmark a meal as cooked."""
+    """Mark a meal cooked (deducting actual amounts from the pantry) or unmark
+    it (reversing that deduction exactly)."""
     user_id = current_user_id(request)
     try:
         if body.cooked:
             from kroger_mcp.analytics.meal_planning import mark_meal_cooked as _mark
 
+            actuals = [a.model_dump() for a in body.actuals] if body.actuals else None
             result = _mark(
+                plan_id=plan_id,
+                meal_date=meal_date,
+                meal_slot=meal_slot,
+                deduct_pantry=body.deduct,
+                user_id=user_id,
+                actuals=actuals,
+            )
+        else:
+            # Unmarking reverses the pantry deduction exactly (the prior bare
+            # cooked_at=NULL left the pantry drained).
+            from kroger_mcp.analytics.meal_planning import undo_meal_cooked
+
+            result = undo_meal_cooked(
                 plan_id=plan_id,
                 meal_date=meal_date,
                 meal_slot=meal_slot,
                 user_id=user_id,
             )
-        else:
-            from kroger_mcp.analytics.database import ensure_initialized, get_db_cursor
-
-            ensure_initialized()
-            with get_db_cursor() as cursor:
-                cursor.execute(
-                    "UPDATE meal_entries SET cooked_at = NULL "
-                    "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? "
-                    "AND user_id = ?",
-                    (plan_id, meal_date, meal_slot, user_id),
-                )
-            result = {
-                "success": True,
-                "plan_id": plan_id,
-                "meal_date": meal_date,
-                "meal_slot": meal_slot,
-                "cooked": False,
-            }
         if not result.get("success"):
             return JSONResponse(status_code=400, content=result)
         return result
     except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/meal-plan/{plan_id}/meals/{meal_date}/{meal_slot}/cook-preview")
+async def cook_preview(plan_id: str, meal_date: str, meal_slot: str, request: Request):
+    """Prefill data for the cook popup of a scheduled meal: scaled ingredient
+    amounts + current pantry levels. Deducts nothing."""
+    user_id = current_user_id(request)
+    try:
+        from kroger_mcp.analytics.meal_planning import preview_meal_cook
+
+        result = preview_meal_cook(plan_id, meal_date, meal_slot, user_id=user_id)
+        if not result.get("success"):
+            return JSONResponse(status_code=404, content=result)
+        return result
+    except Exception as exc:
+        logger.exception("cook_preview failed")
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 

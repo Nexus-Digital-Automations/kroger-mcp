@@ -387,6 +387,24 @@ def initialize_database() -> None:
                 UNIQUE(user_id, norm_name, product_id)
             );
 
+            -- Cook deduction ledger: exact pantry reversal data per cook.
+            -- consume_from_pantry's purchase_events.quantity_delta stores the
+            -- raw quantity, NOT the percentage points removed from level_percent,
+            -- so undo cannot recompute the deduction from purchase_events. This
+            -- ledger records the exact deducted_percent per ingredient, keyed by
+            -- cook_event_id (meal_entries.id for scheduled cooks, a uuid4 for
+            -- ad-hoc 'I made this' cooks) so a cook can be reversed precisely.
+            CREATE TABLE IF NOT EXISTS cook_deductions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cook_event_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                deducted_percent REAL NOT NULL,
+                previous_level INTEGER,
+                user_id TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
             -- Create default favorites list
             INSERT OR IGNORE INTO favorite_lists (id, name, description, list_type)
             VALUES ('default', 'My Favorites', 'Default favorites list', 'custom');
@@ -434,6 +452,8 @@ def initialize_database() -> None:
                 ON favorite_list_items(list_id);
             CREATE INDEX IF NOT EXISTS idx_favorite_list_items_product
                 ON favorite_list_items(product_id);
+            CREATE INDEX IF NOT EXISTS idx_cook_deductions_event
+                ON cook_deductions(cook_event_id, source_type, user_id);
             CREATE INDEX IF NOT EXISTS idx_meal_entries_plan
                 ON meal_entries(plan_id);
             CREATE INDEX IF NOT EXISTS idx_meal_entries_date

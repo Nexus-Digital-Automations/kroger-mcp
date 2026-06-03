@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros/recipe_add_modal.html" import recipe_add_modal %}
 {% from "_macros/recipe_plan_date_modal.html" import recipe_plan_date_modal %}
+{% from "_macros/cook_modal.html" import cook_modal %}
 {% from "_macros/action_menu.html" import action_menu %}
 
 {% block title %}{{ recipe.name }} — Smart Shopper{% endblock %}
@@ -448,6 +449,7 @@
 
 {{ recipe_add_modal() }}
 {{ recipe_plan_date_modal() }}
+{{ cook_modal() }}
 
 <!-- Recipe page mode root. Edit is the default; the toggle now flips into a
      read-only "share" mode (no edit affordances, useful for screenshots).
@@ -485,6 +487,15 @@
       @keydown.escape.prevent="$el.innerText = $el.dataset.original || ''; $el.blur()"
     >{{ recipe.name }}</h2>
     <div class="flex-shrink-0 flex items-center gap-2">
+      <button x-show="!$store.recipeMode.editing"
+        @click="$store.cookPreview.openModal('recipe', {recipeId: recipeId, servings: ($store.recipeServings.value || baseServings)})"
+        class="recipe-mode-toggle"
+        title="Log that you cooked this and deduct the ingredients from your pantry">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span>I made this</span>
+      </button>
       <a href="/recipes/{{ recipe.id }}/edit"
          class="recipe-mode-toggle"
          title="Open the editor for this recipe">

@@ -526,3 +526,76 @@ async def add_recipe_to_cart(recipe_id: str, body: AddToCartBody):
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+# ============== Ad-hoc cooking (pantry deduction without a scheduled meal) ==============
+
+
+class CookActualIngredient(BaseModel):
+    product_id: str
+    name: str = ""
+    quantity: float
+    unit: str = ""
+
+
+class CookRecipeBody(BaseModel):
+    servings_override: int | None = None
+    deduct: bool = True
+    actuals: list[CookActualIngredient] | None = None
+
+
+@router.get("/api/recipes/{recipe_id}/cook-preview")
+async def recipe_cook_preview(recipe_id: str, request: Request, servings_override: int | None = None):
+    """Prefill data for the 'I made this' popup: scaled ingredient amounts +
+    current pantry levels. Deducts nothing."""
+    user_id = current_user_id(request)
+    try:
+        from kroger_mcp.analytics.meal_planning import preview_recipe_cook
+
+        result = preview_recipe_cook(recipe_id, servings_override=servings_override, user_id=user_id)
+        if not result.get("success"):
+            return JSONResponse(status_code=404, content=result)
+        return result
+    except Exception as exc:
+        logger.exception("recipe_cook_preview failed")
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/recipes/{recipe_id}/cooked")
+async def cook_recipe(recipe_id: str, body: CookRecipeBody, request: Request):
+    """Cook a recipe ad-hoc ('I made this'), deducting actual amounts from the
+    pantry without creating a meal entry. Returns a cook_event_id for undo."""
+    user_id = current_user_id(request)
+    try:
+        from kroger_mcp.analytics.meal_planning import cook_recipe_adhoc
+
+        actuals = [a.model_dump() for a in body.actuals] if body.actuals else None
+        result = cook_recipe_adhoc(
+            recipe_id,
+            servings_override=body.servings_override,
+            deduct_pantry=body.deduct,
+            user_id=user_id,
+            actuals=actuals,
+        )
+        if not result.get("success"):
+            return JSONResponse(status_code=404, content=result)
+        return result
+    except Exception as exc:
+        logger.exception("cook_recipe failed")
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/recipes/cooked/{cook_event_id}/undo")
+async def undo_cook_recipe(cook_event_id: str, request: Request):
+    """Reverse an ad-hoc cook's pantry deduction by its cook_event_id."""
+    user_id = current_user_id(request)
+    try:
+        from kroger_mcp.analytics.meal_planning import undo_recipe_adhoc
+
+        result = undo_recipe_adhoc(cook_event_id, user_id=user_id)
+        if not result.get("success"):
+            return JSONResponse(status_code=400, content=result)
+        return result
+    except Exception as exc:
+        logger.exception("undo_cook_recipe failed")
+        return JSONResponse(status_code=500, content={"error": str(exc)})

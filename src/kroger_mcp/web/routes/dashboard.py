@@ -101,6 +101,46 @@ def _get_this_week_meals(user_id: str):
         conn.close()
 
 
+def _get_uncooked_past_meals(user_id: str):
+    """Return this user's scheduled meals whose date has passed but were never
+    marked cooked — surfaced as a dashboard reminder to log what they ate."""
+    ensure_initialized()
+    conn = get_db_connection()
+    try:
+        today = datetime.now().date()
+        cursor = conn.execute(
+            """
+            SELECT me.meal_date, me.meal_slot, me.recipe_id, mp.name as plan_name
+            FROM meal_entries me
+            JOIN meal_plans mp ON me.plan_id = mp.id
+            WHERE me.user_id = ?
+              AND me.meal_date < ?
+              AND me.cooked_at IS NULL
+            ORDER BY me.meal_date DESC
+        """,
+            (user_id, today.isoformat()),
+        )
+        rows = cursor.fetchall()
+        recipe_data = _load_recipes()
+        recipe_map = {r["id"]: r["name"] for r in recipe_data.get("recipes", [])}
+
+        meals = []
+        for row in rows:
+            days_overdue = (today - datetime.fromisoformat(row["meal_date"]).date()).days
+            meals.append(
+                {
+                    "meal_date": row["meal_date"],
+                    "meal_slot": row["meal_slot"],
+                    "recipe_name": recipe_map.get(row["recipe_id"], row["recipe_id"]),
+                    "plan_name": row["plan_name"],
+                    "days_overdue": days_overdue,
+                }
+            )
+        return meals
+    finally:
+        conn.close()
+
+
 def _get_meal_plan_count(user_id: str):
     ensure_initialized()
     conn = get_db_connection()
@@ -143,6 +183,7 @@ async def dashboard_page(request: Request):
     meal_plan_count = _get_meal_plan_count(user_id)
     fav_lists = get_lists(user_id=user_id)
     overdue_favorites = _get_overdue_favorites(fav_lists)
+    uncooked_past_meals = _get_uncooked_past_meals(user_id)
 
     today = datetime.now().date()
     monday = today - timedelta(days=today.weekday())
@@ -169,5 +210,6 @@ async def dashboard_page(request: Request):
             "meals_by_date": meals_by_date,
             "today": today,
             "overdue_favorites": overdue_favorites,
+            "uncooked_past_meals": uncooked_past_meals,
         },
     )

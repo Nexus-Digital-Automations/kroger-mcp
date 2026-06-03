@@ -151,4 +151,31 @@
 </div>
 {% endif %}
 
+<!-- Uncooked Scheduled Meals -->
+{% if uncooked_past_meals %}
+<div class="ss-card p-6">
+  <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
+    <svg style="width: 1rem; height: 1rem; color: var(--amber);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); letter-spacing: -0.01em;">Uncooked Scheduled Meals</h2>
+  </div>
+  <div class="grid grid-cols-3 gap-3">
+    {% for meal in uncooked_past_meals %}
+    <a href="/meal-plan"
+       class="ss-card ss-card-interactive"
+       style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: oklch(98% 0.02 75); border-color: oklch(90% 0.05 75); text-decoration: none;">
+      <span style="min-width: 0;">
+        <span style="font-size: 0.8125rem; font-weight: 500; color: var(--text-1); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ meal.recipe_name }}</span>
+        <span style="font-size: 0.6875rem; color: var(--text-3);">{{ meal.meal_slot.title() }} · {{ meal.meal_date }}</span>
+      </span>
+      <span style="font-size: 0.6875rem; color: var(--amber); font-weight: 600; flex-shrink: 0; margin-left: 0.5rem;">
+        {% if meal.days_overdue == 1 %}1d ago{% else %}{{ meal.days_overdue }}d ago{% endif %}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}

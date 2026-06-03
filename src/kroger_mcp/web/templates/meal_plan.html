@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros/cook_modal.html" import cook_modal %}
 
 {% block title %}Meal Plan — Smart Shopper{% endblock %}
 {% block heading %}Meal Plan{% endblock %}
@@ -143,15 +144,20 @@
   },
 
   /* ── Toggle Cooked ── */
-  async toggleCooked(date, slot, checked) {
+  async toggleCooked(date, slot, ev) {
     const planId = '{{ active_plan.id if active_plan else '' }}';
-    try {
-      await fetch('/api/meal-plan/' + planId + '/meals/' + date + '/' + slot + '/cooked', {
-        method: 'PATCH',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({cooked: checked})
-      });
-    } catch(e) { /* silent */ }
+    if (ev.target.checked) {
+      // Don't deduct silently — open the cook popup to confirm amounts used.
+      // Revert the box until the popup commits (commit reloads to show cooked).
+      ev.target.checked = false;
+      Alpine.store('cookPreview').openModal('meal', {planId, date, slot});
+    } else {
+      // Unchecking reverses the pantry deduction exactly.
+      try {
+        await window.api.patch('/api/meal-plan/' + planId + '/meals/' + date + '/' + slot + '/cooked', {cooked: false});
+        window.location.reload();
+      } catch(e) { /* window.api surfaced an error toast */ }
+    }
   },
 
   /* ── Shopping Preview ── */
@@ -637,7 +643,7 @@
               <label class="flex items-center gap-1 cursor-pointer" title="{{ 'Cooked' if cell.cooked_at else 'Mark as cooked' }}">
                 <input type="checkbox"
                   {{ 'checked' if cell.cooked_at else '' }}
-                  @change="toggleCooked('{{ cell.date_str }}', '{{ row.slot }}', $event.target.checked)"
+                  @change="toggleCooked('{{ cell.date_str }}', '{{ row.slot }}', $event)"
                   class="w-3 h-3 accent-emerald-600 cursor-pointer"/>
                 <span class="text-xs text-gray-400">✓</span>
               </label>
@@ -698,5 +704,7 @@
 {% endif %}
 
 </div><!-- end x-data wrapper -->
+
+{{ cook_modal() }}
 
 {% endblock %}

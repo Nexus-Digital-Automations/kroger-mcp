@@ -9,6 +9,7 @@ Provides functions for:
 """
 
 import json
+import logging
 import os
 import uuid
 from datetime import datetime, timedelta
@@ -19,6 +20,8 @@ from kroger_mcp.auth.dependencies import mcp_user_id
 from .database import ensure_initialized, get_db_connection, get_db_cursor
 from .pantry import get_pantry_status
 from .recipe_integration import match_ingredient_to_pantry
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_user_id(user_id: str | None) -> str:
@@ -1228,20 +1231,289 @@ def generate_meal_plan_shopping_list(
 # ============== Pantry Consumption ==============
 
 
+def _collect_scaled_ingredients(
+    recipe_id: str, recipe: dict[str, Any], scale: float
+) -> list[dict[str, Any]]:
+    """Recipe ingredients scaled to the meal's servings, flattening sub-recipes
+    when the recursive collector is available; falls back to the recipe's own
+    ingredient list otherwise."""
+    try:
+        from ..tools.recipe_tools import _collect_ingredients_recursive
+
+        collected = _collect_ingredients_recursive(recipe_id, scale)
+        return collected.get("ingredients", [])
+    except Exception as exc:
+        logger.debug("sub-recipe collect failed for %s, using direct ingredients: %s", recipe_id, exc)
+        return [
+            {
+                "name": ing.get("name", ""),
+                "scaled_quantity": (ing.get("quantity") or 1) * scale,
+                "unit": ing.get("unit", ""),
+                "product_id": ing.get("product_id"),
+            }
+            for ing in recipe.get("ingredients", [])
+        ]
+
+
+def _pantry_status(level: int | None, low_threshold: int | None) -> str:
+    """Map a pantry level to its status category using the documented thresholds."""
+    if level is None:
+        return "untracked"
+    if level <= 0:
+        return "out"
+    if level <= (low_threshold if low_threshold is not None else 20):
+        return "low"
+    return "ok"
+
+
+def _build_cook_preview_ingredients(
+    ingredients: list[dict[str, Any]], user_id: str | None
+) -> list[dict[str, Any]]:
+    """Per-ingredient prefill rows for the cook popup: scaled amount, unit, and
+    the current pantry level/status so the user edits with full context."""
+    from ..analytics.pantry import get_pantry_item
+
+    owner = _resolve_user_id(user_id)
+    rows = []
+    for ing in ingredients:
+        product_id = ing.get("product_id")
+        qty = ing.get("scaled_quantity") or ing.get("quantity") or 0
+        item = get_pantry_item(product_id, owner) if product_id else None
+        level = item.get("level_percent") if item else None
+        threshold = item.get("low_threshold", 20) if item else None
+        rows.append(
+            {
+                "name": ing.get("name", ""),
+                "product_id": product_id,
+                "scaled_quantity": round(float(qty), 2) if qty else 0,
+                "unit": ing.get("unit", "") or "",
+                "in_pantry": item is not None,
+                "current_level_percent": level,
+                "current_level_display": (f"{level:.0f}%" if level is not None else None),
+                "low_threshold": threshold,
+                "status": _pantry_status(level, threshold),
+            }
+        )
+    return rows
+
+
+def _record_cook_deduction(
+    cook_event_id: str,
+    source_type: str,
+    product_id: str,
+    deducted_percent: float,
+    previous_level: int | None,
+    user_id: str,
+) -> None:
+    """Append a reversal-ledger row capturing the exact percentage points removed,
+    so undo can restore the pantry precisely (purchase_events can't — see table doc)."""
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO cook_deductions "
+            "(cook_event_id, source_type, product_id, deducted_percent, previous_level, user_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                cook_event_id,
+                source_type,
+                product_id,
+                float(deducted_percent),
+                previous_level,
+                user_id,
+                datetime.now().isoformat(),
+            ),
+        )
+
+
+def _deduct_ingredients(
+    ingredients: list[dict[str, Any]],
+    *,
+    source_type: str,
+    cook_event_id: str,
+    recipe_id: str,
+    recipe_name: str,
+    source_description: str,
+    user_id: str | None = None,
+    actuals: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Deduct each ingredient from the pantry, recording exact reversal data.
+
+    Shared by scheduled-meal cooking and ad-hoc recipe cooking. When `actuals`
+    is given (per-product edited amounts from the cook popup), those quantities
+    are deducted instead of the recipe-scaled amounts. Ingredients without a
+    product_id or quantity are reported under skipped_no_product_id and never
+    deducted (matching the prior mark_meal_cooked behavior).
+    """
+    from ..analytics.pantry import consume_from_pantry, get_pantry_item
+
+    owner = _resolve_user_id(user_id)
+    actual_by_pid = {
+        a["product_id"]: a for a in (actuals or []) if a.get("product_id")
+    }
+
+    deductions: list[dict[str, Any]] = []
+    deduction_errors: list[dict[str, Any]] = []
+    skipped_no_product_id: list[str] = []
+
+    for ing in ingredients:
+        name = ing.get("name", "")
+        product_id = ing.get("product_id")
+        unit = ing.get("unit", "") or "each"
+
+        override = actual_by_pid.get(product_id) if product_id else None
+        if override is not None:
+            qty = override.get("quantity")
+            unit = override.get("unit") or unit
+        else:
+            qty = ing.get("scaled_quantity") or ing.get("quantity") or 0
+
+        if not product_id or not qty or qty <= 0:
+            skipped_no_product_id.append(name)
+            continue
+
+        try:
+            result = consume_from_pantry(
+                product_id=product_id,
+                quantity=float(qty),
+                unit=unit,
+                source_type=source_type,
+                source_id=cook_event_id,
+                source_description=source_description,
+                user_id=owner,
+                recipe_id=recipe_id,
+                event_type="recipe_consumed",
+            )
+        except Exception as exc:
+            logger.error("cook deduction errored product=%s cook=%s: %s", product_id, cook_event_id, exc)
+            deduction_errors.append({"ingredient": name, "error": str(exc)})
+            continue
+
+        if not result.get("success"):
+            # An ingredient that isn't tracked in the pantry isn't an error —
+            # it's simply nothing to deduct, same as a missing product_id.
+            err = result.get("error") or ""
+            if "not in pantry" in err:
+                skipped_no_product_id.append(name)
+            else:
+                deduction_errors.append({"ingredient": name, "error": err})
+            continue
+
+        _record_cook_deduction(
+            cook_event_id, source_type, product_id,
+            result["amount_deducted"], result["previous_level"], owner,
+        )
+
+        new_level = result["new_level"]
+        item = get_pantry_item(product_id, owner)
+        # low_threshold may be SQL NULL, so coalesce rather than rely on .get default
+        threshold = (item.get("low_threshold") if item else None) or 20
+        deductions.append(
+            {
+                "ingredient": name,
+                "product_id": product_id,
+                "consumed": qty,
+                "unit": unit,
+                "previous_level": result["previous_level"],
+                "new_level": new_level,
+                "remaining_display": result["remaining_display"],
+                "now_low": 0 < new_level <= threshold,
+                "now_out": new_level <= 0,
+            }
+        )
+
+    return {
+        "deductions": deductions,
+        "deduction_errors": deduction_errors,
+        "skipped_no_product_id": skipped_no_product_id,
+    }
+
+
+def preview_meal_cook(
+    plan_id: str, meal_date: str, meal_slot: str, user_id: str | None = None
+) -> dict[str, Any]:
+    """Prefill data for the cook popup of a scheduled meal — scaled ingredient
+    amounts plus current pantry levels — without deducting anything."""
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT recipe_id, servings_override, cooked_at, pantry_deducted "
+            "FROM meal_entries "
+            "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? AND user_id = ?",
+            (plan_id, meal_date, meal_slot, owner),
+        )
+        entry = cursor.fetchone()
+    finally:
+        conn.close()
+
+    if not entry:
+        return {"success": False, "error": f"No meal at {meal_slot} on {meal_date}"}
+
+    recipe = get_recipe(entry["recipe_id"])
+    if not recipe:
+        return {"success": False, "error": f"Recipe '{entry['recipe_id']}' not found"}
+
+    base_servings = recipe.get("servings", 4)
+    servings = entry["servings_override"] or base_servings
+    scale = servings / base_servings if base_servings else 1.0
+    ingredients = _collect_scaled_ingredients(entry["recipe_id"], recipe, scale)
+
+    return {
+        "success": True,
+        "recipe_id": entry["recipe_id"],
+        "recipe_name": recipe.get("name", entry["recipe_id"]),
+        "servings": servings,
+        "already_cooked": bool(entry["cooked_at"]),
+        "already_deducted": bool(entry["pantry_deducted"]),
+        "ingredients": _build_cook_preview_ingredients(ingredients, owner),
+    }
+
+
+def preview_recipe_cook(
+    recipe_id: str, servings_override: int | None = None, user_id: str | None = None
+) -> dict[str, Any]:
+    """Prefill data for ad-hoc 'I made this' cooking — same shape as
+    preview_meal_cook, with no scheduled meal entry."""
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    recipe = get_recipe(recipe_id)
+    if not recipe:
+        return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
+
+    base_servings = recipe.get("servings", 4)
+    servings = servings_override or base_servings
+    scale = servings / base_servings if base_servings else 1.0
+    ingredients = _collect_scaled_ingredients(recipe_id, recipe, scale)
+
+    return {
+        "success": True,
+        "recipe_id": recipe_id,
+        "recipe_name": recipe.get("name", recipe_id),
+        "servings": servings,
+        "ingredients": _build_cook_preview_ingredients(ingredients, owner),
+    }
+
+
 def mark_meal_cooked(
     plan_id: str,
     meal_date: str,
     meal_slot: str,
     deduct_pantry: bool = True,
     user_id: str | None = None,
+    actuals: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Mark a meal entry as cooked and optionally deduct ingredients from pantry.
     Only operates on rows owned by `user_id`.
 
     When deduct_pantry=True, each recipe ingredient is subtracted from the
-    pantry using the actual quantity and unit specified in the recipe,
-    scaled to the meal's servings.
+    pantry. By default the recipe's servings-scaled amount is used; when
+    `actuals` (per-product edited amounts from the cook popup) is provided,
+    those quantities are deducted instead. Deductions are recorded in the
+    cook_deductions ledger so the cook can be reversed exactly via
+    undo_meal_cooked.
 
     Args:
         plan_id: Plan identifier
@@ -1249,6 +1521,8 @@ def mark_meal_cooked(
         meal_slot: 'breakfast', 'lunch', 'dinner', or 'snack'
         deduct_pantry: Whether to deduct ingredient quantities from pantry
         user_id: Owner. None resolves to the migration-installed default user.
+        actuals: Optional [{product_id, name, quantity, unit}] of amounts the
+            user actually used, overriding the recipe-scaled amounts.
 
     Returns:
         Dict with cooking confirmation and pantry deduction summary
@@ -1306,79 +1580,20 @@ def mark_meal_cooked(
         skipped_no_quantity = []
 
         if deduct_pantry and not already_deducted:
-            from ..analytics.pantry import consume_from_pantry
-
-            # Collect ingredients (use recursive collector for sub-recipes)
-            try:
-                from ..tools.recipe_tools import _collect_ingredients_recursive
-
-                collected = _collect_ingredients_recursive(recipe_id, scale)
-                ingredients = collected.get("ingredients", [])
-            except Exception:
-                # Fallback to direct recipe ingredients
-                ingredients = [
-                    {
-                        "name": ing.get("name", ""),
-                        "scaled_quantity": (ing.get("quantity") or 1) * scale,
-                        "unit": ing.get("unit", ""),
-                        "product_id": ing.get("product_id"),
-                        "from_recipe_name": recipe_name,
-                    }
-                    for ing in recipe.get("ingredients", [])
-                ]
-
-            for ing in ingredients:
-                ing_name = ing.get("name", "")
-                product_id = ing.get("product_id")
-                qty = ing.get("scaled_quantity") or ing.get("quantity") or 0
-                unit = ing.get("unit", "")
-
-                if not product_id:
-                    # Can't deduct without a product ID
-                    skipped_no_quantity.append(ing_name)
-                    continue
-
-                if not qty or qty <= 0:
-                    skipped_no_quantity.append(ing_name)
-                    continue
-
-                try:
-                    result = consume_from_pantry(
-                        product_id=product_id,
-                        quantity=float(qty),
-                        unit=unit or "each",
-                        source_type="meal_plan",
-                        source_id=str(entry_id),
-                        source_description=(f"{recipe_name} — {meal_slot} on {meal_date}"),
-                        user_id=owner,
-                        recipe_id=recipe_id,
-                        event_type="recipe_consumed",
-                    )
-                    if result.get("success"):
-                        deduction_summary.append(
-                            {
-                                "ingredient": ing_name,
-                                "product_id": product_id,
-                                "consumed": qty,
-                                "unit": unit,
-                                "remaining_display": result.get("remaining_display"),
-                                "new_level": result.get("new_level"),
-                            }
-                        )
-                    else:
-                        deduction_errors.append(
-                            {
-                                "ingredient": ing_name,
-                                "error": result.get("error"),
-                            }
-                        )
-                except Exception as e:
-                    deduction_errors.append(
-                        {
-                            "ingredient": ing_name,
-                            "error": str(e),
-                        }
-                    )
+            ingredients = _collect_scaled_ingredients(recipe_id, recipe, scale)
+            result = _deduct_ingredients(
+                ingredients,
+                source_type="meal_plan",
+                cook_event_id=str(entry_id),
+                recipe_id=recipe_id,
+                recipe_name=recipe_name,
+                source_description=f"{recipe_name} — {meal_slot} on {meal_date}",
+                user_id=owner,
+                actuals=actuals,
+            )
+            deduction_summary = result["deductions"]
+            deduction_errors = result["deduction_errors"]
+            skipped_no_quantity = result["skipped_no_product_id"]
 
             if deduction_summary or not deduction_errors:
                 # Mark pantry as deducted even if some items had no pantry entry
@@ -1420,6 +1635,188 @@ def mark_meal_cooked(
         }
     finally:
         conn.close()
+
+
+def _reverse_cook_deductions(
+    cook_event_id: str, source_type: str, user_id: str | None
+) -> list[dict[str, Any]]:
+    """Restore pantry levels for a cook by adding back the exact percentage
+    points recorded in cook_deductions, then delete those ledger rows so a
+    repeat undo is a no-op. Returns the restored items."""
+    from ..analytics.pantry import get_pantry_item, update_pantry_level
+
+    owner = _resolve_user_id(user_id)
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT product_id, deducted_percent FROM cook_deductions "
+            "WHERE cook_event_id = ? AND source_type = ? AND user_id = ?",
+            (cook_event_id, source_type, owner),
+        )
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+
+    restored = []
+    for row in rows:
+        item = get_pantry_item(row["product_id"], owner)
+        if item is None:
+            continue
+        current = item.get("level_percent") or 0
+        new_level = min(100, int(round(current + row["deducted_percent"])))
+        update_pantry_level(row["product_id"], new_level, user_id=owner)
+        restored.append({"product_id": row["product_id"], "restored_to_level": new_level})
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM cook_deductions "
+            "WHERE cook_event_id = ? AND source_type = ? AND user_id = ?",
+            (cook_event_id, source_type, owner),
+        )
+    return restored
+
+
+def undo_meal_cooked(
+    plan_id: str, meal_date: str, meal_slot: str, user_id: str | None = None
+) -> dict[str, Any]:
+    """
+    Reverse a scheduled meal's cook: restore the pantry exactly, delete the
+    reversal-ledger rows, and clear cooked_at/pantry_deducted. Owner-scoped.
+
+    Idempotent: if the meal is not currently marked cooked (cooked_at IS NULL),
+    returns success without touching the pantry.
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT id, cooked_at FROM meal_entries "
+            "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? AND user_id = ?",
+            (plan_id, meal_date, meal_slot, owner),
+        )
+        entry = cursor.fetchone()
+    finally:
+        conn.close()
+
+    if not entry:
+        return {"success": False, "error": f"No meal at {meal_slot} on {meal_date}"}
+    if not entry["cooked_at"]:
+        return {"success": True, "reversed": [], "message": "Meal was not marked cooked."}
+
+    entry_id = entry["id"]
+    restored = _reverse_cook_deductions(str(entry_id), "meal_plan", owner)
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "UPDATE meal_entries SET cooked_at = NULL, pantry_deducted = 0 "
+            "WHERE id = ? AND user_id = ?",
+            (entry_id, owner),
+        )
+
+    return {
+        "success": True,
+        "plan_id": plan_id,
+        "meal_date": meal_date,
+        "meal_slot": meal_slot,
+        "reversed": restored,
+        "message": f"Undid cook — restored {len(restored)} ingredient(s) to the pantry.",
+    }
+
+
+def cook_recipe_adhoc(
+    recipe_id: str,
+    servings_override: int | None = None,
+    deduct_pantry: bool = True,
+    user_id: str | None = None,
+    actuals: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """
+    Deduct a recipe's ingredients from the pantry for an ad-hoc cook
+    ("I made this") with NO scheduled meal entry. Returns a generated
+    cook_event_id grouping the deductions so they can be reversed via
+    undo_recipe_adhoc.
+
+    Args:
+        recipe_id: Recipe being cooked
+        servings_override: Servings actually made (defaults to recipe servings)
+        deduct_pantry: Whether to deduct from pantry
+        user_id: Owner. None resolves to the migration-installed default user.
+        actuals: Optional [{product_id, name, quantity, unit}] of amounts the
+            user actually used, overriding the recipe-scaled amounts.
+
+    Returns:
+        Dict with cook_event_id and pantry deduction summary
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    recipe = get_recipe(recipe_id)
+    if not recipe:
+        return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
+
+    recipe_name = recipe.get("name", recipe_id)
+    base_servings = recipe.get("servings", 4)
+    servings = servings_override or base_servings
+    scale = servings / base_servings if base_servings else 1.0
+    cook_event_id = str(uuid.uuid4())
+
+    deduction_summary = []
+    deduction_errors = []
+    skipped_no_quantity = []
+
+    if deduct_pantry:
+        ingredients = _collect_scaled_ingredients(recipe_id, recipe, scale)
+        result = _deduct_ingredients(
+            ingredients,
+            source_type="recipe_adhoc",
+            cook_event_id=cook_event_id,
+            recipe_id=recipe_id,
+            recipe_name=recipe_name,
+            source_description=f"{recipe_name} — cooked",
+            user_id=owner,
+            actuals=actuals,
+        )
+        deduction_summary = result["deductions"]
+        deduction_errors = result["deduction_errors"]
+        skipped_no_quantity = result["skipped_no_product_id"]
+
+    return {
+        "success": True,
+        "recipe_id": recipe_id,
+        "recipe_name": recipe_name,
+        "servings": servings,
+        "cook_event_id": cook_event_id,
+        "deductions": deduction_summary,
+        "deduction_errors": deduction_errors,
+        "skipped_no_product_id": skipped_no_quantity,
+        "summary": {
+            "ingredients_deducted": len(deduction_summary),
+            "errors": len(deduction_errors),
+            "skipped": len(skipped_no_quantity),
+        },
+        "message": (
+            f"Cooked '{recipe_name}'. "
+            f"Deducted {len(deduction_summary)} ingredient(s) from pantry."
+        ),
+    }
+
+
+def undo_recipe_adhoc(cook_event_id: str, user_id: str | None = None) -> dict[str, Any]:
+    """
+    Reverse an ad-hoc cook's pantry deduction by its cook_event_id. Owner-scoped.
+    Idempotent: a second call finds no ledger rows and restores nothing.
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    restored = _reverse_cook_deductions(cook_event_id, "recipe_adhoc", owner)
+    return {
+        "success": True,
+        "cook_event_id": cook_event_id,
+        "reversed": restored,
+        "message": f"Undid cook — restored {len(restored)} ingredient(s) to the pantry.",
+    }
 
 
 def check_meal_pantry_availability(
