@@ -227,10 +227,11 @@
     border-top: 1px solid var(--border); margin-top: 0.2rem;
   }
 
-  /* ─── Mobile (≤480px): drag column collapses; everything else holds. The
-     5-column grid is already tight, so we just hide the drag gutter and
-     reflow the popover within the viewport. */
-  @media (max-width: 480px) {
+  /* ─── Narrow viewport (≤600px): drop the drag gutter so the ingredient name
+     and step text keep room instead of collapsing to a sliver. Each row type
+     is re-specced to the exact remaining track count (dropping a hidden child
+     from a grid otherwise shifts the surviving cells into the wrong tracks). */
+  @media (max-width: 600px) {
     .ss-autocomplete-popover {
       min-width: 0;
       width: calc(100vw - 2rem);
@@ -239,11 +240,20 @@
       right: 0;
     }
     [data-recipe-mode="edit"] .ss-drag-handle { display: none; }
+    /* Ingredient rows, header, and the add-row → qty · unit · name · action */
     [data-recipe-mode="edit"] [data-ingredient-row],
-    [data-recipe-mode="edit"] .ing-columns {
-      grid-template-columns: 2.75rem 3.5rem 1fr 1.5rem !important;
+    [data-recipe-mode="edit"] .ing-columns,
+    [data-recipe-mode="edit"] .ing-add-row {
+      grid-template-columns: 2.5rem 3.5rem 1fr 1.25rem !important;
+      gap: 0.5rem !important;
     }
-    [data-recipe-mode="edit"] .ing-columns > span:first-child { display: none; }
+    [data-recipe-mode="edit"] .ing-columns > span:first-child,
+    [data-recipe-mode="edit"] .ing-add-row > span:first-child { display: none; }
+    /* Step rows → number · text · delete (drag handle is hidden above) */
+    [data-recipe-mode="edit"] .step-row {
+      grid-template-columns: 1.5rem 1fr auto !important;
+      gap: 0.5rem !important;
+    }
   }
 
   /* ─── Ingredient row — refined arrangement ─────────────────────────────
@@ -1353,7 +1363,7 @@
            Enter on the name triggers the add and the autocomplete popover
            opens on the new row immediately so linking is one keystroke away. -->
       <div x-data="{ addQ: '', addU: '', addN: '' }"
-        class="grid items-baseline edit-only"
+        class="grid items-baseline edit-only ing-add-row"
         style="grid-template-columns: 0.5rem 2.25rem 4.5rem 1fr 1.5rem; gap: 0.75rem; padding: 0.7rem 0 0.4rem; border-top: 1px dashed oklch(90% 0.015 80); margin-top: 0.5rem;">
         <span></span>
         <input x-model="addQ" type="text" inputmode="decimal" placeholder="qty"

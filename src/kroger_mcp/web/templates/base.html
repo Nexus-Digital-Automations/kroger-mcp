@@ -164,6 +164,22 @@
       letter-spacing: -0.02em;
     }
 
+    /* Drawer toggle — only rendered below lg (lg:hidden); sits left of the title. */
+    .ss-nav-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.5rem;
+      height: 2.5rem;
+      margin-left: -0.5rem;
+      margin-right: 0.5rem;
+      border-radius: 0.5rem;
+      color: var(--text-2);
+      flex-shrink: 0;
+      transition: background-color 0.12s, color 0.12s;
+    }
+    .ss-nav-toggle:hover { background-color: oklch(94% 0.012 80); color: var(--text-1); }
+
     /* ── Shared component helpers ────────────── */
     .ss-card {
       background-color: var(--surface);
@@ -340,7 +356,7 @@
     }
   </style>
 </head>
-<body class="min-h-screen flex">
+<body class="min-h-screen flex" x-data="{ navOpen: false }" @keydown.escape.window="navOpen = false">
 
   {# Server-rendered action-menu target entities. Pages that include cards
      with Actions dropdowns pass the `action_menu_data` dict via
@@ -353,8 +369,9 @@
   }}</script>
 
 
-  <!-- Sidebar -->
-  <aside class="ss-sidebar fixed inset-y-0 left-0 w-56 flex flex-col z-10">
+  <!-- Sidebar — pinned on desktop, off-canvas drawer below lg (toggled by navOpen) -->
+  <aside class="ss-sidebar fixed inset-y-0 left-0 w-56 flex flex-col z-40 transition-transform duration-200 -translate-x-full lg:translate-x-0"
+    :class="{ 'translate-x-0': navOpen }">
 
     <!-- Brand -->
     <div class="h-14 flex items-center px-4 flex-shrink-0" style="border-bottom: 1px solid var(--sidebar-border);">
@@ -370,7 +387,7 @@
     </div>
 
     <!-- Nav -->
-    <nav class="flex-1 px-2 py-2 overflow-y-auto" aria-label="Main navigation">
+    <nav class="flex-1 px-2 py-2 overflow-y-auto" aria-label="Main navigation" @click="navOpen = false">
 
       <a href="/dashboard" class="sidebar-link {% if active_page == 'dashboard' %}active{% endif %}">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -437,11 +454,21 @@
     </nav>
   </aside>
 
+  <!-- Scrim behind the drawer on narrow viewports; tap to dismiss -->
+  <div x-show="navOpen" x-cloak x-transition.opacity @click="navOpen = false"
+    class="fixed inset-0 bg-black/30 z-30 lg:hidden" aria-hidden="true"></div>
+
   <!-- Main -->
   <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-green-800 focus:px-4 focus:py-2 focus:rounded focus:shadow-lg">Skip to main content</a>
 
-  <main id="main-content" class="ml-56 flex-1 min-h-screen flex flex-col">
+  <main id="main-content" class="lg:ml-56 flex-1 min-h-screen flex flex-col">
     <header class="ss-header flex-shrink-0">
+      <button type="button" @click="navOpen = true" aria-label="Open navigation"
+        class="ss-nav-toggle lg:hidden">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </button>
       <h1 class="ss-page-title">{% block heading %}{% endblock %}</h1>
     </header>
     <div class="p-8 flex-1">
