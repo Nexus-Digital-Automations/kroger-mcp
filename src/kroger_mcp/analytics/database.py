@@ -613,6 +613,21 @@ def run_schema_migrations() -> None:
     try:
         conn.execute("BEGIN")
 
+        # Per-user key/value preferences (location, servings, consent flags, …).
+        # Normally created by scripts/migrate_to_multi_tenant.py; created here too
+        # so fresh installs and the consent layer work without the full migration.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_settings (
+                user_id TEXT NOT NULL,
+                setting_key TEXT NOT NULL,
+                setting_value TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, setting_key)
+            )
+            """
+        )
+
         # Get existing columns in product_statistics
         cursor = conn.execute("PRAGMA table_info(product_statistics)")
         existing_columns = {row[1] for row in cursor.fetchall()}

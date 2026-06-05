@@ -38,6 +38,7 @@ from .tools import (
     meal_planner_tools,
     notion_tools,
     prediction_tools,
+    privacy_tools,
     product_tools,
     recipe_tools,
     reporting_tools,
@@ -280,6 +281,7 @@ def create_server() -> FastMCP:
     _register(favorites_tools, "favorites_tools")
     _register(meal_planner_tools, "meal_planner_tools")
     _register(safety_tools, "safety_tools")
+    _register(privacy_tools, "privacy_tools")
     _register(deal_tools, "deal_tools")
     _register(ingredient_management_tools, "ingredient_management_tools")
     _register(shopping_list_tools, "shopping_list_tools")

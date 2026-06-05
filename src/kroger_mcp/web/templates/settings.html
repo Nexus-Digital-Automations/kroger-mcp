@@ -12,6 +12,10 @@
   searching: false,
   msg: {},
 
+  // Data-sharing consent (opt-in; all categories off until enabled)
+  consent: { decided: false, categories: [] },
+  consentSaving: false,
+
   // Kroger connection state
   authStatus: '{{ auth_status }}',
   authLoading: false,
@@ -28,9 +32,50 @@
   init() {
     this.loadAuthStatus();
     this.loadCredentials();
+    this.loadConsent();
     if (this.oauthResult) {
       setTimeout(() => { this.oauthResult = ''; }, 6000);
     }
+  },
+
+  async loadConsent() {
+    try {
+      const s = await window.api.get('/api/settings/consent');
+      this.consent.decided = !!s.decided;
+      this.consent.categories = Object.entries(s.categories).map(([key, c]) => ({
+        key, label: c.label, description: c.description, enabled: !!c.enabled,
+      }));
+    } catch (e) {}
+  },
+  async saveConsent() {
+    this.consentSaving = true;
+    const updates = {};
+    this.consent.categories.forEach(c => { updates[c.key] = c.enabled; });
+    try {
+      await window.api.post('/api/settings/consent', { updates });
+      this.consent.decided = true;
+      this.toast('Privacy choices saved');
+    } catch (e) {}
+    this.consentSaving = false;
+  },
+  async withdrawConsent() {
+    if (!confirm('Turn off all data sharing? Nothing further will be shared.')) return;
+    try {
+      await window.api.post('/api/settings/consent/withdraw');
+      await this.loadConsent();
+      this.toast('All data sharing turned off');
+    } catch (e) {}
+  },
+  async deleteSharedData() {
+    if (!confirm('Delete your shared data and turn off sharing? This cannot be undone.')) return;
+    try {
+      await window.api.delete('/api/settings/consent/data');
+      await this.loadConsent();
+      this.toast('Shared data deleted');
+    } catch (e) {}
+  },
+  toast(message) {
+    window.dispatchEvent(new CustomEvent('toast:show', { detail: { message, level: 'ok' } }));
   },
 
   async loadAuthStatus() {
@@ -235,6 +280,36 @@
       class="ss-btn-primary">
       Save
     </button>
+  </div>
+</div>
+
+<!-- Privacy & Data -->
+<div class="ss-card p-6">
+  <h2 class="text-sm font-semibold text-gray-700 mb-1">Privacy &amp; Data</h2>
+  <p class="text-xs text-gray-500 mb-4">
+    Choose what anonymized, aggregated trends you contribute. Never your name,
+    account, or individual baskets. Everything is off unless you turn it on, and
+    declining never affects how the app works for you.
+  </p>
+
+  <div class="space-y-2 mb-4">
+    <template x-for="cat in consent.categories" :key="cat.key">
+      <label style="display:flex; gap:0.625rem; align-items:flex-start; padding:0.625rem 0.75rem; border:1px solid var(--border); border-radius:0.625rem; cursor:pointer;">
+        <input type="checkbox" x-model="cat.enabled" style="margin-top:0.2rem;"/>
+        <span>
+          <span class="text-sm font-medium text-gray-800" x-text="cat.label"></span>
+          <span class="block text-xs text-gray-500 leading-snug" x-text="cat.description"></span>
+        </span>
+      </label>
+    </template>
+  </div>
+
+  <div class="flex items-center gap-3 flex-wrap">
+    <button @click="saveConsent()" :disabled="consentSaving" class="ss-btn-primary">
+      <span x-text="consentSaving ? 'Saving…' : 'Save choices'"></span>
+    </button>
+    <button @click="withdrawConsent()" class="ss-btn-ghost text-xs">Turn off all sharing</button>
+    <button @click="deleteSharedData()" class="ss-btn-danger text-xs">Delete my shared data</button>
   </div>
 </div>
 

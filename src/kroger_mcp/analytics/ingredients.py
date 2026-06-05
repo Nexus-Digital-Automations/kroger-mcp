@@ -331,7 +331,7 @@ BAD_INGREDIENTS: list[IngredientInfo] = [
         category="emulsifier",
     ),
     IngredientInfo(
-        key="polysorbate_80",
+        key="polysorbate_80",  # gitleaks:allow - additive identifier, not a secret
         name="Polysorbate 80",
         aliases=["polysorbate 60", "E433", "E432", "tween 80"],
         severity=Severity.WARNING,
