@@ -37,6 +37,11 @@ class CredentialsBody(BaseModel):
     redirect_uri: str = ""
 
 
+class ConsentBody(BaseModel):
+    # Maps consent category keys to opt-in booleans; omitted keys keep their value.
+    updates: dict[str, bool] = {}
+
+
 @router.get("/api/settings")
 async def get_settings(request: Request):
     """Return current app settings for the authenticated user."""
@@ -94,6 +99,56 @@ async def set_include_spices(body: IncludeSpicesBody, request: Request):
         set_include_spices_by_default(body.include, user_id=current_user_id(request))
         return {"success": True, "include_spices_by_default": body.include}
     except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/settings/consent")
+async def get_consent_state(request: Request):
+    """Return this user's data-sharing consent state (all categories off by default)."""
+    try:
+        from kroger_mcp.analytics import consent
+
+        return consent.get_consent(user_id=current_user_id(request))
+    except Exception as exc:
+        logger.error("get_consent failed: %s", exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/consent")
+async def set_consent_state(body: ConsentBody, request: Request):
+    """Apply per-category opt-in choices and mark consent as decided."""
+    try:
+        from kroger_mcp.analytics import consent
+
+        return consent.set_consent(body.updates, user_id=current_user_id(request))
+    except KeyError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        logger.error("set_consent failed: %s", exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/consent/withdraw")
+async def withdraw_consent_state(request: Request):
+    """Disable every sharing category while keeping the decision on record."""
+    try:
+        from kroger_mcp.analytics import consent
+
+        return consent.withdraw_consent(user_id=current_user_id(request))
+    except Exception as exc:
+        logger.error("withdraw_consent failed: %s", exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.delete("/api/settings/consent/data")
+async def delete_shared_consent_data(request: Request):
+    """Withdraw consent and purge any shared-derived data for this user."""
+    try:
+        from kroger_mcp.analytics import consent
+
+        return consent.delete_shared_data(user_id=current_user_id(request))
+    except Exception as exc:
+        logger.error("delete_shared_data failed: %s", exc, exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 

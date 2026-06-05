@@ -530,6 +530,85 @@
     });
   </script>
 
+  <!-- ── First-run Data-Sharing Consent ───────────────────────────────
+       Opt-in by default: every category starts OFF and nothing is shared
+       until the user explicitly enables it. Shows only when the user has not
+       yet decided (GET /api/settings/consent → decided === false). "Maybe
+       later" dismisses without deciding, so it can re-prompt next visit.
+       Core app features never depend on this choice. -->
+  <div x-data="consentGate()" x-init="init()" x-cloak>
+    <div x-show="open" class="ss-modal-overlay" style="display:none;"
+         x-transition.opacity>
+      <div class="ss-modal-card" style="max-width:34rem;" @click.stop>
+        <h2 style="font-family:'Lora',serif; font-size:1.125rem; font-weight:600; color:var(--text-1); margin-bottom:0.5rem;">
+          Help improve Smart Shopper — your call
+        </h2>
+        <p style="font-size:0.8125rem; color:var(--text-2); line-height:1.5; margin-bottom:1rem;">
+          With your permission, we contribute <strong>anonymized, aggregated</strong>
+          trends — never your name, account, or individual baskets — to make
+          predictions and deals better for everyone. Everything below is
+          <strong>off</strong> until you turn it on, and you can change or delete it
+          anytime in Settings. The app works fully either way.
+        </p>
+
+        <div class="space-y-2" style="margin-bottom:1.25rem;">
+          <template x-for="cat in categories" :key="cat.key">
+            <label style="display:flex; gap:0.625rem; align-items:flex-start; padding:0.625rem 0.75rem; border:1px solid var(--border); border-radius:0.625rem; cursor:pointer;">
+              <input type="checkbox" x-model="cat.enabled" style="margin-top:0.2rem;"/>
+              <span>
+                <span style="font-size:0.8125rem; font-weight:600; color:var(--text-1);" x-text="cat.label"></span>
+                <span style="display:block; font-size:0.75rem; color:var(--text-3); line-height:1.45;" x-text="cat.description"></span>
+              </span>
+            </label>
+          </template>
+        </div>
+
+        <div class="flex items-center justify-between gap-3">
+          <a href="/settings" style="font-size:0.75rem; color:var(--text-3); text-decoration:underline;">Privacy details</a>
+          <div class="flex items-center gap-2">
+            <button @click="dismiss()" class="ss-btn-ghost" style="font-size:0.8125rem;">Maybe later</button>
+            <button @click="save()" :disabled="saving" class="ss-btn-primary" style="font-size:0.8125rem;">
+              <span x-text="saving ? 'Saving…' : 'Save choices'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('consentGate', () => ({
+        open: false,
+        saving: false,
+        categories: [],
+        async init() {
+          try {
+            const state = await window.api.get('/api/settings/consent');
+            if (!state || state.decided) return; // already decided → never prompt
+            this.categories = Object.entries(state.categories).map(([key, c]) => ({
+              key, label: c.label, description: c.description, enabled: !!c.enabled,
+            }));
+            this.open = true;
+          } catch (e) { /* unauthenticated or offline — stay silent, never block */ }
+        },
+        async save() {
+          this.saving = true;
+          const updates = {};
+          this.categories.forEach(c => { updates[c.key] = c.enabled; });
+          try {
+            await window.api.post('/api/settings/consent', { updates });
+            this.open = false;
+            window.dispatchEvent(new CustomEvent('toast:show', {
+              detail: { message: 'Privacy choices saved', level: 'ok' },
+            }));
+          } catch (e) { /* api-client already surfaced an error toast */ }
+          this.saving = false;
+        },
+        dismiss() { this.open = false; }, // stays undecided → may re-prompt later
+      }));
+    });
+  </script>
+
   <!-- ── Chat Widget ──────────────────────────────────────────────── -->
   <div x-data="chatWidget()" x-init="init()" @keydown.escape.window="open = false" class="fixed bottom-6 right-6 z-50" style="font-family: 'DM Sans', sans-serif;">
 
