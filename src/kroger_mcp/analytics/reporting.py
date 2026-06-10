@@ -54,7 +54,7 @@ def generate_spending_report(days_back: int = 30, group_by: str = "category") ->
         unique_products = len(set(e["product_id"] for e in events))
 
         # Group by category
-        by_category = {}
+        by_category: dict[str, dict[str, Any]] = {}
         for e in events:
             cat = e.get("category_type") or "uncategorized"
             if cat not in by_category:
@@ -76,7 +76,7 @@ def generate_spending_report(days_back: int = 30, group_by: str = "category") ->
         category_breakdown.sort(key=lambda x: x["item_count"], reverse=True)
 
         # Most frequent products
-        product_counts = {}
+        product_counts: dict[str, dict[str, Any]] = {}
         for e in events:
             pid = e["product_id"]
             if pid not in product_counts:
@@ -394,7 +394,10 @@ def export_all_data(
     """
     ensure_initialized()
 
-    export = {"export_date": datetime.now().isoformat(), "version": "1.0"}
+    export: dict[str, Any] = {
+        "export_date": datetime.now().isoformat(),
+        "version": "1.0",
+    }
 
     conn = get_db_connection()
     try:

@@ -186,7 +186,7 @@ def register_tools(mcp):
             default=None,
             description="How the gap was resolved (resolve_gap)",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Pantry inventory tracking with auto-depletion modeling.
 
@@ -720,7 +720,7 @@ def register_tools(mcp):
             default=None,
             description="Max days between purchases for regular",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Purchase predictions and analytics.
 

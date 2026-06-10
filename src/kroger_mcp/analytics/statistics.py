@@ -61,7 +61,7 @@ def calculate_consumption_rate(
     decay = alpha if alpha is not None else config.ewma_alpha
 
     # Calculate intervals and quantities between purchases
-    intervals = []
+    intervals: list[float] = []
     quantities = []
     for i in range(1, len(purchase_events)):
         prev_date = _parse_date(purchase_events[i - 1].get("event_date", ""))

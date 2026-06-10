@@ -95,7 +95,7 @@ def register_tools(mcp):
             default=None,
             description="Batch unapprove/unblock: list of product IDs",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Ingredient safety filter and product management operations."""
         return await asyncio.to_thread(

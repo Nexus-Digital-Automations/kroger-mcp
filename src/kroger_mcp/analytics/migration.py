@@ -53,7 +53,7 @@ def migrate_json_to_sqlite() -> dict[str, Any]:
     initialize_database()
 
     conn = get_db_connection()
-    migrated = {"orders": 0, "items": 0, "products": set()}
+    migrated: dict[str, Any] = {"orders": 0, "items": 0, "products": set()}
 
     try:
         # Migrate order history

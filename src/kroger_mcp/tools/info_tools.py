@@ -47,7 +47,7 @@ def register_tools(mcp):
             default=None,
             description="Number of servings 1-20",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Store info and user preferences.
 

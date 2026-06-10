@@ -52,7 +52,7 @@ def register_tools(mcp):
             default=None,
             description="Store location ID",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Store location management operations."""
         match action:

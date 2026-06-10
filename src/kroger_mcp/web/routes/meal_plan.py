@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -97,7 +98,7 @@ def _build_calendar(plan, entries, recipe_map, week_offset: int = 0):
 
     calendar = []
     for slot in SLOTS:
-        row = {"slot": slot, "cells": []}
+        row: dict[str, Any] = {"slot": slot, "cells": []}
         for day in week_dates:
             date_str = day.isoformat()
             entry = entry_map.get((date_str, slot))

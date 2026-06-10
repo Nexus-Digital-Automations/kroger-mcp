@@ -187,7 +187,13 @@ def generate_shopping_list(
     conn = get_db_connection()
     try:
         all_ingredients = []
-        recipe_names = {}
+        recipe_names: dict[str, str] = {}
+
+        def _recipe_name_for(ing: dict[str, Any]) -> str | None:
+            key = ing.get("from_recipe")
+            if key is None:
+                return None
+            return recipe_names.get(str(key))
 
         # Gather ingredients from all recipes
         for recipe_id in recipe_ids:
@@ -210,8 +216,8 @@ def generate_shopping_list(
             return {"success": False, "error": "No ingredients found for specified recipes"}
 
         # Group and optionally combine ingredients
-        shopping_items = {}
-        optional_items = {}
+        shopping_items: dict[str, dict[str, Any]] = {}
+        optional_items: dict[str, dict[str, Any]] = {}
         skipped_items = []
 
         for ing in all_ingredients:
@@ -229,7 +235,7 @@ def generate_shopping_list(
                         {
                             "ingredient": ing.get("name"),
                             "pantry_level": pantry_item.get("level_percent"),
-                            "from_recipe": recipe_names.get(ing.get("from_recipe")),
+                            "from_recipe": _recipe_name_for(ing),
                         }
                     )
                     continue
@@ -244,7 +250,7 @@ def generate_shopping_list(
                 existing = target[key]
                 if existing.get("unit") == unit:
                     existing["quantity"] = (existing.get("quantity") or 0) + quantity
-                    existing["from_recipes"].append(recipe_names.get(ing.get("from_recipe")))
+                    existing["from_recipes"].append(_recipe_name_for(ing))
             else:
                 target[key] = {
                     "ingredient": ing.get("name"),
@@ -252,7 +258,7 @@ def generate_shopping_list(
                     "unit": unit,
                     "product_id": product_id,
                     "product_description": ing.get("product_description"),
-                    "from_recipes": [recipe_names.get(ing.get("from_recipe"))],
+                    "from_recipes": [_recipe_name_for(ing)],
                 }
 
         return {

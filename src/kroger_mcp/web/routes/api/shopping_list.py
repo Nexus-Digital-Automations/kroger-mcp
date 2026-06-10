@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -324,7 +325,7 @@ async def add_shopping_list_item(body: AddItemBody, request: Request):
     try:
         user_id = current_user_id(request)
         listing = _load_shopping_list(user_id=user_id)
-        new_item = {
+        new_item: dict[str, Any] = {
             "id": _generate_list_item_id(),
             "product_id": body.product_id,
             "name": body.name,

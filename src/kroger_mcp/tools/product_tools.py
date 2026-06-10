@@ -7,7 +7,7 @@ import functools
 from datetime import datetime
 from typing import Any, Literal
 
-import requests
+import requests  # type: ignore[import-untyped]  # stub (types-requests) unresolved in mypy tool env
 from fastmcp import Context
 from fastmcp.utilities.types import Image
 from pydantic import Field
@@ -226,7 +226,7 @@ def register_tools(mcp):
             default=False,
             description="Auto-add qualifying products",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> Any:
         """Product search with batch support and safety integration.
 

@@ -213,7 +213,7 @@ def register_tools(mcp):
         notes: str | None = Field(default=None, description="Item notes"),
         modality: str | None = Field(default=None, description="PICKUP or DELIVERY"),
         confirm: bool | None = Field(default=None, description="False=preview, True=execute"),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Shopping list — intermediate buffer between recipes and cart.
 

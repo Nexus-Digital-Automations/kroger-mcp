@@ -72,7 +72,7 @@ def register_tools(mcp):
             default=True,
             description="Combine same ingredients across recipes",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Reporting and analytics operations."""
         return await asyncio.to_thread(

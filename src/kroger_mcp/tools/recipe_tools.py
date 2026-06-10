@@ -233,7 +233,7 @@ def register_tools(mcp):
             default=None,
             description="True to confirm add after preview",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Recipe management with Kroger product linking.
 

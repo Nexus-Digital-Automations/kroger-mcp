@@ -9,7 +9,7 @@ def register_prompts(mcp):
     """Register prompts with the FastMCP server"""
 
     @mcp.prompt()
-    async def grocery_list_store_path(grocery_list: str, ctx: Context = None) -> str:
+    async def grocery_list_store_path(grocery_list: str, ctx: Context | None = None) -> str:
         """
         Generate a prompt asking for the optimal path through a store based on a grocery list.
 
@@ -31,7 +31,7 @@ IMPORTANT: Please only organize my shopping path - DO NOT add any items to my ca
 """
 
     @mcp.prompt()
-    async def pharmacy_open_check(ctx: Context = None) -> str:
+    async def pharmacy_open_check(ctx: Context | None = None) -> str:
         """
         Generate a prompt asking whether a pharmacy at the preferred Kroger location is open.
 
@@ -50,7 +50,7 @@ Please use the get_location_details tool to find this information for my preferr
 """
 
     @mcp.prompt()
-    async def set_preferred_store(zip_code: str | None = None, ctx: Context = None) -> str:
+    async def set_preferred_store(zip_code: str | None = None, ctx: Context | None = None) -> str:
         """
         Generate a prompt to help the user set their preferred Kroger store.
 
@@ -75,7 +75,7 @@ For each store, please show the full address, distance, and any special features
 
     @mcp.prompt()
     async def add_recipe_to_cart(
-        recipe_type: str = "classic apple pie", ctx: Context = None
+        recipe_type: str = "classic apple pie", ctx: Context | None = None
     ) -> str:
         """
         Generate a prompt to find a specific recipe and add ingredients to cart. (default: classic apple pie)
@@ -114,7 +114,7 @@ and getting my explicit "yes, add to cart" confirmation.
 
     @mcp.prompt()
     async def smart_shopping_list(
-        days_ahead: int = 7, include_seasonal: bool = True, ctx: Context = None
+        days_ahead: int = 7, include_seasonal: bool = True, ctx: Context | None = None
     ) -> str:
         """
         Generate a smart shopping list based on purchase history and predictions.
@@ -156,7 +156,7 @@ Focus on items with high confidence predictions and don't suggest things I rarel
 """
 
     @mcp.prompt()
-    async def categorize_my_items(ctx: Context = None) -> str:
+    async def categorize_my_items(ctx: Context | None = None) -> str:
         """
         Generate a prompt to review and categorize tracked items.
 
@@ -179,7 +179,7 @@ After reviewing, let me know if I should manually categorize any items different
 """
 
     @mcp.prompt()
-    async def purchase_insights(ctx: Context = None) -> str:
+    async def purchase_insights(ctx: Context | None = None) -> str:
         """
         Generate a prompt for analyzing purchase patterns and insights.
 
@@ -200,7 +200,7 @@ Present this as a brief shopping intelligence report with actionable recommendat
 """
 
     @mcp.prompt()
-    async def order_saved_recipe(recipe_name: str = "carbonara", ctx: Context = None) -> str:
+    async def order_saved_recipe(recipe_name: str = "carbonara", ctx: Context | None = None) -> str:
         """
         Generate a prompt to order ingredients from a saved recipe with confirmation.
 

@@ -14,7 +14,7 @@ from typing import Any
 from .database import ensure_initialized, get_db_connection
 
 # Built-in holiday patterns with shopping lead times
-HOLIDAY_PATTERNS = {
+HOLIDAY_PATTERNS: dict[str, dict[str, Any]] = {
     "thanksgiving": {
         "months": [10, 11],
         "peak_weeks": [45, 46, 47],

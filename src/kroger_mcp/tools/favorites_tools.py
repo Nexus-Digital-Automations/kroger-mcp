@@ -138,7 +138,7 @@ def register_tools(mcp):
             default=10,
             description="Max suggestions to return",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Favorite list management operations.
 

@@ -63,7 +63,12 @@ def calculate_recommendation_score(product_data: dict[str, Any]) -> tuple[int, d
         Tuple of (total_score: int, factors: Dict) where score is 0-100
     """
     score = 0
-    factors = {"urgency": {}, "deals": {}, "relevance": {}, "timing": {}}
+    factors: dict[str, Any] = {
+        "urgency": {},
+        "deals": {},
+        "relevance": {},
+        "timing": {},
+    }
 
     # 1. URGENCY FACTORS (0-55 points max, expiration + pantry can stack)
     urgency_score = 0
@@ -357,7 +362,9 @@ def get_comprehensive_recommendations(
 
             # Get price/deal data
             if include_deals:
-                price_stats = get_price_statistics(product_id, location_id)
+                price_stats = get_price_statistics(
+                    product_id, location_id=location_id
+                )
                 if price_stats:
                     product_data["current_price"] = price_stats.get("current_price")
                     product_data["on_sale"] = price_stats.get("on_sale", False)
@@ -437,7 +444,7 @@ def get_comprehensive_recommendations(
         recommendations = recommendations[:max_results]
 
         # Group by priority tier
-        grouped = {
+        grouped: dict[str, list[dict[str, Any]]] = {
             "urgent_needs": [],
             "high_value_deals": [],
             "good_timing": [],

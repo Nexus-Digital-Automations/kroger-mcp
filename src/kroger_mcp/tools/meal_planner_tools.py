@@ -171,7 +171,7 @@ def register_tools(mcp):
             default=True,
             description="mark_cooked: True to mark as cooked, False to unmark",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Meal plan management with integrated shopping.
 

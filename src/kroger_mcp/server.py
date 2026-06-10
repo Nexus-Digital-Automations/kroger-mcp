@@ -72,7 +72,7 @@ def create_server() -> FastMCP:
     # Once FastMCP startup hooks are implemented, schedule it there.
 
     # Initialize the FastMCP server
-    mcp = FastMCP(
+    mcp: FastMCP = FastMCP(
         name="Kroger API Server",
         instructions="""
         This MCP server provides access to Kroger's API for grocery shopping functionality.

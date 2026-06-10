@@ -114,7 +114,10 @@ def record_cart_add(
             (product_id, quantity, modality, price, now.strftime("%Y-%m-%d"), now.isoformat()),
         )
         conn.commit()
-        return cursor.lastrowid
+        event_id = cursor.lastrowid
+        if event_id is None:
+            raise RuntimeError("Failed to record cart-add event")
+        return event_id
     finally:
         conn.close()
 
@@ -151,10 +154,15 @@ def record_order(cart_items: list[dict[str, Any]], order_notes: str | None = Non
             (now.isoformat(), item_count, total_quantity, order_notes),
         )
         order_id = cursor.lastrowid
+        if order_id is None:
+            raise RuntimeError("Failed to create order record")
 
         # Record purchase events for each item
         for item in cart_items:
             product_id = item.get("product_id")
+            if product_id is None:
+                continue
+            product_id = str(product_id)
             quantity = item.get("quantity", 1)
             modality = item.get("modality", "PICKUP")
 
@@ -238,7 +246,7 @@ def get_purchase_events(
             SELECT * FROM purchase_events
             WHERE product_id = ?
         """
-        params = [product_id]
+        params: list[Any] = [product_id]
 
         if event_type:
             query += " AND event_type = ?"

@@ -136,7 +136,7 @@ def _add_item_to_local_cart(
     product_id: str,
     quantity: int,
     modality: str,
-    product_details: dict[str, Any] = None,
+    product_details: dict[str, Any] | None = None,
 ) -> None:
     """Add an item to the local cart tracking and analytics database"""
     cart_data = _load_cart_data()
@@ -262,7 +262,7 @@ def register_tools(mcp):
             default=30,
             description="Skip items above this pantry %",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Cart management operations.
 
@@ -424,7 +424,11 @@ def register_tools(mcp):
                                         {
                                             "product_id": pid,
                                             "description": description,
-                                            "severity": safety_result.highest_severity.value,
+                                            "severity": (
+                                            safety_result.highest_severity.value
+                                            if safety_result.highest_severity
+                                            else ""
+                                        ),
                                             "flagged_ingredients": [
                                                 {
                                                     "ingredient": match.ingredient_name,

@@ -114,7 +114,7 @@ def register_tools(mcp):
             default=True,
             description="Include system overrides in export",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Customize the ingredient safety filter.
 

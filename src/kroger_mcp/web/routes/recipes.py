@@ -3,6 +3,7 @@
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -34,9 +35,9 @@ def _parse_instructions(text: str) -> list[dict]:
             pass
     # Normalize literal \n escape sequences to real newlines
     text = text.replace("\\n", "\n")
-    groups = []
-    current_header = None
-    current_steps = []
+    groups: list[dict[str, Any]] = []
+    current_header: str | None = None
+    current_steps: list[str] = []
     for line in text.split("\n"):
         line = line.strip()
         if not line:

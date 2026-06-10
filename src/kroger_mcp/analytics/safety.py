@@ -98,7 +98,7 @@ class ProductSafetyStatus:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        result = {
+        result: dict[str, Any] = {
             "product_id": self.product_id,
             "safety_status": self.status.value,
             "is_safe_listed": self.is_safe_listed,

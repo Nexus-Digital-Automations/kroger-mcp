@@ -909,7 +909,12 @@ def bulk_assign_meals(
     if not assignments:
         return {"success": False, "error": "No assignments provided"}
 
-    results = {"success": True, "assigned": 0, "failed": 0, "errors": []}
+    results: dict[str, Any] = {
+        "success": True,
+        "assigned": 0,
+        "failed": 0,
+        "errors": [],
+    }
 
     for assignment in assignments:
         result = assign_meal(
@@ -1091,24 +1096,18 @@ def generate_meal_plan_shopping_list(
             }
         recipe_info[recipe_id]["times_used"] += 1
 
-        # Use recursive collector for sub-recipe/side support
-        try:
-            from ..tools.recipe_tools import _collect_ingredients_recursive
-
-            collected = _collect_ingredients_recursive(recipe_id, scale)
-            collected_ings = collected.get("ingredients", [])
-        except Exception:
-            # Fallback to direct ingredients if import fails
-            collected_ings = [
-                {
-                    "name": ing.get("name", "Unknown"),
-                    "product_id": ing.get("product_id"),
-                    "scaled_quantity": _safe_float(ing.get("quantity"), 1) * scale,
-                    "unit": ing.get("unit", ""),
-                    "from_recipe_name": recipe.get("name"),
-                }
-                for ing in recipe.get("ingredients", [])
-            ]
+        # Direct ingredient list scaled to servings. (A recursive sub-recipe
+        # collector was planned but never implemented; this is the live path.)
+        collected_ings = [
+            {
+                "name": ing.get("name", "Unknown"),
+                "product_id": ing.get("product_id"),
+                "scaled_quantity": _safe_float(ing.get("quantity"), 1) * scale,
+                "unit": ing.get("unit", ""),
+                "from_recipe_name": recipe.get("name"),
+            }
+            for ing in recipe.get("ingredients", [])
+        ]
 
         for ing in collected_ings:
             ing_name = ing.get("name", "Unknown")
@@ -1175,7 +1174,7 @@ def generate_meal_plan_shopping_list(
         if user_skip:
             action = "SKIP"
             reason = "User specified to skip"
-        elif in_pantry and pantry_level >= pantry_threshold:
+        elif pantry_level is not None and pantry_level >= pantry_threshold:
             action = "SKIP"
             reason = f"Pantry: {pantry_level}% remaining"
         elif not product_id:
@@ -1234,25 +1233,20 @@ def generate_meal_plan_shopping_list(
 def _collect_scaled_ingredients(
     recipe_id: str, recipe: dict[str, Any], scale: float
 ) -> list[dict[str, Any]]:
-    """Recipe ingredients scaled to the meal's servings, flattening sub-recipes
-    when the recursive collector is available; falls back to the recipe's own
-    ingredient list otherwise."""
-    try:
-        from ..tools.recipe_tools import _collect_ingredients_recursive
+    """Recipe ingredients scaled to the meal's servings.
 
-        collected = _collect_ingredients_recursive(recipe_id, scale)
-        return collected.get("ingredients", [])
-    except Exception as exc:
-        logger.debug("sub-recipe collect failed for %s, using direct ingredients: %s", recipe_id, exc)
-        return [
-            {
-                "name": ing.get("name", ""),
-                "scaled_quantity": (ing.get("quantity") or 1) * scale,
-                "unit": ing.get("unit", ""),
-                "product_id": ing.get("product_id"),
-            }
-            for ing in recipe.get("ingredients", [])
-        ]
+    A recursive sub-recipe collector was planned but never implemented, so this
+    returns the recipe's own ingredient list scaled by ``scale``.
+    """
+    return [
+        {
+            "name": ing.get("name", ""),
+            "scaled_quantity": (ing.get("quantity") or 1) * scale,
+            "unit": ing.get("unit", ""),
+            "product_id": ing.get("product_id"),
+        }
+        for ing in recipe.get("ingredients", [])
+    ]
 
 
 def _pantry_status(level: int | None, low_threshold: int | None) -> str:
@@ -1868,28 +1862,22 @@ def check_meal_pantry_availability(
         servings = entry["servings_override"] or base_servings
         scale = servings / base_servings if base_servings else 1.0
 
-        # Collect ingredients
-        try:
-            from ..tools.recipe_tools import _collect_ingredients_recursive
+        # Collect ingredients scaled to the chosen servings.
+        ingredients = [
+            {
+                "name": ing.get("name", ""),
+                "scaled_quantity": (ing.get("quantity") or 1) * scale,
+                "unit": ing.get("unit", ""),
+                "product_id": ing.get("product_id"),
+            }
+            for ing in recipe.get("ingredients", [])
+        ]
 
-            collected = _collect_ingredients_recursive(recipe_id, scale)
-            ingredients = collected.get("ingredients", [])
-        except Exception:
-            ingredients = [
-                {
-                    "name": ing.get("name", ""),
-                    "scaled_quantity": (ing.get("quantity") or 1) * scale,
-                    "unit": ing.get("unit", ""),
-                    "product_id": ing.get("product_id"),
-                }
-                for ing in recipe.get("ingredients", [])
-            ]
+        from ..analytics.pantry import get_pantry_item
 
-        from ..analytics.pantry import check_pantry_quantity
-
-        available = []
-        not_enough = []
-        unknown = []
+        available: list[dict[str, Any]] = []
+        not_enough: list[dict[str, Any]] = []
+        unknown: list[dict[str, Any]] = []
 
         for ing in ingredients:
             ing_name = ing.get("name", "")
@@ -1897,13 +1885,26 @@ def check_meal_pantry_availability(
             qty = ing.get("scaled_quantity") or ing.get("quantity") or 0
             unit = ing.get("unit", "each")
 
-            check = check_pantry_quantity(product_id, ing_name, float(qty), unit)
-            check["ingredient"] = ing_name
-            check["needed_display"] = f"{qty} {unit}".strip()
+            # Level-based availability — the pantry tracks level_percent, not an
+            # absolute count, so "enough" means the item is stocked above its low
+            # threshold (status "ok"), mirroring _build_cook_preview_ingredients.
+            item = get_pantry_item(product_id, owner) if product_id else None
+            level = item.get("level_percent") if item else None
+            threshold = item.get("low_threshold", 20) if item else None
+            in_pantry = item is not None
+            has_enough = in_pantry and _pantry_status(level, threshold) == "ok"
+            check = {
+                "product_id": product_id,
+                "ingredient": ing_name,
+                "needed_display": f"{qty} {unit}".strip(),
+                "in_pantry": in_pantry,
+                "has_enough": has_enough,
+                "current_level_percent": level,
+            }
 
-            if not check["in_pantry"]:
+            if not in_pantry:
                 unknown.append(check)
-            elif check["has_enough"]:
+            elif has_enough:
                 available.append(check)
             else:
                 not_enough.append(check)

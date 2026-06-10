@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -36,7 +37,7 @@ class CartAddBody(BaseModel):
 async def add_to_cart(body: CartAddBody):
     """Add a single item to the local cart."""
     try:
-        product_details = {}
+        product_details: dict[str, Any] = {}
         if body.description:
             product_details["description"] = body.description
         if body.brand:

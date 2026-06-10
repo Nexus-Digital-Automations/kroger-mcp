@@ -1445,7 +1445,7 @@ def get_active_ingredients(include_custom: bool = True) -> list[dict[str, Any]]:
     from kroger_mcp.analytics.database import get_db_connection
 
     # Start with system defaults
-    ingredients = []
+    ingredients: list[dict[str, Any]] = []
     for ing in BAD_INGREDIENTS:
         ingredients.append(
             {
@@ -1472,25 +1472,25 @@ def get_active_ingredients(include_custom: bool = True) -> list[dict[str, Any]]:
         overrides = {row["ingredient_name"].lower(): row for row in cursor.fetchall()}
 
         # Filter out hidden ingredients and apply overrides
-        filtered_ingredients = []
-        for ing in ingredients:
-            override = overrides.get(ing["name"].lower())
+        filtered_ingredients: list[dict[str, Any]] = []
+        for entry in ingredients:
+            override = overrides.get(entry["name"].lower())
             if override and override["is_hidden"]:
                 continue  # Skip hidden ingredients
 
             if override:
                 if override["override_severity"]:
-                    ing["severity"] = override["override_severity"]
+                    entry["severity"] = override["override_severity"]
                 if override["override_reason"]:
-                    ing["reason"] = override["override_reason"]
+                    entry["reason"] = override["override_reason"]
                 if override["additional_aliases"]:
                     try:
                         extra = json.loads(override["additional_aliases"])
-                        ing["aliases"].extend(extra)
+                        entry["aliases"].extend(extra)
                     except (json.JSONDecodeError, TypeError):
                         pass
 
-            filtered_ingredients.append(ing)
+            filtered_ingredients.append(entry)
 
         ingredients = filtered_ingredients
 

@@ -116,7 +116,7 @@ def register_tools(mcp):
             default=False,
             description="Mark results as viewed",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Deal discovery and price tracking.
 

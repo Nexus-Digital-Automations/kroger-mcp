@@ -1086,7 +1086,10 @@ def create_pending_gap(
             ),
         )
         conn.commit()
-        return cursor.lastrowid
+        gap_id = cursor.lastrowid
+        if gap_id is None:
+            raise RuntimeError("Failed to create pending gap: no row id returned")
+        return gap_id
     finally:
         conn.close()
 

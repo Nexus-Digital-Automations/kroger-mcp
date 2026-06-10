@@ -73,7 +73,7 @@ def register_tools(mcp):
             default=None,
             description="Full redirect URL from browser after authorization",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Authentication and user profile operations.
 

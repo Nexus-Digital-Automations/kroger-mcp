@@ -34,7 +34,7 @@ def register_tools(mcp):
                 "purchase_patterns, price_observations, consumption, recipe_trends."
             ),
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Manage anonymized data-sharing consent (opt-in, off by default).
 

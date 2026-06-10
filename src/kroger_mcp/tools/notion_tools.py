@@ -80,7 +80,7 @@ def register_tools(mcp):
             default=None,
             description="Single tag to add",
         ),
-        ctx: Context = None,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """
         Sync recipes to/from a Notion database.

@@ -35,8 +35,15 @@ def record_price_observation(
         return
 
     # Calculate sale metrics
-    on_sale = sale_price is not None and regular_price is not None and sale_price < regular_price
-    savings_amount = (regular_price - sale_price) if on_sale else 0.0
+    on_sale = (
+        sale_price is not None
+        and regular_price is not None
+        and sale_price < regular_price
+    )
+    if sale_price is not None and regular_price is not None and on_sale:
+        savings_amount = regular_price - sale_price
+    else:
+        savings_amount = 0.0
     savings_percent = (
         (savings_amount / regular_price * 100)
         if on_sale and regular_price and regular_price > 0
@@ -342,7 +349,7 @@ def score_deal_quality(
     savings_percent = pricing.get("savings_percent", 0)
 
     score = 0
-    factors = {}
+    factors: dict[str, Any] = {}
 
     # Factor 1: Savings percentage (0-40 points)
     if savings_percent >= 50:

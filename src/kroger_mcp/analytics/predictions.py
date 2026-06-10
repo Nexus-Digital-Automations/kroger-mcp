@@ -305,7 +305,7 @@ def get_shopping_suggestions(
     """
     ensure_initialized()
 
-    suggestions = {
+    suggestions: dict[str, Any] = {
         "overdue": [],
         "routine_items": [],
         "predicted_needs": [],

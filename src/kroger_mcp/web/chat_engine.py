@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-import requests
+import requests  # type: ignore[import-untyped]  # stub (types-requests) unresolved in mypy tool env
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -240,7 +240,7 @@ def _handle_search_products(search_term: str, limit: int = 10) -> dict[str, Any]
             limit=min(limit, 20),
         )
 
-        raw = []
+        raw: list[Any] = []
         if isinstance(result, dict):
             raw = result.get("data", []) or []
         elif hasattr(result, "data"):
@@ -441,7 +441,7 @@ def _handle_find_deals(search_term: str = "", category: str = "") -> dict[str, A
             limit=20,
         )
 
-        raw = []
+        raw: list[Any] = []
         if isinstance(result, dict):
             raw = result.get("data", []) or []
         elif hasattr(result, "data"):
@@ -480,10 +480,10 @@ def _handle_get_cookable_recipes() -> dict[str, Any]:
     """Get recipes that can be made with current pantry items."""
     try:
         from kroger_mcp.analytics.database import ensure_initialized
-        from kroger_mcp.analytics.recipe_integration import get_cookable_recipes
+        from kroger_mcp.analytics.recipe_integration import get_recipes_for_pantry
 
         ensure_initialized()
-        result = get_cookable_recipes()
+        result = get_recipes_for_pantry()
         return result
     except Exception as exc:
         return {"error": f"Failed to get cookable recipes: {str(exc)[:200]}"}
