@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.recipe_tools import _load_recipes
 from kroger_mcp.tools.shared import get_default_servings
 from kroger_mcp.tools.shopping_list_tools import _load_shopping_list
@@ -23,7 +24,9 @@ async def cart_redirect():
 
 @router.get("/shopping-list", response_class=HTMLResponse)
 async def shopping_list_page(request: Request):
-    sl_data = _load_shopping_list()
+    # Scope to the authenticated user — the page must match its own JSON API
+    # (and every sibling page route), not the unscoped global list.
+    sl_data = _load_shopping_list(user_id=current_user_id(request))
     recipe_data = _load_recipes()
     recipes = recipe_data.get("recipes", [])
     items = sl_data.get("items", [])

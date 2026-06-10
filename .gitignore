@@ -3,7 +3,15 @@ venv/
 .venv/
 
 # Local Storage / Memory
+# Blanket-ignore runtime JSON (tokens, kroger_cart.json, recipes, analytics dumps).
+# kroger_cart.json is covered here — no separate entry needed.
 *.json
+# …but the root project manifest must be tracked so `npm run e2e:gate` ships with
+# the repo. Leading slash anchors to repo root — never un-ignores node_modules/**/package.json.
+!/package.json
+
+# Node tooling for the Playwright E2E suite (installed locally, never committed).
+node_modules/
 
 # Token files
 .kroger_token*

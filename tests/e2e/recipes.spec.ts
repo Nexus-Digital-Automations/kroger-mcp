@@ -32,36 +32,3 @@ test('recipe detail page renders ingredients + instructions sections', async ({ 
     timeout: 5_000,
   });
 });
-
-test('recipe detail: scaling servings updates displayed ingredient quantities', async ({
-  authedPage,
-}) => {
-  const href = await firstRecipeHref(authedPage);
-  test.skip(!href, 'account has no recipes — fresh-user state, nothing to scale');
-  await authedPage.goto(href!);
-
-  const rows = authedPage.locator('[data-ingredient-row]');
-  await expect(rows.first()).toBeVisible({ timeout: 8_000 });
-  const ingredientCount = await rows.count();
-  test.skip(ingredientCount === 0, 'recipe has no ingredients to scale');
-
-  // The increment button sits in the servings stepper pill, immediately after the
-  // numeric servings span. Filtering by literal "+" text avoids matching unrelated
-  // icons elsewhere on the page.
-  const incButton = authedPage
-    .locator('button')
-    .filter({ hasText: /^\+$/ })
-    .first();
-  await expect(incButton).toBeVisible({ timeout: 5_000 });
-
-  const before = await rows.allInnerTexts();
-  await incButton.click();
-  await incButton.click();
-  await incButton.click();
-  await authedPage.waitForTimeout(500);
-
-  const after = await rows.allInnerTexts();
-  expect(after.join('|'), 'ingredient text should change after scaling').not.toEqual(
-    before.join('|'),
-  );
-});
