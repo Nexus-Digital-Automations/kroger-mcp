@@ -288,6 +288,42 @@ NEUTRAL_STAPLES: list[str] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Precomputed matchers (built ONCE at import, not per scoring call).
+#
+# The scoring loop previously rebuilt `all_keywords` (~180 entries flattened
+# from HEALTHY_CATEGORIES) on every call and re-iterated each keyword list as a
+# Python list for every ingredient name. We hoist the immutable collections to
+# module level so the allocation happens once.
+#
+# Matching semantics are preserved EXACTLY: every check below remains a
+# substring test (`kw in name`), because the keyword vocabularies rely on it —
+# e.g. "bean" must match "beans"/"green beans", "berry" matches "blueberry",
+# "cranberr" matches "cranberries", and multi-word entries like "sweet potato"
+# / "cream of" / "grass-fed" are inherently substrings. Switching to whole-word
+# set intersection would change scores, so we do NOT do that here; the win is
+# purely from not rebuilding these collections per call.
+# ---------------------------------------------------------------------------
+
+# Flattened, de-duplicated healthy keywords for the quality-ratio scan.
+ALL_HEALTHY_KEYWORDS: frozenset[str] = frozenset(
+    kw for kws in HEALTHY_CATEGORIES.values() for kw in kws
+)
+
+# Per-category keyword sets for category-coverage detection (preserves order of
+# detection via HEALTHY_CATEGORIES iteration; membership uses these sets).
+HEALTHY_CATEGORY_KEYWORDS: dict[str, frozenset[str]] = {
+    cat: frozenset(kws) for cat, kws in HEALTHY_CATEGORIES.items()
+}
+
+WHOLE_FOOD_SIGNAL_SET: frozenset[str] = frozenset(WHOLE_FOOD_SIGNALS)
+PROCESSED_INDICATOR_SET: frozenset[str] = frozenset(PROCESSED_INDICATORS)
+CONVENIENCE_INDICATOR_SET: frozenset[str] = frozenset(CONVENIENCE_INDICATORS)
+HEAVY_NEGATIVE_SET: frozenset[str] = frozenset(HEAVY_NEGATIVES)
+SUGAR_KEYWORD_SET: frozenset[str] = frozenset(SUGAR_KEYWORDS)
+NEUTRAL_STAPLE_SET: frozenset[str] = frozenset(NEUTRAL_STAPLES)
+
+
 def _grade(score: int) -> str:
     if score >= 80:
         return "A"
@@ -428,7 +464,7 @@ def calculate_health_score(
 
     # 1. Category coverage: 7 pts per healthy category (max 35)
     categories_detected: list[str] = []
-    for cat, keywords in HEALTHY_CATEGORIES.items():
+    for cat, keywords in HEALTHY_CATEGORY_KEYWORDS.items():
         if any(kw in all_ing_text for kw in keywords):
             categories_detected.append(cat)
     cat_score = min(len(categories_detected) * 7, 35)
@@ -436,19 +472,22 @@ def calculate_health_score(
     # 2. Ingredient quality ratio: of NON-STAPLE ingredients, how many are
     # healthy? Excluding staples (salt, broth, soy sauce, etc.) stops common
     # pantry items from dragging the ratio down on otherwise-clean recipes.
-    all_keywords = [kw for kws in HEALTHY_CATEGORIES.values() for kw in kws]
     non_staple = [
-        name for name in ing_names_lower if not any(staple in name for staple in NEUTRAL_STAPLES)
+        name
+        for name in ing_names_lower
+        if not any(staple in name for staple in NEUTRAL_STAPLE_SET)
     ]
     denom = max(1, len(non_staple))
-    quality_hits = sum(1 for name in non_staple if any(kw in name for kw in all_keywords))
+    quality_hits = sum(
+        1 for name in non_staple if any(kw in name for kw in ALL_HEALTHY_KEYWORDS)
+    )
     quality_score = round((quality_hits / denom) * 30)
 
     # 3. Whole food signals: small bonus when authors explicitly say
     # "fresh"/"organic"/etc. Capped at 5 so recipes that just write "broccoli"
     # aren't punished for omitting marketing adjectives.
     whole_hits = sum(
-        1 for name in ing_names_lower if any(sig in name for sig in WHOLE_FOOD_SIGNALS)
+        1 for name in ing_names_lower if any(sig in name for sig in WHOLE_FOOD_SIGNAL_SET)
     )
     whole_score = min(round((whole_hits / total) * 15), 5) if total else 0
 
@@ -457,21 +496,21 @@ def calculate_health_score(
     for name in ing_names_lower:
         # Exclude "instant pot" from matching "instant"
         scan = name.replace("instant pot", "")
-        if any(ind in scan for ind in PROCESSED_INDICATORS):
+        if any(ind in scan for ind in PROCESSED_INDICATOR_SET):
             proc_penalty += 5
     proc_penalty = min(proc_penalty, 15)
 
     # 5. Convenience indicators penalty (max -8, -3 each)
     conv_penalty = 0
     for name in ing_names_lower:
-        if any(ind in name for ind in CONVENIENCE_INDICATORS):
+        if any(ind in name for ind in CONVENIENCE_INDICATOR_SET):
             conv_penalty += 3
     conv_penalty = min(conv_penalty, 8)
 
     # 6. Heavy negatives penalty (max -10, -3 each)
     heavy_penalty = 0
     for name in ing_names_lower:
-        if any(ind in name for ind in HEAVY_NEGATIVES):
+        if any(ind in name for ind in HEAVY_NEGATIVE_SET):
             heavy_penalty += 3
     heavy_penalty = min(heavy_penalty, 10)
 
@@ -481,7 +520,7 @@ def calculate_health_score(
         if "stevia" in name:
             continue
         # Check longer patterns first to avoid double-counting
-        if any(kw in name for kw in SUGAR_KEYWORDS):
+        if any(kw in name for kw in SUGAR_KEYWORD_SET):
             sugar_penalty += 2
     sugar_penalty = min(sugar_penalty, 6)
 

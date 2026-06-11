@@ -8,18 +8,169 @@ This module provides functions for:
 """
 
 import asyncio
+import hashlib
+import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from kroger_mcp import cache
 from kroger_mcp.auth.dependencies import mcp_user_id
 
 from .database import ensure_initialized, get_db_cursor
 from .ingredients import (
+    AttributeMatch,
+    IngredientMatch,
     SafetyResult,
+    Severity,
     check_product_safety,
 )
+
+logger = logging.getLogger(__name__)
+
+# Safety results are deterministic given (product text, ingredient ruleset,
+# user's disabled set), so a hit short-circuits the O(patterns) scan. Keyed by
+# product_id + a hash of (ingredients_version, sorted disabled set) so any
+# pattern/ingredient change auto-invalidates (old keys simply expire).
+_SAFETY_CACHE_TTL_SECONDS = 86_400  # 24h
+_INGREDIENTS_VERSION_KEY = "ingredients:version"
+
+
+def _safety_cache_key(product_id: str, disabled: set[str]) -> str:
+    """Build the Redis key for a product's cached safety result.
+
+    The hash component folds in the active ingredient ruleset version and the
+    user's disabled-ingredient set — the two inputs (besides product text)
+    that change the result. ``ingredients_version`` defaults to 0 when Redis
+    is unavailable.
+    """
+    ingredients_version = cache.get_version(_INGREDIENTS_VERSION_KEY) or 0
+    payload = f"{ingredients_version}:{sorted(disabled)}"
+    h = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+    return f"safety:{product_id}:{h}"
+
+
+def _serialize_safety_result(result: SafetyResult) -> str:
+    """Serialize a SafetyResult to JSON, faithfully (round-trips exactly).
+
+    ``SafetyResult.to_dict`` is lossy for reconstruction (it drops the
+    ``ingredient_key``/``attribute_key`` fields and renames others for the API
+    surface), so we serialize the full dataclass shape here instead.
+    """
+    return json.dumps(
+        {
+            "has_concerns": result.has_concerns,
+            "highest_severity": (
+                result.highest_severity.value
+                if result.highest_severity is not None
+                else None
+            ),
+            "score": result.score,
+            "grade": result.grade,
+            "matches": [
+                {
+                    "ingredient_key": m.ingredient_key,
+                    "ingredient_name": m.ingredient_name,
+                    "severity": m.severity.value,
+                    "reason": m.reason,
+                    "category": m.category,
+                    "matched_text": m.matched_text,
+                }
+                for m in result.matches
+            ],
+            "positive_attributes": [
+                {
+                    "attribute_key": a.attribute_key,
+                    "attribute_name": a.attribute_name,
+                    "bonus": a.bonus,
+                    "benefit": a.benefit,
+                    "matched_text": a.matched_text,
+                }
+                for a in result.positive_attributes
+            ],
+        }
+    )
+
+
+def _deserialize_safety_result(raw: str) -> SafetyResult:
+    """Reconstruct a SafetyResult from its serialized JSON form."""
+    data = json.loads(raw)
+    severity_raw = data.get("highest_severity")
+    return SafetyResult(
+        has_concerns=data["has_concerns"],
+        highest_severity=Severity(severity_raw) if severity_raw is not None else None,
+        matches=[
+            IngredientMatch(
+                ingredient_key=m["ingredient_key"],
+                ingredient_name=m["ingredient_name"],
+                severity=Severity(m["severity"]),
+                reason=m["reason"],
+                category=m["category"],
+                matched_text=m["matched_text"],
+            )
+            for m in data.get("matches", [])
+        ],
+        positive_attributes=[
+            AttributeMatch(
+                attribute_key=a["attribute_key"],
+                attribute_name=a["attribute_name"],
+                bonus=a["bonus"],
+                benefit=a["benefit"],
+                matched_text=a["matched_text"],
+            )
+            for a in data.get("positive_attributes", [])
+        ],
+        score=data["score"],
+        grade=data["grade"],
+    )
+
+
+def _cached_product_safety(
+    product_id: str,
+    description: str,
+    brand: str | None,
+    disabled: set[str],
+) -> SafetyResult:
+    """Return a product's SafetyResult, memoized in Redis (best-effort).
+
+    On a cache hit the heavy ``check_product_safety`` scan is skipped. Only
+    products with a non-empty ``product_id`` are cached. Every Redis access is
+    wrapped so any failure (or an unavailable Redis) silently falls back to
+    computing the result exactly as before — caching never fails a request.
+    """
+    redis_client = None
+    key: str | None = None
+    if product_id:
+        try:
+            redis_client = cache.get_redis()
+            if redis_client is not None:
+                key = _safety_cache_key(product_id, disabled)
+                hit = redis_client.get(key)
+                if hit is not None:
+                    return _deserialize_safety_result(hit)
+        except Exception as exc:
+            logger.warning("safety cache read failed id=%s (%s)", product_id, exc)
+            redis_client = None
+
+    result = check_product_safety(
+        description=description,
+        brand=brand,
+        disabled_ingredients=disabled,
+    )
+
+    if redis_client is not None and key is not None:
+        try:
+            redis_client.set(
+                key,
+                _serialize_safety_result(result),
+                ex=_SAFETY_CACHE_TTL_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("safety cache write failed id=%s (%s)", product_id, exc)
+
+    return result
 
 
 def _resolve_user_id(user_id: str | None) -> str:
@@ -640,11 +791,12 @@ def check_products_safety_batch(
             )
             continue
 
-        # Check ingredients
-        safety_result = check_product_safety(
+        # Check ingredients (memoized in Redis when a product_id is present).
+        safety_result = _cached_product_safety(
+            product_id=product_id,
             description=description,
             brand=brand,
-            disabled_ingredients=disabled,
+            disabled=disabled,
         )
 
         # Determine status based on safety score

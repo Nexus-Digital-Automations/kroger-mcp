@@ -1,5 +1,6 @@
 """Products API endpoints — search, single-product detail, and cart add."""
 
+import asyncio
 import logging
 import re
 
@@ -21,6 +22,26 @@ from kroger_mcp.tools.shared import (
 
 router = APIRouter()
 logger = logging.getLogger("kroger_mcp.web.products")
+
+
+def _record_observations_bg(observations: list[dict]) -> None:
+    """Persist price observations on a background thread (best-effort).
+
+    Runs off the request path via ``asyncio.to_thread``. Swallows and logs
+    any failure so a transient DB error never surfaces to the client — this
+    mirrors the old per-item ``except Exception: pass`` behavior.
+    """
+    try:
+        from kroger_mcp.analytics.database import ensure_initialized
+        from kroger_mcp.analytics.deals import record_price_observations
+
+        ensure_initialized()
+        record_price_observations(observations)
+    except Exception:
+        logger.exception(
+            "background price observation write failed (count=%d)",
+            len(observations),
+        )
 
 
 # Pre-compiled. The size grammar Kroger returns is short and stable
@@ -232,23 +253,25 @@ async def search_products(
             if extracted and extracted.get("product_id"):
                 products.append(extracted)
 
-        # Record price observations in the background (best-effort)
-        try:
-            from kroger_mcp.analytics.database import ensure_initialized
-            from kroger_mcp.analytics.deals import record_price_observation
-
-            ensure_initialized()
-            for p in products:
-                if p.get("product_id"):
-                    record_price_observation(
-                        product_id=p["product_id"],
-                        regular_price=p.get("regular_price"),
-                        sale_price=p.get("sale_price"),
-                        location_id=location_id,
-                        source="web_search",
-                    )
-        except Exception:
-            pass
+        # Record price observations off the request path (best-effort).
+        # Collect every observation, then fire-and-forget a single batched
+        # insert on a worker thread so the response is not blocked on N DB
+        # writes. Identical data is recorded, just batched + asynchronous.
+        observations = [
+            {
+                "product_id": p["product_id"],
+                "regular_price": p.get("regular_price"),
+                "sale_price": p.get("sale_price"),
+                "location_id": location_id,
+                "source": "web_search",
+            }
+            for p in products
+            if p.get("product_id")
+        ]
+        if observations:
+            asyncio.create_task(
+                asyncio.to_thread(_record_observations_bg, observations)
+            )
 
         # Enrich with safety scores (best-effort)
         try:

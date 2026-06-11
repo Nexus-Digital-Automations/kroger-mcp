@@ -91,6 +91,13 @@ def _save_recipes(data: dict[str, Any]) -> None:
         _recipes_store.save(data)
     except OSError as exc:
         logger.warning("Could not save recipes: %s", exc)
+        return
+    # Invalidate the O(1) recipe lookup cache across workers (local import
+    # avoids a cycle: meal_planning imports recipe_tools). Best-effort —
+    # correctness is also covered by the file fingerprint.
+    from kroger_mcp.analytics.meal_planning import invalidate_recipe_cache
+
+    invalidate_recipe_cache()
 
 
 def _find_recipe(recipe_id: str) -> dict[str, Any] | None:

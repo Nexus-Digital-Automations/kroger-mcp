@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from kroger_mcp.auth.dependencies import mcp_user_id
+from kroger_mcp.cache import bump_version, get_version
 
 from .database import ensure_initialized, get_db_connection, get_db_cursor
 from .pantry import get_pantry_status
@@ -40,6 +41,29 @@ VALID_MEAL_SLOTS = {"breakfast", "lunch", "dinner", "snack"}
 VALID_PLAN_TYPES = {"weekly", "monthly", "custom"}
 RECIPES_FILE = "kroger_recipes.json"
 
+# ---------------------------------------------------------------------------
+# Process-local recipe index (load-once, O(1) lookup).
+#
+# `_get_recipe_from_json` used to re-read and linearly scan the ~400KB recipes
+# JSON on *every* call (and it's called per recipe across meal-plan views and
+# shopping-list generation). We now build a {recipe_id: recipe} dict once and
+# serve lookups from it in O(1).
+#
+# Invalidation is best-effort and uses two signals, either of which forces a
+# rebuild:
+#   1. The file's mtime+size — ground truth that requires no cooperation from
+#      the writer (recipe save/update/delete rewrites the file, changing mtime).
+#   2. A Redis version key (`recipes:version`) — a cross-process signal, mirror
+#      of the ingredients.py pattern in Phase 1. Bumped after our own writes so
+#      sibling workers rebuild; if Redis is down this simply degrades to (1).
+#
+# All caching is best-effort: any failure falls back to reading the file.
+# ---------------------------------------------------------------------------
+_recipes_by_id: dict[str, dict[str, Any]] | None = None
+_recipes_cache_version: int | None = None
+_recipes_cache_fingerprint: tuple[float, int] | None = None
+_RECIPES_VERSION_KEY = "recipes:version"
+
 
 def _parse_date(date_str: str) -> datetime:
     """Parse a YYYY-MM-DD date string."""
@@ -61,18 +85,103 @@ def _format_date(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
-def _get_recipe_from_json(recipe_id: str) -> dict[str, Any] | None:
-    """Get recipe from JSON file (primary storage)."""
+def _recipes_file_fingerprint() -> tuple[float, int] | None:
+    """Return (mtime, size) for the recipes file, or None if missing/unstattable.
+
+    Used as a ground-truth invalidation signal: any save/update/delete rewrites
+    the file and changes its mtime (and usually size), so a changed fingerprint
+    means our in-process index is stale and must be rebuilt.
+    """
+    try:
+        st = os.stat(RECIPES_FILE)
+    except OSError:
+        return None
+    return (st.st_mtime, st.st_size)
+
+
+def _build_recipes_index() -> dict[str, dict[str, Any]]:
+    """Read the recipes JSON once and build a {recipe_id: recipe} dict.
+
+    Returns an empty dict if the file is missing or unreadable. Never raises.
+    """
+    index: dict[str, dict[str, Any]] = {}
     try:
         if os.path.exists(RECIPES_FILE):
             with open(RECIPES_FILE) as f:
                 data = json.load(f)
-                for recipe in data.get("recipes", []):
-                    if recipe.get("id") == recipe_id:
-                        return recipe
+            for recipe in data.get("recipes", []):
+                rid = recipe.get("id")
+                if rid is not None:
+                    index[rid] = recipe
     except Exception:
+        # Corrupt/partial file or race with a writer: degrade to empty index.
+        # The next call re-checks the fingerprint and will rebuild.
+        return {}
+    return index
+
+
+def _invalidate_recipes_cache() -> None:
+    """Drop the in-process recipe index so the next read rebuilds it.
+
+    Called by recipe write paths so the writing process immediately sees its
+    own change (the Redis version bump covers sibling processes).
+    """
+    global _recipes_by_id, _recipes_cache_version, _recipes_cache_fingerprint
+    _recipes_by_id = None
+    _recipes_cache_version = None
+    _recipes_cache_fingerprint = None
+
+
+def invalidate_recipe_cache() -> None:
+    """Public hook for recipe write paths (save/update/delete).
+
+    Recipe writes are persisted by ``tools/recipe_tools.py`` (via its
+    ``_recipes_store``), not by this module. After any successful write the
+    writer should call this to (a) bump the cross-process Redis version so
+    sibling workers rebuild, and (b) drop this process's index so the writer
+    sees its own change immediately. Best-effort: never raises.
+
+    Note: the file-mtime fingerprint already forces a rebuild on the next read
+    even without this call, so this is an optimization (immediate consistency +
+    cross-process signalling), not a correctness requirement.
+    """
+    try:
+        bump_version(_RECIPES_VERSION_KEY)
+    except Exception:
+        # bump_version is already best-effort, but never let invalidation raise
+        # into a write path.
         pass
-    return None
+    _invalidate_recipes_cache()
+
+
+def _get_recipes_index() -> dict[str, dict[str, Any]]:
+    """Return the process-local recipe index, rebuilding only when stale.
+
+    Stale = the file fingerprint (mtime+size) changed, or the Redis version key
+    advanced past the version we last loaded. Both checks are best-effort; if
+    Redis is unavailable the fingerprint alone keeps us correct.
+    """
+    global _recipes_by_id, _recipes_cache_version, _recipes_cache_fingerprint
+
+    fingerprint = _recipes_file_fingerprint()
+    version = get_version(_RECIPES_VERSION_KEY)
+
+    if (
+        _recipes_by_id is not None
+        and fingerprint == _recipes_cache_fingerprint
+        and version == _recipes_cache_version
+    ):
+        return _recipes_by_id
+
+    _recipes_by_id = _build_recipes_index()
+    _recipes_cache_fingerprint = fingerprint
+    _recipes_cache_version = version
+    return _recipes_by_id
+
+
+def _get_recipe_from_json(recipe_id: str) -> dict[str, Any] | None:
+    """Get recipe from JSON file (primary storage) via an O(1) cached index."""
+    return _get_recipes_index().get(recipe_id)
 
 
 def _get_recipe_from_db(recipe_id: str) -> dict[str, Any] | None:

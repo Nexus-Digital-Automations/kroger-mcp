@@ -124,6 +124,129 @@ def record_price_observation(
             )
 
 
+def record_price_observations(
+    observations: list[dict[str, Any]],
+) -> None:
+    """Record many price observations in a single transaction.
+
+    Batched equivalent of :func:`record_price_observation`, used to keep N
+    per-product DB writes off the request path (callers fire-and-forget this
+    on a background thread). Each observation dict carries the same fields as
+    the single-row function's arguments::
+
+        {
+            "product_id": str,
+            "regular_price": float | None,
+            "sale_price": float | None,
+            "location_id": str,
+            "source": str,  # optional, defaults to "search"
+        }
+
+    The per-row UPSERT semantics are identical to
+    :func:`record_price_observation` (dedupe within the same hour on
+    product/location/on_sale); the only difference is that every row shares
+    one ``get_db_cursor()`` transaction instead of opening a connection each.
+    Observations missing ``product_id`` or ``location_id`` are skipped, and an
+    empty list is a no-op.
+    """
+    if not observations:
+        return
+
+    with get_db_cursor() as cursor:
+        for obs in observations:
+            product_id = obs.get("product_id")
+            location_id = obs.get("location_id")
+            if not product_id or not location_id:
+                continue
+
+            regular_price = obs.get("regular_price")
+            sale_price = obs.get("sale_price")
+            source = obs.get("source", "search")
+
+            on_sale = (
+                sale_price is not None
+                and regular_price is not None
+                and sale_price < regular_price
+            )
+            if sale_price is not None and regular_price is not None and on_sale:
+                savings_amount = regular_price - sale_price
+            else:
+                savings_amount = 0.0
+            savings_percent = (
+                (savings_amount / regular_price * 100)
+                if on_sale and regular_price and regular_price > 0
+                else 0.0
+            )
+
+            observed_at = datetime.now().isoformat()
+
+            # Ensure product exists (FK requirement for price_history)
+            cursor.execute(
+                "INSERT OR IGNORE INTO products (product_id) VALUES (?)",
+                (product_id,),
+            )
+
+            # Dedupe within the last hour (same product/location/on_sale).
+            hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
+            cursor.execute(
+                """
+                SELECT id FROM price_history
+                WHERE product_id = ?
+                AND location_id = ?
+                AND observed_at > ?
+                AND on_sale = ?
+                ORDER BY observed_at DESC
+                LIMIT 1
+                """,
+                (product_id, location_id, hour_ago, int(on_sale)),
+            )
+            existing = cursor.fetchone()
+
+            if existing:
+                cursor.execute(
+                    """
+                    UPDATE price_history
+                    SET regular_price = ?,
+                        sale_price = ?,
+                        savings_amount = ?,
+                        savings_percent = ?,
+                        observed_at = ?,
+                        source = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        regular_price,
+                        sale_price,
+                        savings_amount,
+                        savings_percent,
+                        observed_at,
+                        source,
+                        existing["id"],
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO price_history
+                    (product_id, regular_price, sale_price, on_sale,
+                     savings_amount, savings_percent, location_id,
+                     observed_at, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        product_id,
+                        regular_price,
+                        sale_price,
+                        int(on_sale),
+                        savings_amount,
+                        savings_percent,
+                        location_id,
+                        observed_at,
+                        source,
+                    ),
+                )
+
+
 def get_price_statistics(
     product_id: str, days: int = 30, location_id: str | None = None
 ) -> dict[str, Any]:
