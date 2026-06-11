@@ -29,9 +29,9 @@ classifiers = [
 dependencies = [
     "fastmcp>=2.0.0",
     "kroger-api>=0.2.0",
-    "requests",
+    "requests>=2.32.4",
     "pydantic>=2.0.0",
-    "python-dotenv",
+    "python-dotenv>=1.2.2",
     "uvicorn",
     "fastapi>=0.100.0",
     "jinja2>=3.1.0",
@@ -41,6 +41,12 @@ dependencies = [
     "redis>=5.0",
     "cryptography>=42.0",
     "keyring>=24.0",
+    # Security floors for otherwise-transitive deps — minimum non-vulnerable
+    # versions per the pip-audit SCA (CVEs in <these). Allow newer.
+    "PyJWT>=2.13.0",
+    "starlette>=1.0.1",
+    "idna>=3.15",
+    "pygments>=2.20.0",
 ]
 
 [project.optional-dependencies]

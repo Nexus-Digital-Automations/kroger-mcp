@@ -33,35 +33,29 @@ test('recipe detail page renders ingredients + instructions sections', async ({ 
   });
 });
 
-test('recipe detail: scaling servings updates displayed ingredient quantities', async ({
+test('recipe edit: servings stepper increments the (persisted) base servings', async ({
   authedPage,
 }) => {
   const href = await firstRecipeHref(authedPage);
   test.skip(!href, 'account has no recipes — fresh-user state, nothing to scale');
-  await authedPage.goto(href!);
+  // The a00745e redesign split the recipe into /recipes/{id} (read-only view,
+  // initial_editing=false) and /recipes/{id}/edit (initial_editing=true). The
+  // servings ± stepper is edit-mode-only and now edits the recipe's PERSISTED
+  // base servings (PATCH) — there is no separate view-time scaler, so bumping
+  // it changes the servings count rather than re-scaling ingredient text.
+  const editHref = href!.split('?')[0].replace(/\/+$/, '') + '/edit';
+  await authedPage.goto(editHref);
 
-  const rows = authedPage.locator('[data-ingredient-row]');
-  await expect(rows.first()).toBeVisible({ timeout: 8_000 });
-  const ingredientCount = await rows.count();
-  test.skip(ingredientCount === 0, 'recipe has no ingredients to scale');
+  await expect(authedPage.locator('[data-ingredient-row]').first()).toBeVisible({ timeout: 8_000 });
 
-  // The increment button sits in the servings stepper pill, immediately after the
-  // numeric servings span. Filtering by literal "+" text avoids matching unrelated
-  // icons elsewhere on the page.
-  const incButton = authedPage
-    .locator('button')
-    .filter({ hasText: /^\+$/ })
-    .first();
+  // The numeric servings span (x-text="baseServings") sits between the −/+ buttons.
+  const incButton = authedPage.getByRole('button', { name: 'Increase servings' });
   await expect(incButton).toBeVisible({ timeout: 5_000 });
+  const servings = authedPage.locator('span[x-text="baseServings"]');
 
-  const before = await rows.allInnerTexts();
+  const before = Number((await servings.innerText()).trim());
   await incButton.click();
+  await expect(servings).toHaveText(String(before + 1), { timeout: 5_000 });
   await incButton.click();
-  await incButton.click();
-  await authedPage.waitForTimeout(500);
-
-  const after = await rows.allInnerTexts();
-  expect(after.join('|'), 'ingredient text should change after scaling').not.toEqual(
-    before.join('|'),
-  );
+  await expect(servings).toHaveText(String(before + 2), { timeout: 5_000 });
 });

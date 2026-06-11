@@ -41,6 +41,12 @@ export const test = base.extend<{ testUser: TestUser; authedPage: import('@playw
   authedPage: async ({ browser, baseURL, testUser }, use) => {
     const ctx = await browser.newContext();
     await loginCookie(ctx, baseURL!, testUser);
+    // Record a consent decision up front so the privacy consent-gate modal
+    // (shown to undecided accounts on every page) never intercepts clicks in
+    // interactive specs. POST marks consent "decided"; empty updates keep all
+    // categories off (the privacy-preserving default). ctx.request carries the
+    // session cookie set by loginCookie.
+    await ctx.request.post(`${baseURL}/api/settings/consent`, { data: { updates: {} } }).catch(() => {});
     const page = await ctx.newPage();
     await use(page);
     await ctx.close();
