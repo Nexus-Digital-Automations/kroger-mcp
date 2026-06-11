@@ -150,7 +150,10 @@ def _cached_product_safety(
             if redis_client is not None:
                 key = _safety_cache_key(product_id, disabled)
                 hit = redis_client.get(key)
-                if hit is not None:
+                # get_redis() sets decode_responses=True, so a hit is str; the
+                # isinstance guard narrows the stub's bytes|str and degrades to
+                # a recompute in the impossible bytes case.
+                if isinstance(hit, str):
                     return _deserialize_safety_result(hit)
         except Exception as exc:
             logger.warning("safety cache read failed id=%s (%s)", product_id, exc)

@@ -591,8 +591,6 @@ async def add_plan_to_cart(plan_id: str, body: AddToCartBody, request: Request):
                 "(invalid product ID or not available at this location)"
             )
         return result
-    except JSONResponse:
-        raise
     except Exception as exc:
         err = str(exc)
         if "401" in err or "Unauthorized" in err:

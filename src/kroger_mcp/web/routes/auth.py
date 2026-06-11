@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.datastructures import FormData
 from starlette.templating import Jinja2Templates
 
 from kroger_mcp.auth.middleware import SESSION_COOKIE
@@ -11,6 +12,17 @@ from kroger_mcp.auth.passwords import hash_password, verify_password
 from kroger_mcp.auth.sessions import create_session, delete_session
 
 router = APIRouter()
+
+
+def _form_value(form: FormData, key: str) -> str:
+    """A form field as a plain string — '' if absent or a file upload, never None.
+
+    Starlette's ``FormData.get`` returns ``str | UploadFile | None``; login and
+    register fields are always text, so narrow to ``str`` here. Callers strip
+    where appropriate (passwords are intentionally left unstripped).
+    """
+    value = form.get(key)
+    return value if isinstance(value, str) else ""
 
 templates = Jinja2Templates(directory=str(__file__).rsplit("/routes", 1)[0] + "/templates")
 
@@ -118,8 +130,8 @@ async def login_page(request: Request):
 @router.post("/login")
 async def login_submit(request: Request):
     form = await request.form()
-    email = (form.get("email") or "").strip().lower()
-    password = form.get("password") or ""
+    email = _form_value(form, "email").strip().lower()
+    password = _form_value(form, "password")
 
     if not email or not password:
         return templates.TemplateResponse(
@@ -168,10 +180,10 @@ async def register_page(request: Request):
 @router.post("/register")
 async def register_submit(request: Request):
     form = await request.form()
-    email = (form.get("email") or "").strip().lower()
-    display_name = (form.get("display_name") or "").strip()
-    password = form.get("password") or ""
-    confirm = form.get("confirm_password") or ""
+    email = _form_value(form, "email").strip().lower()
+    display_name = _form_value(form, "display_name").strip()
+    password = _form_value(form, "password")
+    confirm = _form_value(form, "confirm_password")
 
     # Validate
     errors = []
