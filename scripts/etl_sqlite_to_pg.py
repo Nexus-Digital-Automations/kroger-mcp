@@ -48,6 +48,12 @@ TABLE_ORDER: tuple[str, ...] = (
     "price_history",
     "ingredient_links",
     "user_settings",
+    # All four reference only users(id) — no inter-dependencies, so order
+    # among them is free; they trail the rest after users is created.
+    "custom_ingredients",
+    "ingredient_overrides",
+    "pending_gaps",
+    "cook_deductions",
 )
 
 BATCH_SIZE = 500
