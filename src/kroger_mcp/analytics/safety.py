@@ -48,7 +48,9 @@ def _safety_cache_key(product_id: str, disabled: set[str]) -> str:
     """
     ingredients_version = cache.get_version(_INGREDIENTS_VERSION_KEY) or 0
     payload = f"{ingredients_version}:{sorted(disabled)}"
-    h = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+    # Non-security digest: this only namespaces a Redis cache key. usedforsecurity
+    # =False documents intent and is the correct idiom (the payload is not secret).
+    h = hashlib.sha1(payload.encode("utf-8"), usedforsecurity=False).hexdigest()
     return f"safety:{product_id}:{h}"
 
 

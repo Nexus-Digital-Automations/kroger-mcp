@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-import requests  # type: ignore[import-untyped]  # stub (types-requests) unresolved in mypy tool env
+import requests
 
 # ---------------------------------------------------------------------------
 # System prompt

@@ -50,6 +50,9 @@ dev = [
     "ruff",
     "black",
     "mypy",
+    # Type stubs so `import requests` is typed under mypy (avoids a flaky
+    # import-untyped/unused-ignore that flipped with the stub's presence).
+    "types-requests",
 ]
 
 [project.scripts]
@@ -142,6 +145,11 @@ python_version = "3.10"
 warn_unused_ignores = true
 warn_redundant_casts = true
 ignore_missing_imports = true
+# Don't fail on third-party packages that ship without (or with separately-packaged)
+# type stubs. Paired with ignore_missing_imports, this keeps mypy deterministic across
+# environments where a stub like types-requests may or may not be installed — otherwise
+# an inline `# type: ignore[import-untyped]` flickers between needed and unused-ignore.
+disable_error_code = ["import-untyped"]
 exclude = ["python-scripts/", "tests/", "\\.cache/"]
 
 [tool.hatch.build.targets.wheel]

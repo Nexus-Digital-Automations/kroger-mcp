@@ -7,7 +7,7 @@ import functools
 from datetime import datetime
 from typing import Any, Literal
 
-import requests  # type: ignore[import-untyped]  # stub (types-requests) unresolved in mypy tool env
+import requests
 from fastmcp import Context
 from fastmcp.utilities.types import Image
 from pydantic import Field
