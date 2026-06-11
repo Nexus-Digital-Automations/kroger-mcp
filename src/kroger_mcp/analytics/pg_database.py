@@ -533,6 +533,115 @@ CREATE TABLE IF NOT EXISTS cook_deductions (
 );
 CREATE INDEX IF NOT EXISTS idx_cook_deductions_event
     ON cook_deductions(user_id, cook_event_id);
+
+-- ---------------------------------------------------------------------------
+-- Tables that exist in the live SQLite runtime but were missing from this PG
+-- schema. The ETL migrates only tables present in BOTH backends, so an absent
+-- PG table would (a) silently drop the source rows and (b) crash the running
+-- app on first write. Reconciled here to mirror the SQLite shapes. NOTE:
+-- is_currently_available / viewed / pantry_deducted stay INTEGER (not BOOLEAN)
+-- because the app queries them as `= 1` / `= 0` (e.g. product_tools.py:1135);
+-- product_id keeps no FK (matches the rest of this schema).
+-- ---------------------------------------------------------------------------
+
+-- Curated Whole-Foods-eligible product catalog (global). Actively written by
+-- product_tools.py (INSERT … ON CONFLICT(product_id)).
+CREATE TABLE IF NOT EXISTS whole_foods_catalog (
+    id SERIAL PRIMARY KEY,
+    product_id VARCHAR(50) NOT NULL,
+    description TEXT,
+    brand TEXT,
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    added_by VARCHAR(50) DEFAULT 'auto',
+    safety_status VARCHAR(50),
+    ingredient_count INTEGER,
+    processing_level VARCHAR(50),
+    notes TEXT,
+    last_verified_at TIMESTAMP WITH TIME ZONE,
+    is_currently_available INTEGER DEFAULT 1,
+    UNIQUE(product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_whole_foods_catalog_product
+    ON whole_foods_catalog(product_id);
+CREATE INDEX IF NOT EXISTS idx_whole_foods_catalog_available
+    ON whole_foods_catalog(is_currently_available);
+
+-- Ephemeral deal-scan cache (global). Regenerable; viewed is an int flag.
+CREATE TABLE IF NOT EXISTS deal_scan_results (
+    id SERIAL PRIMARY KEY,
+    product_id VARCHAR(50) NOT NULL,
+    description TEXT,
+    regular_price NUMERIC(10,2),
+    sale_price NUMERIC(10,2),
+    savings_amount NUMERIC(10,2),
+    scan_date TEXT NOT NULL,
+    scan_time TEXT NOT NULL,
+    viewed INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_deal_scan_results_date
+    ON deal_scan_results(scan_date);
+CREATE INDEX IF NOT EXISTS idx_deal_scan_results_viewed
+    ON deal_scan_results(viewed);
+
+-- Legacy meal log + items (user-scoped). No writers remain in the codebase
+-- (superseded by meal_entries / cook_deductions); created for schema parity.
+CREATE TABLE IF NOT EXISTS meal_log (
+    id SERIAL PRIMARY KEY,
+    logged_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    meal_type VARCHAR(20) NOT NULL
+        CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
+    description TEXT,
+    recipe_id VARCHAR(50),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_meal_log_date ON meal_log(logged_at);
+CREATE INDEX IF NOT EXISTS idx_meal_log_type ON meal_log(meal_type);
+CREATE INDEX IF NOT EXISTS idx_meal_log_user_id ON meal_log(user_id);
+
+CREATE TABLE IF NOT EXISTS meal_log_items (
+    id SERIAL PRIMARY KEY,
+    meal_log_id INTEGER NOT NULL REFERENCES meal_log(id) ON DELETE CASCADE,
+    product_id VARCHAR(50) NOT NULL,
+    description TEXT,
+    quantity_percent NUMERIC(10,3) NOT NULL DEFAULT 10.0,
+    previous_level NUMERIC(10,3),
+    pantry_deducted INTEGER DEFAULT 0,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_meal_log_items_meal ON meal_log_items(meal_log_id);
+CREATE INDEX IF NOT EXISTS idx_meal_log_items_product ON meal_log_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_meal_log_items_user_id ON meal_log_items(user_id);
+
+-- Legacy pantry consumption ledger (user-scoped). No writers remain (superseded
+-- by cook_deductions / purchase_events); created for schema parity.
+CREATE TABLE IF NOT EXISTS pantry_consumption_log (
+    id SERIAL PRIMARY KEY,
+    product_id VARCHAR(50) NOT NULL,
+    quantity_consumed NUMERIC(10,3) NOT NULL,
+    unit VARCHAR(50),
+    consumed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    source_type VARCHAR(50) NOT NULL,
+    source_id VARCHAR(100),
+    source_description TEXT,
+    notes TEXT,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_consumption_log_product
+    ON pantry_consumption_log(product_id);
+CREATE INDEX IF NOT EXISTS idx_consumption_log_date
+    ON pantry_consumption_log(consumed_at);
+CREATE INDEX IF NOT EXISTS idx_pantry_consumption_log_user_id
+    ON pantry_consumption_log(user_id);
+
+-- Per-user Notion sync config (keyed by user). Mirrors the SQLite table.
+CREATE TABLE IF NOT EXISTS user_notion_sync (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    notion_database_id TEXT,
+    last_sync_at TIMESTAMP WITH TIME ZONE,
+    config_json TEXT
+);
 """
 
 
