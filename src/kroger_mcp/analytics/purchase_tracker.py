@@ -285,19 +285,29 @@ def get_order_history(limit: int = 50) -> list[dict[str, Any]]:
             (limit,),
         )
         orders = [dict(row) for row in cursor.fetchall()]
+        if not orders:
+            return orders
 
-        # Get items for each order
+        # Fetch ALL items for these orders in ONE query (was 1 query per order —
+        # an N+1 that scaled order-history latency with order count), then group
+        # by order_id in Python. Backed by idx_pe_order_id.
+        order_ids = [order["id"] for order in orders]
+        placeholders = ",".join("?" for _ in order_ids)
+        items_cursor = conn.execute(
+            f"""
+            SELECT pe.*, p.description, p.brand
+            FROM purchase_events pe
+            LEFT JOIN products p ON pe.product_id = p.product_id
+            WHERE pe.order_id IN ({placeholders})
+        """,
+            tuple(order_ids),
+        )
+        items_by_order: dict[int, list[dict]] = {}
+        for row in items_cursor.fetchall():
+            item = dict(row)
+            items_by_order.setdefault(item["order_id"], []).append(item)
         for order in orders:
-            items_cursor = conn.execute(
-                """
-                SELECT pe.*, p.description, p.brand
-                FROM purchase_events pe
-                LEFT JOIN products p ON pe.product_id = p.product_id
-                WHERE pe.order_id = ?
-            """,
-                (order["id"],),
-            )
-            order["items"] = [dict(row) for row in items_cursor.fetchall()]
+            order["items"] = items_by_order.get(order["id"], [])
 
         return orders
     finally:

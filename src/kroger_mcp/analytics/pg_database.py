@@ -133,6 +133,11 @@ CREATE TABLE IF NOT EXISTS purchase_events (
     source_description TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pe_user_product ON purchase_events(user_id, product_id);
+-- Perf: date-range reports/predictions filter on event_date; per-product event
+-- filters need (product_id, event_type); order-history joins on order_id.
+CREATE INDEX IF NOT EXISTS idx_pe_event_date ON purchase_events(event_date DESC);
+CREATE INDEX IF NOT EXISTS idx_pe_product_event_type ON purchase_events(product_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_pe_order_id ON purchase_events(order_id);
 
 -- Orders (user-scoped). user_id nullable to match SQLite runtime: record_order
 -- INSERTs without a user_id (same unscoped-write gap as purchase_events).
@@ -146,6 +151,7 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_placed_at ON orders(placed_at DESC);
 
 -- Product statistics (user-scoped)
 CREATE TABLE IF NOT EXISTS product_statistics (
@@ -361,6 +367,7 @@ CREATE TABLE IF NOT EXISTS price_history (
     source VARCHAR(50)
 );
 CREATE INDEX IF NOT EXISTS idx_price_product ON price_history(product_id, observed_at);
+CREATE INDEX IF NOT EXISTS idx_price_location_date ON price_history(location_id, observed_at DESC);
 
 -- Deal watchlist (user-scoped)
 CREATE TABLE IF NOT EXISTS deal_watchlist (

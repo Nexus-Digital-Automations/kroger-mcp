@@ -14,6 +14,8 @@ import statistics
 from datetime import datetime
 from typing import Any
 
+from kroger_mcp.cache import cache_read_through
+
 from .database import ensure_initialized, get_db_connection
 from .deals import get_price_statistics
 from .favorites import get_all_favorite_product_ids
@@ -233,6 +235,52 @@ def get_priority_tier(score: int) -> str:
 
 
 def get_comprehensive_recommendations(
+    days_ahead: int = 14,
+    include_low_pantry: bool = True,
+    include_deals: bool = True,
+    include_predictions: bool = True,
+    include_favorites_only: bool = False,
+    min_score: int = 20,
+    max_results: int = 50,
+    location_id: str | None = None,
+) -> dict[str, Any]:
+    """Cached wrapper around the (expensive) recommendation computation.
+
+    Recommendations are advisory and derived from global (not per-user) data, so
+    one Redis key per parameter-set with a 10-min TTL is both safe — there is no
+    per-user data to leak — and appropriate: a few minutes of staleness on
+    shopping advice is harmless. Redis-down degrades to a direct compute.
+    """
+    key = "rec:" + ":".join(
+        str(x)
+        for x in (
+            days_ahead,
+            include_low_pantry,
+            include_deals,
+            include_predictions,
+            include_favorites_only,
+            min_score,
+            max_results,
+            location_id,
+        )
+    )
+    return cache_read_through(
+        key,
+        600,
+        lambda: _compute_comprehensive_recommendations(
+            days_ahead=days_ahead,
+            include_low_pantry=include_low_pantry,
+            include_deals=include_deals,
+            include_predictions=include_predictions,
+            include_favorites_only=include_favorites_only,
+            min_score=min_score,
+            max_results=max_results,
+            location_id=location_id,
+        ),
+    )
+
+
+def _compute_comprehensive_recommendations(
     days_ahead: int = 14,
     include_low_pantry: bool = True,
     include_deals: bool = True,

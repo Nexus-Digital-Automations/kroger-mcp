@@ -639,6 +639,10 @@ def initialize_database() -> None:
                 ON purchase_events(order_id);
             CREATE INDEX IF NOT EXISTS idx_purchase_events_type
                 ON purchase_events(event_type);
+            CREATE INDEX IF NOT EXISTS idx_purchase_events_product_type
+                ON purchase_events(product_id, event_type);
+            CREATE INDEX IF NOT EXISTS idx_orders_placed_at
+                ON orders(placed_at DESC);
             CREATE INDEX IF NOT EXISTS idx_seasonal_patterns_product
                 ON seasonal_patterns(product_id);
             CREATE INDEX IF NOT EXISTS idx_products_category
@@ -689,6 +693,8 @@ def initialize_database() -> None:
                 ON price_history(on_sale);
             CREATE INDEX IF NOT EXISTS idx_price_history_product_date
                 ON price_history(product_id, observed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_price_history_location_date
+                ON price_history(location_id, observed_at DESC);
             CREATE INDEX IF NOT EXISTS idx_watchlist_priority
                 ON deal_watchlist(priority DESC, last_checked_at ASC);
             CREATE INDEX IF NOT EXISTS idx_whole_foods_catalog_product

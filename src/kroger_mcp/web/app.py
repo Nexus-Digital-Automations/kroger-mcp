@@ -75,9 +75,9 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +101,8 @@ from .routes.api import recipes as api_recipes
 from .routes.api import safety as api_safety
 from .routes.api import settings as api_settings
 from .routes.api import shopping_list as api_shopping_list
+from .templating import TEMPLATES_DIR, templates  # noqa: F401  (re-exported)
 
-TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
 @asynccontextmanager
@@ -150,23 +150,27 @@ except Exception:
 
 from kroger_mcp.auth.middleware import AuthMiddleware
 
+# Compress JSON/HTML responses over 1KB — large win for the companion phone over
+# LAN/cellular at a tiny, bounded CPU cost. Added before AuthMiddleware so it
+# wraps the outermost response.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 app.add_middleware(AuthMiddleware)
 
 
-# Templates change in development without anything bumping the static URL,
-# so a normal browser cache happily serves stale HTML after a deploy. Tell
-# browsers not to reuse the rendered HTML so template edits land on the
-# next plain refresh. Static assets keep their own cache headers from
-# StaticFiles and are unaffected.
+# Cache-Control policy:
+# - Static assets (CSS/JS) are stable content — give them a long max-age so the
+#   browser stops re-validating them on every page load.
+# - Rendered HTML must NOT be reused: templates change on deploy without bumping
+#   any URL, so a cached page would serve stale markup. Force a refetch.
 @app.middleware("http")
-async def _no_store_for_html(request, call_next):
+async def _cache_headers(request, call_next):
     response = await call_next(request)
-    ct = response.headers.get("content-type", "")
-    if ct.startswith("text/html"):
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=86400"
+    elif response.headers.get("content-type", "").startswith("text/html"):
         response.headers["Cache-Control"] = "no-store"
     return response
-
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Auth routes (login, register, logout)
 app.include_router(auth_routes.router)
@@ -213,7 +217,9 @@ async def shutdown():
 PORT = int(os.environ.get("WEB_PORT", 8000))
 # Multiple workers spread blocking work (DB, threadpool'd tool handlers) across
 # processes. Each worker holds its own httpx client + DB pool (see lifespan).
-# Default 2 — safe on an 8GB box shared with Postgres + Redis; override per host.
+# Default 2 — deliberately conservative: the production mini is SHARED (mempalace
+# ~1.3GB + remote-access tooling), so more workers would starve the other
+# tenants. Override per host only on a box dedicated to this app.
 WORKERS = int(os.environ.get("WEB_WORKERS", 2))
 
 
@@ -225,12 +231,18 @@ def run():
     # 0.0.0.0 bind is intentional — this is a local dev/single-user tool meant
     # to be reachable from any interface on the host (e.g. companion phone on
     # the LAN). bandit B104 flagged.
+    #
+    # uvloop + httptools (project deps) replace asyncio + h11 for a faster event
+    # loop and C HTTP parser — lower CPU per request, which is the good-neighbor
+    # way to add throughput on the shared box (vs. adding workers).
     uvicorn.run(
         "kroger_mcp.web.app:app",
         host="0.0.0.0",  # nosec B104
         port=PORT,
         reload=False,
         workers=WORKERS,
+        loop="uvloop",
+        http="httptools",
     )
 
 

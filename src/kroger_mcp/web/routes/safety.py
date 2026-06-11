@@ -1,17 +1,14 @@
 """Safety configuration page route."""
 
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.database import ensure_initialized
 from kroger_mcp.analytics.ingredients import BAD_INGREDIENTS
 from kroger_mcp.auth.dependencies import current_user_id
+from kroger_mcp.web.templating import templates
 
-TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 router = APIRouter()
 
 

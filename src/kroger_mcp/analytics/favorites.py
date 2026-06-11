@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from kroger_mcp.auth.dependencies import mcp_user_id
+from kroger_mcp.cache import cache_read_through
 
 from .database import ensure_initialized, get_db_cursor
 
@@ -105,14 +106,21 @@ def get_all_favorite_product_ids() -> set:
     Returns a set of product_ids for fast O(1) lookup when checking
     if a product is in any favorites list.
 
+    Called once per product search to annotate results. Cached in Redis for a
+    short window (60s) so repeated searches skip the table scan; staleness is
+    cosmetic (a heart icon lagging at most 60s) and self-heals on TTL.
+
     Returns:
         Set of product_id strings
     """
     ensure_initialized()
 
-    with get_db_cursor() as cursor:
-        cursor.execute("SELECT DISTINCT product_id FROM favorite_list_items")
-        return {row["product_id"] for row in cursor.fetchall()}
+    def _load() -> list[str]:
+        with get_db_cursor() as cursor:
+            cursor.execute("SELECT DISTINCT product_id FROM favorite_list_items")
+            return [row["product_id"] for row in cursor.fetchall()]
+
+    return set(cache_read_through("fav:all_product_ids", 60, _load))
 
 
 # ========== List Management ==========

@@ -1,16 +1,12 @@
 """Pantry route — inventory overview sorted by level."""
 
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.pantry import get_pantry_status, list_pending_gaps
 from kroger_mcp.auth.dependencies import current_user_id
-
-TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+from kroger_mcp.web.templating import templates
 
 router = APIRouter()
 

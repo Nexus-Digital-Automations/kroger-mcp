@@ -1,17 +1,13 @@
 """Favorites routes — list overview and detail view."""
 
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.analytics.favorites import get_list_items, get_lists
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.web.context import action_menu_context
-
-TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+from kroger_mcp.web.templating import templates
 
 router = APIRouter()
 

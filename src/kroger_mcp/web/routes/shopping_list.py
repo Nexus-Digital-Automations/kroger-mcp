@@ -1,18 +1,15 @@
 """Shopping list page route."""
 
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 
 from kroger_mcp.tools.recipe_tools import _load_recipes
 from kroger_mcp.tools.shared import get_default_servings
 from kroger_mcp.tools.shopping_list_tools import _load_shopping_list
 from kroger_mcp.web.context import action_menu_context
+from kroger_mcp.web.templating import templates
 
-TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 router = APIRouter()
 
 

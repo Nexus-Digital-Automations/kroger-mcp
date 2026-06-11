@@ -5,11 +5,11 @@ import uuid
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.datastructures import FormData
-from starlette.templating import Jinja2Templates
 
 from kroger_mcp.auth.middleware import SESSION_COOKIE
 from kroger_mcp.auth.passwords import hash_password, verify_password
 from kroger_mcp.auth.sessions import create_session, delete_session
+from kroger_mcp.web.templating import templates
 
 router = APIRouter()
 
@@ -23,8 +23,6 @@ def _form_value(form: FormData, key: str) -> str:
     """
     value = form.get(key)
     return value if isinstance(value, str) else ""
-
-templates = Jinja2Templates(directory=str(__file__).rsplit("/routes", 1)[0] + "/templates")
 
 
 def _get_user_by_email(email: str) -> dict | None:
