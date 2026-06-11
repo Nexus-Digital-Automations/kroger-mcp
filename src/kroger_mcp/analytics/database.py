@@ -7,14 +7,161 @@ Set DATABASE_URL environment variable to use PostgreSQL.
 
 import asyncio
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 
 def get_backend() -> str:
     """Return 'postgresql' if DATABASE_URL is set, else 'sqlite'."""
     return "postgresql" if os.environ.get("DATABASE_URL") else "sqlite"
+
+
+# ---------------------------------------------------------------------------
+# Backend-aware connection shim
+#
+# The analytics/tools/web layer was written against SQLite's DB-API: `?`
+# placeholders, `sqlite3.Row` (index AND name access), `conn.execute(...)`, and
+# `conn.close()`. To run that same code on PostgreSQL without rewriting ~40
+# files, get_db_connection() returns a thin adapter over a pooled psycopg
+# connection that:
+#   - translates `?` -> `%s` (escaping literal `%` -> `%%` for psycopg),
+#   - translates `INSERT OR IGNORE` -> `... ON CONFLICT DO NOTHING`,
+#   - yields hybrid rows supporting both row[0] and row["col"],
+#   - returns the connection to the pool on .close().
+# SQLite-only constructs the shim cannot infer (INSERT OR REPLACE, lastrowid,
+# strftime) are rewritten at their call sites.
+# ---------------------------------------------------------------------------
+
+
+def _translate_sql(sql: str) -> str:
+    """Rewrite SQLite-flavoured SQL to psycopg-compatible SQL."""
+    or_ignore = re.search(r"INSERT\s+OR\s+IGNORE\s+INTO", sql, re.IGNORECASE)
+    if or_ignore:
+        sql = re.sub(r"INSERT\s+OR\s+IGNORE\s+INTO", "INSERT INTO", sql, flags=re.IGNORECASE)
+    # Escape literal % (e.g. LIKE '%x%') before introducing %s placeholders.
+    sql = sql.replace("%", "%%").replace("?", "%s")
+    if or_ignore and "ON CONFLICT" not in sql.upper():
+        sql = sql.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+    return sql
+
+
+class _HybridRow:
+    """A query row supporting both positional (row[0]) and named (row["c"])
+    access, matching sqlite3.Row so call sites work unchanged on Postgres."""
+
+    __slots__ = ("_cols", "_values", "_map")
+
+    def __init__(self, cols: list[str], values: tuple):
+        self._cols = cols
+        self._values = values
+        self._map = dict(zip(cols, values, strict=False))
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, int):
+            return self._values[key]
+        return self._map[key]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def keys(self) -> list[str]:
+        return list(self._cols)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._map.get(key, default)
+
+
+def _hybrid_row_factory(cursor: Any):
+    cols = [c.name for c in cursor.description] if cursor.description else []
+
+    def make_row(values: tuple) -> _HybridRow:
+        return _HybridRow(cols, values)
+
+    return make_row
+
+
+class _PgCursorAdapter:
+    """sqlite3-cursor-like wrapper over a psycopg cursor."""
+
+    def __init__(self, pg_cursor: Any):
+        self._cur = pg_cursor
+
+    def execute(self, sql: str, params: Any = ()) -> "_PgCursorAdapter":
+        self._cur.execute(_translate_sql(sql), params)
+        return self
+
+    def executemany(self, sql: str, seq: Any) -> "_PgCursorAdapter":
+        self._cur.executemany(_translate_sql(sql), seq)
+        return self
+
+    def fetchone(self) -> Any:
+        return self._cur.fetchone()
+
+    def fetchall(self) -> Any:
+        return self._cur.fetchall()
+
+    def __iter__(self):
+        return iter(self._cur)
+
+    @property
+    def rowcount(self) -> int:
+        return self._cur.rowcount
+
+    @property
+    def lastrowid(self) -> None:
+        # Postgres has no implicit lastrowid; call sites needing it use RETURNING.
+        return None
+
+    @property
+    def description(self) -> Any:
+        return self._cur.description
+
+
+class _PgConnectionAdapter:
+    """sqlite3-connection-like wrapper over a pooled psycopg connection."""
+
+    def __init__(self, conn: Any):
+        self._conn = conn
+        self._conn.row_factory = _hybrid_row_factory
+
+    @property
+    def row_factory(self) -> Any:
+        return _hybrid_row_factory
+
+    @row_factory.setter
+    def row_factory(self, _value: Any) -> None:
+        # Call sites set conn.row_factory = sqlite3.Row; we always use hybrid rows.
+        pass
+
+    def execute(self, sql: str, params: Any = ()) -> _PgCursorAdapter:
+        return _PgCursorAdapter(self._conn.execute(_translate_sql(sql), params))
+
+    def cursor(self) -> _PgCursorAdapter:
+        return _PgCursorAdapter(self._conn.cursor())
+
+    def executescript(self, sql: str) -> None:
+        self._conn.execute(sql)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    def close(self) -> None:
+        from kroger_mcp.analytics.pg_database import _get_pool
+
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
+        _get_pool().putconn(self._conn)
 
 
 # Database file location (data directory)
@@ -32,16 +179,22 @@ def get_db_path() -> str:
     return DB_FILE
 
 
-def get_db_connection() -> sqlite3.Connection:
+def get_db_connection() -> Any:
     """
-    Get a connection to the SQLite database.
+    Get a database connection for the active backend.
 
-    Returns:
-        sqlite3.Connection: Database connection with row_factory set to Row
+    SQLite (default) → sqlite3.Connection with row_factory=Row. When DATABASE_URL
+    is set → a psycopg-backed adapter exposing the same DB-API surface
+    (_PgConnectionAdapter) so call sites are backend-agnostic.
     """
+    if get_backend() == "postgresql":
+        from kroger_mcp.analytics.pg_database import get_pg_connection
+
+        return _PgConnectionAdapter(get_pg_connection())
+
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout=500")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA journal_mode=WAL")
     # Enable foreign keys
     conn.execute("PRAGMA foreign_keys = ON")
@@ -528,6 +681,15 @@ def ensure_initialized() -> None:
     """
     global _initialized
     if _initialized:
+        return
+
+    if get_backend() == "postgresql":
+        # Postgres builds the complete schema in one shot (SCHEMA_SQL); the
+        # SQLite incremental PRAGMA-based migrations + JSON import don't apply.
+        from kroger_mcp.analytics.pg_database import initialize_pg_database
+
+        initialize_pg_database()
+        _initialized = True
         return
 
     # Initialize database schema
