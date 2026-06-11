@@ -13,7 +13,7 @@ from typing import Any
 
 from kroger_mcp.auth.dependencies import mcp_user_id
 
-from .database import ensure_initialized, get_db_connection
+from .database import ensure_initialized, get_db_connection, insert_returning_id
 
 
 def _resolve_user_id(user_id: str | None) -> str:
@@ -343,9 +343,9 @@ def restock_item(
                 daily_depletion_rate = excluded.daily_depletion_rate,
                 expiration_date = excluded.expiration_date,
                 days_to_expiration = excluded.days_to_expiration,
-                description = COALESCE(excluded.description, description),
-                quantity_on_hand = COALESCE(excluded.quantity_on_hand, quantity_on_hand),
-                unit = COALESCE(excluded.unit, unit)
+                description = COALESCE(excluded.description, pantry_items.description),
+                quantity_on_hand = COALESCE(excluded.quantity_on_hand, pantry_items.quantity_on_hand),
+                unit = COALESCE(excluded.unit, pantry_items.unit)
         """,
             (
                 owner,
@@ -578,15 +578,15 @@ def add_to_pantry(
              quantity_on_hand, unit)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, product_id) DO UPDATE SET
-                description = COALESCE(excluded.description, description),
+                description = COALESCE(excluded.description, pantry_items.description),
                 level_percent = excluded.level_percent,
                 last_restocked_at = excluded.last_restocked_at,
                 last_updated_at = excluded.last_updated_at,
                 daily_depletion_rate = excluded.daily_depletion_rate,
                 low_threshold = excluded.low_threshold,
                 auto_deplete = excluded.auto_deplete,
-                quantity_on_hand = COALESCE(excluded.quantity_on_hand, quantity_on_hand),
-                unit = COALESCE(excluded.unit, unit)
+                quantity_on_hand = COALESCE(excluded.quantity_on_hand, pantry_items.quantity_on_hand),
+                unit = COALESCE(excluded.unit, pantry_items.unit)
         """,
             (
                 owner,
@@ -595,7 +595,7 @@ def add_to_pantry(
                 level,
                 now,
                 now,
-                1 if auto_deplete else 0,
+                bool(auto_deplete),
                 depletion_rate,
                 low_threshold,
                 quantity,
@@ -1067,7 +1067,8 @@ def create_pending_gap(
 
     conn = get_db_connection()
     try:
-        cursor = conn.execute(
+        gap_id = insert_returning_id(
+            conn,
             """
             INSERT INTO pending_gaps
             (user_id, recipe_id, recipe_name, product_id, product_description,
@@ -1086,7 +1087,6 @@ def create_pending_gap(
             ),
         )
         conn.commit()
-        gap_id = cursor.lastrowid
         if gap_id is None:
             raise RuntimeError("Failed to create pending gap: no row id returned")
         return gap_id

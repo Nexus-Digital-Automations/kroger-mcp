@@ -9,7 +9,7 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
-from ..analytics.database import get_db_connection
+from ..analytics.database import get_db_connection, insert_returning_id
 from ..analytics.ingredients import get_compiled_patterns
 from ..auth.dependencies import mcp_user_id
 
@@ -248,7 +248,8 @@ def register_tools(mcp):
                                 continue
 
                             aliases_json = json.dumps(als) if als else None
-                            cursor = conn.execute(
+                            new_id = insert_returning_id(
+                                conn,
                                 """
                                 INSERT INTO custom_ingredients
                                     (user_id, ingredient_name, severity, category, reason, aliases, notes)
@@ -261,7 +262,7 @@ def register_tools(mcp):
                             results[name] = {
                                 "success": True,
                                 "message": f"Added custom ingredient: {name}",
-                                "ingredient_id": cursor.lastrowid,
+                                "ingredient_id": new_id,
                                 "details": {
                                     "name": name,
                                     "severity": sev,

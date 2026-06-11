@@ -342,7 +342,7 @@ def update_seasonal_patterns(product_id: str) -> dict[str, Any]:
                     month,
                     data["count"],
                     avg_qty,
-                    1 if is_peak else 0,
+                    bool(is_peak),
                     holiday if is_peak else None,
                 ),
             )

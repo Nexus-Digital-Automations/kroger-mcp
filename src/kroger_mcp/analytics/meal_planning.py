@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from kroger_mcp.auth.dependencies import mcp_user_id
@@ -65,8 +65,17 @@ _recipes_cache_fingerprint: tuple[float, int] | None = None
 _RECIPES_VERSION_KEY = "recipes:version"
 
 
-def _parse_date(date_str: str) -> datetime:
-    """Parse a YYYY-MM-DD date string."""
+def _parse_date(date_str: Any) -> datetime:
+    """Parse a YYYY-MM-DD date into a datetime.
+
+    SQLite returns DATE columns as ``YYYY-MM-DD`` strings; the Postgres backend
+    returns native ``datetime.date`` / ``datetime.datetime`` objects. Accept all
+    three so date handling is backend-agnostic.
+    """
+    if isinstance(date_str, datetime):
+        return date_str
+    if isinstance(date_str, date):
+        return datetime(date_str.year, date_str.month, date_str.day)
     return datetime.strptime(date_str, "%Y-%m-%d")
 
 
@@ -291,7 +300,7 @@ def create_meal_plan(
                 start_date,
                 end_date,
                 plan_type,
-                int(is_template),
+                bool(is_template),
                 now,
                 now,
                 owner,
@@ -824,13 +833,21 @@ def assign_meal(
         if not recipe:
             return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
 
-        # Insert or replace (UNIQUE(plan_id, meal_date, meal_slot) handles this)
+        # Upsert on the slot's unique key. ON CONFLICT(cols) DO UPDATE is valid on
+        # both SQLite (3.24+) and Postgres; the conflict target is the real
+        # UNIQUE(plan_id, meal_date, meal_slot) constraint.
         conn.execute(
             """
-            INSERT OR REPLACE INTO meal_entries
+            INSERT INTO meal_entries
             (plan_id, recipe_id, meal_date, meal_slot,
              servings_override, notes, created_at, user_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(plan_id, meal_date, meal_slot) DO UPDATE SET
+                recipe_id = excluded.recipe_id,
+                servings_override = excluded.servings_override,
+                notes = excluded.notes,
+                created_at = excluded.created_at,
+                user_id = excluded.user_id
         """,
             (
                 plan_id,

@@ -76,10 +76,20 @@ def _save_shopping_list(data: dict[str, Any], user_id: str | None = None) -> Non
             item_id = item.get("id") or _generate_list_item_id()
             conn.execute(
                 """
-                INSERT OR REPLACE INTO user_shopping_lists
+                INSERT INTO user_shopping_lists
                     (id, user_id, product_id, name, quantity, unit, category,
                      purchased, recipe_source, added_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    product_id = excluded.product_id,
+                    name = excluded.name,
+                    quantity = excluded.quantity,
+                    unit = excluded.unit,
+                    category = excluded.category,
+                    purchased = excluded.purchased,
+                    recipe_source = excluded.recipe_source,
+                    added_at = excluded.added_at
                 """,
                 (
                     item_id,
@@ -89,7 +99,7 @@ def _save_shopping_list(data: dict[str, Any], user_id: str | None = None) -> Non
                     float(item.get("quantity", 1) or 1),
                     item.get("unit", ""),
                     item.get("category"),
-                    1 if item.get("purchased") else 0,
+                    bool(item.get("purchased")),
                     item.get("recipe_source"),
                     item.get("added_at") or datetime.now().isoformat(),
                 ),

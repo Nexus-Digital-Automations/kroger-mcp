@@ -7,7 +7,7 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
-from .database import ensure_initialized, get_db_connection
+from .database import ensure_initialized, get_db_connection, insert_returning_id
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,8 @@ def record_cart_add(
     conn = get_db_connection()
     try:
         now = datetime.now()
-        cursor = conn.execute(
+        event_id = insert_returning_id(
+            conn,
             """
             INSERT INTO purchase_events
             (product_id, quantity, event_type, modality, price, event_date, event_timestamp)
@@ -114,7 +115,6 @@ def record_cart_add(
             (product_id, quantity, modality, price, now.strftime("%Y-%m-%d"), now.isoformat()),
         )
         conn.commit()
-        event_id = cursor.lastrowid
         if event_id is None:
             raise RuntimeError("Failed to record cart-add event")
         return event_id
@@ -146,14 +146,14 @@ def record_order(cart_items: list[dict[str, Any]], order_notes: str | None = Non
         total_quantity = sum(item.get("quantity", 1) for item in cart_items)
 
         # Create order record
-        cursor = conn.execute(
+        order_id = insert_returning_id(
+            conn,
             """
             INSERT INTO orders (placed_at, item_count, total_quantity, notes)
             VALUES (?, ?, ?, ?)
         """,
             (now.isoformat(), item_count, total_quantity, order_notes),
         )
-        order_id = cursor.lastrowid
         if order_id is None:
             raise RuntimeError("Failed to create order record")
 

@@ -222,6 +222,31 @@ def get_db_cursor():
         conn.close()
 
 
+def insert_returning_id(
+    executor: Any, sql: str, params: Any = (), *, id_col: str = "id"
+) -> int | None:
+    """Run a single-row INSERT and return the new row's auto-increment id.
+
+    Backend-agnostic replacement for ``cursor.lastrowid``, which is always
+    ``None`` on the Postgres shim. On Postgres we append ``RETURNING <id_col>``
+    and read it from the cursor; on SQLite we keep the historical
+    ``cursor.lastrowid`` path (sqlite3's ``lastrowid`` is reliable for a plain
+    single-row INSERT and avoids any RETURNING-version assumptions).
+
+    ``executor`` is anything exposing ``.execute(sql, params)`` returning a
+    cursor — a connection or a cursor (both the sqlite3 and shim flavours do).
+    The INSERT is NOT committed here; the caller owns the transaction.
+    """
+    if get_backend() == "postgresql":
+        stripped = sql.rstrip().rstrip(";")
+        cursor = executor.execute(f"{stripped} RETURNING {id_col}", params)
+        row = cursor.fetchone()
+        return int(row[0]) if row is not None else None
+    cursor = executor.execute(sql, params)
+    last = cursor.lastrowid
+    return int(last) if last is not None else None
+
+
 def initialize_database() -> None:
     """
     Create all database tables if they don't exist.

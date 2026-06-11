@@ -104,15 +104,21 @@ CREATE TABLE IF NOT EXISTS products (
     brand VARCHAR(255),
     category_type VARCHAR(50) DEFAULT 'uncategorized',
     category_override BOOLEAN DEFAULT FALSE,
+    -- USDA / label ingredient-text cache (SQLite adds this via run_schema_migrations).
+    ingredients_text TEXT,
     first_purchased_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Purchase events (user-scoped)
+-- Purchase events (user-scoped). user_id is nullable to match SQLite runtime:
+-- record_cart_add / record_order INSERT without a user_id (the multi-tenant
+-- migration left these writes unscoped; new rows carry NULL on SQLite too).
+-- Consumption-attribution columns (recipe_id, quantity_delta, unit,
+-- source_description) are added by run_schema_migrations on SQLite.
 CREATE TABLE IF NOT EXISTS purchase_events (
     id SERIAL PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     product_id VARCHAR(50) NOT NULL,
     quantity INTEGER NOT NULL DEFAULT 1,
     event_type VARCHAR(20) NOT NULL,
@@ -120,14 +126,19 @@ CREATE TABLE IF NOT EXISTS purchase_events (
     price NUMERIC(10,2),
     event_date DATE NOT NULL,
     event_timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-    order_id INTEGER
+    order_id INTEGER,
+    recipe_id VARCHAR(50),
+    quantity_delta NUMERIC(10,3),
+    unit VARCHAR(50),
+    source_description TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pe_user_product ON purchase_events(user_id, product_id);
 
--- Orders (user-scoped)
+-- Orders (user-scoped). user_id nullable to match SQLite runtime: record_order
+-- INSERTs without a user_id (same unscoped-write gap as purchase_events).
 CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     placed_at TIMESTAMP WITH TIME ZONE NOT NULL,
     item_count INTEGER,
     total_quantity INTEGER,
@@ -217,6 +228,12 @@ CREATE TABLE IF NOT EXISTS pantry_items (
     low_threshold INTEGER DEFAULT 20,
     expiration_date DATE,
     days_to_expiration INTEGER,
+    -- Absolute-count tracking + last-use attribution (SQLite adds these via
+    -- run_schema_migrations; add_to_pantry / consume_from_pantry write them).
+    quantity_on_hand NUMERIC(10,3),
+    unit VARCHAR(50),
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    last_used_source VARCHAR(50),
     UNIQUE(user_id, product_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pantry_user ON pantry_items(user_id);
@@ -268,9 +285,12 @@ CREATE TABLE IF NOT EXISTS meal_plans (
     times_ordered INTEGER DEFAULT 0
 );
 
--- Meal entries
+-- Meal entries (user-scoped). user_id, cooked_at and pantry_deducted are added
+-- to SQLite by the multi-tenant migration + run_schema_migrations; meal_planning
+-- filters every read by user_id and toggles the cook-tracking columns.
 CREATE TABLE IF NOT EXISTS meal_entries (
     id SERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     plan_id VARCHAR(50) NOT NULL REFERENCES meal_plans(id) ON DELETE CASCADE,
     recipe_id VARCHAR(50) NOT NULL,
     meal_date DATE NOT NULL,
@@ -278,6 +298,8 @@ CREATE TABLE IF NOT EXISTS meal_entries (
     servings_override INTEGER,
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    cooked_at TIMESTAMP WITH TIME ZONE,
+    pantry_deducted BOOLEAN DEFAULT FALSE,
     UNIQUE(plan_id, meal_date, meal_slot)
 );
 
@@ -351,6 +373,10 @@ CREATE TABLE IF NOT EXISTS deal_watchlist (
     added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_checked_at TIMESTAMP WITH TIME ZONE,
     last_alert_at TIMESTAMP WITH TIME ZONE,
+    -- Best price ever seen for the watched product (deal_tools.add_to_watchlist
+    -- writes these; present in the SQLite schema, were absent on PG).
+    best_price_seen NUMERIC(10,2),
+    best_price_date TIMESTAMP WITH TIME ZONE,
     UNIQUE(user_id, product_id)
 );
 
@@ -384,6 +410,38 @@ CREATE TABLE IF NOT EXISTS user_settings (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     PRIMARY KEY (user_id, setting_key)
 );
+
+-- Per-user current cart (mirrors the SQLite table created by
+-- migrate_to_multi_tenant). cart_tools._save_cart_data replaces the rows for a
+-- user (DELETE then upsert); PK (user_id, product_id) is the conflict target.
+CREATE TABLE IF NOT EXISTS user_carts (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id VARCHAR(50) NOT NULL,
+    description TEXT,
+    quantity INTEGER DEFAULT 1,
+    modality VARCHAR(20) DEFAULT 'PICKUP',
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (user_id, product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_carts_user_id ON user_carts(user_id);
+
+-- Per-user shopping list (mirrors the SQLite table created by
+-- migrate_to_multi_tenant). shopping_list_tools._save_shopping_list replaces a
+-- user's rows; the surrogate id is the PK / upsert conflict target.
+CREATE TABLE IF NOT EXISTS user_shopping_lists (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id VARCHAR(50),
+    name VARCHAR(500) NOT NULL,
+    quantity NUMERIC(10,3) DEFAULT 1.0,
+    unit VARCHAR(50) DEFAULT '',
+    category VARCHAR(100),
+    purchased BOOLEAN DEFAULT FALSE,
+    recipe_source TEXT,
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_user_shopping_lists_user_id
+    ON user_shopping_lists(user_id);
 
 -- Per-account ingredient->product link memory (smart auto-linking, learned
 -- name standardization). norm_name is the mechanical grouping key; raw_name is

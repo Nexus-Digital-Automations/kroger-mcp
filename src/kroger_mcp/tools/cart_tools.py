@@ -103,9 +103,14 @@ def _save_cart_data(cart_data: dict[str, Any], user_id: str | None = None) -> No
                 continue
             conn.execute(
                 """
-                INSERT OR REPLACE INTO user_carts
+                INSERT INTO user_carts
                     (user_id, product_id, description, quantity, modality, added_at)
                 VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, product_id) DO UPDATE SET
+                    description = excluded.description,
+                    quantity = excluded.quantity,
+                    modality = excluded.modality,
+                    added_at = excluded.added_at
                 """,
                 (
                     owner,

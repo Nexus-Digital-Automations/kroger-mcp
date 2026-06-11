@@ -385,9 +385,9 @@ def add_to_safe_list(
             INSERT INTO safe_products (user_id, product_id, description, brand, added_reason)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id, product_id) DO UPDATE SET
-                description = COALESCE(?, description),
-                brand = COALESCE(?, brand),
-                added_reason = COALESCE(?, added_reason),
+                description = COALESCE(?, safe_products.description),
+                brand = COALESCE(?, safe_products.brand),
+                added_reason = COALESCE(?, safe_products.added_reason),
                 added_at = CURRENT_TIMESTAMP
             """,
             (resolved, product_id, description, brand, reason, description, brand, reason),
@@ -496,8 +496,8 @@ def add_to_blocked_list(
                 (user_id, product_id, description, blocked_reason, auto_blocked)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id, product_id) DO UPDATE SET
-                description = COALESCE(?, description),
-                blocked_reason = COALESCE(?, blocked_reason),
+                description = COALESCE(?, blocked_products.description),
+                blocked_reason = COALESCE(?, blocked_products.blocked_reason),
                 blocked_at = CURRENT_TIMESTAMP
             """,
             (
@@ -505,7 +505,7 @@ def add_to_blocked_list(
                 product_id,
                 description,
                 reason,
-                1 if auto_blocked else 0,
+                bool(auto_blocked),
                 description,
                 reason,
             ),

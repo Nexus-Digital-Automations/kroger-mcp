@@ -73,7 +73,7 @@ def record_price_observation(
             ORDER BY observed_at DESC
             LIMIT 1
             """,
-            (product_id, location_id, hour_ago, int(on_sale)),
+            (product_id, location_id, hour_ago, on_sale),
         )
         existing = cursor.fetchone()
 
@@ -114,7 +114,7 @@ def record_price_observation(
                     product_id,
                     regular_price,
                     sale_price,
-                    int(on_sale),
+                    on_sale,
                     savings_amount,
                     savings_percent,
                     location_id,
@@ -198,7 +198,7 @@ def record_price_observations(
                 ORDER BY observed_at DESC
                 LIMIT 1
                 """,
-                (product_id, location_id, hour_ago, int(on_sale)),
+                (product_id, location_id, hour_ago, on_sale),
             )
             existing = cursor.fetchone()
 
@@ -237,7 +237,7 @@ def record_price_observations(
                         product_id,
                         regular_price,
                         sale_price,
-                        int(on_sale),
+                        on_sale,
                         savings_amount,
                         savings_percent,
                         location_id,
@@ -305,18 +305,16 @@ def get_price_statistics(
                 "message": "No price history available for this product",
             }
 
-        # Get current price (most recent observation)
-        current = observations[0]
-        current_price = current["sale_price"] or current["regular_price"]
-
-        # Calculate statistics
-        all_prices = []
+        # Calculate statistics. Postgres returns NUMERIC columns as
+        # decimal.Decimal; coerce every price to float so downstream float math
+        # (e.g. current_price * 1.05) works identically on both backends.
+        all_prices: list[float] = []
         sale_observations = []
 
         for obs in observations:
             price = obs["sale_price"] or obs["regular_price"]
             if price:
-                all_prices.append(price)
+                all_prices.append(float(price))
             if obs["on_sale"]:
                 sale_observations.append(obs)
 
@@ -326,13 +324,19 @@ def get_price_statistics(
                 "message": "No valid price data",
             }
 
+        # Current price = most recent observation's price (first row, ordered
+        # DESC by observed_at); guaranteed present since all_prices is non-empty.
+        current = observations[0]
+        _current_raw = current["sale_price"] or current["regular_price"]
+        current_price: float = float(_current_raw) if _current_raw is not None else all_prices[0]
+
         avg_price = statistics.mean(all_prices)
         lowest_price = min(all_prices)
         highest_price = max(all_prices)
         times_on_sale = len(sale_observations)
 
         avg_savings_when_on_sale = (
-            statistics.mean([obs["savings_amount"] for obs in sale_observations])
+            statistics.mean([float(obs["savings_amount"] or 0) for obs in sale_observations])
             if sale_observations
             else 0.0
         )
