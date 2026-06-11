@@ -44,6 +44,32 @@ def _load_claude_desktop_env():
 
 _load_claude_desktop_env()
 
+
+def _enforce_env_isolation() -> None:
+    """Refuse to start a dev instance against a production database.
+
+    Guards the catastrophic "dev box points at prod Postgres" mistake: unless
+    APP_ENV=prod, DATABASE_URL must target a local host (or be unset → SQLite).
+    The production mini sets APP_ENV=prod; the dev Air leaves it unset/dev and
+    cannot reach the prod DB (which is localhost-bound there anyway).
+    """
+    from urllib.parse import urlparse
+
+    app_env = os.environ.get("APP_ENV", "dev")
+    db_url = os.environ.get("DATABASE_URL", "")
+    if app_env == "prod" or not db_url:
+        return
+    host = urlparse(db_url).hostname or ""
+    if host not in ("localhost", "127.0.0.1", "::1", ""):
+        raise RuntimeError(
+            f"Refusing to start: APP_ENV={app_env!r} but DATABASE_URL targets "
+            f"non-local host {host!r}. Set APP_ENV=prod on the production box, "
+            f"or point dev at a localhost database."
+        )
+
+
+_enforce_env_isolation()
+
 import logging
 from contextlib import asynccontextmanager
 
