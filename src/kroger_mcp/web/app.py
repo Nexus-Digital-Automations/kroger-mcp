@@ -232,17 +232,16 @@ def run():
     # to be reachable from any interface on the host (e.g. companion phone on
     # the LAN). bandit B104 flagged.
     #
-    # uvloop + httptools (project deps) replace asyncio + h11 for a faster event
-    # loop and C HTTP parser — lower CPU per request, which is the good-neighbor
-    # way to add throughput on the shared box (vs. adding workers).
+    # Event loop is left at uvicorn's default (asyncio). uvloop was tried but its
+    # event-loop re-init across macOS multiprocessing `spawn` workers fails under
+    # launchd's restricted environment (workers die on boot → restart loop),
+    # while asyncio + multi-worker is the historically stable path on this box.
     uvicorn.run(
         "kroger_mcp.web.app:app",
         host="0.0.0.0",  # nosec B104
         port=PORT,
         reload=False,
         workers=WORKERS,
-        loop="uvloop",
-        http="httptools",
     )
 
 
