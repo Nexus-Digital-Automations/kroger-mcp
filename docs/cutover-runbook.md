@@ -1,5 +1,34 @@
 # `prod` Cutover Runbook — SQLite → Postgres on the production mini
 
+> ## ✅ EXECUTED & COMPLETE — 2026-06-11
+> The production app on `prod` is live on **PostgreSQL 16** (`:5433`, localhost) + **Redis**
+> (`:6379`, localhost). ETL parity: **34/34 tables**, 7 orphan rows dropped (deleted-user
+> detritus), 1 kroger token migrated. Verified: `get_backend()==postgresql`, login/auth works,
+> redis cache live, `:8000` serving. Real data intact (users=15, orders=17, price_history=5805…).
+>
+> **Gotchas hit & fixed during execution (for next time / the dev box):**
+> - PG runs on **:5433** (not 5432). `pg_hba`: socket=`peer` (passwordless admin bootstrap),
+>   loopback TCP=`scram-sha-256` (app role) — committed in `provision_prod.sh` (`5b8ca2f`).
+> - **Boolean idiom bug**: SQLite `col = 1/0` broke on PG (`boolean = integer`) — broke auth.
+>   Fixed centrally in `_translate_sql` (`511738f`), normalizing the 12 BOOLEAN columns.
+> - **Redis 7**: `CONFIG REWRITE` stored the password as an ACL `user default … #<hash>` line,
+>   not `requirepass`; reset to `nopass` (localhost-bound + protected-mode is the boundary).
+> - Secrets live in prod `~/kroger-mcp/.env` (gitignored, 600): `DATABASE_URL`, `REDIS_URL`,
+>   `APP_ENV=prod`, `WEB_WORKERS=2`, `KROGER_TOKEN_MASTER_KEY`. Keychain was unreliable over SSH.
+>
+> **🔁 ROLLBACK (tested-ready, not executed):** the original SQLite at
+> `~/kroger-mcp/data/kroger_analytics.db` is **untouched** (the ETL only read it; integrity `ok`).
+> To revert: remove the `DATABASE_URL` line from `~/kroger-mcp/.env`, then
+> `launchctl kickstart -k gui/$(id -u)/com.smartshopper.web`. `get_backend()` falls back to
+> `sqlite` and the app serves the pre-migration data. The off-box backups under
+> `data/backups/prod/` (pre-cutover SQLite + post-cutover PG dump) are the disaster copies.
+>
+> **Open (need your input / sudo):** enable the macOS firewall on prod (sudo; PG/Redis are
+> already localhost-bound so this is defense-in-depth); decide whether to move the lightweight
+> `github`/`mempalace` MCP servers off prod (they're your Claude tooling, not the app).
+
+---
+
 Ordered, destructive-step-gated runbook for moving Smart Shopper's real data onto
 Postgres + Redis on the **production mini (`prod`, Tailscale `100.125.64.95`, OS user
 `macmini1`)**, with the MacBook Air as the dummy-data dev box. **🔴 steps are
