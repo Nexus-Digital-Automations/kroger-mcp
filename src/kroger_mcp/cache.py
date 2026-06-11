@@ -17,12 +17,17 @@ Connection URL comes from ``REDIS_URL`` (default ``redis://localhost:6379/0``).
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from collections.abc import Callable
+from typing import TypeVar
 
 import redis
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 
@@ -64,6 +69,38 @@ def get_redis() -> redis.Redis | None:
     _redis = client
     logger.info("redis connected url=%s", url)
     return _redis
+
+
+def cache_read_through(key: str, ttl_seconds: int, producer: Callable[[], T]) -> T:
+    """Return ``key`` from Redis, else call ``producer`` and cache its JSON result.
+
+    Best-effort cache: when Redis is unavailable, or a get/set fails, the
+    ``producer`` is called and its value returned unwrapped — caching never
+    blocks or fails the request. ``producer`` exceptions (e.g. a Kroger API
+    error) propagate and are NOT cached, so failures are never memoized.
+
+    The value must be JSON-serialisable (Kroger responses are plain dict/list).
+    """
+    client = get_redis()
+    if client is None:
+        return producer()
+
+    try:
+        hit = client.get(key)
+        if hit is not None:
+            return json.loads(hit)
+    except Exception as exc:
+        logger.warning("cache read failed key=%s (%s)", key, exc)
+
+    result = producer()
+
+    try:
+        client.set(key, json.dumps(result), ex=ttl_seconds)
+    except (TypeError, ValueError) as exc:
+        logger.warning("cache skip (unserialisable) key=%s (%s)", key, exc)
+    except Exception as exc:
+        logger.warning("cache write failed key=%s (%s)", key, exc)
+    return result
 
 
 def bump_version(key: str) -> None:

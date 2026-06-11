@@ -9,12 +9,18 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from kroger_mcp.cache import cache_read_through
+
 from .shared import (
     get_client_credentials_client,
     get_default_zip_code,
     get_preferred_location_id,
+    kroger_cache_key,
     set_preferred_location_id,
 )
+
+# Store locations for a zip change rarely; a 6h cache spares the rate bucket.
+_LOCATION_SEARCH_TTL = 21600
 
 
 def register_tools(mcp):
@@ -68,14 +74,25 @@ def register_tools(mcp):
                 client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
+                    cache_key = kroger_cache_key(
+                        client,
+                        "location_search",
+                        zip=zip_code,
+                        radius=radius_in_miles or 10,
+                        limit=limit or 10,
+                        chain=chain,
+                    )
                     locations = await asyncio.to_thread(
+                        cache_read_through,
+                        cache_key,
+                        _LOCATION_SEARCH_TTL,
                         functools.partial(
                             client.location.search_locations,
                             zip_code=zip_code,
                             radius_in_miles=radius_in_miles or 10,
                             limit=limit or 10,
                             chain=chain,
-                        )
+                        ),
                     )
 
                     if not locations or "data" not in locations or not locations["data"]:

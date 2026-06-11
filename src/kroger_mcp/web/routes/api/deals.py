@@ -89,11 +89,12 @@ _AUTO_CATEGORIES = [
 
 
 @router.get("/api/deals/auto")
-async def auto_deals(min_savings: float = 5):
+async def auto_deals(request: Request, min_savings: float = 5):
     """Scan multiple grocery categories in parallel and return top deals."""
     try:
-        client = get_client_credentials_client()
-        location_id = get_preferred_location_id() or "03400014"
+        user_id = current_user_id(request)
+        client = get_client_credentials_client(user_id)
+        location_id = get_preferred_location_id(user_id=user_id) or "03400014"
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
@@ -172,6 +173,7 @@ async def auto_deals(min_savings: float = 5):
 
 @router.get("/api/deals/find")
 async def find_deals(
+    request: Request,
     q: str = "",
     category: str = "",
     min_savings: float = 10,
@@ -180,8 +182,9 @@ async def find_deals(
     search_term = q.strip() or category.strip() or "sale"
 
     try:
-        client = get_client_credentials_client()
-        location_id = get_preferred_location_id() or "03400014"
+        user_id = current_user_id(request)
+        client = get_client_credentials_client(user_id)
+        location_id = get_preferred_location_id(user_id=user_id) or "03400014"
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 

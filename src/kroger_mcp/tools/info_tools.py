@@ -9,7 +9,12 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
-from .shared import get_client_credentials_client
+from kroger_mcp.cache import cache_read_through
+
+from .shared import get_client_credentials_client, kroger_cache_key
+
+# Chains and departments are effectively static reference data — cache 24h.
+_REFERENCE_TTL = 86400
 
 
 def register_tools(mcp):
@@ -73,7 +78,11 @@ def register_tools(mcp):
                 client = get_client_credentials_client()
 
                 try:
-                    chains = client.location.list_chains()
+                    chains = cache_read_through(
+                        kroger_cache_key(client, "chains"),
+                        _REFERENCE_TTL,
+                        client.location.list_chains,
+                    )
 
                     if not chains or "data" not in chains or not chains["data"]:
                         return {"success": False, "message": "No chains found", "data": []}
@@ -159,7 +168,11 @@ def register_tools(mcp):
                 client = get_client_credentials_client()
 
                 try:
-                    departments = client.location.list_departments()
+                    departments = cache_read_through(
+                        kroger_cache_key(client, "departments"),
+                        _REFERENCE_TTL,
+                        client.location.list_departments,
+                    )
 
                     if not departments or "data" not in departments or not departments["data"]:
                         return {"success": False, "message": "No departments found", "data": []}

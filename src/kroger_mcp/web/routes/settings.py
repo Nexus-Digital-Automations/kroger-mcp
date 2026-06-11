@@ -101,8 +101,9 @@ async def oauth_callback(
     if state != saved.get("state"):
         return RedirectResponse(url="/settings?oauth=error&detail=state_mismatch")
 
-    # Exchange authorization code for token
-    creds = get_kroger_credentials()
+    # Exchange authorization code for token (scoped to the logged-in user so a
+    # power user's own client_id/secret mints the token, not the env app's).
+    creds = get_kroger_credentials(user_id=current_user_id(request))
     redirect_uri = saved.get("redirect_uri", "http://localhost:8000/callback")
 
     try:

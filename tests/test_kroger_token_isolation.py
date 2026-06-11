@@ -148,8 +148,12 @@ def test_get_authenticated_client_loads_only_the_requested_user(
 
     from kroger_mcp.tools import shared
 
-    # Avoid real Kroger network calls: stub env validation and the token probe.
-    monkeypatch.setattr(shared, "load_and_validate_env", lambda *a, **k: None)
+    # Avoid real Kroger network calls: supply credentials and stub the probe.
+    monkeypatch.setattr(
+        shared,
+        "get_kroger_credentials",
+        lambda user_id=None: {"client_id": "c", "client_secret": "s", "redirect_uri": "r"},
+    )
 
     captured: dict[str, object] = {}
 
@@ -159,7 +163,7 @@ def test_get_authenticated_client_loads_only_the_requested_user(
             self.token_file = None
 
     class _FakeKrogerAPI:
-        def __init__(self) -> None:
+        def __init__(self, client_id=None, client_secret=None, redirect_uri=None) -> None:
             self.client = _FakeClientInner()
 
         def test_current_token(self) -> bool:
@@ -182,7 +186,12 @@ def test_missing_token_raises_authentication_required(kroger_tokens_mod, monkeyp
     """A user with no stored token gets the explicit re-auth signal."""
     from kroger_mcp.tools import shared
 
-    monkeypatch.setattr(shared, "load_and_validate_env", lambda *a, **k: None)
+    # Credentials present, but no stored token for this user → re-auth signal.
+    monkeypatch.setattr(
+        shared,
+        "get_kroger_credentials",
+        lambda user_id=None: {"client_id": "c", "client_secret": "s", "redirect_uri": "r"},
+    )
 
     with pytest.raises(Exception, match="Authentication required"):
         shared.get_authenticated_client(_USER_A)

@@ -257,14 +257,14 @@ async def get_auth_status(request: Request):
 
 
 @router.post("/api/settings/auth/connect")
-async def start_oauth():
+async def start_oauth(request: Request):
     """Start OAuth PKCE flow; returns auth URL for browser redirect."""
     from kroger_api import KrogerAPI
     from kroger_api.utils import generate_pkce_parameters
 
     from kroger_mcp.tools.shared import get_kroger_credentials
 
-    creds = get_kroger_credentials()
+    creds = get_kroger_credentials(user_id=current_user_id(request))
     if not creds["client_id"] or not creds["client_secret"]:
         return JSONResponse(
             status_code=400,
@@ -337,19 +337,31 @@ async def get_credentials(request: Request):
 
 @router.post("/api/settings/credentials")
 async def save_credentials(body: CredentialsBody, request: Request):
-    """Save this user's Kroger API credentials."""
+    """Save this user's Kroger API credentials.
+
+    Evicts the caller's cached app client so the new secret takes effect. When
+    the ``client_id`` itself changes, the user's stored OAuth token was minted
+    under a different app and is no longer valid — drop it so they re-link.
+    """
     from kroger_mcp.tools.shared import (
+        get_kroger_credentials,
         invalidate_authenticated_client,
         invalidate_client_credentials_client,
         set_kroger_credentials,
     )
 
+    user_id = current_user_id(request)
+    old_client_id = get_kroger_credentials(user_id=user_id)["client_id"]
+
     set_kroger_credentials(
         client_id=body.client_id or None,
         client_secret=body.client_secret or None,
         redirect_uri=body.redirect_uri or None,
-        user_id=current_user_id(request),
+        user_id=user_id,
     )
-    invalidate_authenticated_client()
-    invalidate_client_credentials_client()
+
+    new_client_id = get_kroger_credentials(user_id=user_id)["client_id"]
+    invalidate_client_credentials_client(user_id)
+    if new_client_id != old_client_id:
+        invalidate_authenticated_client(user_id)
     return {"success": True}

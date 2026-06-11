@@ -14,11 +14,18 @@ from kroger_mcp.analytics.ingredient_links import (
     suggest_products_for_ingredient,
 )
 from kroger_mcp.auth.dependencies import current_user_id
+from kroger_mcp.cache import cache_read_through
 from kroger_mcp.tools.shared import (
     get_authenticated_client,
     get_client_credentials_client,
     get_preferred_location_id,
+    kroger_cache_key,
 )
+
+# Public-read cache TTLs (seconds). Product prices drift slowly; a 1h window
+# spares the shared rate bucket without showing stale prices.
+_PRODUCT_SEARCH_TTL = 3600
+_PRODUCT_DETAIL_TTL = 3600
 
 router = APIRouter()
 logger = logging.getLogger("kroger_mcp.web.products")
@@ -212,6 +219,7 @@ def _extract_product(item) -> dict | None:
 
 @router.get("/api/products/search")
 async def search_products(
+    request: Request,
     q: str = "",
     limit: int = 20,
     category: str = "",
@@ -229,13 +237,26 @@ async def search_products(
         )
 
     try:
-        client = get_client_credentials_client()
-        location_id = get_preferred_location_id() or "03400014"
+        user_id = current_user_id(request)
+        client = get_client_credentials_client(user_id)
+        location_id = get_preferred_location_id(user_id=user_id) or "03400014"
+        capped_limit = min(limit, 50)
 
-        result = client.product.search_products(
+        cache_key = kroger_cache_key(
+            client,
+            "product_search",
             term=search_term,
-            location_id=location_id,
-            limit=min(limit, 50),
+            location=location_id,
+            limit=capped_limit,
+        )
+        result = cache_read_through(
+            cache_key,
+            _PRODUCT_SEARCH_TTL,
+            lambda: client.product.search_products(
+                term=search_term,
+                location_id=location_id,
+                limit=capped_limit,
+            ),
         )
 
         # Unwrap the result — search_products returns a dict with 'data' key
@@ -346,7 +367,7 @@ async def suggest_ingredient_products(request: Request, name: str = "", limit: i
 
 
 @router.get("/api/products/{product_id}")
-async def get_product_detail(product_id: str):
+async def get_product_detail(request: Request, product_id: str):
     """Return one product with safety enrichment and (when Kroger provides
     them) ingredient list and nutrition. Source of truth for the comparison
     panel in the recipe-linking UI.
@@ -359,9 +380,17 @@ async def get_product_detail(product_id: str):
         return JSONResponse(status_code=400, content={"error": "Missing product_id"})
 
     try:
-        client = get_client_credentials_client()
-        location_id = get_preferred_location_id() or "03400014"
-        raw = client.product.get_product(product_id=pid, location_id=location_id)
+        user_id = current_user_id(request)
+        client = get_client_credentials_client(user_id)
+        location_id = get_preferred_location_id(user_id=user_id) or "03400014"
+        cache_key = kroger_cache_key(
+            client, "product_detail", pid=pid, location=location_id
+        )
+        raw = cache_read_through(
+            cache_key,
+            _PRODUCT_DETAIL_TTL,
+            lambda: client.product.get_product(product_id=pid, location_id=location_id),
+        )
 
         # Kroger SDK returns {"data": {...}} or an object exposing .data
         record = None

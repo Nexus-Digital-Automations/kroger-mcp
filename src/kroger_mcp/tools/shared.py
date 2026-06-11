@@ -13,62 +13,107 @@ Does NOT own:
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
+import threading
 
 from dotenv import load_dotenv
 from kroger_api.kroger_api import KrogerAPI
 from kroger_api.token_storage import load_token
-from kroger_api.utils.env import get_zip_code, load_and_validate_env
+from kroger_api.utils.env import get_zip_code
+
+from kroger_mcp.tools._kroger_retry import install_kroger_retry
 
 # Load environment variables
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Global state for the app-level (client-credentials) client only.
+# Install 429/5xx backoff on the Kroger HTTP chokepoint before any client is
+# built. Idempotent; covers every client created below.
+install_kroger_retry()
+
+# App-level (client-credentials) clients, cached PER client_id.
 #
-# The per-user authenticated client is intentionally NOT cached in a module
-# global: with multiple concurrent web users, a shared global (and a shared
-# token file) let one user's Kroger OAuth overwrite another's. Per-user tokens
-# now live encrypted in the ``kroger_tokens`` table (see auth/kroger_tokens.py)
-# and a FRESH KrogerAPI() is built per call.
-_client_credentials_client: KrogerAPI | None = None
+# Hybrid model: most users share the env app's client_id (one cached client);
+# a power user who brings their own client_id gets a SEPARATE cached client so
+# their public reads run under — and are rate-limited against — their own
+# Kroger app. Keyed by client_id (not user) so users sharing the env app share
+# one client. Guarded by a lock because builders run in a thread pool.
+#
+# The per-user *authenticated* client is intentionally NOT cached: with
+# concurrent web users a shared global (and a shared token file) let one user's
+# Kroger OAuth overwrite another's. Per-user tokens live encrypted in the
+# ``kroger_tokens`` table (see auth/kroger_tokens.py); a FRESH KrogerAPI() is
+# built per call.
+_cc_clients: dict[str, KrogerAPI] = {}
+_cc_clients_lock = threading.Lock()
 
 
-def get_client_credentials_client() -> KrogerAPI:
-    """Get or create a client credentials authenticated client for public data"""
-    global _client_credentials_client
+def kroger_cache_key(client: KrogerAPI, kind: str, **params: object) -> str:
+    """Build a Redis key for a public Kroger read, scoped to the app's client_id.
 
-    if _client_credentials_client is not None and _client_credentials_client.test_current_token():
-        return _client_credentials_client
+    Including the client_id keeps a power user's cached results isolated from
+    the shared app's (no cross-tenant leak) while letting everyone on the shared
+    env app reuse warm entries.
+    """
+    raw_id = getattr(client.client, "client_id", "") or ""
+    cid = hashlib.sha256(raw_id.encode()).hexdigest()[:12]
+    norm = "&".join(f"{k}={params[k]}" for k in sorted(params) if params[k] is not None)
+    return f"kapi:{kind}:{cid}:{norm}"
 
-    _client_credentials_client = None
 
-    try:
-        load_and_validate_env(["KROGER_CLIENT_ID", "KROGER_CLIENT_SECRET"])
-        _client_credentials_client = KrogerAPI()
+def _cc_token_file(client_id: str) -> str:
+    """Per-client_id cache file for the client-credentials token.
 
-        # Try to load existing token first.
-        # bandit B105 flags the variable name; this is a filename, not a credential.
-        token_file = ".kroger_token_client_product.compact.json"  # nosec B105
-        token_info = load_token(token_file)
+    Keying by a hash of the client_id keeps power users' app tokens from
+    colliding in one shared file. bandit B105 flags the literal; it is a
+    filename, not a credential.
+    """
+    digest = hashlib.sha256(client_id.encode()).hexdigest()[:12]
+    return f".kroger_token_cc_{digest}.json"  # nosec B105
 
-        if token_info:
-            # Test if the token is still valid
-            _client_credentials_client.client.token_info = token_info
-            if _client_credentials_client.test_current_token():
-                # Token is valid, use it
-                return _client_credentials_client
 
-        # Token is invalid or not found, get a new one
-        token_info = _client_credentials_client.authorization.get_token_with_client_credentials(
-            "product.compact"
+def get_client_credentials_client(user_id: str | None = None) -> KrogerAPI:
+    """Get/create a client-credentials client for public data, scoped to the caller's app.
+
+    Resolves the caller's Kroger ``client_id``/``client_secret`` (per-user
+    preference → ``KROGER_*`` env fallback) and returns a client cached under
+    that ``client_id``. ``user_id=None`` resolves via ``mcp_user_id()`` so
+    existing MCP callers are unchanged.
+    """
+    creds = get_kroger_credentials(user_id=_resolve_pref_user_id(user_id))
+    client_id = creds["client_id"]
+    client_secret = creds["client_secret"]
+    if not client_id or not client_secret:
+        raise Exception(
+            "Kroger credentials not configured. Set KROGER_CLIENT_ID/SECRET or add them "
+            "in Advanced Settings."
         )
-        return _client_credentials_client
-    except Exception as e:
-        raise Exception(f"Failed to get client credentials: {str(e)}") from e
+
+    with _cc_clients_lock:
+        cached = _cc_clients.get(client_id)
+        if cached is not None and cached.test_current_token():
+            return cached
+
+        try:
+            client = KrogerAPI(client_id=client_id, client_secret=client_secret)
+
+            token_file = _cc_token_file(client_id)
+            token_info = load_token(token_file)
+            if token_info:
+                client.client.token_info = token_info
+                if client.test_current_token():
+                    _cc_clients[client_id] = client
+                    return client
+
+            client.authorization.get_token_with_client_credentials("product.compact")
+            _cc_clients[client_id] = client
+            return client
+        except Exception as e:
+            raise Exception(f"Failed to get client credentials: {str(e)}") from e
 
 
 def get_authenticated_client(user_id: str | None = None) -> KrogerAPI:
@@ -97,14 +142,26 @@ def get_authenticated_client(user_id: str | None = None) -> KrogerAPI:
     resolved_user_id = mcp_user_id() if user_id is None else user_id
 
     try:
-        load_and_validate_env(["KROGER_CLIENT_ID", "KROGER_CLIENT_SECRET", "KROGER_REDIRECT_URI"])
+        # Build the client from THIS user's credentials (per-user preference →
+        # env fallback) so a power user's token refresh runs under the same
+        # client_id that minted it, not the env app's.
+        creds = get_kroger_credentials(user_id=resolved_user_id)
+        if not creds["client_id"] or not creds["client_secret"]:
+            raise Exception(
+                "Authentication required. Please use the start_authentication tool to begin "
+                "the OAuth flow, then complete it with the complete_authentication tool."
+            )
 
         token_info = load_kroger_token(resolved_user_id)
 
         if token_info:
             # Build a fresh client; do NOT set client.token_file — leaving it
             # None keeps kroger-api from writing refreshes to the shared file.
-            client = KrogerAPI()
+            client = KrogerAPI(
+                client_id=creds["client_id"],
+                client_secret=creds["client_secret"],
+                redirect_uri=creds["redirect_uri"] or None,
+            )
             client.client.token_info = token_info
 
             if client.test_current_token():
@@ -163,10 +220,25 @@ def invalidate_authenticated_client(user_id: str | None = None) -> None:
         )
 
 
-def invalidate_client_credentials_client():
-    """Invalidate the client credentials client to force re-authentication"""
-    global _client_credentials_client
-    _client_credentials_client = None
+def invalidate_client_credentials_client(user_id: str | None = None) -> None:
+    """Drop cached client-credentials client(s) to force a fresh token.
+
+    With ``user_id`` (or its resolved default), only that caller's app client
+    (keyed by their client_id) is evicted — a power user changing credentials
+    does not disturb everyone else on the shared env app. Without a resolvable
+    client_id, evict all (used by broad MCP-side resets).
+    """
+    try:
+        creds = get_kroger_credentials(user_id=_resolve_pref_user_id(user_id))
+        client_id = creds.get("client_id")
+    except Exception:
+        client_id = None
+
+    with _cc_clients_lock:
+        if client_id and client_id in _cc_clients:
+            del _cc_clients[client_id]
+        elif not client_id:
+            _cc_clients.clear()
 
 
 def _resolve_pref_user_id(user_id: str | None) -> str:
