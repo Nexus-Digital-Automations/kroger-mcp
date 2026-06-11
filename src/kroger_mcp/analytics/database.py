@@ -36,11 +36,45 @@ def get_backend() -> str:
 # ---------------------------------------------------------------------------
 
 
+# Columns declared BOOLEAN in the Postgres schema. The SQLite-era code compares
+# them with the integer idiom (`col = 1`, `SET col = 0`), which Postgres rejects
+# ("operator does not exist: boolean = integer"). The adapter normalises those
+# literal comparisons to TRUE/FALSE for the PG path only; the SQLite path keeps
+# `= 1` (SQLite stores booleans as 0/1). Columns intentionally kept INTEGER in PG
+# — is_currently_available, viewed, meal_log_items.pantry_deducted — are NOT here;
+# only `= <literal 0|1>` is rewritten, so parameterised values (`= %s`) are
+# untouched. Keep in sync with the BOOLEAN columns in pg_database.SCHEMA_SQL.
+_PG_BOOL_COLS = (
+    "is_active",
+    "category_override",
+    "is_peak_period",
+    "is_optional",
+    "auto_deplete",
+    "is_template",
+    "pantry_deducted",
+    "auto_blocked",
+    "enabled",
+    "on_sale",
+    "purchased",
+    "is_hidden",
+)
+_BOOL_EQ_RE = re.compile(r"\b(" + "|".join(_PG_BOOL_COLS) + r")\s*=\s*([01])\b")
+
+
+def _normalize_bool_literals(sql: str) -> str:
+    """Rewrite `bool_col = 1|0` to `bool_col = TRUE|FALSE` (PG path only)."""
+    return _BOOL_EQ_RE.sub(
+        lambda m: f"{m.group(1)} = {'TRUE' if m.group(2) == '1' else 'FALSE'}", sql
+    )
+
+
 def _translate_sql(sql: str) -> str:
     """Rewrite SQLite-flavoured SQL to psycopg-compatible SQL."""
     or_ignore = re.search(r"INSERT\s+OR\s+IGNORE\s+INTO", sql, re.IGNORECASE)
     if or_ignore:
         sql = re.sub(r"INSERT\s+OR\s+IGNORE\s+INTO", "INSERT INTO", sql, flags=re.IGNORECASE)
+    # Boolean idiom before placeholder mangling (operates on literal 0/1 only).
+    sql = _normalize_bool_literals(sql)
     # Escape literal % (e.g. LIKE '%x%') before introducing %s placeholders.
     sql = sql.replace("%", "%%").replace("?", "%s")
     if or_ignore and "ON CONFLICT" not in sql.upper():
