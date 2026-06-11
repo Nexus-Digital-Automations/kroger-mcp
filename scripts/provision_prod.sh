@@ -77,11 +77,13 @@ wal_compression = on
 ${MARK_END}
 EOF
 
-# Enforce scram-sha-256 for local + loopback TCP; refuse anything non-loopback.
-log "hardening ${PG_HBA} (scram-sha-256, loopback only)"
+# Local Unix socket uses peer (OS-authenticated: the macmini1 superuser bootstraps
+# the role/DB passwordless). TCP loopback requires scram-sha-256 (the app role's
+# password). Anything non-loopback is refused outright.
+log "hardening ${PG_HBA} (socket=peer admin, loopback TCP=scram-sha-256)"
 cat > "${PG_HBA}" <<'EOF'
-# Managed by provision_prod.sh — loopback only, scram-sha-256.
-local   all   all                  scram-sha-256
+# Managed by provision_prod.sh — socket=peer (admin), loopback TCP=scram.
+local   all   all                  peer
 host    all   all   127.0.0.1/32   scram-sha-256
 host    all   all   ::1/128        scram-sha-256
 EOF
@@ -126,12 +128,12 @@ pg_isready -h localhost -p "${PG_PORT}" >/dev/null 2>&1 || die "Postgres did not
 #    separately (ALTER ROLE ... PASSWORD) from the Keychain-sourced secret.
 # ---------------------------------------------------------------------------
 log "ensuring role ${APP_ROLE} + database ${APP_DB} exist"
-psql -h localhost -p "${PG_PORT}" -d postgres -tAc \
+psql -p "${PG_PORT}" -d postgres -tAc \
   "SELECT 1 FROM pg_roles WHERE rolname='${APP_ROLE}'" | grep -q 1 \
-  || psql -h localhost -p "${PG_PORT}" -d postgres -c "CREATE ROLE ${APP_ROLE} LOGIN;"
-psql -h localhost -p "${PG_PORT}" -d postgres -tAc \
+  || psql -p "${PG_PORT}" -d postgres -c "CREATE ROLE ${APP_ROLE} LOGIN;"
+psql -p "${PG_PORT}" -d postgres -tAc \
   "SELECT 1 FROM pg_database WHERE datname='${APP_DB}'" | grep -q 1 \
-  || psql -h localhost -p "${PG_PORT}" -d postgres -c "CREATE DATABASE ${APP_DB} OWNER ${APP_ROLE};"
+  || psql -p "${PG_PORT}" -d postgres -c "CREATE DATABASE ${APP_DB} OWNER ${APP_ROLE};"
 
 log "PROVISION COMPLETE — PG16 on :${PG_PORT} (localhost), redis (localhost), both autostart"
 log "NEXT: set ${APP_ROLE}'s password + redis requirepass from the Keychain, then run the ETL."
