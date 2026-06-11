@@ -1,0 +1,8 @@
+# Security-scan suppressions — file-specific and narrow (gitignore-style).
+#
+# logs/subagent_stop.json is an untracked, gitignored hook artifact: a verbatim
+# dump of a sub-agent's final message. The pattern-scanner "weak-hash-sha1"
+# finding at this path is a hash-shaped string inside a logged
+# "last_assistant_message" field — transcript CONTENT, not cryptographic usage
+# in code. Not shipped, not application security surface.
+logs/subagent_stop.json
