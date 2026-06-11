@@ -246,8 +246,8 @@ def run():
     )
 
 
-def stop():
-    """Kill any process running on the web port."""
+def _pids_on_port() -> list[int]:
+    """PIDs currently bound to the web port (via lsof)."""
     import subprocess  # nosec B404 - static `lsof` invocation, no shell, no user input
 
     # `lsof -ti :{PORT}` — args are a static list; PORT is an integer parsed
@@ -255,10 +255,41 @@ def stop():
     result = subprocess.run(  # nosec B603 B607
         ["lsof", "-ti", f":{PORT}"], capture_output=True, text=True
     )
-    pids = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+    return [int(p) for p in result.stdout.split() if p.strip()]
+
+
+def stop():
+    """Free the web port and WAIT until it is actually released.
+
+    Returning before the port is free lets the subsequent ``uvicorn`` bind race a
+    still-dying worker and fail with EADDRINUSE. Under launchd KeepAlive that
+    becomes a restart loop that accumulates orphaned, non-serving workers (which
+    is exactly how a hard ``kickstart -k`` could wedge the service). So: SIGTERM,
+    poll until the port clears, then SIGKILL any straggler, and confirm free
+    before returning.
+    """
+    import time
+
+    pids = _pids_on_port()
     if not pids:
         print(f"No server found on port {PORT}")
         return
     for pid in pids:
-        os.kill(int(pid), signal.SIGTERM)
-    print(f"Stopped {len(pids)} process(es) on port {PORT}")
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    # Up to ~6s for graceful shutdown + socket release.
+    for _ in range(30):
+        time.sleep(0.2)
+        if not _pids_on_port():
+            print(f"Stopped {len(pids)} process(es) on port {PORT}")
+            return
+    # Stragglers: escalate to SIGKILL, then give the socket a moment to release.
+    for pid in _pids_on_port():
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    time.sleep(0.5)
+    print(f"Force-stopped stragglers on port {PORT}")
