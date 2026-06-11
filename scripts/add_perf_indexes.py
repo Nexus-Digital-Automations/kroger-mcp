@@ -33,6 +33,14 @@ INDEXES: dict[str, str] = {
 
 
 def main() -> int:
+    # Load the project .env (DATABASE_URL) when run standalone on the prod box.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except Exception:
+        pass
+
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         print("DATABASE_URL not set — this script is Postgres-only. Nothing to do.")
