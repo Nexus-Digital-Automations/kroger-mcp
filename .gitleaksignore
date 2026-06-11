@@ -1,0 +1,19 @@
+# gitleaks false-positive / intentional-test-fixture allowlist.
+# Each line is a gitleaks finding fingerprint (commit:file:rule:line) that has
+# been reviewed and confirmed NOT to be a live credential. Verified 2026-06-10.
+#
+# Real secrets (.env, .kroger_token_*.json, .claude logs) are gitignored and
+# were never committed — confirmed: the git-history scan finds none of them.
+
+# Intentional, non-production Fernet key used only so the token-encryption tests
+# are deterministic/hermetic. Protects nothing real.
+04ec0e737f969d82201f1650fd06d9a0758f5121:tests/test_kroger_token_isolation.py:generic-api-key:21
+
+# False positive: high-entropy match inside static food-additive ingredient data
+# (IngredientInfo definitions), not a key.
+f1bc6fdfe32cc5eef3bd690e5234f0a7b1e3816c:src/kroger_mcp/analytics/ingredients.py:generic-api-key:248
+b498ca405a5f3da81370af798e37863cbd3a02fc:src/kroger_mcp/analytics/ingredients.py:generic-api-key:248
+
+# Example/placeholder string in a since-deleted summary doc (history only).
+5b76cb67fdf4ce949d93818abb8a0bf9c49efa16:BOLTAI_FIX_SUMMARY.md:generic-api-key:63
+fb789d89ff16d9338271fd213e56cda1b4911be1:BOLTAI_FIX_SUMMARY.md:generic-api-key:63
