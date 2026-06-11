@@ -27,6 +27,26 @@
 > already localhost-bound so this is defense-in-depth); decide whether to move the lightweight
 > `github`/`mempalace` MCP servers off prod (they're your Claude tooling, not the app).
 
+> ## ⚙️ EFFICIENCY DEPLOY — 2026-06-11 (good-neighbor batch)
+> Deployed gzip, shared Jinja2 templates, static cache headers, 5 perf indexes
+> (`add_perf_indexes.py`, CONCURRENTLY), an order-history N+1 fix, and Redis caching
+> (recommendations + favourites). **Two hard-won prod gotchas — MUST preserve:**
+> - **`WEB_WORKERS=1` is REQUIRED on prod** (set via the launchd plist
+>   `EnvironmentVariables`, `.bak` kept alongside it). uvicorn 0.47 `workers=2` uses
+>   macOS multiprocessing **`spawn`**, whose workers **die silently under launchd**
+>   (service restart-loops, `:8000` never binds). `workers=1` runs in-process (no spawn)
+>   and is stable — and is the right good-neighbor choice on this SHARED box (mempalace
+>   ~1.3 GB + remote tooling also run here). The async event loop still handles many
+>   concurrent connections in one worker. To get true multi-worker later, front it with
+>   gunicorn's uvicorn worker (fork-based), not bare `uvicorn --workers`.
+> - **uvloop/httptools were reverted** — uvloop's event-loop re-init across the same
+>   `spawn` workers also fails under launchd. Default asyncio loop is the stable path here.
+> - `run()`'s `stop()` now **waits for the port to release** before binding (was a
+>   SIGTERM-and-return race that, under launchd KeepAlive, spiralled into orphaned
+>   non-serving workers — exactly what a hard `kickstart -k` can trigger). **Use graceful
+>   `launchctl kickstart` (no `-k`) or bootout→bootstrap for restarts.**
+> - The prod `.env` line should read **`WEB_WORKERS=1`** (the plist env also enforces it).
+
 ---
 
 Ordered, destructive-step-gated runbook for moving Smart Shopper's real data onto
