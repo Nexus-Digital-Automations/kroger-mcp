@@ -1,63 +1,63 @@
-# Mac mini 2 (.108) Cutover Runbook — SQLite/PG → Postgres on the prod mini
+# `prod` Cutover Runbook — SQLite → Postgres on the production mini
 
 Ordered, destructive-step-gated runbook for moving Smart Shopper's real data onto
-Postgres + Redis on the production mini (`192.168.50.108`), with the MacBook Air
-as the dummy-data dev box. **🔴 steps are irreversible-ish and gated behind the
-verified backup (step 3).** Nothing past step 3 runs until the backup restore-verifies.
+Postgres + Redis on the **production mini (`prod`, Tailscale `100.125.64.95`, OS user
+`macmini1`)**, with the MacBook Air as the dummy-data dev box. **🔴 steps are
+irreversible-ish and gated behind the verified backup (step 3).** Nothing past step 3
+runs until the backup restore-verifies.
+
+Machine names are role-based (see `specs/machine-naming.md`): **`prod`** = the app +
+real data; **`mcp`** = the LDR + Playwright + MCP-server offload box. The old
+`mini1`/`mini2` numbering was retired because the numbers were inverted against the OS
+usernames and caused repeated mix-ups.
 
 The supporting tooling is built and locally validated:
-- `scripts/backup_mini2.sh` — read-only inspect + backup + off-box pull + restore-verify (HARD GATE). `--self-test` proves the machinery on local PG.
-- `scripts/provision_mini2.sh` — PG16 + Redis, 8GB-tuned, localhost-bound, autostart, idempotent.
+- `scripts/backup_prod.sh` — read-only inspect + backup + off-box pull + restore-verify (HARD GATE). `--self-test` proves the machinery on local PG.
+- `scripts/provision_prod.sh` — PG16 + Redis, 8GB-tuned, localhost-bound, autostart, idempotent.
 - `scripts/etl_sqlite_to_pg.py` — FK-ordered, idempotent SQLite→PG migrator (tested).
 - `scripts/seed_dummy.py` — synthetic dev seed for the Air (refuses prod).
 
 ---
 
-## 0. PRECONDITION — SSH key onto .108 (blocks everything below)
+## 0. ✅ PRECONDITION — SSH access (DONE)
 
-`ssh-copy-id` failed (`Connection closed … port 22`) because password auth is off.
-At **.108's own console**, with Remote Login = On:
-
-```bash
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
-echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN21PgcTlI301K2p9RKUH7m6FPdEl1E1Zz/2IEw+lkMa claude-mcp-offload@macbook-air' >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-chmod go-w ~     # sshd refuses keys if the home dir is group/other-writable
-```
-
-Then on the Air, pin `~/.ssh/config`:
+Key-based access to both minis is established over Tailscale and pinned in the Air's
+`~/.ssh/config` as role aliases:
 
 ```
-Host mini2
-    HostName 192.168.50.108
-    User <the .108 username>     # ← still unknown; provide it
-    IdentityFile ~/.ssh/mini_offload_ed25519
-    BatchMode yes
+ssh prod    # macmini1@100.125.64.95  — app + real data
+ssh mcp     # macmini2@100.105.113.44  — LDR + Playwright + MCP servers
 ```
 
-Verify (must print `OK` with no prompt): `ssh mini2 'echo OK'`.
+Both verified non-interactive (`ssh prod 'echo OK'` / `ssh mcp 'echo OK'`).
+The macOS `LocalHostName`/`ComputerName` rename to `prod`/`mcp` needs `sudo` at each
+box (no passwordless sudo) — cosmetic; it does not gate anything below.
 
 ## 1. 🔎 Verify non-interactive SSH
-`ssh -o BatchMode=yes mini2 'echo OK'` → STOP if it prompts or fails.
+`ssh -o BatchMode=yes prod 'echo OK'` → STOP if it prompts or fails.
 
-## 2. 🔎 Read-only inspect .108 (decide the source branch)
-`scripts/backup_mini2.sh` does this automatically (RAM/disk, services, listeners,
-existing PG DBs, and whether real data is **Postgres** or **SQLite**). Do NOT guess
-the source — let the script report. Confirm which branch it took.
+## 2. 🔎 Read-only inspect prod (decide the source branch)
+`scripts/backup_prod.sh` does this automatically (RAM/disk, services, listeners,
+existing PG DBs, and whether real data is **Postgres** or **SQLite**). Do NOT guess —
+let the script report. **Known from 2026-06-11 inspection:** source is **SQLite**, app
+live on `:8000`, no Postgres/Redis yet. ⚠️ There are **two** analytics DBs on prod —
+`~/kroger-mcp/data/kroger_analytics.db` and `~/kroger-mcp/kroger_analytics.db` —
+confirm which one the running app actually uses (check the app's cwd/`__file__` resolution)
+and back up the live one; reconcile/ignore the stray copy.
 
 ## 3. 🔴 BACKUP the real data FIRST — the hard gate
 ```bash
-SSH_HOST=mini2 scripts/backup_mini2.sh
+scripts/backup_prod.sh          # SSH_HOST defaults to `prod`
 ```
 - Postgres source → `pg_dump -Fc` + plain SQL + `pg_dumpall --globals-only`.
 - SQLite source → `sqlite3 .backup` + `PRAGMA integrity_check`.
-- Pulls the backup **off-box** to `data/backups/mini2/<TS>/`, checksums it, and
+- Pulls the backup **off-box** to `data/backups/prod/<TS>/`, checksums it, and
   **restore-verifies** into a throwaway local DB with **exact** per-table `COUNT(*)`
   parity. **MISMATCH → the script aborts. Do not continue.**
 
-## 4. 🔴 Provision PG16 + Redis on .108
+## 4. 🔴 Provision PG16 + Redis on prod
 ```bash
-ssh mini2 'bash -s' < scripts/provision_mini2.sh     # PG_PORT=5433 by default
+ssh prod 'bash -s' < scripts/provision_prod.sh     # PG_PORT=5433 by default
 ```
 Localhost-bound, scram-sha-256, 8GB tuning, Redis LRU+AOF, both autostart.
 If a pg14 already serves :5432, this uses :5433 (never initdb over existing data).
@@ -69,8 +69,8 @@ If a pg14 already serves :5432, this uses :5433 (never initdb over existing data
   the now user-scoped `deal_watchlist`/`seasonal_patterns`).
 - **If source was Postgres**: restore the dump, then apply schema deltas to match
   the current SQLite runtime shape (the port already reconciled these).
-- **If source was SQLite**: `python scripts/etl_sqlite_to_pg.py` (FK-ordered,
-  `ON CONFLICT` idempotent; coerces 0/1→bool, ISO→timestamptz, TEXT→uuid).
+- **If source was SQLite** (the confirmed branch): `python scripts/etl_sqlite_to_pg.py`
+  (FK-ordered, `ON CONFLICT` idempotent; coerces 0/1→bool, ISO→timestamptz, TEXT→uuid).
 - **Parity-check every table count** vs the step-3 source counts. MISMATCH → STOP.
 
 ## 6. Local Air dev (dummy data only)
@@ -80,32 +80,33 @@ always dev; `_enforce_env_isolation()` refuses a dev boot against a non-local
 `DATABASE_URL`; **prod PG is localhost-bound → not LAN-reachable from the Air.**
 
 ## 7. Secrets per machine (Keychain)
-Per-box gitignored `.env`. On **each** box store in macOS Keychain (Air and .108
+Per-box gitignored `.env`. On **each** box store in macOS Keychain (Air and `prod`
 hold *different* keys): `KROGER_TOKEN_MASTER_KEY`, the PG app-role password, the
 Redis `requirepass`. Then `ALTER ROLE smartshopper_app PASSWORD '…'` and set Redis
 `requirepass` from those. Verify `git check-ignore .env`.
 
 ## 8. Topology
-Move the 4 MCP servers to mini 1; dedicate .108 to the app. uvicorn **2 workers**
-(budget: OS ~1.5G + PG ~1.5G + Redis ~0.6G + 2×uvicorn ~0.6–1G < 5G). App binds
-`0.0.0.0:8000` (LAN/phone); DB + Redis localhost-only. Enable the mini firewall;
-confirm only `:8000` is reachable from the LAN (`:5433`/`:6379` refused).
+Move the MCP servers (LDR + Playwright + the rest) to the **`mcp`** box; dedicate
+`prod` to the app. uvicorn **2 workers** (budget: OS ~1.5G + PG ~1.5G + Redis ~0.6G +
+2×uvicorn ~0.6–1G < 5G). App binds `0.0.0.0:8000` (LAN/phone); DB + Redis localhost-only.
+Enable the prod firewall; confirm only `:8000` is reachable from the LAN
+(`:5433`/`:6379` refused).
 
 ## 9. Cutover gate + rollback
 **Cutover only when ALL hold:** step-3 backup verified · PG/Redis secured + autostart ·
-migration parity matches · per-box env/keys correct · MCP servers healthy on mini 1 ·
+migration parity matches · per-box env/keys correct · MCP servers healthy on `mcp` ·
 a fresh post-cutover backup taken.
 
 **Rollback:** restore from the step-3 backup (`pg_restore` the `.dump`, or drop in
 the SQLite `.backup`), re-point `DATABASE_URL` to the prior source, re-verify counts.
-Because step 3 pulled the backup **off-box to the Air**, a total loss of .108 still
+Because step 3 pulled the backup **off-box to the Air**, a total loss of `prod` still
 leaves a verified copy.
 
 ---
 
 ### Verification checklist (post-cutover)
-- [ ] `.108`: `get_backend()` → `postgresql`; real row counts match step-3 source.
-- [ ] `.108`: app reachable on `:8000`; `:5433`/`:6379` refused from the LAN.
+- [ ] `prod`: `get_backend()` → `postgresql`; real row counts match step-3 source.
+- [ ] `prod`: app reachable on `:8000`; `:5433`/`:6379` refused from the LAN.
 - [ ] Air: dummy data only; `APP_ENV=dev`; cannot reach the prod DB.
 - [ ] Per-user isolation holds on PG (tokens, watchlist, seasonal — see `tests/test_pg_backend.py`).
 - [ ] Fresh post-cutover backup taken + restore-verified.

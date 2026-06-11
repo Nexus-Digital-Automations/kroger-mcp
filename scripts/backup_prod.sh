@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# backup_mini2.sh — Phase 3.2/3.3 HARD SAFETY GATE.
+# backup_prod.sh — Phase 3.2/3.3 HARD SAFETY GATE.
 #
 # READ-ONLY against the production mini. Inspects what real Smart Shopper data
 # exists there (Postgres or SQLite), backs it up, pulls the backup OFF-box to
@@ -11,24 +11,24 @@
 # printed restore-verify counts match the source counts.
 #
 # Usage:
-#   scripts/backup_mini2.sh                 # back up the remote prod mini (SSH)
-#   scripts/backup_mini2.sh --self-test     # exercise the backup+verify logic
+#   scripts/backup_prod.sh                 # back up the remote prod mini (SSH)
+#   scripts/backup_prod.sh --self-test     # exercise the backup+verify logic
 #                                           # against THIS box's local Postgres
 #                                           # (no SSH, proves the machinery works)
-#   SSH_HOST=mini2 scripts/backup_mini2.sh  # override the ssh host alias
+#   SSH_HOST=prod scripts/backup_prod.sh  # override the ssh host alias
 #
 # Env:
-#   SSH_HOST           ssh host/alias for the prod mini      (default: mini2)
+#   SSH_HOST           ssh host/alias for the prod mini      (default: prod)
 #   REMOTE_DB_NAME     remote Postgres database name          (default: smartshopper)
 #   REMOTE_SQLITE_PATH candidate remote SQLite analytics db   (default: ~/kroger-mcp/data/kroger_analytics.db)
-#   BACKUP_ROOT        local dir to store pulled backups      (default: data/backups/mini2)
+#   BACKUP_ROOT        local dir to store pulled backups      (default: data/backups/prod)
 #
 set -Eeuo pipefail
 
-SSH_HOST="${SSH_HOST:-mini2}"
+SSH_HOST="${SSH_HOST:-prod}"
 REMOTE_DB_NAME="${REMOTE_DB_NAME:-smartshopper}"
 REMOTE_SQLITE_PATH="${REMOTE_SQLITE_PATH:-\$HOME/kroger-mcp/data/kroger_analytics.db}"
-BACKUP_ROOT="${BACKUP_ROOT:-data/backups/mini2}"
+BACKUP_ROOT="${BACKUP_ROOT:-data/backups/prod}"
 SELF_TEST=0
 [[ "${1:-}" == "--self-test" ]] && SELF_TEST=1
 
@@ -36,8 +36,8 @@ SELF_TEST=0
 # a workflow-script constraint, not a shell one). Sortable, path-safe.
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 
-log()  { printf '[backup_mini2] %s\n' "$*" >&2; }
-die()  { printf '[backup_mini2] ERROR: %s\n' "$*" >&2; exit 1; }
+log()  { printf '[backup_prod] %s\n' "$*" >&2; }
+die()  { printf '[backup_prod] ERROR: %s\n' "$*" >&2; exit 1; }
 trap 'die "failed at line $LINENO"' ERR
 
 require() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; }

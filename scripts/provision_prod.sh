@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# provision_mini2.sh — Phase 3.4. Provision PostgreSQL 16 + Redis on the prod
+# provision_prod.sh — Phase 3.4. Provision PostgreSQL 16 + Redis on the prod
 # mini via Homebrew, tuned for an 8GB box, bound to localhost only, secured, and
 # set to autostart. Idempotent: re-running converges, never re-initdbs over data.
 #
 # Runs LOCALLY on the mini (copy it over and execute there), OR remotely:
-#   ssh mini2 'bash -s' < scripts/provision_mini2.sh
+#   ssh prod 'bash -s' < scripts/provision_prod.sh
 #
-# It NEVER touches application data and NEVER runs before backup_mini2.sh has
+# It NEVER touches application data and NEVER runs before backup_prod.sh has
 # produced a verified off-box backup — guard your runbook accordingly.
 #
 # Env (override as needed):
@@ -27,8 +27,8 @@ APP_ROLE="${APP_ROLE:-smartshopper_app}"
 REDIS_MAXMEM="${REDIS_MAXMEM:-512mb}"
 PG_FORMULA="postgresql@16"
 
-log() { printf '[provision_mini2] %s\n' "$*" >&2; }
-die() { printf '[provision_mini2] ERROR: %s\n' "$*" >&2; exit 1; }
+log() { printf '[provision_prod] %s\n' "$*" >&2; }
+die() { printf '[provision_prod] ERROR: %s\n' "$*" >&2; exit 1; }
 trap 'die "failed at line $LINENO"' ERR
 
 command -v brew >/dev/null 2>&1 || die "Homebrew not found — install it first"
@@ -80,7 +80,7 @@ EOF
 # Enforce scram-sha-256 for local + loopback TCP; refuse anything non-loopback.
 log "hardening ${PG_HBA} (scram-sha-256, loopback only)"
 cat > "${PG_HBA}" <<'EOF'
-# Managed by provision_mini2.sh — loopback only, scram-sha-256.
+# Managed by provision_prod.sh — loopback only, scram-sha-256.
 local   all   all                  scram-sha-256
 host    all   all   127.0.0.1/32   scram-sha-256
 host    all   all   ::1/128        scram-sha-256
