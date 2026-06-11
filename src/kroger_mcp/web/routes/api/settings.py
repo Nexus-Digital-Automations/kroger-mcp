@@ -60,7 +60,7 @@ async def get_settings(request: Request):
 
         auth_status = "not_configured"
         try:
-            get_authenticated_client()
+            get_authenticated_client(user_id)
             auth_status = "authenticated"
         except Exception as exc:
             if "Authentication required" in str(exc):
@@ -209,7 +209,7 @@ async def search_locations(zip: str = Query(..., description="ZIP code to search
 
 
 @router.get("/api/settings/auth/status")
-async def get_auth_status():
+async def get_auth_status(request: Request):
     """Return detailed Kroger auth status and token info."""
     from kroger_mcp.tools.shared import (
         get_authenticated_client,
@@ -240,7 +240,7 @@ async def get_auth_status():
         }
 
     try:
-        get_authenticated_client()
+        get_authenticated_client(current_user_id(request))
         result["authenticated"] = True
         result["status"] = "authenticated"
     except Exception as exc:

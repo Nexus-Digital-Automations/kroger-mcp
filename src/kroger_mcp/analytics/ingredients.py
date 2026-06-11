@@ -1421,10 +1421,17 @@ def get_categories() -> list[str]:
 
 # ==================== DYNAMIC INGREDIENT MANAGEMENT ====================
 
-# Module-level cache for compiled patterns
-_pattern_cache = None
+# Per-worker in-process cache for compiled patterns. Compiling ~1000 regex is
+# expensive and the compiled set is immutable until the active ingredient set
+# changes, so we keep it cached for the life of the worker and invalidate it
+# via a cross-worker Redis VERSION key ("ingredients:version"). When Redis is
+# unavailable we fall back to the original time-based TTL so behaviour never
+# regresses.
+_pattern_cache: dict[str, Any] | None = None
 _pattern_cache_timestamp = None
-_CACHE_TTL = 300  # 5 minutes
+_pattern_cache_version: int | None = None
+_CACHE_TTL = 300  # 5 minutes (fallback when Redis version key is unavailable)
+_INGREDIENTS_VERSION_KEY = "ingredients:version"
 
 
 def get_active_ingredients(include_custom: bool = True) -> list[dict[str, Any]]:
@@ -1534,19 +1541,45 @@ def get_compiled_patterns(force_refresh: bool = False) -> dict[str, Any]:
     """
     Get compiled regex patterns with caching.
 
-    Patterns are cached for 5 minutes. Use force_refresh=True to rebuild
-    immediately after ingredient changes.
+    The per-worker compiled set is immutable until the active ingredient set
+    changes. Invalidation is driven by a cross-worker Redis VERSION key so that
+    a write in one worker triggers a rebuild in every worker on its next call:
+
+    - ``force_refresh=True`` is used by the ingredient write paths after a
+      successful add/edit/remove/override. It bumps the Redis version (so other
+      workers rebuild) and forces a local rebuild (so this worker sees its own
+      change immediately).
+    - Otherwise, the local cache is reused while its stored version matches the
+      Redis version key.
+    - If Redis is unavailable (version is ``None``), we fall back to the
+      original 5-minute time-based TTL so behaviour never regresses.
     """
-    global _pattern_cache, _pattern_cache_timestamp
+    from kroger_mcp.cache import bump_version, get_version
 
-    # Check cache validity
+    global _pattern_cache, _pattern_cache_timestamp, _pattern_cache_version
+
+    # A write just occurred: bump the shared version so peers rebuild, then
+    # fall through to rebuild locally.
+    if force_refresh:
+        bump_version(_INGREDIENTS_VERSION_KEY)
+
+    ver = get_version(_INGREDIENTS_VERSION_KEY)
+
     if not force_refresh and _pattern_cache is not None:
-        from datetime import datetime
-
-        if _pattern_cache_timestamp:
-            cache_age = (datetime.now() - _pattern_cache_timestamp).total_seconds()
-            if cache_age < _CACHE_TTL:
+        if ver is not None:
+            # Redis-backed invalidation: reuse while versions agree.
+            if _pattern_cache_version == ver:
                 return _pattern_cache
+        else:
+            # Redis down: preserve the original time-based TTL fallback.
+            from datetime import datetime
+
+            if _pattern_cache_timestamp:
+                cache_age = (
+                    datetime.now() - _pattern_cache_timestamp
+                ).total_seconds()
+                if cache_age < _CACHE_TTL:
+                    return _pattern_cache
 
     # Rebuild patterns
     from datetime import datetime
@@ -1576,6 +1609,10 @@ def get_compiled_patterns(force_refresh: bool = False) -> dict[str, Any]:
         "ingredient_count": len(ingredients),
     }
     _pattern_cache_timestamp = datetime.now()
+    # Record the version this build corresponds to. After force_refresh we just
+    # bumped the key, so re-read it to capture the post-bump value; otherwise
+    # this is the version the build was based on. (None when Redis is down.)
+    _pattern_cache_version = get_version(_INGREDIENTS_VERSION_KEY)
 
     return _pattern_cache
 

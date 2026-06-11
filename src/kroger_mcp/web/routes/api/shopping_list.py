@@ -497,7 +497,7 @@ def _apply_cart_selections(
 
 
 @router.post("/api/shopping-list/add-to-cart")
-async def shopping_list_to_cart(body: AddToCartBody):
+async def shopping_list_to_cart(body: AddToCartBody, request: Request):
     """
     confirm=False → return preview of items to be added.
     confirm=True  → add items to Kroger cart, update local tracking, clear list.
@@ -636,7 +636,7 @@ async def shopping_list_to_cart(body: AddToCartBody):
         from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
         from kroger_mcp.tools.shared import get_authenticated_client
 
-        client = await asyncio.to_thread(get_authenticated_client)
+        client = await asyncio.to_thread(get_authenticated_client, current_user_id(request))
         api_items = [
             {"upc": it["product_id"], "quantity": it["quantity"], "modality": body.modality}
             for it in items_to_add

@@ -27,8 +27,13 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Global state for clients and preferred location
-_authenticated_client: KrogerAPI | None = None
+# Global state for the app-level (client-credentials) client only.
+#
+# The per-user authenticated client is intentionally NOT cached in a module
+# global: with multiple concurrent web users, a shared global (and a shared
+# token file) let one user's Kroger OAuth overwrite another's. Per-user tokens
+# now live encrypted in the ``kroger_tokens`` table (see auth/kroger_tokens.py)
+# and a FRESH KrogerAPI() is built per call.
 _client_credentials_client: KrogerAPI | None = None
 
 
@@ -66,75 +71,96 @@ def get_client_credentials_client() -> KrogerAPI:
         raise Exception(f"Failed to get client credentials: {str(e)}") from e
 
 
-def get_authenticated_client() -> KrogerAPI:
-    """Get or create a user-authenticated client for cart operations
+def get_authenticated_client(user_id: str | None = None) -> KrogerAPI:
+    """Get a user-authenticated Kroger client for cart/account operations.
 
-    This function attempts to load an existing token or prompts for authentication.
-    In an MCP context, the user needs to explicitly call start_authentication and
-    complete_authentication tools to authenticate.
+    Loads the caller's per-user token from the encrypted ``kroger_tokens`` table
+    (NOT the legacy shared ``.kroger_token_user.json`` file) and builds a FRESH
+    ``KrogerAPI()`` per call so concurrent users never share auth state.
+
+    Args:
+        user_id: The user to authenticate as. When ``None`` (the default — used
+            by every existing MCP tool caller), it is resolved via
+            ``mcp_user_id()`` so those callers keep working unchanged. Web routes
+            pass the logged-in user's id explicitly.
 
     Returns:
-        KrogerAPI: Authenticated client
+        KrogerAPI: Authenticated client.
 
     Raises:
-        Exception: If no valid token is available and authentication is required
+        Exception: If no valid token is available and authentication is required.
     """
-    global _authenticated_client
+    # Imported lazily to avoid an import cycle (auth.dependencies → fastapi, etc.).
+    from kroger_mcp.auth.dependencies import mcp_user_id
+    from kroger_mcp.auth.kroger_tokens import load_kroger_token, save_kroger_token
 
-    if _authenticated_client is not None and _authenticated_client.test_current_token():
-        # Client exists and token is still valid
-        return _authenticated_client
-
-    # Clear the reference if token is invalid
-    _authenticated_client = None
+    resolved_user_id = mcp_user_id() if user_id is None else user_id
 
     try:
         load_and_validate_env(["KROGER_CLIENT_ID", "KROGER_CLIENT_SECRET", "KROGER_REDIRECT_URI"])
 
-        # Try to load existing user token first.
-        # bandit B105 flags the variable name; this is a filename, not a credential.
-        token_file = ".kroger_token_user.json"  # nosec B105
-        token_info = load_token(token_file)
+        token_info = load_kroger_token(resolved_user_id)
 
         if token_info:
-            # Create a new client with the loaded token
-            _authenticated_client = KrogerAPI()
-            _authenticated_client.client.token_info = token_info
-            _authenticated_client.client.token_file = token_file
+            # Build a fresh client; do NOT set client.token_file — leaving it
+            # None keeps kroger-api from writing refreshes to the shared file.
+            client = KrogerAPI()
+            client.client.token_info = token_info
 
-            if _authenticated_client.test_current_token():
-                # Token is valid, use it
-                return _authenticated_client
+            if client.test_current_token():
+                # test_current_token() may have silently refreshed the token in
+                # place (kroger-api auto-refreshes on a failed probe). If so, the
+                # in-memory token_info changed — persist it back per-user.
+                refreshed = client.client.token_info
+                if refreshed and refreshed.get("access_token") != token_info.get("access_token"):
+                    save_kroger_token(resolved_user_id, refreshed)
+                return client
 
-            # Token is invalid, try to refresh it
+            # Token invalid; try an explicit refresh and persist on success.
             if "refresh_token" in token_info:
                 try:
-                    _authenticated_client.authorization.refresh_token(token_info["refresh_token"])
-                    # If refresh was successful, return the client
-                    if _authenticated_client.test_current_token():
-                        return _authenticated_client
+                    client.authorization.refresh_token(token_info["refresh_token"])
+                    if client.test_current_token():
+                        save_kroger_token(resolved_user_id, client.client.token_info)
+                        return client
                 except Exception:
-                    # Refresh failed, need to re-authenticate
-                    _authenticated_client = None
+                    # Refresh failed → fall through to "Authentication required".
+                    logger.warning(
+                        "kroger token refresh failed for user=%s; re-auth required",
+                        resolved_user_id,
+                    )
 
-        # No valid token available, need user-initiated authentication
+        # No usable token → user-initiated authentication required.
         raise Exception(
             "Authentication required. Please use the start_authentication tool to begin the OAuth flow, "
             "then complete it with the complete_authentication tool."
         )
     except Exception as e:
         if "Authentication required" in str(e):
-            # This is an expected error when authentication is needed
+            # Expected error when authentication is needed.
             raise
-        else:
-            # Other unexpected errors
-            raise Exception(f"Authentication failed: {str(e)}") from e
+        # Other unexpected errors.
+        raise Exception(f"Authentication failed: {str(e)}") from e
 
 
-def invalidate_authenticated_client():
-    """Invalidate the authenticated client to force re-authentication"""
-    global _authenticated_client
-    _authenticated_client = None
+def invalidate_authenticated_client(user_id: str | None = None) -> None:
+    """Force re-authentication for a user by deleting their stored token.
+
+    Best-effort: any failure to delete is swallowed (the next auth attempt
+    re-fetches a token anyway). ``user_id=None`` resolves via ``mcp_user_id()``
+    so existing MCP callers keep working unchanged.
+    """
+    from kroger_mcp.auth.dependencies import mcp_user_id
+    from kroger_mcp.auth.kroger_tokens import delete_kroger_token
+
+    resolved_user_id = mcp_user_id() if user_id is None else user_id
+    try:
+        delete_kroger_token(resolved_user_id)
+    except Exception:
+        logger.warning(
+            "could not delete kroger token for user=%s during invalidate",
+            resolved_user_id,
+        )
 
 
 def invalidate_client_credentials_client():
@@ -245,9 +271,9 @@ async def async_get_client_credentials_client() -> KrogerAPI:
     return await asyncio.to_thread(get_client_credentials_client)
 
 
-async def async_get_authenticated_client() -> KrogerAPI:
+async def async_get_authenticated_client(user_id: str | None = None) -> KrogerAPI:
     """Async wrapper for get_authenticated_client() — runs in thread pool."""
-    return await asyncio.to_thread(get_authenticated_client)
+    return await asyncio.to_thread(get_authenticated_client, user_id)
 
 
 def set_default_servings(servings: int, user_id: str | None = None) -> None:

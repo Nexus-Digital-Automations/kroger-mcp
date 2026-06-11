@@ -1219,40 +1219,83 @@
 
           this.input = '';
           this.messages.push({ role: 'user', content: text });
+          // Snapshot history sent to the server (without the streaming
+          // placeholder we add next for live display).
+          const payloadMessages = this.messages.slice();
           this.loading = true;
           this.pendingAction = null;
           this.$nextTick(() => this.scrollToBottom());
+
+          // Live assistant bubble that tokens stream into.
+          const aIdx = this.messages.length;
+          this.messages.push({ role: 'assistant', content: '' });
 
           try {
             const res = await fetch('/api/chat/message', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                messages: this.messages,
+                messages: payloadMessages,
                 user_message: text,
                 ...(this.provider ? { provider: this.provider } : {}),
               }),
             });
-            const data = await res.json();
 
-            if (data.error) {
-              this.messages.push({ role: 'assistant', content: data.error });
-            } else {
-              // Update messages with server-side history
-              if (data.messages) {
-                this.messages = data.messages;
-              } else if (data.response) {
-                this.messages.push({ role: 'assistant', content: data.response });
-              }
-              if (data.pending_action) {
-                this.pendingAction = data.pending_action;
+            // Non-streaming error (e.g. 400 empty message) comes back as JSON.
+            if (!res.ok || !res.body) {
+              const data = await res.json().catch(() => ({ error: 'Request failed' }));
+              this.messages[aIdx].content = data.error || 'Request failed';
+              return;
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let doneData = null;
+
+            // Parse the Server-Sent Events stream frame-by-frame.
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+
+              let sep;
+              while ((sep = buffer.indexOf('\n\n')) !== -1) {
+                const frame = buffer.slice(0, sep);
+                buffer = buffer.slice(sep + 2);
+
+                let event = 'message';
+                let dataStr = '';
+                for (const line of frame.split('\n')) {
+                  if (line.startsWith('event:')) event = line.slice(6).trim();
+                  else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+                }
+                if (!dataStr) continue;
+
+                let payload;
+                try { payload = JSON.parse(dataStr); } catch (e) { continue; }
+
+                if (event === 'token') {
+                  this.messages[aIdx].content += payload;
+                  this.$nextTick(() => this.scrollToBottom());
+                } else if (event === 'pending_action') {
+                  this.pendingAction = payload;
+                } else if (event === 'done') {
+                  doneData = payload;
+                } else if (event === 'error') {
+                  this.messages[aIdx].content = payload.error || 'Error';
+                }
               }
             }
+
+            // Replace local history with the server's authoritative version
+            // (includes tool/assistant turns), matching the streamed content.
+            if (doneData && doneData.messages) {
+              this.messages = doneData.messages;
+            }
           } catch (err) {
-            this.messages.push({
-              role: 'assistant',
-              content: 'Connection error. Please check that the server is running and try again.',
-            });
+            this.messages[aIdx].content =
+              'Connection error. Please check that the server is running and try again.';
           } finally {
             this.loading = false;
             this.$nextTick(() => this.scrollToBottom());

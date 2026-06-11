@@ -25,7 +25,14 @@ def _get_pool():
         url = get_database_url()
         if not url:
             raise RuntimeError("DATABASE_URL not set — cannot use PostgreSQL backend")
-        _pool = psycopg_pool.ConnectionPool(url, min_size=2, max_size=10)
+        # Per-worker pool. Sized so (workers x max_size) stays well under
+        # Postgres max_connections: 4 workers x 8 = 32 < 50/100. Lazy-init here
+        # keeps the pool's sockets inside the worker process (fork-safe).
+        min_size = int(os.environ.get("PG_POOL_MIN", 1))
+        max_size = int(os.environ.get("PG_POOL_MAX", 8))
+        _pool = psycopg_pool.ConnectionPool(
+            url, min_size=min_size, max_size=max_size, timeout=10
+        )
     return _pool
 
 
@@ -388,6 +395,18 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     expires_at TEXT NOT NULL,
     ip_address TEXT
+);
+
+-- Kroger OAuth tokens (user-scoped, encrypted at rest). Mirrors the PG
+-- kroger_tokens table; access_token/refresh_token hold Fernet ciphertext.
+CREATE TABLE IF NOT EXISTS kroger_tokens (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT,
+    token_type TEXT DEFAULT 'Bearer',
+    expires_at TEXT,
+    scope TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 """
 

@@ -8,14 +8,17 @@ Provides:
 - Conversation orchestrator with approval flow for mutating actions
 """
 
+import asyncio
 import json
 import logging
 import os
 import re
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
 
+import httpx
 import requests  # type: ignore[import-untyped]  # stub (types-requests) unresolved in mypy tool env
 
 # ---------------------------------------------------------------------------
@@ -184,6 +187,126 @@ class OpenAICompatibleClient:
                 exc_info=True,
             )
             return {"error": True, "message": f"{self.label} request failed: {str(exc)[:200]}"}
+
+    async def chat_stream(
+        self,
+        http: httpx.AsyncClient,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[tuple[str, Any]]:
+        """Stream a chat completion over SSE without blocking the event loop.
+
+        Yields ``("token", text)`` for each content delta as the model produces
+        it, then a terminal ``("assembled", assistant_message)`` carrying the
+        full content and any reassembled ``tool_calls``. On failure yields a
+        single ``("error", message)`` and stops (mirrors the sync ``chat``
+        error contract — never raises to the caller).
+
+        Tool-call arguments arrive as fragmented JSON string deltas keyed by
+        ``index``; they are concatenated and only parsed by the orchestrator
+        once the stream completes.
+        """
+        if not self.api_key:
+            logger.warning(
+                "chat_stream requested for provider=%s but %s is not set",
+                self.provider_id,
+                self._key_env,
+            )
+            yield (
+                "error",
+                f"{self.label} API key not configured. Add {self._key_env} to your .env file.",
+            )
+            return
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        content_parts: list[str] = []
+        tool_calls_by_index: dict[int, dict[str, Any]] = {}
+
+        try:
+            async with http.stream(
+                "POST",
+                self.api_url,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            ) as resp:
+                if resp.status_code != 200:
+                    body = (await resp.aread()).decode("utf-8", "replace")[:300]
+                    logger.error(
+                        "provider=%s model=%s http=%s body=%s",
+                        self.provider_id,
+                        self.model,
+                        resp.status_code,
+                        body,
+                    )
+                    yield ("error", f"{self.label} API error ({resp.status_code}): {body}")
+                    return
+
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[len("data:") :].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    text = delta.get("content")
+                    if text:
+                        content_parts.append(text)
+                        yield ("token", text)
+                    for tc in delta.get("tool_calls") or []:
+                        idx = tc.get("index", 0)
+                        slot = tool_calls_by_index.setdefault(
+                            idx, {"id": None, "name": None, "arguments": ""}
+                        )
+                        if tc.get("id"):
+                            slot["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            slot["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            slot["arguments"] += fn["arguments"]
+        except httpx.TimeoutException:
+            logger.error("provider=%s stream timed out", self.provider_id)
+            yield ("error", f"{self.label} API request timed out. Please try again.")
+            return
+        except httpx.HTTPError as exc:
+            logger.error("provider=%s stream failed: %s", self.provider_id, exc, exc_info=True)
+            yield ("error", f"Could not reach {self.label} API: {str(exc)[:200]}")
+            return
+
+        # Reassemble the full assistant message from the streamed deltas.
+        content = "".join(content_parts)
+        assembled: dict[str, Any] = {"role": "assistant", "content": content or None}
+        if tool_calls_by_index:
+            assembled["tool_calls"] = [
+                {
+                    "id": tool_calls_by_index[idx]["id"] or f"call_{uuid.uuid4().hex[:12]}",
+                    "type": "function",
+                    "function": {
+                        "name": tool_calls_by_index[idx]["name"] or "",
+                        "arguments": tool_calls_by_index[idx]["arguments"] or "{}",
+                    },
+                }
+                for idx in sorted(tool_calls_by_index)
+            ]
+        yield ("assembled", assembled)
 
 
 _client_cache: dict[str, OpenAICompatibleClient] = {}
@@ -1273,6 +1396,167 @@ def process_message(
     content = follow_choice.get("content", "")
     full_messages.append({"role": "assistant", "content": content})
     return {"response": content, "messages": full_messages, "pending_action": None}
+
+
+async def process_message_stream(
+    messages: list[dict[str, Any]],
+    user_message: str,
+    http: httpx.AsyncClient,
+    provider: str | None = None,
+) -> AsyncIterator[tuple[str, Any]]:
+    """Streaming counterpart of :func:`process_message`.
+
+    Async generator yielding event tuples consumed by the SSE route:
+      - ``("token", text)``        incremental assistant text
+      - ``("pending_action", a)``  a mutating action awaiting approval (at most one)
+      - ``("done", result)``       terminal payload {response, messages, pending_action}
+      - ``("error", message)``     provider/setup failure (terminal)
+
+    Preserves the sync orchestrator's 3-call tool-use structure and approval
+    gate. Read-only tool handlers run in a worker thread so the event loop is
+    never blocked; the LLM calls stream over async httpx.
+    """
+    client = get_client(provider)
+    logger.info("process_message_stream provider=%s model=%s", client.provider_id, client.model)
+
+    full_messages: list[dict[str, Any]] = []
+    has_system = any(m.get("role") == "system" for m in messages)
+    if not has_system:
+        full_messages.append({"role": "system", "content": SYSTEM_PROMPT})
+    for m in messages:
+        if m.get("role") == "system" and not has_system:
+            continue
+        full_messages.append(m)
+    full_messages.append({"role": "user", "content": user_message})
+    full_messages = _truncate_history(full_messages)
+
+    # --- Call 1: stream the model's first turn -----------------------------
+    assembled: dict[str, Any] | None = None
+    async for kind, payload in client.chat_stream(http, full_messages, tools=_TOOLS_ARRAY):
+        if kind == "token":
+            yield ("token", payload)
+        elif kind == "error":
+            full_messages.append({"role": "assistant", "content": payload})
+            yield ("done", {"response": payload, "messages": full_messages, "pending_action": None})
+            return
+        elif kind == "assembled":
+            assembled = payload
+
+    if assembled is None:
+        err = f"Unexpected response from {client.label}."
+        full_messages.append({"role": "assistant", "content": err})
+        yield ("done", {"response": err, "messages": full_messages, "pending_action": None})
+        return
+
+    tool_calls = assembled.get("tool_calls")
+    if not tool_calls:
+        # Plain text reply — already streamed; finalize.
+        content = assembled.get("content") or ""
+        full_messages.append({"role": "assistant", "content": content})
+        yield ("done", {"response": content, "messages": full_messages, "pending_action": None})
+        return
+
+    # --- Tool call(s): run read-only tools, gate mutating ones -------------
+    full_messages.append(assembled)
+    pending_action: dict[str, Any] | None = None
+    tool_results: list[dict[str, Any]] = []
+
+    for tool_call in tool_calls:
+        fn_name = tool_call["function"]["name"]
+        try:
+            fn_args = json.loads(tool_call["function"]["arguments"])
+        except (json.JSONDecodeError, KeyError):
+            fn_args = {}
+
+        tool_id = tool_call.get("id", f"call_{uuid.uuid4().hex[:12]}")
+        tool_info = TOOL_REGISTRY.get(fn_name)
+
+        if not tool_info:
+            tool_results.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_id,
+                    "content": json.dumps({"error": f"Unknown function: {fn_name}"}),
+                }
+            )
+            continue
+
+        if tool_info["mutating"]:
+            preview = _generate_preview(fn_name, fn_args)
+            pending_action = {
+                "id": f"act_{uuid.uuid4().hex[:12]}",
+                "function_name": fn_name,
+                "args": fn_args,
+                "tool_call_id": tool_id,
+                "description": preview["action"],
+                "preview": preview["details"],
+            }
+            tool_results.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_id,
+                    "content": json.dumps(
+                        {"status": "awaiting_user_approval", "action": preview["action"]}
+                    ),
+                }
+            )
+        else:
+            # Read-only tool — run off the event loop so blocking DB/HTTP work
+            # inside the handler doesn't stall other requests.
+            handler = tool_info["handler"]
+            try:
+                tool_result = await asyncio.to_thread(handler, **fn_args)
+            except TypeError as exc:
+                tool_result = {"error": f"Invalid arguments: {str(exc)[:200]}"}
+            except Exception as exc:
+                tool_result = {"error": f"Tool error: {str(exc)[:200]}"}
+
+            result_str = json.dumps(tool_result, default=str)
+            if len(result_str) > 4000:
+                result_str = result_str[:4000] + "... (truncated)"
+            tool_results.append(
+                {"role": "tool", "tool_call_id": tool_id, "content": result_str}
+            )
+
+    full_messages.extend(tool_results)
+
+    # --- Call 2: describe a pending mutating action ------------------------
+    if pending_action:
+        described: list[str] = []
+        async for kind, payload in client.chat_stream(http, full_messages, tools=_TOOLS_ARRAY):
+            if kind == "token":
+                described.append(payload)
+                yield ("token", payload)
+        follow_content = "".join(described)
+        if not follow_content:
+            follow_content = (
+                f"I'd like to **{pending_action['description']}**. Please review and approve."
+            )
+            yield ("token", follow_content)
+        full_messages.append({"role": "assistant", "content": follow_content})
+        yield ("pending_action", pending_action)
+        yield (
+            "done",
+            {
+                "response": follow_content,
+                "messages": full_messages,
+                "pending_action": pending_action,
+            },
+        )
+        return
+
+    # --- Call 3: summarize read-only tool results --------------------------
+    summary: list[str] = []
+    async for kind, payload in client.chat_stream(http, full_messages, tools=_TOOLS_ARRAY):
+        if kind == "token":
+            summary.append(payload)
+            yield ("token", payload)
+    content = "".join(summary)
+    if not content:
+        content = "I found some results but had trouble generating a summary."
+        yield ("token", content)
+    full_messages.append({"role": "assistant", "content": content})
+    yield ("done", {"response": content, "messages": full_messages, "pending_action": None})
 
 
 def execute_approved_action(function_name: str, args: dict[str, Any]) -> dict[str, Any]:

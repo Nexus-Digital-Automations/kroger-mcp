@@ -1,16 +1,18 @@
 """Chat API endpoints — multi-provider grocery assistant."""
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from kroger_mcp.web.chat_engine import (
     DEFAULT_PROVIDER,
     execute_approved_action,
     list_available_providers,
-    process_message,
+    process_message_stream,
 )
 
 router = APIRouter()
@@ -63,33 +65,53 @@ async def chat_providers():
     )
 
 
-@router.post("/api/chat/message")
-async def chat_message(body: ChatMessageRequest):
-    """Process a chat message through DeepSeek with tool calling.
+def _sse(event_type: str, payload: Any) -> str:
+    """Format one Server-Sent Events frame."""
+    return f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
 
-    Read-only tool calls execute immediately.
-    Mutating tool calls return a pending_action for user approval.
+
+async def _chat_event_stream(request: Request, body: ChatMessageRequest) -> AsyncIterator[str]:
+    """Bridge the chat orchestrator's events to an SSE byte stream.
+
+    Aborts promptly if the client disconnects (frees the upstream LLM stream),
+    and converts any unexpected failure into a terminal ``error`` event rather
+    than a broken connection (status is already committed once streaming).
     """
-    if not body.user_message.strip():
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Message cannot be empty"},
-        )
-
+    http = request.app.state.http
     try:
-        result = process_message(
+        async for event_type, payload in process_message_stream(
             messages=body.messages,
             user_message=body.user_message.strip(),
+            http=http,
             provider=body.provider,
-        )
-        return JSONResponse(content=result)
-    except Exception as exc:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": f"Chat processing failed: {str(exc)[:300]}",
-            },
-        )
+        ):
+            if await request.is_disconnected():
+                break
+            yield _sse(event_type, payload)
+    except Exception as exc:  # noqa: BLE001 - terminal event, not a swallow
+        yield _sse("error", {"error": f"Chat processing failed: {str(exc)[:300]}"})
+
+
+@router.post("/api/chat/message")
+async def chat_message(request: Request, body: ChatMessageRequest):
+    """Stream a chat reply (SSE) through the selected provider with tool calling.
+
+    Emits ``token`` events as the model produces text, a single ``pending_action``
+    for a mutating action awaiting approval, and a terminal ``done`` carrying the
+    updated conversation. Read-only tool calls execute immediately (off-loop).
+    """
+    if not body.user_message.strip():
+        return JSONResponse(status_code=400, content={"error": "Message cannot be empty"})
+
+    return StreamingResponse(
+        _chat_event_stream(request, body),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/api/chat/approve")

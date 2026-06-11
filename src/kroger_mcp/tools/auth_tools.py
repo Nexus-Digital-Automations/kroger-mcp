@@ -222,6 +222,16 @@ def register_tools(mcp):
                         )
                     )
 
+                    # Persist the new token per-user in the encrypted
+                    # kroger_tokens table — the source of truth
+                    # get_authenticated_client() reads. Without this the
+                    # MCP-authenticated token would only live in the legacy
+                    # shared file and never reach the DB.
+                    from kroger_mcp.auth.dependencies import mcp_user_id
+                    from kroger_mcp.auth.kroger_tokens import save_kroger_token
+
+                    save_kroger_token(mcp_user_id(), token_info)
+
                     # Clear PKCE parameters and state after successful exchange
                     _pkce_params = None
                     _auth_state = None

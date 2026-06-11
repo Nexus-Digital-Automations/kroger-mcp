@@ -44,10 +44,16 @@ def _load_claude_desktop_env():
 
 _load_claude_desktop_env()
 
+import logging
+from contextlib import asynccontextmanager
+
+import httpx
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+
+logger = logging.getLogger(__name__)
 
 from .routes import auth as auth_routes
 from .routes import dashboard, favorites, meal_plan, pantry, recipes
@@ -73,7 +79,33 @@ from .routes.api import shopping_list as api_shopping_list
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="Smart Shopper", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Per-worker startup/shutdown.
+
+    Creates one pooled async HTTP client used for streaming LLM calls (httpx
+    clients hold sockets and must not be shared across a fork — one per worker
+    is correct), and warms the ingredient pattern cache so the first chat/scan
+    doesn't pay the ~1000-regex compile.
+    """
+    app.state.http = httpx.AsyncClient(
+        timeout=httpx.Timeout(60.0, connect=10.0),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+    )
+    try:
+        from kroger_mcp.analytics.ingredients import get_compiled_patterns
+
+        get_compiled_patterns()
+    except Exception:
+        logger.warning("ingredient pattern cache warm failed", exc_info=True)
+
+    try:
+        yield
+    finally:
+        await app.state.http.aclose()
+
+
+app = FastAPI(title="Smart Shopper", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 # Shared CSS + JS for the unified action-menu dropdown (see
 # static/js/action_menu.js and templates/_macros/action_menu.html).
@@ -153,17 +185,27 @@ async def shutdown():
 
 
 PORT = int(os.environ.get("WEB_PORT", 8000))
+# Multiple workers spread blocking work (DB, threadpool'd tool handlers) across
+# processes. Each worker holds its own httpx client + DB pool (see lifespan).
+# Default 2 — safe on an 8GB box shared with Postgres + Redis; override per host.
+WORKERS = int(os.environ.get("WEB_WORKERS", 2))
 
 
 def run():
     import uvicorn
 
     stop()
-    print(f"Smart Shopper running at http://localhost:{PORT}")
+    print(f"Smart Shopper running at http://localhost:{PORT} ({WORKERS} worker(s))")
     # 0.0.0.0 bind is intentional — this is a local dev/single-user tool meant
     # to be reachable from any interface on the host (e.g. companion phone on
     # the LAN). bandit B104 flagged.
-    uvicorn.run("kroger_mcp.web.app:app", host="0.0.0.0", port=PORT, reload=False)  # nosec B104
+    uvicorn.run(
+        "kroger_mcp.web.app:app",
+        host="0.0.0.0",  # nosec B104
+        port=PORT,
+        reload=False,
+        workers=WORKERS,
+    )
 
 
 def stop():

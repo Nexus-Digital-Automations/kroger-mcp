@@ -521,7 +521,7 @@ async def add_plan_to_cart(plan_id: str, body: AddToCartBody, request: Request):
 
         mod = body.modality or "PICKUP"
         try:
-            client = await asyncio.to_thread(get_authenticated_client)
+            client = await asyncio.to_thread(get_authenticated_client, user_id)
         except Exception:
             return JSONResponse(
                 status_code=401,

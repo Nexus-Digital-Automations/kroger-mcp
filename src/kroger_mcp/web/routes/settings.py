@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.shared import (
     get_default_servings,
     get_preferred_location_id,
@@ -39,7 +40,7 @@ async def settings_page(
     try:
         from kroger_mcp.tools.shared import get_authenticated_client
 
-        get_authenticated_client()
+        get_authenticated_client(current_user_id(request))
         auth_status = "authenticated"
     except Exception as exc:
         if "Authentication required" in str(exc):
@@ -75,6 +76,7 @@ async def oauth_callback(
     """Handle Kroger OAuth callback — exchange code for token, redirect to settings."""
     from kroger_api import KrogerAPI
 
+    from kroger_mcp.auth.kroger_tokens import save_kroger_token
     from kroger_mcp.tools.shared import (
         get_kroger_credentials,
         invalidate_authenticated_client,
@@ -109,17 +111,26 @@ async def oauth_callback(
             client_secret=creds["client_secret"],
             redirect_uri=redirect_uri,
         )
-        kroger.client.get_token_with_authorization_code(
+        token_info = kroger.client.get_token_with_authorization_code(
             code,
             code_verifier=saved["pkce_params"]["code_verifier"],
         )
     except Exception:
         return RedirectResponse(url="/settings?oauth=error&detail=token_exchange_failed")
 
+    # Persist the new token per-user in the encrypted kroger_tokens table. This
+    # is the source of truth get_authenticated_client() reads — the legacy
+    # ``.kroger_token_user.json`` file kroger-api also wrote is no longer used.
+    try:
+        user_id = current_user_id(request)
+        save_kroger_token(user_id, token_info)
+    except Exception:
+        return RedirectResponse(url="/settings?oauth=error&detail=token_persist_failed")
+
     # Clean up state file
     _WEB_OAUTH_STATE_FILE.unlink(missing_ok=True)
 
-    # Invalidate cached client so it reloads from the new token file
-    invalidate_authenticated_client()
+    # Drop any stale token so the next call reloads the freshly stored one.
+    invalidate_authenticated_client(user_id)
 
     return RedirectResponse(url="/settings?oauth=success")

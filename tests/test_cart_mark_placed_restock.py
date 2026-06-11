@@ -4,6 +4,17 @@ import json
 import os
 import sqlite3
 import sys
+from types import SimpleNamespace
+
+
+def _fake_request(user_id: str = "test-user"):
+    """Minimal stand-in for FastAPI Request carrying an authenticated user.
+
+    mark_order_placed now resolves the per-user Kroger client via
+    current_user_id(request); the route is invoked directly here (not through
+    the app), so we supply the request.state.user the middleware would set.
+    """
+    return SimpleNamespace(state=SimpleNamespace(user={"id": user_id}))
 
 
 def _purge_test_orders_from_history(test_product_ids: list, order_history_file: str) -> None:
@@ -58,7 +69,7 @@ class TestMarkPlacedRestockWebRoute:
             conn.close()
 
             cr.record_order = lambda *a, **kw: 'test-ord'
-            resp = asyncio.run(cr.mark_order_placed())
+            resp = asyncio.run(cr.mark_order_placed(_fake_request()))
 
             conn = sqlite3.connect(db_mod.DB_FILE)
             after = conn.execute(
@@ -108,7 +119,7 @@ class TestMarkPlacedRestockWebRoute:
             )
             pantry_mod.ensure_initialized()
             cr.record_order = lambda *a, **kw: 'test-ord'
-            resp = asyncio.run(cr.mark_order_placed())
+            resp = asyncio.run(cr.mark_order_placed(_fake_request()))
 
             conn = sqlite3.connect(db_mod.DB_FILE)
             after = conn.execute(

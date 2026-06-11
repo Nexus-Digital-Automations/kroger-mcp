@@ -5,11 +5,12 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from kroger_mcp.analytics.purchase_tracker import record_order
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.cart_tools import (
     _add_item_to_local_cart,
     _load_cart_data,
@@ -116,7 +117,7 @@ async def clear_cart():
 
 
 @router.post("/api/cart/mark-placed")
-async def mark_order_placed():
+async def mark_order_placed(request: Request):
     """Push cart to Kroger API, record the order locally, and clear the cart."""
     try:
         cart_data = _load_cart_data()
@@ -133,7 +134,7 @@ async def mark_order_placed():
         kroger_warning = None
         kroger_failed_items: list = []
         try:
-            client = await asyncio.to_thread(get_authenticated_client)
+            client = await asyncio.to_thread(get_authenticated_client, current_user_id(request))
             kroger_items = [
                 {
                     "upc": item["product_id"],

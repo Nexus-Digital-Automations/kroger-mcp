@@ -394,10 +394,10 @@ class AddToCartBody(BaseModel):
 
 
 @router.post("/api/products/{product_id}/add-to-cart")
-async def add_product_to_cart(product_id: str, body: AddToCartBody):
+async def add_product_to_cart(product_id: str, body: AddToCartBody, request: Request):
     """Add a single product to the Kroger cart and local cart tracking."""
     try:
-        client = get_authenticated_client()
+        client = get_authenticated_client(current_user_id(request))
         client.cart.add_to_cart(
             items=[
                 {
