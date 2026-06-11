@@ -21,11 +21,22 @@ USER = "consent-test-user"
 
 @pytest.fixture(autouse=True)
 def isolated_db(tmp_path, monkeypatch):
-    """Point all analytics DB access at a throwaway file with a real schema."""
+    """Point all analytics DB access at a throwaway file with a real schema.
+
+    Re-imports `database` from sys.modules inside the fixture rather than
+    relying on the module-level import: another test file
+    (test_cart_mark_placed_restock) deletes all kroger_mcp modules from
+    sys.modules mid-suite, which would otherwise leave this fixture patching a
+    stale module object while `consent` re-imports a fresh one pointed at the
+    real DB. Patching the live sys.modules object keeps consent isolated.
+    """
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
     db_file = tmp_path / "consent_test.db"
-    monkeypatch.setattr(database, "DB_FILE", str(db_file))
-    database.initialize_database()
-    database.run_schema_migrations()  # creates user_settings
+    monkeypatch.setattr(db, "DB_FILE", str(db_file))
+    db.initialize_database()
+    db.run_schema_migrations()  # creates user_settings
     yield str(db_file)
 
 
