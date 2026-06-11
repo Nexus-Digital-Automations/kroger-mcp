@@ -372,6 +372,109 @@ CREATE TABLE IF NOT EXISTS kroger_tokens (
     scope TEXT,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Per-user key/value settings (location, servings, consent flags, …).
+-- Mirrors the SQLite user_settings table. The composite PK (user_id,
+-- setting_key) is the exact conflict target the consent layer's
+-- _save_preference upsert relies on: ON CONFLICT(user_id, setting_key).
+CREATE TABLE IF NOT EXISTS user_settings (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    setting_key VARCHAR(100) NOT NULL,
+    setting_value TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (user_id, setting_key)
+);
+
+-- Per-account ingredient->product link memory (smart auto-linking, learned
+-- name standardization). norm_name is the mechanical grouping key; raw_name is
+-- the verbatim surface form. UNIQUE(user_id, norm_name, product_id) mirrors the
+-- SQLite upsert key.
+CREATE TABLE IF NOT EXISTS ingredient_links (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    norm_name VARCHAR(500) NOT NULL,
+    raw_name VARCHAR(500) NOT NULL,
+    product_id VARCHAR(50) NOT NULL,
+    product_description TEXT,
+    times_linked INTEGER NOT NULL DEFAULT 1,
+    last_linked_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, norm_name, product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ingredient_links_user ON ingredient_links(user_id);
+
+-- Custom ingredients (user-added entries beyond defaults). User-scoped per the
+-- multi-tenant migration: UNIQUE(user_id, ingredient_name). NOTE: SQLite uses
+-- COLLATE NOCASE on ingredient_name (case-insensitive uniqueness); PG uniqueness
+-- here is case-sensitive — callers normalize case at the app layer.
+CREATE TABLE IF NOT EXISTS custom_ingredients (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ingredient_name VARCHAR(255) NOT NULL,
+    severity VARCHAR(20) NOT NULL CHECK (severity IN ('critical', 'warning', 'watch')),
+    category VARCHAR(100),
+    reason TEXT,
+    aliases TEXT,
+    source VARCHAR(20) DEFAULT 'user' CHECK (source IN ('user', 'imported', 'system')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    is_active BOOLEAN DEFAULT TRUE,
+    notes TEXT,
+    UNIQUE(user_id, ingredient_name)
+);
+
+-- Ingredient overrides (modify default/hardcoded ingredients). User-scoped per
+-- the multi-tenant migration: UNIQUE(user_id, ingredient_name). Same NOCASE
+-- caveat as custom_ingredients.
+CREATE TABLE IF NOT EXISTS ingredient_overrides (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ingredient_name VARCHAR(255) NOT NULL,
+    override_severity VARCHAR(20) CHECK (override_severity IN ('critical', 'warning', 'watch')),
+    override_reason TEXT,
+    additional_aliases TEXT,
+    is_hidden BOOLEAN DEFAULT FALSE,
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    notes TEXT,
+    UNIQUE(user_id, ingredient_name)
+);
+
+-- Gap reconciliation: shortfalls where a placed order delivered less of a
+-- product than a contributing recipe required (user-scoped, append-only log).
+CREATE TABLE IF NOT EXISTS pending_gaps (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recipe_id VARCHAR(50),
+    recipe_name VARCHAR(500),
+    product_id VARCHAR(50) NOT NULL,
+    product_description TEXT,
+    needed_quantity NUMERIC(10,3) NOT NULL,
+    ordered_quantity NUMERIC(10,3) NOT NULL,
+    unit VARCHAR(50),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    resolved_at TIMESTAMP WITH TIME ZONE,
+    resolution VARCHAR(50)
+);
+CREATE INDEX IF NOT EXISTS idx_pending_gaps_user_unresolved
+    ON pending_gaps(user_id, resolved_at);
+CREATE INDEX IF NOT EXISTS idx_pending_gaps_product ON pending_gaps(product_id);
+
+-- Cook deduction ledger: exact pantry-reversal data per cook (user-scoped,
+-- append-only). deducted_percent records the percentage points removed from
+-- pantry level_percent so a cook can be reversed precisely; cook_event_id is a
+-- meal_entries.id (scheduled cooks) or a uuid4 (ad-hoc 'I made this').
+CREATE TABLE IF NOT EXISTS cook_deductions (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    cook_event_id VARCHAR(100) NOT NULL,
+    source_type VARCHAR(50) NOT NULL,
+    product_id VARCHAR(50) NOT NULL,
+    deducted_percent NUMERIC(8,4) NOT NULL,
+    previous_level INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cook_deductions_event
+    ON cook_deductions(user_id, cook_event_id);
 """
 
 
