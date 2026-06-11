@@ -211,10 +211,10 @@ async def search_locations(zip: str = Query(..., description="ZIP code to search
 @router.get("/api/settings/auth/status")
 async def get_auth_status(request: Request):
     """Return detailed Kroger auth status and token info."""
+    from kroger_mcp.auth.kroger_tokens import load_kroger_token
     from kroger_mcp.tools.shared import (
         get_authenticated_client,
         get_kroger_credentials,
-        get_token_info,
     )
 
     creds = get_kroger_credentials()
@@ -230,7 +230,9 @@ async def get_auth_status(request: Request):
     if not configured:
         return result
 
-    token_data = get_token_info()
+    # Per-user token metadata (was the shared-file get_token_info(), which leaked
+    # one user's token details into every user's auth-status view).
+    token_data = load_kroger_token(current_user_id(request))
     if token_data:
         result["token_info"] = {
             "scope": token_data.get("scope", ""),
