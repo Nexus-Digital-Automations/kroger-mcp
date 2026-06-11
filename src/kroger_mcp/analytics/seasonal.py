@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from ..auth.dependencies import mcp_user_id
 from .database import ensure_initialized, get_db_connection
 
 # Built-in holiday patterns with shopping lead times
@@ -261,17 +262,16 @@ def detect_holiday_association(product_id: str, description: str | None = None) 
         conn.close()
 
 
-def update_seasonal_patterns(product_id: str) -> dict[str, Any]:
-    """
-    Update seasonal pattern data for a product.
+def update_seasonal_patterns(product_id: str, user_id: str | None = None) -> dict[str, Any]:
+    """Update seasonal pattern data for a product, scoped to one user.
 
-    Args:
-        product_id: The product identifier
-
-    Returns:
-        Summary of seasonal patterns
+    The purchase_events read below stays global (events are not user-scoped yet —
+    a user filter would return nothing); patterns are computed from available
+    events but stored/read per-owner, so this is truly per-user once
+    purchase_events ownership lands. ``user_id=None`` resolves to mcp_user_id().
     """
     ensure_initialized()
+    owner = user_id if user_id is not None else mcp_user_id()
 
     conn = get_db_connection()
     try:
@@ -328,16 +328,17 @@ def update_seasonal_patterns(product_id: str) -> dict[str, Any]:
             conn.execute(
                 """
                 INSERT INTO seasonal_patterns
-                (product_id, month, purchase_count, avg_quantity, is_peak_period,
-                 holiday_association)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(product_id, month) DO UPDATE SET
+                (user_id, product_id, month, purchase_count, avg_quantity,
+                 is_peak_period, holiday_association)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, product_id, month) DO UPDATE SET
                     purchase_count = excluded.purchase_count,
                     avg_quantity = excluded.avg_quantity,
                     is_peak_period = excluded.is_peak_period,
                     holiday_association = excluded.holiday_association
             """,
                 (
+                    owner,
                     product_id,
                     month,
                     data["count"],
@@ -363,20 +364,17 @@ def update_seasonal_patterns(product_id: str) -> dict[str, Any]:
         conn.close()
 
 
-def get_upcoming_seasonal_items(days_ahead: int = 30) -> list[dict[str, Any]]:
-    """
-    Get items associated with upcoming holidays/seasons.
+def get_upcoming_seasonal_items(
+    days_ahead: int = 30, user_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Get items associated with upcoming holidays/seasons, scoped to one user.
 
-    Returns items with shopping dates calculated so users are reminded
-    to purchase 1-3 days BEFORE the actual holiday.
-
-    Args:
-        days_ahead: Number of days to look ahead
-
-    Returns:
-        List of seasonal items with holiday dates and shopping urgency
+    Returns items with shopping dates calculated so users are reminded to
+    purchase 1-3 days BEFORE the actual holiday. ``user_id=None`` resolves to
+    mcp_user_id() (the default user).
     """
     ensure_initialized()
+    owner = user_id if user_id is not None else mcp_user_id()
 
     # Get upcoming holidays with their shopping dates
     upcoming_holidays = get_upcoming_holidays(days_ahead + 7)
@@ -406,11 +404,12 @@ def get_upcoming_seasonal_items(days_ahead: int = 30) -> list[dict[str, Any]]:
                    p.description, p.brand
             FROM seasonal_patterns sp
             JOIN products p ON sp.product_id = p.product_id
-            WHERE sp.is_peak_period = 1
+            WHERE sp.is_peak_period
+              AND sp.user_id = ?
               AND sp.month IN ({placeholders})
             ORDER BY sp.month, p.description
         """,
-            list(target_months),
+            [owner, *target_months],
         )
 
         items = []

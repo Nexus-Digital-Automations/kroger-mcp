@@ -14,6 +14,7 @@ from ..analytics.deals import get_price_statistics, score_deal_quality
 from ..analytics.favorites import get_all_favorite_product_ids
 from ..analytics.pantry import get_low_inventory_items
 from ..analytics.statistics import get_recent_purchases
+from ..auth.dependencies import mcp_user_id
 from .shared import get_client_credentials_client, get_preferred_location_id
 
 # Category search mappings
@@ -347,6 +348,7 @@ def register_tools(mcp):
                 loc_id = location_id or get_preferred_location_id()
                 priority_labels = {1: "low", 2: "medium", 3: "high"}
                 pri = priority or 1
+                owner = mcp_user_id()
 
                 try:
                     results = {}
@@ -378,14 +380,15 @@ def register_tools(mcp):
                                 cursor.execute(
                                     """
                                     INSERT INTO deal_watchlist
-                                    (product_id, description, target_price, priority, best_price_seen, best_price_date)
-                                    VALUES (?, ?, ?, ?, ?, ?)
-                                    ON CONFLICT(product_id) DO UPDATE SET
+                                    (user_id, product_id, description, target_price, priority, best_price_seen, best_price_date)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    ON CONFLICT(user_id, product_id) DO UPDATE SET
                                         description = excluded.description,
                                         target_price = excluded.target_price,
                                         priority = excluded.priority
                                     """,
                                     (
+                                        owner,
                                         pid,
                                         prod_description,
                                         target_price,
@@ -601,14 +604,17 @@ def register_tools(mcp):
 
                 watchlist = []
 
+                owner = mcp_user_id()
                 conn = get_db_connection()
                 try:
                     cursor = conn.execute(
                         """
                         SELECT product_id, description, target_price, priority
                         FROM deal_watchlist
+                        WHERE user_id = ?
                         ORDER BY priority DESC, last_checked_at ASC
-                        """
+                        """,
+                        (owner,),
                     )
                     for row in cursor.fetchall():
                         watchlist.append(

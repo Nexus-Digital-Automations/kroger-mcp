@@ -423,3 +423,124 @@ def test_statistics_aggregate_query(pg_backend: str):
         conn.close()
     assert row["n"] == 0
     assert row["q"] == 0
+
+
+def _seed_second_user(user_id: str) -> None:
+    """Insert a second users row so user-scoping can be observed on PG."""
+    from kroger_mcp.analytics import pg_database
+
+    with pg_database.get_pg_cursor() as cur:
+        cur.execute(
+            "INSERT INTO users (id, email, password_hash, display_name) "
+            "VALUES (%s, %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+            (user_id, f"{user_id}@example.test", "x", "Second User"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# deal_watchlist: user-scoped upsert (ON CONFLICT(user_id, product_id)) on PG.
+# Was global (user_id NOT NULL + UNIQUE(user_id, product_id) made it fail before).
+# ---------------------------------------------------------------------------
+def test_deal_watchlist_user_scoped_on_pg(pg_backend: str):
+    from kroger_mcp.analytics.database import get_db_connection
+
+    owner = pg_backend
+    user_b = "99999999-8888-7777-6666-555555555555"
+    _seed_second_user(user_b)
+    _seed_product("PROD-WATCH", "Olive Oil")
+
+    sql = (
+        "INSERT INTO deal_watchlist (user_id, product_id, description, priority) "
+        "VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, product_id) DO UPDATE SET priority = excluded.priority"
+    )
+    conn = get_db_connection()
+    try:
+        conn.execute(sql, (owner, "PROD-WATCH", "A watch", 1))
+        conn.execute(sql, (user_b, "PROD-WATCH", "B watch", 3))
+        conn.commit()
+        # Both users watch the same product — composite UNIQUE permits it on PG.
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM deal_watchlist WHERE product_id = ?",
+            ("PROD-WATCH",),
+        ).fetchone()["n"]
+        # Upsert A's row only.
+        conn.execute(sql, (owner, "PROD-WATCH", "A again", 2))
+        conn.commit()
+        a_pri = conn.execute(
+            "SELECT priority FROM deal_watchlist WHERE user_id = ? AND product_id = ?",
+            (owner, "PROD-WATCH"),
+        ).fetchone()["priority"]
+        after = conn.execute(
+            "SELECT COUNT(*) AS n FROM deal_watchlist WHERE product_id = ?",
+            ("PROD-WATCH",),
+        ).fetchone()["n"]
+    finally:
+        conn.close()
+    assert total == 2
+    assert a_pri == 2
+    assert after == 2  # upsert updated, did not duplicate
+
+
+# ---------------------------------------------------------------------------
+# seasonal_patterns: user-scoped write (ON CONFLICT(user_id, product_id, month) +
+# bool is_peak_period) and read (boolean WHERE + user filter) on PG.
+# ---------------------------------------------------------------------------
+def test_seasonal_patterns_user_scoped_on_pg(pg_backend: str):
+    import datetime as _dt
+
+    from kroger_mcp.analytics.database import get_db_connection
+    from kroger_mcp.analytics.seasonal import (
+        get_upcoming_seasonal_items,
+        update_seasonal_patterns,
+    )
+
+    owner = pg_backend
+    _seed_product("PROD-SEASON", "Pumpkin")
+
+    # Seed order_placed events so update_seasonal_patterns produces rows, then run
+    # the real writer — proves the upsert + bool() write path runs on PG.
+    conn = get_db_connection()
+    try:
+        for month in (1, 6, 11):
+            conn.execute(
+                "INSERT INTO purchase_events (product_id, quantity, event_type, "
+                "event_date, event_timestamp) VALUES (?, ?, 'order_placed', ?, ?)",
+                ("PROD-SEASON", 2, f"2025-{month:02d}-15", f"2025-{month:02d}-15T10:00:00"),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    result = update_seasonal_patterns("PROD-SEASON", user_id=owner)
+    assert result["product_id"] == "PROD-SEASON"
+
+    conn = get_db_connection()
+    try:
+        n = conn.execute(
+            "SELECT COUNT(*) AS n FROM seasonal_patterns "
+            "WHERE user_id = ? AND product_id = ?",
+            (owner, "PROD-SEASON"),
+        ).fetchone()["n"]
+    finally:
+        conn.close()
+    assert n == 12  # one row per month, all owned by `owner`
+
+    # Read path: force a peak in the current month, confirm the boolean WHERE +
+    # user filter work on PG and isolate by user.
+    this_month = _dt.datetime.now().month
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "UPDATE seasonal_patterns SET is_peak_period = TRUE "
+            "WHERE user_id = ? AND product_id = ? AND month = ?",
+            (owner, "PROD-SEASON", this_month),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    mine = get_upcoming_seasonal_items(days_ahead=2, user_id=owner)
+    assert any(i["product_id"] == "PROD-SEASON" for i in mine)
+    others = get_upcoming_seasonal_items(days_ahead=2, user_id="00000000-0000-0000-0000-000000000000")
+    assert not any(i["product_id"] == "PROD-SEASON" for i in others)

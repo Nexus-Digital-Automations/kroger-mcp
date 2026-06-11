@@ -311,9 +311,10 @@ def initialize_database() -> None:
                 FOREIGN KEY (product_id) REFERENCES products(product_id)
             );
 
-            -- Seasonal patterns for treats
+            -- Seasonal patterns for treats (user-scoped)
             CREATE TABLE IF NOT EXISTS seasonal_patterns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
                 product_id TEXT NOT NULL,
                 month INTEGER NOT NULL,
                 week_of_year INTEGER,
@@ -322,7 +323,7 @@ def initialize_database() -> None:
                 is_peak_period INTEGER DEFAULT 0,
                 holiday_association TEXT,
                 FOREIGN KEY (product_id) REFERENCES products(product_id),
-                UNIQUE(product_id, month)
+                UNIQUE(user_id, product_id, month)
             );
 
             -- Saved recipes
@@ -475,10 +476,11 @@ def initialize_database() -> None:
                 FOREIGN KEY (product_id) REFERENCES products(product_id)
             );
 
-            -- Deal watchlist (user-tracked items for price monitoring)
+            -- Deal watchlist (user-tracked items for price monitoring, user-scoped)
             CREATE TABLE IF NOT EXISTS deal_watchlist (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id TEXT UNIQUE NOT NULL,
+                user_id TEXT,
+                product_id TEXT NOT NULL,
                 description TEXT,
                 target_price REAL,
                 priority INTEGER DEFAULT 1,
@@ -486,7 +488,8 @@ def initialize_database() -> None:
                 last_checked_at TEXT,
                 best_price_seen REAL,
                 best_price_date TEXT,
-                FOREIGN KEY (product_id) REFERENCES products(product_id)
+                FOREIGN KEY (product_id) REFERENCES products(product_id),
+                UNIQUE(user_id, product_id)
             );
 
             -- Whole foods catalog (curated list of clean/natural foods)
@@ -790,6 +793,35 @@ def get_table_counts() -> dict:
         conn.close()
 
 
+def _rebuild_table_add_user_id(executor: Any, table: str, new_ddl: str) -> None:
+    """Rebuild a SQLite ``table`` into ``new_ddl`` (which adds ``user_id`` and a
+    user-scoped composite UNIQUE), backfilling ``user_id`` to the default owner.
+
+    Used to migrate the formerly-global ``deal_watchlist`` / ``seasonal_patterns``
+    in place — SQLite cannot drop a column-level UNIQUE via ALTER, so we
+    rename → create-fresh → copy the intersection of columns → drop the old table.
+    The owner resolves via ``mcp_user_id()`` (KROGER_MCP_USER_ID, then the
+    migration-installed default). SQLite DDL is transactional, so the caller's
+    surrounding transaction keeps this atomic.
+    """
+    from kroger_mcp.auth.dependencies import mcp_user_id
+
+    owner = mcp_user_id()
+    old_cols = [r[1] for r in executor.execute(f"PRAGMA table_info({table})").fetchall()]
+    executor.execute(f"ALTER TABLE {table} RENAME TO {table}_old")
+    executor.execute(new_ddl)
+    new_cols = [r[1] for r in executor.execute(f"PRAGMA table_info({table})").fetchall()]
+    # Copy only columns present in both shapes; user_id is set explicitly.
+    carried = [c for c in new_cols if c in old_cols and c != "user_id"]
+    col_list = ", ".join(carried)
+    executor.execute(
+        f"INSERT INTO {table} (user_id, {col_list}) "
+        f"SELECT ?, {col_list} FROM {table}_old",
+        (owner,),
+    )
+    executor.execute(f"DROP TABLE {table}_old")
+
+
 def run_schema_migrations() -> None:
     """
     Run schema migrations to add new columns to existing tables.
@@ -937,6 +969,55 @@ def run_schema_migrations() -> None:
 
         if "ingredients_text" not in products_columns:
             conn.execute("ALTER TABLE products ADD COLUMN ingredients_text TEXT")
+
+        # User-scope deal_watchlist + seasonal_patterns (were global). SQLite can't
+        # drop a column-level UNIQUE in place, so each is rebuilt with user_id and a
+        # composite UNIQUE, backfilling existing rows to the default owner. Idempotent:
+        # the rebuild only fires while the legacy (user_id-less) shape is present.
+        cursor = conn.execute("PRAGMA table_info(deal_watchlist)")
+        if "user_id" not in {row[1] for row in cursor.fetchall()}:
+            _rebuild_table_add_user_id(
+                conn,
+                "deal_watchlist",
+                """
+                CREATE TABLE deal_watchlist (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    product_id TEXT NOT NULL,
+                    description TEXT,
+                    target_price REAL,
+                    priority INTEGER DEFAULT 1,
+                    added_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    last_checked_at TEXT,
+                    best_price_seen REAL,
+                    best_price_date TEXT,
+                    FOREIGN KEY (product_id) REFERENCES products(product_id),
+                    UNIQUE(user_id, product_id)
+                )
+                """,
+            )
+
+        cursor = conn.execute("PRAGMA table_info(seasonal_patterns)")
+        if "user_id" not in {row[1] for row in cursor.fetchall()}:
+            _rebuild_table_add_user_id(
+                conn,
+                "seasonal_patterns",
+                """
+                CREATE TABLE seasonal_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    product_id TEXT NOT NULL,
+                    month INTEGER NOT NULL,
+                    week_of_year INTEGER,
+                    purchase_count INTEGER DEFAULT 0,
+                    avg_quantity REAL,
+                    is_peak_period INTEGER DEFAULT 0,
+                    holiday_association TEXT,
+                    FOREIGN KEY (product_id) REFERENCES products(product_id),
+                    UNIQUE(user_id, product_id, month)
+                )
+                """,
+            )
 
         conn.commit()
     except Exception:
