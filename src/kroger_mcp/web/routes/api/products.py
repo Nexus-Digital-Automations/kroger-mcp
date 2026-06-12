@@ -307,22 +307,28 @@ class AddToCartBody(BaseModel):
 async def add_product_to_cart(product_id: str, body: AddToCartBody, request: Request):
     """Add a single product to the Kroger cart and local cart tracking."""
     try:
-        client = get_authenticated_client(current_user_id(request))
-        client.cart.add_to_cart(
+        # Off-loop like cart.py / shopping_list.py: the Kroger cart POST (and
+        # its retry backoff sleeps) must not block the single worker.
+        client = await asyncio.to_thread(
+            get_authenticated_client, current_user_id(request)
+        )
+        await asyncio.to_thread(
+            client.cart.add_to_cart,
             items=[
                 {
                     "upc": product_id,
                     "quantity": body.quantity,
                     "modality": body.modality,
                 }
-            ]
+            ],
         )
 
         # Mirror in local cart tracking (best-effort)
         try:
             from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
 
-            _add_item_to_local_cart(
+            await asyncio.to_thread(
+                _add_item_to_local_cart,
                 product_id=product_id,
                 quantity=body.quantity,
                 modality=body.modality,
