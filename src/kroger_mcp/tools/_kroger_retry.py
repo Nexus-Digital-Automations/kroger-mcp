@@ -37,7 +37,47 @@ BASE_DELAY_SECONDS = 0.5
 BACKOFF_FACTOR = 2.0
 MAX_DELAY_SECONDS = 16.0
 
+# The kroger_api library issues requests with NO timeout — one hung TCP
+# connection to Kroger wedged the single-worker event loop permanently
+# (prod outage 2026-06-12: process alive, port listening, zero responses).
+# (connect, read): generous read for slow product searches, but bounded.
+DEFAULT_TIMEOUT_SECONDS = (5.0, 30.0)
+
 _INSTALLED_FLAG = "_smartshopper_retry_installed"
+
+
+class _TimeoutEnforcingRequests:
+    """Proxy for the ``requests`` module that injects a default timeout.
+
+    Installed as ``kroger_api.client.requests`` (the lib's only HTTP seam) so
+    every verb the library issues gets a bound; explicit timeouts, and every
+    other module attribute (``exceptions`` etc.), pass through untouched.
+    """
+
+    def __init__(self, real: Any) -> None:
+        self._real = real
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    def _timed(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        kwargs.setdefault("timeout", DEFAULT_TIMEOUT_SECONDS)
+        return func(*args, **kwargs)
+
+    def request(self, *args: Any, **kwargs: Any) -> Any:
+        return self._timed(self._real.request, *args, **kwargs)
+
+    def get(self, *args: Any, **kwargs: Any) -> Any:
+        return self._timed(self._real.get, *args, **kwargs)
+
+    def post(self, *args: Any, **kwargs: Any) -> Any:
+        return self._timed(self._real.post, *args, **kwargs)
+
+    def put(self, *args: Any, **kwargs: Any) -> Any:
+        return self._timed(self._real.put, *args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> Any:
+        return self._timed(self._real.delete, *args, **kwargs)
 
 
 def _retry_after_seconds(exc: requests.exceptions.HTTPError) -> float | None:
@@ -124,9 +164,22 @@ def install_kroger_retry() -> None:
     (which would multiply attempts). Wraps both resource calls (``_make_request``)
     and token grants/refreshes (``_get_token``).
     """
+    # Bound every library HTTP call with a default timeout (see the constant's
+    # comment) — checked independently of the method-wrap sentinel because a
+    # module reload (tests do this) resets the module attribute while the
+    # sentinel on the class object survives.
+    import kroger_api.client as _kroger_client_module
+
+    if not isinstance(_kroger_client_module.requests, _TimeoutEnforcingRequests):
+        _kroger_client_module.requests = _TimeoutEnforcingRequests(requests)
+
     if getattr(KrogerClient, _INSTALLED_FLAG, False):
         return
     KrogerClient._make_request = _with_retry(KrogerClient._make_request, "make_request")
     KrogerClient._get_token = _with_retry(KrogerClient._get_token, "get_token")
     setattr(KrogerClient, _INSTALLED_FLAG, True)
-    logger.info("kroger_retry_installed max_attempts=%d", MAX_ATTEMPTS)
+    logger.info(
+        "kroger_retry_installed max_attempts=%d default_timeout=%s",
+        MAX_ATTEMPTS,
+        DEFAULT_TIMEOUT_SECONDS,
+    )

@@ -4,7 +4,10 @@ Owner: web/routes/api/products.py. Failure here means the comparison surface
 in the recipe-linking dropdown loses its primary value signal.
 """
 
-from kroger_mcp.web.routes.api.products import _compute_price_per_unit, _pick_image_url
+from kroger_mcp.web.routes.api._product_extract import (
+    _compute_price_per_unit,
+    _pick_image_url,
+)
 
 
 class TestComputePricePerUnit:

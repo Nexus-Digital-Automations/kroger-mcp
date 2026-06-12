@@ -168,3 +168,42 @@ def test_producer_failure_is_not_cached(monkeypatch):
     with pytest.raises(RuntimeError):
         cache_read_through("k:fail", 60, boom)
     assert "k:fail" not in fake.store  # failures never memoized
+
+
+# --- default timeout shim (prod hang 2026-06-12: lib issues requests with no
+# --- timeout; one stuck TCP connection wedged the single-worker event loop) --
+
+
+def test_kroger_lib_requests_proxy_installed_and_injects_timeout(monkeypatch):
+    import kroger_api.client as kroger_client_module
+
+    from kroger_mcp.tools._kroger_retry import (
+        DEFAULT_TIMEOUT_SECONDS,
+        _TimeoutEnforcingRequests,
+        install_kroger_retry,
+    )
+
+    install_kroger_retry()
+    assert isinstance(kroger_client_module.requests, _TimeoutEnforcingRequests)
+
+    captured: dict = {}
+
+    def fake_request(method, url, **kwargs):
+        captured.update(kwargs)
+        return "resp"
+
+    # Patch the REAL module the proxy delegates to; monkeypatch restores it.
+    monkeypatch.setattr("requests.request", fake_request)
+    assert kroger_client_module.requests.request("GET", "http://x") == "resp"
+    assert captured["timeout"] == DEFAULT_TIMEOUT_SECONDS
+
+    # An explicit timeout is preserved, not overwritten.
+    captured.clear()
+    monkeypatch.setattr("requests.get", lambda url, **kw: captured.update(kw))
+    kroger_client_module.requests.get("http://x", timeout=3)
+    assert captured["timeout"] == 3
+
+    # Non-verb attributes (exceptions etc.) pass through to the real module.
+    import requests as real_requests
+
+    assert kroger_client_module.requests.exceptions is real_requests.exceptions
