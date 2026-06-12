@@ -350,6 +350,30 @@
       box-shadow: 0 4px 12px oklch(20% 0.02 55 / 0.08);
       border-color: oklch(82% 0.03 70);
     }
+
+    /* ── Step time chips (recipe instructions + cards) ──
+       auto-detected = muted with a ~ prefix; manual override = solid green;
+       passive (hands-off) = dashed border + italic. */
+    .ss-step-time-chip {
+      font-size: 0.6875rem;
+      font-variant-numeric: tabular-nums;
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 0.05rem 0.45rem;
+      background: transparent;
+      color: var(--text-3);
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+    .ss-step-time-chip.is-override {
+      color: var(--green);
+      border-color: var(--green);
+      font-weight: 600;
+    }
+    .ss-step-time-chip.is-passive {
+      font-style: italic;
+      border-style: dashed;
+    }
   </style>
 </head>
 <body class="min-h-screen flex" x-data="{ navOpen: false }" @keydown.escape.window="navOpen = false">

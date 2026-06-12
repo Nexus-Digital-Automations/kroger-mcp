@@ -650,6 +650,10 @@
                 @click="swapMode ? doSwap('{{ cell.date_str }}', '{{ row.slot }}') : null">
                 {{ cell.recipe_name[:22] }}{% if cell.recipe_name | length > 22 %}…{% endif %}
               </p>
+              {% if cell.time_label %}
+              <span class="ss-step-time-chip" style="margin-top:0.125rem; display:inline-block;"
+                title="Total recipe time">⏱ {{ cell.time_label }}</span>
+              {% endif %}
               <button
                 @click="removeMeal('{{ active_plan.id }}', '{{ cell.date_str }}', '{{ row.slot }}')"
                 class="absolute top-0 right-0 w-4 h-4 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 bg-gray-200 hover:bg-red-200 text-gray-400 hover:text-red-600 transition-all"

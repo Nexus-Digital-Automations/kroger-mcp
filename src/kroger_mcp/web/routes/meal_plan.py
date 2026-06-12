@@ -13,6 +13,7 @@ from kroger_mcp.analytics.database import (
 )
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.recipe_tools import _load_recipes
+from kroger_mcp.tools.step_times import recipe_time_summary
 from kroger_mcp.web.templating import templates
 
 router = APIRouter()
@@ -70,8 +71,12 @@ def _get_plan_entries(plan_id: str, user_id: str):
         conn.close()
 
 
-def _build_calendar(plan, entries, recipe_map, week_offset: int = 0):
-    """Build a Mon–Sun grid for the plan, offset by week_offset weeks."""
+def _build_calendar(plan, entries, recipe_map, week_offset: int = 0, time_map=None):
+    """Build a Mon–Sun grid for the plan, offset by week_offset weeks.
+
+    time_map: optional {recipe_id: "45 min"} labels shown on calendar cells.
+    """
+    time_map = time_map or {}
     if not plan:
         return [], None, None
 
@@ -109,6 +114,7 @@ def _build_calendar(plan, entries, recipe_map, week_offset: int = 0):
                     "recipe_name": entry["recipe_name"] if entry else None,
                     "recipe_id": entry["recipe_id"] if entry else None,
                     "cooked_at": entry["cooked_at"] if entry else None,
+                    "time_label": time_map.get(entry["recipe_id"]) if entry else None,
                 }
             )
         calendar.append(row)
@@ -168,7 +174,21 @@ def _meal_plan_payload(user_id: str, plan_id: str | None, week: int | None) -> d
             if earliest > default_week_end:
                 week_offset = (earliest - first_monday).days // 7
 
-        calendar, week_dates, _ = _build_calendar(active_plan, entries, recipe_map, week_offset)
+        # Time labels only for recipes actually on the plan (cheap regex parse).
+        plan_recipe_ids = {e["recipe_id"] for e in entries}
+        time_map = {}
+        for r in recipe_data.get("recipes", []):
+            if r.get("id") in plan_recipe_ids:
+                try:
+                    summary = recipe_time_summary(r)
+                    if summary["total"]:
+                        time_map[r["id"]] = summary["label"]
+                except Exception:
+                    pass
+
+        calendar, week_dates, _ = _build_calendar(
+            active_plan, entries, recipe_map, week_offset, time_map
+        )
 
     today = datetime.now().date()
     recipes = recipe_data.get("recipes", [])

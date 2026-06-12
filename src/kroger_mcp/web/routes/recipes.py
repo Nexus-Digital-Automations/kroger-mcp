@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from kroger_mcp.analytics.database import run_in_thread
 from kroger_mcp.analytics.recipe_scoring import calculate_health_score, estimate_recipe_cost
 from kroger_mcp.tools.recipe_tools import _find_recipe, _load_recipes
+from kroger_mcp.tools.step_times import annotate_steps, recipe_time_summary
 from kroger_mcp.web.context import action_menu_context
 from kroger_mcp.web.templating import templates
 
@@ -106,6 +107,14 @@ def _recipes_payload() -> dict:
 
     all_tags = _collect_all_tags(recipes)
 
+    # Effective time summary for cards + the Quickest sort (cheap regex parse;
+    # explicit total_time_minutes wins over the derived step sum).
+    for r in recipes:
+        try:
+            r["_time"] = recipe_time_summary(r)
+        except Exception:
+            r["_time"] = {"total": 0, "active": 0, "passive": 0, "label": ""}
+
     # Compute cost per serving and health score for each recipe
     for r in recipes:
         try:
@@ -143,6 +152,9 @@ def _recipes_payload() -> dict:
                 "health_flags": r.get("health_flags", []),
                 "health_categories": r.get("health_categories", []),
                 "health_bonus": r.get("health_bonus", 0),
+                "time_total": r["_time"]["total"],
+                "time_label": r["_time"]["label"],
+                "time_passive": r["_time"]["passive"],
             }
             for r in recipes
         ]
@@ -303,6 +315,15 @@ def _build_recipe_context(request: Request, recipe_id: str) -> dict:
 
     instruction_groups = _parse_instructions(recipe.get("instructions") or "")
 
+    # Per-step time annotations, aligned to the same flattening the template
+    # (and instructionsEditor) uses: headers interleaved with steps.
+    flat_steps: list[str] = []
+    for grp in instruction_groups:
+        if grp.get("header"):
+            flat_steps.append(grp["header"])
+        flat_steps.extend(grp.get("steps") or [])
+    step_time_data = annotate_steps(flat_steps, recipe.get("step_times"))
+
     health_data = None
     try:
         health_data = calculate_health_score(recipe)
@@ -316,6 +337,7 @@ def _build_recipe_context(request: Request, recipe_id: str) -> dict:
         "recipe": recipe,
         "ingredients": ingredients,
         "instruction_groups": instruction_groups,
+        "step_time_data": step_time_data,
         "health_data": health_data,
         **action_menu_context(),
     }

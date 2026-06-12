@@ -30,7 +30,12 @@ async function loginCookie(ctx: BrowserContext, baseURL: string, u: TestUser): P
   await page.goto(`${baseURL}/login`);
   await page.locator('input[name="email"]').fill(u.email);
   await page.locator('input[name="password"]').fill(u.password);
-  await Promise.all([page.waitForURL((url) => !/\/login$/.test(url.pathname)), page.locator('button[type="submit"]').click()]);
+  // noWaitAfter: the click's own scheduled-navigation wait flakes under a
+  // loaded suite; the explicit waitForURL is the real success signal.
+  await Promise.all([
+    page.waitForURL((url) => !/\/login$/.test(url.pathname), { timeout: 20_000 }),
+    page.locator('button[type="submit"]').click({ noWaitAfter: true }),
+  ]);
   await page.close();
 }
 

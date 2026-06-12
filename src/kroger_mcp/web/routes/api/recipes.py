@@ -208,6 +208,46 @@ async def replace_recipe_instructions(
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@router.get("/api/recipes/{recipe_id}/step-times")
+async def get_recipe_step_times(recipe_id: str):
+    """Per-step time annotations aligned to the flattened step list.
+
+    The instructions editor refetches this after any step mutation or
+    override change — extraction logic lives server-side only
+    (specs/recipe-step-times.md).
+    """
+    try:
+        from kroger_mcp.tools.recipe_tools import _find_recipe
+        from kroger_mcp.tools.step_times import (
+            _flatten_instructions,
+            annotate_steps,
+            recipe_time_summary,
+        )
+
+        recipe = _find_recipe(recipe_id)
+        if not recipe:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Recipe '{recipe_id}' not found"},
+            )
+        annotated = annotate_steps(
+            _flatten_instructions(recipe), recipe.get("step_times")
+        )
+        return {
+            "success": True,
+            "times": annotated["times"],
+            "totals": annotated["totals"],
+            "summary": recipe_time_summary(recipe),
+            "explicit": {
+                "prep_time_minutes": recipe.get("prep_time_minutes"),
+                "cook_time_minutes": recipe.get("cook_time_minutes"),
+                "total_time_minutes": recipe.get("total_time_minutes"),
+            },
+        }
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @router.delete("/api/recipes/{recipe_id}")
 async def delete_recipe(recipe_id: str):
     """Delete a recipe by ID."""
@@ -233,6 +273,13 @@ class UpdateRecipeBody(BaseModel):
     description: str | None = None
     tags: list[str] | None = None
     servings: int | None = None
+    # Time metadata (specs/recipe-step-times.md). Values <= 0 clear the field.
+    prep_time_minutes: int | None = None
+    cook_time_minutes: int | None = None
+    total_time_minutes: int | None = None
+    # Per-step override merge map: {step_key: {minutes, passive} | None}.
+    # A None value deletes that override.
+    step_times: dict[str, dict | None] | None = None
 
 
 class AddIngredientBody(BaseModel):
@@ -327,6 +374,27 @@ async def update_recipe(
             recipe["tags"] = body.tags
         if body.servings is not None:
             recipe["servings"] = body.servings
+        for field in ("prep_time_minutes", "cook_time_minutes", "total_time_minutes"):
+            value = getattr(body, field)
+            if value is not None:
+                if value <= 0:
+                    recipe.pop(field, None)
+                else:
+                    recipe[field] = value
+        if body.step_times is not None:
+            overrides = recipe.get("step_times") or {}
+            for key, entry in body.step_times.items():
+                if entry is None:
+                    overrides.pop(key, None)
+                elif entry.get("minutes"):
+                    overrides[key] = {
+                        "minutes": int(entry["minutes"]),
+                        "passive": bool(entry.get("passive")),
+                    }
+            if overrides:
+                recipe["step_times"] = overrides
+            else:
+                recipe.pop("step_times", None)
         recipe["updated_at"] = datetime.now().isoformat()
         _save_recipes(data)
         return {

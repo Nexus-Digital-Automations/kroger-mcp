@@ -111,6 +111,10 @@
           <div class="flex items-center gap-3 mb-3 flex-wrap" style="font-size: 0.75rem; color: var(--text-3);">
             <span x-show="recipe.servings" x-text="recipe.servings + ' srv'"></span>
             <span x-show="recipe.ing_count" x-text="recipe.ing_count + ' ingredients'"></span>
+            <span x-show="recipe.time_total" class="ss-step-time-chip"
+              :class="{'is-passive': recipe.time_passive > 0}"
+              :title="recipe.time_passive > 0 ? 'Includes hands-off time' : 'Total time'"
+              x-text="'⏱ ' + recipe.time_label"></span>
             <span x-show="recipe.times_ordered > 0"
               style="background: var(--green-light); color: var(--green); padding: 0.1rem 0.5rem; border-radius: 99px; font-weight: 600;"
               x-text="'\u00d7' + recipe.times_ordered"></span>
@@ -329,6 +333,13 @@ document.addEventListener('alpine:init', () => {
       return a.cost - b.cost;
     },
     ing_count:    (a, b) => (a.ing_count || 0) - (b.ing_count || 0),
+    time:         (a, b) => {
+      // Recipes with no known time sort last regardless of direction.
+      if (!a.time_total && !b.time_total) return 0;
+      if (!a.time_total) return 1;
+      if (!b.time_total) return -1;
+      return a.time_total - b.time_total;
+    },
   };
 
   Alpine.data('recipesGrid', () => ({
@@ -339,6 +350,7 @@ document.addEventListener('alpine:init', () => {
         {v:'most_ordered', l:'Most Ordered', defaultDir:'desc'},
         {v:'health',       l:'Health',       defaultDir:'desc'},
         {v:'cost',         l:'Cost'},
+        {v:'time',         l:'Quickest'},
         {v:'ing_count',    l:'Ingredient Count'},
       ],
       compareFns: recipeCmp,
