@@ -133,7 +133,12 @@ function dealsData() {
       this.loading = false;
     },
 
+    cartBusy: {},
+
     async addToCart(product) {
+      // Double-click guard: one in-flight add per product.
+      if (this.cartBusy[product.product_id]) return;
+      this.cartBusy = {...this.cartBusy, [product.product_id]: true};
       try {
         const r = await fetch('/api/cart', {
           method: 'POST',
@@ -155,6 +160,7 @@ function dealsData() {
         }
         setTimeout(() => this.msg = '', 3000);
       } catch(e) { this.msg = 'Error adding to cart'; }
+      const b = {...this.cartBusy}; delete b[product.product_id]; this.cartBusy = b;
     },
 
     async addCustomWatch() {
@@ -324,7 +330,7 @@ function dealsData() {
     </div>
 
     <!-- Results grid -->
-    <div x-show="!loading && deals.length > 0" class="grid grid-cols-3 gap-4">
+    <div x-show="!loading && deals.length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       <template x-for="deal in sortedDeals" :key="deal.product_id">
         <div class="bg-white rounded-xl shadow-sm border p-4 transition-shadow hover:shadow-md"
           :class="favoriteIds.has(deal.product_id) ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100'">
@@ -383,8 +389,10 @@ function dealsData() {
 
             <!-- Cart button -->
             <button @click="addToCart(deal)"
-              class="flex-1 py-1.5 text-xs border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 transition-colors">
-              + Cart
+              :disabled="!!cartBusy[deal.product_id]"
+              class="flex-1 py-1.5 text-xs border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 disabled:opacity-50 transition-colors">
+              <span x-show="!cartBusy[deal.product_id]">+ Cart</span>
+              <span x-show="cartBusy[deal.product_id]" x-cloak>Adding…</span>
             </button>
 
           </div>

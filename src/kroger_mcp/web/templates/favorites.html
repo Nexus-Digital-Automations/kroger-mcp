@@ -58,14 +58,25 @@
         body: JSON.stringify(body)
       });
       const d = await r.json();
-      if (r.ok && d.success) { window.location.reload(); }
+      if (r.ok && d.success) {
+        this.editOpen = false;
+        window._ssToast('List updated');
+        window.refreshFavorites();
+      }
       else { this.error = d.error || 'Failed to update list'; }
     } catch(e) { this.error = 'Network error'; }
     this.loading = false;
   },
   async deleteList(id, name) {
+    const ok = await Alpine.store('ssConfirm').ask({
+      title: 'Delete “' + name + '”?',
+      body: 'The list and its saved items are removed. This cannot be undone.',
+      confirmLabel: 'Delete List',
+      danger: true,
+    });
+    if (!ok) return;
     const r = await fetch('/api/favorites/lists/' + id, {method: 'DELETE'});
-    if (r.ok) { window.location.reload(); }
+    if (r.ok) { window._ssToast('List deleted'); window.refreshFavorites(); }
     else { window._ssToast('Failed to delete list', { level: 'error' }); }
   },
   async submit() {
@@ -79,7 +90,9 @@
       });
       const d = await r.json();
       if (r.ok && d.success) {
-        window.location.reload();
+        this.open = false; this.name = ''; this.description = '';
+        window._ssToast('List created');
+        window.refreshFavorites();
       } else {
         this.error = d.error || 'Failed to create list';
       }
@@ -171,13 +184,16 @@
     </div>
   </div>
 
+{# Always-present wrapper: refreshFavorites() swaps this region in place, so it
+   must exist in both the empty and populated states. #}
+<div id="fav-lists-grid">
 {% if not lists %}
 <div style="text-align: center; padding: 4rem 1rem;">
   <p style="font-size: 0.875rem; color: var(--text-3);">No favorites lists yet. Create your first list above.</p>
 </div>
 {% else %}
 
-<div class="grid grid-cols-3 gap-4">
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
   {% for lst in lists %}
   {% set badge_class_map = {"red": "ss-badge ss-badge-danger", "amber": "ss-badge ss-badge-warning", "emerald": "ss-badge ss-badge-ok", "gray": "ss-badge ss-badge-muted"} %}
   <div class="ss-card ss-card-interactive relative">
@@ -253,4 +269,24 @@
 
 {% endif %}
 </div>
+</div>
+
+<script>
+  // Re-render just the lists region instead of a full-page reload: fetch this
+  // page's fresh HTML and swap #fav-lists-grid. Alpine 3's MutationObserver
+  // re-initialises directives in the injected cards against the ancestor
+  // x-data scope. Falls back to a hard reload so the UI never goes stale.
+  window.refreshFavorites = function () {
+    return fetch(window.location.href, { headers: { 'Accept': 'text/html' } })
+      .then(function (r) { if (!r.ok) throw new Error('refresh failed'); return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var fresh = doc.getElementById('fav-lists-grid');
+        var current = document.getElementById('fav-lists-grid');
+        if (fresh && current) current.replaceWith(fresh);
+        else window.location.reload();
+      })
+      .catch(function () { window.location.reload(); });
+  };
+</script>
 {% endblock %}

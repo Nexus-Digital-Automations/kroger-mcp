@@ -80,6 +80,7 @@ data/legacy/
 
 # Test output images
 output/*.png
+output/visual-check/
 
 # Claude Code workspace
 .claude/

@@ -8,7 +8,11 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
+from kroger_mcp.analytics.database import (
+    ensure_initialized,
+    get_db_connection,
+    run_in_thread,
+)
 from kroger_mcp.analytics.favorites import get_lists
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.recipe_tools import _load_recipes
@@ -17,18 +21,28 @@ from kroger_mcp.web.templating import templates
 router = APIRouter()
 
 
-def _get_pantry_alerts(user_id: str):
-    """Return this user's pantry items that are low or expiring within 7 days."""
+_PANTRY_ALERT_PREDICATE = """
+    user_id = ?
+    AND (level_percent <= COALESCE(low_threshold, 20)
+         OR (days_to_expiration IS NOT NULL AND days_to_expiration <= 7))
+"""
+
+
+def _get_pantry_alerts(user_id: str, limit: int = 10):
+    """Return (items, total) for pantry items that are low or expiring within
+    7 days. Filtering happens in SQL so only the displayed rows are fetched;
+    total preserves the full alert count for the stat card."""
     ensure_initialized()
     conn = get_db_connection()
     try:
         cursor = conn.execute(
-            """
+            f"""
             SELECT product_id, description, level_percent, low_threshold,
-                   expiration_date, days_to_expiration
+                   days_to_expiration
             FROM pantry_items
-            WHERE user_id = ?
+            WHERE {_PANTRY_ALERT_PREDICATE}
             ORDER BY level_percent ASC
+            LIMIT {int(limit)}
         """,
             (user_id,),
         )
@@ -37,27 +51,28 @@ def _get_pantry_alerts(user_id: str):
             item = dict(row)
             level = item["level_percent"]
             threshold = item["low_threshold"] or 20
-            is_low = level <= threshold
-            is_expiring = False
             days_to_exp = item.get("days_to_expiration")
-            if days_to_exp is not None and days_to_exp <= 7:
-                is_expiring = True
-            if is_low or is_expiring:
-                items.append(
-                    {
-                        "description": item["description"] or item["product_id"],
-                        "level_percent": round(level),
-                        "is_low": is_low,
-                        "is_expiring": is_expiring,
-                        "days_to_expiration": days_to_exp,
-                    }
-                )
-        return items
+            items.append(
+                {
+                    "description": item["description"] or item["product_id"],
+                    "level_percent": round(level),
+                    "is_low": level <= threshold,
+                    "is_expiring": days_to_exp is not None and days_to_exp <= 7,
+                    "days_to_expiration": days_to_exp,
+                }
+            )
+        cursor = conn.execute(
+            f"SELECT COUNT(*) AS cnt FROM pantry_items WHERE {_PANTRY_ALERT_PREDICATE}",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        total = row["cnt"] if row else len(items)
+        return items, total
     finally:
         conn.close()
 
 
-def _get_this_week_meals(user_id: str):
+def _get_this_week_meals(user_id: str, recipe_map: dict[str, str]):
     """Return this user's meal entries for the current Mon–Sun week."""
     ensure_initialized()
     conn = get_db_connection()
@@ -80,8 +95,6 @@ def _get_this_week_meals(user_id: str):
         )
 
         rows = cursor.fetchall()
-        recipe_data = _load_recipes()
-        recipe_map = {r["id"]: r["name"] for r in recipe_data.get("recipes", [])}
 
         meals = []
         for row in rows:
@@ -97,7 +110,7 @@ def _get_this_week_meals(user_id: str):
         conn.close()
 
 
-def _get_uncooked_past_meals(user_id: str):
+def _get_uncooked_past_meals(user_id: str, recipe_map: dict[str, str]):
     """Return this user's scheduled meals whose date has passed but were never
     marked cooked — surfaced as a dashboard reminder to log what they ate."""
     ensure_initialized()
@@ -117,8 +130,6 @@ def _get_uncooked_past_meals(user_id: str):
             (user_id, today.isoformat()),
         )
         rows = cursor.fetchall()
-        recipe_data = _load_recipes()
-        recipe_map = {r["id"]: r["name"] for r in recipe_data.get("recipes", [])}
 
         meals = []
         for row in rows:
@@ -169,17 +180,19 @@ def _get_overdue_favorites(lists):
     return overdue
 
 
-@router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_page(request: Request):
-    user_id = current_user_id(request)
+def _dashboard_payload(user_id: str) -> dict:
+    """All blocking work for the dashboard (JSON load + DB queries), run off
+    the event loop via run_in_thread. Each helper opens/closes its own DB
+    connection, so the whole payload is safe inside one worker thread."""
     recipe_data = _load_recipes()
     recipes = recipe_data.get("recipes", [])
-    pantry_alerts = _get_pantry_alerts(user_id)
-    this_week_meals = _get_this_week_meals(user_id)
+    recipe_map = {r["id"]: r["name"] for r in recipes}
+    pantry_alerts, pantry_alert_count = _get_pantry_alerts(user_id)
+    this_week_meals = _get_this_week_meals(user_id, recipe_map)
     meal_plan_count = _get_meal_plan_count(user_id)
     fav_lists = get_lists(user_id=user_id)
     overdue_favorites = _get_overdue_favorites(fav_lists)
-    uncooked_past_meals = _get_uncooked_past_meals(user_id)
+    uncooked_past_meals = _get_uncooked_past_meals(user_id, recipe_map)
 
     today = datetime.now().date()
     monday = today - timedelta(days=today.weekday())
@@ -192,20 +205,28 @@ async def dashboard_page(request: Request):
             meals_by_date[date_str] = []
         meals_by_date[date_str].append(f"{meal['slot'].title()}: {meal['recipe_name']}")
 
-    return templates.TemplateResponse(
-        request,
-        "dashboard.html",
-        {
-            "active_page": "dashboard",
-            "recipe_count": len(recipes),
-            "pantry_alert_count": len(pantry_alerts),
-            "meal_plan_count": meal_plan_count,
-            "favorites_count": len(fav_lists),
-            "pantry_alerts": pantry_alerts[:10],
-            "week_days": week_days,
-            "meals_by_date": meals_by_date,
-            "today": today,
-            "overdue_favorites": overdue_favorites,
-            "uncooked_past_meals": uncooked_past_meals,
-        },
-    )
+    return {
+        "active_page": "dashboard",
+        "recipe_count": len(recipes),
+        "pantry_alert_count": pantry_alert_count,
+        "meal_plan_count": meal_plan_count,
+        "favorites_count": len(fav_lists),
+        # First-run signal for the onboarding banner: every account auto-gets
+        # a default "My Favorites" list, so count only user-created lists.
+        "custom_favorites_count": sum(
+            1 for lst in fav_lists if not lst.get("is_default")
+        ),
+        "pantry_alerts": pantry_alerts,
+        "week_days": week_days,
+        "meals_by_date": meals_by_date,
+        "today": today,
+        "overdue_favorites": overdue_favorites,
+        "uncooked_past_meals": uncooked_past_meals,
+    }
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    user_id = current_user_id(request)
+    context = await run_in_thread(_dashboard_payload, user_id)
+    return templates.TemplateResponse(request, "dashboard.html", context)

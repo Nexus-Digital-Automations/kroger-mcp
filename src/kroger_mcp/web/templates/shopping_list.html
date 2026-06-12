@@ -12,6 +12,17 @@ function shoppingListData() {
   return {
     items: {{ items | tojson }},
     loading: false,
+    filterQuery: '',
+    busy: {},
+
+    get filteredItems() {
+      const q = this.filterQuery.trim().toLowerCase();
+      if (!q) return this.items;
+      return this.items.filter(i =>
+        this.displayName(i).toLowerCase().includes(q) ||
+        (i.recipe_name || '').toLowerCase().includes(q)
+      );
+    },
 
     async reload() {
       const r = await fetch('/api/shopping-list');
@@ -25,38 +36,59 @@ function shoppingListData() {
       return item.name || item.ingredient_name || item.product_id || 'Unknown';
     },
 
+    // Per-row double-fire guard: the first in-flight mutation for a row wins;
+    // repeat clicks while busy are dropped and the row's buttons disable.
+    async _withBusy(key, fn) {
+      if (!key || this.busy[key]) return;
+      this.busy = {...this.busy, [key]: true};
+      try { await fn(); }
+      finally { const b = {...this.busy}; delete b[key]; this.busy = b; }
+    },
+
     async removeItem(itemId, productId) {
       const id = itemId || productId;
       if (!id) return;
-      await fetch('/api/shopping-list/' + id, {method: 'DELETE'});
-      await this.reload();
+      await this._withBusy(id, async () => {
+        await fetch('/api/shopping-list/' + id, {method: 'DELETE'});
+        await this.reload();
+      });
     },
 
     async clearList() {
-      if (!confirm('Clear all items from your shopping list?')) return;
+      const ok = await Alpine.store('ssConfirm').ask({
+        title: 'Clear shopping list?',
+        body: 'This removes all items from your shopping list.',
+        confirmLabel: 'Clear List',
+        danger: true,
+      });
+      if (!ok) return;
       await fetch('/api/shopping-list', {method: 'DELETE'});
       await this.reload();
     },
 
     async adjustQty(item, delta) {
-      const newQty = Math.max(1, (item.quantity || 1) + delta);
-      await fetch('/api/shopping-list/' + item.id, {
-        method: 'PATCH',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({quantity: newQty})
+      await this._withBusy(item.id, async () => {
+        const newQty = Math.max(1, (item.quantity || 1) + delta);
+        await fetch('/api/shopping-list/' + item.id, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({quantity: newQty})
+        });
+        await this.reload();
       });
-      await this.reload();
     },
 
     async setQty(item, val) {
       const newQty = Math.max(0.25, parseFloat(val) || 1);
       if (newQty === (item.quantity || 1)) return;
-      await fetch('/api/shopping-list/' + item.id, {
-        method: 'PATCH',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({quantity: newQty})
+      await this._withBusy(item.id, async () => {
+        await fetch('/api/shopping-list/' + item.id, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({quantity: newQty})
+        });
+        await this.reload();
       });
-      await this.reload();
     },
 
   };
@@ -87,6 +119,10 @@ function shoppingListData() {
         <span style="color: var(--text-3); font-weight: 400; margin-left: 0.25rem;" x-text="'(' + items.length + ' items)'"></span>
       </h2>
       <div x-show="items.length > 0" class="flex items-center gap-2">
+        <input type="search" placeholder="Filter items…" aria-label="Filter shopping list"
+          x-model="filterQuery"
+          class="ss-input"
+          style="width: 11rem; padding: 0.375rem 0.625rem; font-size: 0.75rem;" />
         <button
           @click="clearList()"
           class="ss-btn-secondary"
@@ -121,12 +157,12 @@ function shoppingListData() {
         <tr>
           <th class="ss-table-th">Item</th>
           <th class="ss-table-th">Qty</th>
-          <th class="ss-table-th">Recipe</th>
+          <th class="ss-table-th hidden sm:table-cell">Recipe</th>
           <th class="ss-table-th" style="text-align: right;"></th>
         </tr>
       </thead>
       <tbody>
-        <template x-for="item in items" :key="item.id || item.product_id">
+        <template x-for="item in filteredItems" :key="item.id || item.product_id">
           <tr class="ss-table-tr">
             <td style="padding: 0.75rem 1.5rem;">
               <span style="font-weight: 500; color: var(--text-1);" x-text="displayName(item)"></span>
@@ -137,23 +173,25 @@ function shoppingListData() {
             </td>
             <td style="padding: 0.75rem 1rem;">
               <div class="flex items-center gap-1">
-                <button @click="adjustQty(item, -1)"
+                <button @click="adjustQty(item, -1)" :disabled="!!busy[item.id]"
                   class="ss-btn-secondary sl-qty-btn"
                   style="width: 1.5rem; height: 1.5rem; padding: 0; justify-content: center; font-size: 0.875rem;">−</button>
                 <input type="number" :value="item.quantity || 1"
                   @change="setQty(item, $event.target.value)"
+                  :disabled="!!busy[item.id]"
                   min="0.25" step="any"
                   class="ss-input"
                   style="width: 3rem; text-align: center; padding: 0.25rem;" />
-                <button @click="adjustQty(item, 1)"
+                <button @click="adjustQty(item, 1)" :disabled="!!busy[item.id]"
                   class="ss-btn-secondary sl-qty-btn"
                   style="width: 1.5rem; height: 1.5rem; padding: 0; justify-content: center; font-size: 0.875rem;">+</button>
                 <span style="font-size: 0.75rem; color: var(--text-3); margin-left: 0.125rem;" x-text="item.unit || ''"></span>
               </div>
             </td>
-            <td class="px-4 py-3 text-gray-500 text-xs" x-text="item.recipe_name || (item.sources && item.sources[0] && item.sources[0].recipe_name) || '—'"></td>
+            <td class="px-4 py-3 text-gray-500 text-xs hidden sm:table-cell" x-text="item.recipe_name || (item.sources && item.sources[0] && item.sources[0].recipe_name) || '—'"></td>
             <td style="padding: 0.75rem 1.5rem; text-align: right;">
               <button @click="removeItem(item.id, item.product_id)"
+                :disabled="!!busy[item.id]"
                 class="sl-del-btn"
                 style="color: var(--danger); background: none; border: none; cursor: pointer; padding: 0.25rem; line-height: 0; transition: opacity 0.12s;"
                 onmouseenter="this.style.opacity='0.6'"

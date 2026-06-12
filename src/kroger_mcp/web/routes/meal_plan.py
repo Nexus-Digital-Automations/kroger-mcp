@@ -6,7 +6,11 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
+from kroger_mcp.analytics.database import (
+    ensure_initialized,
+    get_db_connection,
+    run_in_thread,
+)
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.recipe_tools import _load_recipes
 from kroger_mcp.web.templating import templates
@@ -112,9 +116,9 @@ def _build_calendar(plan, entries, recipe_map, week_offset: int = 0):
     return calendar, week_dates, (view_monday, view_sunday)
 
 
-@router.get("/meal-plan", response_class=HTMLResponse)
-async def meal_plan_page(request: Request, plan_id: str | None = None, week: int | None = None):
-    user_id = current_user_id(request)
+def _meal_plan_payload(user_id: str, plan_id: str | None, week: int | None) -> dict:
+    """All blocking work for the meal-plan page (DB queries + JSON load), run
+    off the event loop via run_in_thread."""
     plans = _get_all_plans(user_id, include_templates=False)
     all_plans_with_templates = _get_all_plans(user_id, include_templates=True)
     templates_list = [p for p in all_plans_with_templates if p.get("is_template")]
@@ -169,23 +173,26 @@ async def meal_plan_page(request: Request, plan_id: str | None = None, week: int
     today = datetime.now().date()
     recipes = recipe_data.get("recipes", [])
 
-    return templates.TemplateResponse(
-        request,
-        "meal_plan.html",
-        {
-            "active_page": "meal_plan",
-            "plans": plans,
-            "templates_list": templates_list,
-            "active_plan": active_plan,
-            "calendar": calendar,
-            "week_dates": week_dates,
-            "today": today,
-            "week_offset": week_offset,
-            "total_meals": total_meals,
-            "unique_recipe_count": len(unique_recipes),
-            "cooked_count": cooked_count,
-            "summary": summary,
-            "slots": SLOTS,
-            "recipes": recipes,
-        },
-    )
+    return {
+        "active_page": "meal_plan",
+        "plans": plans,
+        "templates_list": templates_list,
+        "active_plan": active_plan,
+        "calendar": calendar,
+        "week_dates": week_dates,
+        "today": today,
+        "week_offset": week_offset,
+        "total_meals": total_meals,
+        "unique_recipe_count": len(unique_recipes),
+        "cooked_count": cooked_count,
+        "summary": summary,
+        "slots": SLOTS,
+        "recipes": recipes,
+    }
+
+
+@router.get("/meal-plan", response_class=HTMLResponse)
+async def meal_plan_page(request: Request, plan_id: str | None = None, week: int | None = None):
+    user_id = current_user_id(request)
+    context = await run_in_thread(_meal_plan_payload, user_id, plan_id, week)
+    return templates.TemplateResponse(request, "meal_plan.html", context)

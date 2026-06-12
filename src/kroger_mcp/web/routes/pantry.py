@@ -4,6 +4,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
+from kroger_mcp.analytics.database import run_in_thread
 from kroger_mcp.analytics.pantry import get_pantry_status, list_pending_gaps
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.web.templating import templates
@@ -11,9 +12,9 @@ from kroger_mcp.web.templating import templates
 router = APIRouter()
 
 
-@router.get("/pantry", response_class=HTMLResponse)
-async def pantry_page(request: Request):
-    user_id = current_user_id(request)
+def _pantry_payload(user_id: str) -> dict:
+    """All blocking work for the pantry page (DB reads + depletion math), run
+    off the event loop via run_in_thread."""
     items = get_pantry_status(apply_depletion=True, user_id=user_id)
     gaps = list_pending_gaps(user_id=user_id)
 
@@ -25,19 +26,22 @@ async def pantry_page(request: Request):
         i for i in items if i.get("days_to_expiration") is not None and i["days_to_expiration"] <= 7
     ]
 
-    return templates.TemplateResponse(
-        request,
-        "pantry.html",
-        {
-            "active_page": "pantry",
-            "all_items": items,
-            "out_items": out_items,
-            "low_items": low_items,
-            "ok_items": ok_items,
-            "pending_gaps": gaps,
-            "expiring_soon_count": len(expiring_soon),
-            "total_count": len(items),
-            "low_count": len(low_items),
-            "out_count": len(out_items),
-        },
-    )
+    return {
+        "active_page": "pantry",
+        "all_items": items,
+        "out_items": out_items,
+        "low_items": low_items,
+        "ok_items": ok_items,
+        "pending_gaps": gaps,
+        "expiring_soon_count": len(expiring_soon),
+        "total_count": len(items),
+        "low_count": len(low_items),
+        "out_count": len(out_items),
+    }
+
+
+@router.get("/pantry", response_class=HTMLResponse)
+async def pantry_page(request: Request):
+    user_id = current_user_id(request)
+    context = await run_in_thread(_pantry_payload, user_id)
+    return templates.TemplateResponse(request, "pantry.html", context)

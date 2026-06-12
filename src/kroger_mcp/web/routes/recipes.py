@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from kroger_mcp.analytics.database import run_in_thread
 from kroger_mcp.analytics.recipe_scoring import calculate_health_score, estimate_recipe_cost
 from kroger_mcp.tools.recipe_tools import _find_recipe, _load_recipes
 from kroger_mcp.web.context import action_menu_context
@@ -90,8 +91,9 @@ def _collect_all_tags(recipes: list[dict]) -> list[str]:
     return sorted(tags)
 
 
-@router.get("/recipes", response_class=HTMLResponse)
-async def recipes_list(request: Request):
+def _recipes_payload() -> dict:
+    """All blocking work for the recipes list (JSON load + per-recipe scoring),
+    run off the event loop via run_in_thread."""
     data = _load_recipes()
     recipes = data.get("recipes", [])
 
@@ -146,18 +148,20 @@ async def recipes_list(request: Request):
         ]
     )
 
-    return templates.TemplateResponse(
-        request,
-        "recipes.html",
-        {
-            "active_page": "recipes",
-            "recipes": recipes,
-            "all_tags": all_tags,
-            "recipe_count": len(recipes),
-            "recipes_json": recipes_json,
-            **action_menu_context(),
-        },
-    )
+    return {
+        "active_page": "recipes",
+        "recipes": recipes,
+        "all_tags": all_tags,
+        "recipe_count": len(recipes),
+        "recipes_json": recipes_json,
+        **action_menu_context(),
+    }
+
+
+@router.get("/recipes", response_class=HTMLResponse)
+async def recipes_list(request: Request):
+    context = await run_in_thread(_recipes_payload)
+    return templates.TemplateResponse(request, "recipes.html", context)
 
 
 _ATTR_TO_CATEGORY = {
@@ -319,13 +323,13 @@ def _build_recipe_context(request: Request, recipe_id: str) -> dict:
 
 @router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
 async def recipe_detail(request: Request, recipe_id: str):
-    context = _build_recipe_context(request, recipe_id)
+    context = await run_in_thread(_build_recipe_context, request, recipe_id)
     context["initial_editing"] = False
     return templates.TemplateResponse(request, "recipe_view.html", context)
 
 
 @router.get("/recipes/{recipe_id}/edit", response_class=HTMLResponse)
 async def recipe_edit(request: Request, recipe_id: str):
-    context = _build_recipe_context(request, recipe_id)
+    context = await run_in_thread(_build_recipe_context, request, recipe_id)
     context["initial_editing"] = True
     return templates.TemplateResponse(request, "recipe_edit.html", context)

@@ -1,4 +1,5 @@
 {% from "_macros/recipe_picker.html" import recipe_picker %}
+{% from "_macros/confirm_modal.html" import confirm_modal %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,19 +9,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet" />
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['DM Sans', 'sans-serif'],
-            serif: ['Lora', 'serif'],
-          }
-        }
-      }
-    }
-  </script>
+  {# Pre-built Tailwind (replaces the Play CDN, which compiled CSS in the
+     browser per page-load and broke styling whenever the internet was down).
+     Rebuild with scripts/build_css.sh after adding new utility classes; the
+     theme config lives in tailwind.config.js. Must load BEFORE the inline
+     <style> below so the custom palette keeps winning the cascade. #}
+  <link rel="stylesheet" href="/static/css/tailwind.css?v=20260612b" />
   <!-- Shared action-menu assets. The component registers on alpine:init so
        it must load before the Alpine CDN bundle triggers that event. -->
   <link rel="stylesheet" href="/static/css/action_menu.css?v=20260612a" />
@@ -29,7 +23,9 @@
   <script src="/static/js/action_menu.js?v=20260612a"></script>
   <script src="/static/js/sort_rank.js"></script>
   <script src="/static/js/ingredient_linker.js?v=20260531"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  {# Self-hosted Alpine (pinned 3.15.12, vendored from the jsdelivr cdn.min.js
+     build) — keeps the LAN app working without internet access. #}
+  <script defer src="/static/js/vendor/alpine.min.js?v=3.15.12"></script>
   <style>
     :root {
       /* ── Warm kitchen palette ── */
@@ -478,6 +474,9 @@
 
   {# Global "Add to Recipe" picker — listens on window for action-menu:recipe-pick #}
   {{ recipe_picker() }}
+
+  {# Global styled confirm/prompt dialog — Alpine.store('ssConfirm').ask(...) #}
+  {{ confirm_modal() }}
 
   <!-- ── Global Toast Stack ────────────────────────────────────────
        Pages dispatch CustomEvent('toast:show', { detail: { message, level?,

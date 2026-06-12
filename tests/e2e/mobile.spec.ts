@@ -42,6 +42,65 @@ test('action-menu trigger meets the 44px touch minimum', async ({ authedPage, te
   }
 });
 
+test('pantry table collapses low-value columns on a phone', async ({ authedPage }) => {
+  // Seed one pantry item so the table renders.
+  const added = await authedPage.request.post('/api/pantry/add', {
+    data: { product_id: '0009999990021', description: '__E2E__mobile-pantry', level_percent: 50 },
+  });
+  expect(added.ok()).toBeTruthy();
+  try {
+    await authedPage.goto('/pantry');
+    const table = authedPage.locator('#pantry-table table');
+    await expect(table).toBeVisible({ timeout: 8_000 });
+    // Always-on columns stay; hidden md:table-cell columns disappear at 390px.
+    await expect(table.locator('th', { hasText: 'Item' })).toBeVisible();
+    await expect(table.locator('th', { hasText: 'Status' })).toBeVisible();
+    await expect(table.locator('th', { hasText: 'Trend' })).toBeHidden();
+    await expect(table.locator('th', { hasText: 'Last Used' })).toBeHidden();
+    await expect(table.locator('th', { hasText: 'Expiration' })).toBeHidden();
+  } finally {
+    await authedPage.request.delete('/api/pantry/0009999990021').catch(() => {});
+  }
+});
+
+test('shopping-list Recipe column hides on a phone', async ({ authedPage }) => {
+  const added = await authedPage.request.post('/api/shopping-list/items', {
+    data: { product_id: '0009999990022', name: '__E2E__mobile-sl', quantity: 1, unit: '' },
+  });
+  expect(added.ok()).toBeTruthy();
+  const itemId = (await added.json())?.item?.id;
+  try {
+    await authedPage.goto('/shopping-list');
+    const table = authedPage.locator('table');
+    await expect(table).toBeVisible({ timeout: 8_000 });
+    await expect(table.locator('th', { hasText: 'Item' })).toBeVisible();
+    await expect(table.locator('th', { hasText: 'Recipe' })).toBeHidden();
+  } finally {
+    await authedPage.request
+      .delete(`/api/shopping-list/${itemId || '0009999990022'}`)
+      .catch(() => {});
+  }
+});
+
+test('favorites grid wraps to 1 column on a phone', async ({ authedPage, testUser }) => {
+  // Same grid-cols-1 md:grid-cols-2 xl:grid-cols-3 treatment as deals.html.
+  const created = await authedPage.request.post('/api/favorites/lists', {
+    data: { name: `__E2E__${testUser.runId}__mobile-grid`, description: '' },
+  });
+  const listId = (await created.json()).list_id;
+  try {
+    await authedPage.goto('/favorites');
+    const grid = authedPage.locator('#fav-lists-grid .grid').first();
+    await expect(grid).toBeVisible({ timeout: 8_000 });
+    const cols = await grid.evaluate(
+      (el) => getComputedStyle(el).gridTemplateColumns.split(' ').length
+    );
+    expect(cols).toBe(1);
+  } finally {
+    if (listId) await authedPage.request.delete(`/api/favorites/lists/${listId}`).catch(() => {});
+  }
+});
+
 test('shopping-list delete button meets the 44px touch minimum', async ({ authedPage }) => {
   // Seed one list item so the table (and its delete button) renders.
   const added = await authedPage.request.post('/api/shopping-list/items', {

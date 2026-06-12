@@ -211,8 +211,13 @@ function productsPageData() {
     // Action-menu handlers. Counterpart: static/js/action_menu.js dispatches
     // these events from the product-card Actions dropdown.
     async menuNewList(item) {
-      const name = window.prompt('Name for the new favorites list:');
-      if (!name || !name.trim()) return;
+      const name = await Alpine.store('ssConfirm').ask({
+        title: 'New favorites list',
+        prompt: true,
+        placeholder: 'List name',
+        confirmLabel: 'Create',
+      });
+      if (!name) return;
       const r = await fetch('/api/favorites/lists', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},

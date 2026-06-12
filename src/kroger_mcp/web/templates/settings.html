@@ -59,7 +59,12 @@
     this.consentSaving = false;
   },
   async withdrawConsent() {
-    if (!confirm('Turn off all data sharing? Nothing further will be shared.')) return;
+    const ok = await Alpine.store('ssConfirm').ask({
+      title: 'Turn off all data sharing?',
+      body: 'Nothing further will be shared.',
+      confirmLabel: 'Turn Off',
+    });
+    if (!ok) return;
     try {
       await window.api.post('/api/settings/consent/withdraw');
       await this.loadConsent();
@@ -67,7 +72,13 @@
     } catch (e) {}
   },
   async deleteSharedData() {
-    if (!confirm('Delete your shared data and turn off sharing? This cannot be undone.')) return;
+    const ok = await Alpine.store('ssConfirm').ask({
+      title: 'Delete shared data?',
+      body: 'Your shared data is deleted and sharing is turned off. This cannot be undone.',
+      confirmLabel: 'Delete Data',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await window.api.delete('/api/settings/consent/data');
       await this.loadConsent();
@@ -106,7 +117,13 @@
     setTimeout(() => { delete this.msg.auth; this.msg = {...this.msg}; }, 5000);
   },
   async disconnectKroger() {
-    if (!confirm('Disconnect from Kroger? You will need to re-authenticate to use cart features.')) return;
+    const ok = await Alpine.store('ssConfirm').ask({
+      title: 'Disconnect from Kroger?',
+      body: 'You will need to re-authenticate to use cart features.',
+      confirmLabel: 'Disconnect',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const r = await fetch('/api/settings/auth/disconnect', { method: 'POST' });
       if (r.ok) {

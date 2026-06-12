@@ -4,6 +4,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from kroger_mcp.analytics.database import run_in_thread
 from kroger_mcp.analytics.favorites import get_list_items, get_lists
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.web.context import action_menu_context
@@ -27,9 +28,10 @@ def _reorder_badge(reorder_status):
         return "On Schedule", "emerald"
 
 
-@router.get("/favorites", response_class=HTMLResponse)
-async def favorites_list(request: Request):
-    lists = get_lists(user_id=current_user_id(request))
+def _favorites_payload(user_id: str) -> dict:
+    """Blocking work for the favorites overview (DB reads), run off the event
+    loop via run_in_thread."""
+    lists = get_lists(user_id=user_id)
 
     annotated = []
     for lst in lists:
@@ -42,19 +44,22 @@ async def favorites_list(request: Request):
             }
         )
 
-    return templates.TemplateResponse(
-        request,
-        "favorites.html",
-        {
-            "active_page": "favorites",
-            "lists": annotated,
-        },
-    )
+    return {
+        "active_page": "favorites",
+        "lists": annotated,
+    }
 
 
-@router.get("/favorites/{list_id}", response_class=HTMLResponse)
-async def favorites_detail(request: Request, list_id: str):
-    result = get_list_items(list_id, include_pantry_status=True, user_id=current_user_id(request))
+@router.get("/favorites", response_class=HTMLResponse)
+async def favorites_list(request: Request):
+    context = await run_in_thread(_favorites_payload, current_user_id(request))
+    return templates.TemplateResponse(request, "favorites.html", context)
+
+
+def _favorites_detail_payload(list_id: str, user_id: str) -> dict:
+    """Blocking work for the favorites detail page (DB reads + pantry status),
+    run off the event loop via run_in_thread."""
+    result = get_list_items(list_id, include_pantry_status=True, user_id=user_id)
 
     if not result.get("success", True) and "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
@@ -79,16 +84,20 @@ async def favorites_detail(request: Request, list_id: str):
     reorder_status = lst.get("reorder_status", {})
     badge_label, badge_color = _reorder_badge(reorder_status)
 
-    return templates.TemplateResponse(
-        request,
-        "favorites_detail.html",
-        {
-            "active_page": "favorites",
-            "lst": lst,
-            "items": items,
-            "badge_label": badge_label,
-            "badge_color": badge_color,
-            "reorder_status": reorder_status,
-            **action_menu_context(),
-        },
+    return {
+        "active_page": "favorites",
+        "lst": lst,
+        "items": items,
+        "badge_label": badge_label,
+        "badge_color": badge_color,
+        "reorder_status": reorder_status,
+        **action_menu_context(),
+    }
+
+
+@router.get("/favorites/{list_id}", response_class=HTMLResponse)
+async def favorites_detail(request: Request, list_id: str):
+    context = await run_in_thread(
+        _favorites_detail_payload, list_id, current_user_id(request)
     )
+    return templates.TemplateResponse(request, "favorites_detail.html", context)

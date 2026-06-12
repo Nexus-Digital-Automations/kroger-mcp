@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros/action_menu.html" import action_menu %}
+{% from "_macros/product_picker.html" import product_picker %}
 
 {% block title %}{{ lst.name }} — Favorites{% endblock %}
 {% block heading %}Favorites{% endblock %}
@@ -52,7 +53,11 @@
         body: JSON.stringify(body)
       });
       const d = await r.json();
-      if (r.ok && d.success) { window.location.reload(); }
+      if (r.ok && d.success) {
+        this.editOpen = false;
+        window._ssToast('List updated');
+        window.refreshFavoritesDetail();
+      }
       else { this.error = d.error || 'Failed to update list'; }
     } catch(e) { this.error = 'Network error'; }
     this.loading = false;
@@ -98,7 +103,7 @@
     </div>
   </div>
 
-  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+  <div id="fav-detail-header" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
   <div class="flex items-start justify-between">
     <div>
       <h2 class="text-xl font-bold text-gray-900 mb-1">{{ lst.name }}</h2>
@@ -149,12 +154,12 @@
   quantity: 1,
   loading: false,
   error: '',
-  success: '',
+  manualId: false,
   async submit() {
     if (!this.productId.trim() || !this.description.trim()) {
-      this.error = 'Product ID and description are required'; return;
+      this.error = 'Pick a product (or enter an ID) and a description'; return;
     }
-    this.loading = true; this.error = ''; this.success = '';
+    this.loading = true; this.error = '';
     try {
       const r = await fetch('/api/favorites/lists/{{ lst.id }}/items', {
         method: 'POST',
@@ -168,25 +173,42 @@
       });
       const d = await r.json();
       if (r.ok && d.success) {
-        window.location.reload();
+        window._ssToast('Added to list');
+        this.productId = ''; this.description = ''; this.brand = '';
+        this.quantity = 1;
+        window.refreshFavoritesDetail();
       } else {
         this.error = d.error || 'Failed to add item';
       }
     } catch(e) { this.error = 'Network error'; }
     this.loading = false;
   }
-}" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-4">
+}"
+  @product-picker:select="productId = $event.detail.product_id; if (!description.trim()) description = $event.detail.description"
+  class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-4">
   <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Add Item</h3>
+  <div class="mb-3">
+    {{ product_picker(placeholder='Search Kroger by name…') }}
+    <p x-show="productId" style="font-size: 0.6875rem; color: var(--success); margin-top: 0.25rem;">
+      Selected: <span style="font-variant-numeric: tabular-nums;" x-text="productId"></span>
+      <button type="button" @click="productId = ''" style="margin-left: 0.375rem; border: 0; background: none; color: var(--text-3); cursor: pointer;">✕</button>
+    </p>
+    <button type="button" @click="manualId = !manualId"
+            style="border: 0; background: none; padding: 0; margin-top: 0.25rem; font-size: 0.6875rem; color: var(--text-3); cursor: pointer; text-decoration: underline;">
+      <span x-show="!manualId">enter a product ID manually</span>
+      <span x-show="manualId">hide manual entry</span>
+    </button>
+    <input x-show="manualId" x-cloak x-model="productId" type="text" placeholder="e.g. 0001111042018"
+           class="ss-input w-full" style="margin-top: 0.25rem;" />
+  </div>
   <div class="flex gap-3 flex-wrap">
-    <input x-model="productId" type="text" placeholder="Product ID *"
-      class="ss-input w-40"/>
     <input x-model="description" type="text" placeholder="Description *"
       class="ss-input flex-1 min-w-40"/>
     <input x-model="brand" type="text" placeholder="Brand"
       class="ss-input w-32"/>
     <input x-model.number="quantity" type="number" min="1" placeholder="Qty"
       class="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-    <button @click="submit()" :disabled="loading"
+    <button @click="submit()" :disabled="loading || !productId.trim() || !description.trim()"
       class="ss-btn-primary">
       <span x-show="!loading">Add</span>
       <span x-show="loading">Adding...</span>
@@ -197,6 +219,7 @@
 
 <!-- Items Table -->
 <div
+  id="fav-detail-items"
   x-data='favoriteItemsActions({{ lst.id | tojson }})'
   @action-menu:favorites-move.window="moveToList($event.detail.item, $event.detail.listId, $event.detail.listName)"
   @action-menu:cart-add.window="addToCart($event.detail.item)"
@@ -322,8 +345,8 @@ function favoriteItemsActions(currentListId) {
         '/api/favorites/lists/' + this.currentListId + '/items/' + item.product_id,
         {method: 'DELETE'},
       );
-      this._flash('Moved to ' + targetListName);
-      setTimeout(() => window.location.reload(), 600);
+      window._ssToast('Moved to ' + targetListName);
+      window.refreshFavoritesDetail();
     },
 
     async addToCart(item) {
@@ -379,13 +402,31 @@ function favoriteItemsActions(currentListId) {
         {method: 'DELETE'},
       );
       if (r.ok) {
-        window.location.reload();
+        window._ssToast('Item removed');
+        window.refreshFavoritesDetail();
       } else {
         this._flash('Remove failed');
       }
     },
   };
 }
+
+// Re-render the header card + items table instead of a full-page reload.
+// Alpine 3 re-initialises directives in the swapped subtrees automatically;
+// falls back to a hard reload so the page can never get stuck stale.
+window.refreshFavoritesDetail = function () {
+  return fetch(window.location.href, { headers: { 'Accept': 'text/html' } })
+    .then(function (r) { if (!r.ok) throw new Error('refresh failed'); return r.text(); })
+    .then(function (html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      ['fav-detail-header', 'fav-detail-items'].forEach(function (id) {
+        var fresh = doc.getElementById(id);
+        var current = document.getElementById(id);
+        if (fresh && current) current.replaceWith(fresh);
+      });
+    })
+    .catch(function () { window.location.reload(); });
+};
 </script>
 
 {% endblock %}

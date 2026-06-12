@@ -8,6 +8,7 @@ hot reads memoize and that distinct inputs don't collide.
 from __future__ import annotations
 
 import kroger_mcp.analytics.purchase_tracker as purchase_tracker
+import kroger_mcp.analytics.recipe_scoring as recipe_scoring
 import kroger_mcp.analytics.recommendations as recommendations
 import kroger_mcp.cache as cache_mod
 
@@ -148,3 +149,106 @@ def test_favorite_ids_cached_and_returned_as_set(monkeypatch):
     second = favorites.get_all_favorite_product_ids()
     assert first == second == {"p1", "p2"}  # returned as a set
     assert db_calls["n"] == 1  # second call served from Redis, no DB hit
+
+
+# --- recipe scoring cache -----------------------------------------------------
+
+
+def _recipe(name="basil", pid=None, servings=2):
+    ing = {"name": name, "quantity": 1, "unit": "bunch"}
+    if pid:
+        ing["product_id"] = pid
+    return {"id": "r1", "name": "Test", "servings": servings, "ingredients": [ing]}
+
+
+def _patch_health_compute(monkeypatch, calls):
+    def _fake(recipe, names_only=False):
+        calls["n"] += 1
+        return {"score": 80, "grade": "B", "flags": []}
+
+    monkeypatch.setattr(recipe_scoring, "_calculate_health_score_uncached", _fake)
+
+
+def test_health_score_second_call_served_from_cache(monkeypatch):
+    fake = _FakeRedis()
+    monkeypatch.setattr(cache_mod, "get_redis", lambda: fake)
+    calls = {"n": 0}
+    _patch_health_compute(monkeypatch, calls)
+
+    a = recipe_scoring.calculate_health_score(_recipe(), names_only=True)
+    b = recipe_scoring.calculate_health_score(_recipe(), names_only=True)
+    assert a == b
+    assert calls["n"] == 1
+
+
+def test_health_score_ingredient_edit_changes_key(monkeypatch):
+    """Content-addressed keys: editing an ingredient must miss, not serve stale."""
+    fake = _FakeRedis()
+    monkeypatch.setattr(cache_mod, "get_redis", lambda: fake)
+    calls = {"n": 0}
+    _patch_health_compute(monkeypatch, calls)
+
+    recipe_scoring.calculate_health_score(_recipe(name="basil"))
+    recipe_scoring.calculate_health_score(_recipe(name="tomato"))
+    recipe_scoring.calculate_health_score(_recipe(name="basil", pid="0001"))
+    recipe_scoring.calculate_health_score(_recipe(name="basil", servings=6))
+    assert calls["n"] == 4  # name, product link, and servings all key the hash
+
+
+def test_health_score_names_only_variants_do_not_collide(monkeypatch):
+    fake = _FakeRedis()
+    monkeypatch.setattr(cache_mod, "get_redis", lambda: fake)
+    calls = {"n": 0}
+    _patch_health_compute(monkeypatch, calls)
+
+    recipe_scoring.calculate_health_score(_recipe(), names_only=True)
+    recipe_scoring.calculate_health_score(_recipe(), names_only=False)
+    assert calls["n"] == 2
+
+
+def test_health_score_ingredients_version_bump_misses(monkeypatch):
+    """Safety-list edits bump ingredients:version → next read recomputes."""
+    fake = _FakeRedis()
+    monkeypatch.setattr(cache_mod, "get_redis", lambda: fake)
+    calls = {"n": 0}
+    _patch_health_compute(monkeypatch, calls)
+
+    recipe_scoring.calculate_health_score(_recipe())
+    fake.store["ingredients:version"] = "7"
+    recipe_scoring.calculate_health_score(_recipe())
+    assert calls["n"] == 2
+
+
+def test_recipe_cost_cached_and_location_scoped(monkeypatch):
+    fake = _FakeRedis()
+    monkeypatch.setattr(cache_mod, "get_redis", lambda: fake)
+    calls = {"n": 0}
+
+    def _fake_cost(recipe, location_id=None):
+        calls["n"] += 1
+        return {"total_cost": 5.0, "cost_per_serving": 2.5, "breakdown": []}
+
+    monkeypatch.setattr(recipe_scoring, "_estimate_recipe_cost_uncached", _fake_cost)
+
+    a = recipe_scoring.estimate_recipe_cost(_recipe(), location_id="03400014")
+    b = recipe_scoring.estimate_recipe_cost(_recipe(), location_id="03400014")
+    assert a == b
+    assert calls["n"] == 1
+
+    recipe_scoring.estimate_recipe_cost(_recipe(), location_id=None)
+    assert calls["n"] == 2  # different location scope → distinct key
+
+
+def test_recipe_cost_redis_down_degrades_to_compute(monkeypatch):
+    monkeypatch.setattr(cache_mod, "get_redis", lambda: None)
+    calls = {"n": 0}
+
+    def _fake_cost(recipe, location_id=None):
+        calls["n"] += 1
+        return {"total_cost": 1.0, "cost_per_serving": 0.5, "breakdown": []}
+
+    monkeypatch.setattr(recipe_scoring, "_estimate_recipe_cost_uncached", _fake_cost)
+
+    recipe_scoring.estimate_recipe_cost(_recipe())
+    recipe_scoring.estimate_recipe_cost(_recipe())
+    assert calls["n"] == 2  # no Redis → every call computes, nothing breaks

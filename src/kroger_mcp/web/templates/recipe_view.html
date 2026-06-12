@@ -1184,7 +1184,13 @@ document.addEventListener('alpine:init', () => {
     currentTags: (_rd.tags || []).slice(),
 
     async deleteRecipe() {
-      if (!confirm('Delete this recipe? This cannot be undone.')) return;
+      const ok = await Alpine.store('ssConfirm').ask({
+        title: 'Delete this recipe?',
+        body: 'This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true,
+      });
+      if (!ok) return;
       try {
         const r = await fetch('/api/recipes/' + _rd.id, {method: 'DELETE'});
         if (r.ok) { window.location.href = '/recipes'; }

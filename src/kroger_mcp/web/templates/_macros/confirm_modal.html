@@ -1,0 +1,119 @@
+{#
+  Global styled confirm/prompt dialog — replaces native confirm()/prompt().
+
+  Usage (returns a Promise; await ONLY in named async methods, use .then() in
+  inline Alpine handlers):
+
+    const ok = await Alpine.store('ssConfirm').ask({
+      title: 'Delete this recipe?',
+      body: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });                                   // → true | false
+
+    const name = await Alpine.store('ssConfirm').ask({
+      title: 'New favorites list',
+      prompt: true,
+      placeholder: 'List name',
+      confirmLabel: 'Create',
+    });                                   // → string | null (non-empty, trimmed)
+
+  Rendered once in base.html. Overlay sits above the toast stack (z-60 → 70).
+#}
+{% macro confirm_modal() %}
+<div x-data x-cloak>
+  <div x-show="$store.ssConfirm.isOpen"
+       class="ss-modal-overlay"
+       style="display:none; z-index:70;"
+       x-transition.opacity
+       @click="$store.ssConfirm.cancel()"
+       @keydown.escape.window="$store.ssConfirm.isOpen && $store.ssConfirm.cancel()">
+    <div class="ss-modal-card" style="max-width:26rem;" @click.stop
+         x-effect="$store.ssConfirm.isOpen && $nextTick(() => {
+           if ($store.ssConfirm.isPrompt) { $refs.ssConfirmInput?.focus(); }
+           else { $refs.ssConfirmBtn?.focus(); }
+         })">
+      <h2 style="font-family:'Lora',serif; font-size:1.0625rem; font-weight:600; color:var(--text-1); margin-bottom:0.5rem;"
+          x-text="$store.ssConfirm.title"></h2>
+      <p x-show="$store.ssConfirm.body"
+         style="font-size:0.8125rem; color:var(--text-2); line-height:1.5; margin-bottom:1rem;"
+         x-text="$store.ssConfirm.body"></p>
+
+      <input x-show="$store.ssConfirm.isPrompt"
+             x-ref="ssConfirmInput"
+             type="text"
+             class="ss-input w-full"
+             style="margin-bottom:1rem;"
+             :placeholder="$store.ssConfirm.placeholder"
+             x-model="$store.ssConfirm.value"
+             @keydown.enter.prevent="$store.ssConfirm.confirm()" />
+
+      <div class="flex items-center justify-end gap-2">
+        <button class="ss-btn-secondary"
+                style="padding:0.4rem 1rem; font-size:0.8125rem;"
+                @click="$store.ssConfirm.cancel()">Cancel</button>
+        <button x-ref="ssConfirmBtn"
+                class="ss-btn-primary"
+                :style="$store.ssConfirm.danger
+                  ? 'padding:0.4rem 1rem; font-size:0.8125rem; background:var(--danger); border-color:var(--danger);'
+                  : 'padding:0.4rem 1rem; font-size:0.8125rem;'"
+                :disabled="$store.ssConfirm.isPrompt && !$store.ssConfirm.value.trim()"
+                @click="$store.ssConfirm.confirm()"
+                x-text="$store.ssConfirm.confirmLabel"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.store('ssConfirm', {
+      isOpen: false,
+      title: '',
+      body: '',
+      confirmLabel: 'Confirm',
+      danger: false,
+      isPrompt: false,
+      placeholder: '',
+      value: '',
+      _resolve: null,
+
+      ask(opts) {
+        opts = opts || {};
+        // A second ask() while open settles the first as cancelled.
+        if (this._resolve) this._settle(this.isPrompt ? null : false);
+        this.title = opts.title || 'Are you sure?';
+        this.body = opts.body || '';
+        this.confirmLabel = opts.confirmLabel || 'Confirm';
+        this.danger = !!opts.danger;
+        this.isPrompt = !!opts.prompt;
+        this.placeholder = opts.placeholder || '';
+        this.value = opts.initial || '';
+        this.isOpen = true;
+        return new Promise((resolve) => { this._resolve = resolve; });
+      },
+
+      confirm() {
+        if (this.isPrompt) {
+          const v = this.value.trim();
+          if (!v) return; // prompts require non-empty input
+          this._settle(v);
+        } else {
+          this._settle(true);
+        }
+      },
+
+      cancel() {
+        if (this.isOpen) this._settle(this.isPrompt ? null : false);
+      },
+
+      _settle(result) {
+        const r = this._resolve;
+        this._resolve = null;
+        this.isOpen = false;
+        if (r) r(result);
+      },
+    });
+  });
+</script>
+{% endmacro %}

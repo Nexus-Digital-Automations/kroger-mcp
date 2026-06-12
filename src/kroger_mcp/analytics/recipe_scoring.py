@@ -3,9 +3,20 @@ Recipe health scoring and cost estimation.
 
 Provides heuristic-based health scoring using the ingredient safety system
 and DB-backed cost estimation using price_history data.
+
+Both public entry points (calculate_health_score, estimate_recipe_cost) are
+cached in Redis with content-addressed keys: any edit to a recipe's
+ingredients or servings produces a new key, so writes self-invalidate and no
+write path needs to drop keys. Drift in unkeyed inputs (USDA ingredient-text
+backfill, price_history rows) expires via TTL; user edits to the safety
+ingredient list are keyed via the ``ingredients:version`` Redis counter.
 """
 
+import hashlib
+import json
 from typing import Any
+
+from kroger_mcp.cache import cache_read_through, get_version
 
 # ---------------------------------------------------------------------------
 # Healthy category keyword matching
@@ -336,7 +347,42 @@ def _grade(score: int) -> str:
     return "F"
 
 
+# Drift TTLs for inputs the cache key cannot see (see module docstring).
+_HEALTH_TTL_SECONDS = 6 * 3600  # USDA ingredients_text backfill
+_COST_TTL_SECONDS = 3600  # price_history / products price rows
+
+
+def _recipe_content_hash(recipe: dict[str, Any]) -> str:
+    """16-hex content hash over the score-relevant recipe fields."""
+    payload = [
+        [ing.get("name"), ing.get("product_id")]
+        for ing in (recipe.get("ingredients") or [])
+    ] + [recipe.get("servings")]
+    return hashlib.sha256(json.dumps(payload).encode()).hexdigest()[:16]
+
+
 def calculate_health_score(
+    recipe: dict[str, Any],
+    names_only: bool = False,
+) -> dict[str, Any]:
+    """Redis-cached wrapper around the health-score computation.
+
+    Key embeds the recipe content hash plus the ``ingredients:version``
+    counter (bumped by analytics.ingredients when the user edits the safety
+    pattern list), so both recipe edits and safety-list edits miss cleanly.
+    """
+    rid = recipe.get("id") or "adhoc"
+    ing_ver = get_version("ingredients:version") or 0
+    mode = "n" if names_only else "f"
+    key = f"recipe:health:{rid}:{_recipe_content_hash(recipe)}:ing{ing_ver}:{mode}"
+    return cache_read_through(
+        key,
+        _HEALTH_TTL_SECONDS,
+        lambda: _calculate_health_score_uncached(recipe, names_only),
+    )
+
+
+def _calculate_health_score_uncached(
     recipe: dict[str, Any],
     names_only: bool = False,
 ) -> dict[str, Any]:
@@ -612,6 +658,24 @@ def _fetch_missing_usda_data(
 
 
 def estimate_recipe_cost(
+    recipe: dict[str, Any],
+    location_id: str | None = None,
+) -> dict[str, Any]:
+    """Redis-cached wrapper around the DB-only cost estimation.
+
+    Content-addressed key (recipe edits self-invalidate); price drift expires
+    via the 1h TTL. estimate_recipe_cost_with_api builds on this cached call.
+    """
+    rid = recipe.get("id") or "adhoc"
+    key = f"recipe:cost:{rid}:{_recipe_content_hash(recipe)}:{location_id or 'any'}"
+    return cache_read_through(
+        key,
+        _COST_TTL_SECONDS,
+        lambda: _estimate_recipe_cost_uncached(recipe, location_id),
+    )
+
+
+def _estimate_recipe_cost_uncached(
     recipe: dict[str, Any],
     location_id: str | None = None,
 ) -> dict[str, Any]:

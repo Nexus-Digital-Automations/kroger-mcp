@@ -516,8 +516,9 @@
 {% else %}
 
 <!-- Plan selector bar -->
-<div class="flex items-center gap-3 mb-4">
-  <select onchange="window.location='/meal-plan?plan_id='+this.value"
+<div class="flex items-center gap-3 mb-4" x-data="{ switching: false }">
+  <select @change="switching = true; window.location='/meal-plan?plan_id='+$event.target.value"
+    :disabled="switching"
     class="ss-input min-w-48 max-w-sm">
     {% for plan in plans %}
     <option value="{{ plan.id }}" {% if active_plan and active_plan.id == plan.id %}selected{% endif %}>
@@ -525,6 +526,8 @@
     </option>
     {% endfor %}
   </select>
+  <span x-show="switching" x-cloak
+        style="font-size: 0.75rem; color: var(--text-3);">Loading plan…</span>
   <button @click="open = true"
     class="ss-btn-primary whitespace-nowrap">
     + New Plan

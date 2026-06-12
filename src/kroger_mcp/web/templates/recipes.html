@@ -404,8 +404,14 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    deleteRecipe(id) {
-      if (!confirm('Delete this recipe?')) return;
+    async deleteRecipe(id) {
+      const ok = await Alpine.store('ssConfirm').ask({
+        title: 'Delete this recipe?',
+        body: 'This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true,
+      });
+      if (!ok) return;
       fetch('/api/recipes/' + id, {method: 'DELETE'})
         .then(r => {
           if (r.ok) {

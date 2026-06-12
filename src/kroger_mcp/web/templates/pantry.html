@@ -121,15 +121,22 @@
     <button
       x-data="{ clearing: false }"
       @click="
-        if (!confirm('Clear entire pantry? This removes all tracked items.')) return;
-        clearing = true;
-        fetch('/api/pantry?confirmed=true', {method: 'DELETE'})
-          .then(r => r.json())
-          .then(d => {
-            if (d.success) { window._ssToast('Pantry cleared'); clearing = false; window.refreshPantry(); }
-            else { window._ssToast(d.error || 'Failed to clear pantry', { level: 'error' }); clearing = false; }
-          })
-          .catch(() => { window._ssToast('Network error — pantry not cleared', { level: 'error' }); clearing = false; });
+        Alpine.store('ssConfirm').ask({
+          title: 'Clear entire pantry?',
+          body: 'This removes all tracked items.',
+          confirmLabel: 'Clear Pantry',
+          danger: true,
+        }).then((ok) => {
+          if (!ok) return;
+          clearing = true;
+          fetch('/api/pantry?confirmed=true', {method: 'DELETE'})
+            .then(r => r.json())
+            .then(d => {
+              if (d.success) { window._ssToast('Pantry cleared'); clearing = false; window.refreshPantry(); }
+              else { window._ssToast(d.error || 'Failed to clear pantry', { level: 'error' }); clearing = false; }
+            })
+            .catch(() => { window._ssToast('Network error — pantry not cleared', { level: 'error' }); clearing = false; });
+        });
       "
       :disabled="clearing"
       class="ss-btn-danger gap-1.5">
@@ -212,6 +219,14 @@
 {% endif %}
 </div>
 
+{# Filter input lives OUTSIDE the swap regions so refreshPantry() never wipes
+   the query; initPantryExtras() re-applies it to freshly swapped rows. #}
+<div class="mb-3">
+  <input id="pantry-filter" type="search" placeholder="Filter pantry items…"
+         aria-label="Filter pantry items"
+         class="ss-input" style="max-width: 20rem;" />
+</div>
+
 {# Always-present wrapper: refreshPantry() swap region for the items table. #}
 <div id="pantry-table">
 {% if not all_items %}
@@ -230,12 +245,12 @@
       <tr>
         <th class="ss-table-th">Item</th>
         <th class="ss-table-th w-48">Level</th>
-        <th class="ss-table-th" style="text-align: right;">On Hand</th>
-        <th class="ss-table-th" style="width: 80px;">Trend</th>
-        <th class="ss-table-th">Last Used</th>
+        <th class="ss-table-th hidden sm:table-cell" style="text-align: right;">On Hand</th>
+        <th class="ss-table-th hidden md:table-cell" style="width: 80px;">Trend</th>
+        <th class="ss-table-th hidden md:table-cell">Last Used</th>
         <th class="ss-table-th" style="text-align: center;">Status</th>
-        <th class="ss-table-th" style="text-align: right;">Days Left</th>
-        <th class="ss-table-th" style="text-align: right;">Expiration</th>
+        <th class="ss-table-th hidden md:table-cell" style="text-align: right;">Days Left</th>
+        <th class="ss-table-th hidden md:table-cell" style="text-align: right;">Expiration</th>
         <th class="ss-table-th" style="text-align: right;">Actions</th>
       </tr>
     </thead>
@@ -261,14 +276,14 @@
             <span style="font-size: 0.75rem; color: var(--text-3); width: 2rem; text-align: right;">{{ level }}%</span>
           </div>
         </td>
-        <td style="padding: 0.75rem 1rem; text-align: right; font-size: 0.75rem; color: var(--text-2); font-variant-numeric: tabular-nums;">
+        <td class="hidden sm:table-cell" style="padding: 0.75rem 1rem; text-align: right; font-size: 0.75rem; color: var(--text-2); font-variant-numeric: tabular-nums;">
           {% if item.quantity_on_hand is not none %}
             {{ '%g' % item.quantity_on_hand }}{% if item.unit %} {{ item.unit }}{% endif %}
           {% else %}
             <span style="color: var(--text-3);">—</span>
           {% endif %}
         </td>
-        <td style="padding: 0.75rem 0.5rem;">
+        <td class="hidden md:table-cell" style="padding: 0.75rem 0.5rem;">
           <span class="ss-spark" data-spark-pid="{{ item.product_id }}"
                 style="display: inline-block; width: 72px; height: 18px; color: var(--text-3);">
             <svg width="72" height="18" viewBox="0 0 72 18" xmlns="http://www.w3.org/2000/svg">
@@ -276,7 +291,7 @@
             </svg>
           </span>
         </td>
-        <td style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--text-2);">
+        <td class="hidden md:table-cell" style="padding: 0.75rem 1rem; font-size: 0.75rem; color: var(--text-2);">
           {% if item.last_used_at %}
             <span data-relative-time="{{ item.last_used_at }}" title="{{ item.last_used_at }}">{{ item.last_used_at[:10] }}</span>
             {% if item.last_used_source %}
@@ -295,14 +310,14 @@
           <span class="ss-badge ss-badge-ok">OK</span>
           {% endif %}
         </td>
-        <td style="padding: 0.75rem 1rem; text-align: right; font-size: 0.75rem; color: var(--text-3);">
+        <td class="hidden md:table-cell" style="padding: 0.75rem 1rem; text-align: right; font-size: 0.75rem; color: var(--text-3);">
           {% if item.days_until_empty is not none %}
           {{ item.days_until_empty }}d
           {% else %}
           —
           {% endif %}
         </td>
-        <td style="padding: 0.75rem 1.5rem; text-align: right;">
+        <td class="hidden md:table-cell" style="padding: 0.75rem 1.5rem; text-align: right;">
           {% if item.days_to_expiration is not none %}
             {% if item.days_to_expiration <= 0 %}
             <span class="ss-badge ss-badge-danger">Expired</span>
@@ -483,9 +498,28 @@
       .catch(function () { window.location.reload(); });
   };
 
+  // Client-side row filter. The input sits outside the swap regions, so its
+  // value survives refreshPantry(); initPantryExtras() re-applies the filter
+  // to the freshly swapped rows.
+  function applyPantryFilter() {
+    var input = document.getElementById('pantry-filter');
+    if (!input) return;
+    var q = input.value.trim().toLowerCase();
+    document.querySelectorAll('#pantry-table tbody tr').forEach(function (row) {
+      row.style.display = (!q || row.textContent.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
+    });
+  }
+
   // Idempotent: runs on first load AND after every refreshPantry() swap (the
   // swapped regions carry brand-new elements, so re-binding never duplicates).
   function initPantryExtras() {
+    var filterInput = document.getElementById('pantry-filter');
+    if (filterInput && !filterInput.dataset.bound) {
+      filterInput.dataset.bound = '1';
+      filterInput.addEventListener('input', applyPantryFilter);
+    }
+    applyPantryFilter();
+
     document.querySelectorAll('.ss-spark[data-spark-pid]').forEach(function (el) {
       var pid = el.getAttribute('data-spark-pid');
       fetch('/api/pantry/' + encodeURIComponent(pid) + '/history?days=30')

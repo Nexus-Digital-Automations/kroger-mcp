@@ -276,12 +276,16 @@ def test_score_components_match_reference():
         assert opt == ref, f"component mismatch for {names}: {opt} != {ref}"
 
 
-def test_calculate_health_score_matches_reference_total():
+def test_calculate_health_score_matches_reference_total(monkeypatch):
     """End-to-end: score == base(20) + bonus - penalties from the reference.
 
     Uses name-only ingredients (no product_id) so no DB/USDA path runs and the
     BAD_INGREDIENTS penalty equals the safety-scan over the names themselves.
+    Redis is disabled so a live local instance can't serve cached scores.
     """
+    import kroger_mcp.cache as cache_mod
+
+    monkeypatch.setattr(cache_mod, "get_redis", lambda: None)
     from kroger_mcp.analytics.ingredients import check_product_safety
 
     _PENALTY_CAPS = {"critical": 45, "warning": 24, "watch": 12}

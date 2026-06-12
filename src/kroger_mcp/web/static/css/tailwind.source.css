@@ -1,0 +1,4 @@
+/* Input for scripts/build_css.sh — do not link this file directly. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
