@@ -48,9 +48,13 @@ _HOUR_UNITS = ("h", "hr", "hrs", "hour", "hours")
 
 
 def step_time_key(text: str) -> str:
-    """Content-hash key for a step's override entry (whitespace-insensitive)."""
+    """Content-hash key for a step's override entry (whitespace-insensitive).
+
+    sha256 to match recipe_scoring's content hashes (not security-relevant —
+    it's a cache-style key — but no reason to carry a weak primitive).
+    """
     normalized = " ".join((text or "").split()).lower()
-    return hashlib.sha1(normalized.encode()).hexdigest()[:12]
+    return hashlib.sha256(normalized.encode()).hexdigest()[:12]
 
 
 def extract_step_time(text: str) -> dict[str, Any] | None:
