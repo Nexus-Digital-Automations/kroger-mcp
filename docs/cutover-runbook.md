@@ -27,6 +27,22 @@
 > already localhost-bound so this is defense-in-depth); decide whether to move the lightweight
 > `github`/`mempalace` MCP servers off prod (they're your Claude tooling, not the app).
 
+> ## 🧠 MEMORY-PRESSURE FAILURE MODE — 2026-06-12 (read before diagnosing "wedges")
+> The mini has **8 GB RAM**; when the mempalace miner runs hot (1.2–2.5 GB RSS,
+> ~400% CPU) the box goes 30+ GB into swap and Smart Shopper gets **paged out**.
+> Symptoms that look like an app hang but are NOT: `/login` curls return `000`
+> while the process is alive and `:8000` is listening; first request after idle
+> takes 6–8 s then everything is fast; **boot takes 60–90 s** (vs ~5 s healthy) so
+> a 45 s deploy health-wait reports a false failure; `launchctl bootstrap` can
+> flake with `5: Input/output error` (re-run it). Diagnose with
+> `sysctl vm.swapusage` + `ps -amcwwwxo "rss pid etime command" | head` BEFORE
+> assuming an event-loop wedge. Use a ≥120 s health-wait in deploy scripts.
+> App-side hardening already in place (2026-06-12): every Kroger HTTP call has a
+> default timeout (`_kroger_retry._TimeoutEnforcingRequests`, the lib itself sets
+> none) and every Kroger-calling web route runs off the event loop.
+> Real fixes are box-level: tame/schedule the miner, add RAM, or move Smart
+> Shopper to the .108 box (this runbook's original purpose).
+
 > ## ⚙️ EFFICIENCY DEPLOY — 2026-06-11 (good-neighbor batch)
 > Deployed gzip, shared Jinja2 templates, static cache headers, 5 perf indexes
 > (`add_perf_indexes.py`, CONCURRENTLY), an order-history N+1 fix, and Redis caching
