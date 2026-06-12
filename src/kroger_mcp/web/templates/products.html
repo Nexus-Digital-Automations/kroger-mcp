@@ -118,6 +118,7 @@ function productsPageData() {
     },
 
     async addToCart(p) {
+      if (this.cartMsg[p.product_id] === 'Adding...') return; // double-click guard
       this.cartMsg[p.product_id] = 'Adding...';
       try {
         const r = await fetch('/api/products/' + p.product_id + '/add-to-cart', {
@@ -138,6 +139,7 @@ function productsPageData() {
     },
 
     async addToShoppingList(p) {
+      if (this.cartMsg[p.product_id] === 'Adding...') return; // double-click guard
       this.cartMsg[p.product_id] = 'Adding...';
       try {
         const r = await fetch('/api/shopping-list/items', {

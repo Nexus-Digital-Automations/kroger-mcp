@@ -14,6 +14,27 @@
      :style="acPopoverStyle"
      @mousedown.prevent>
 
+  {# 0 ─ Dedicated Kroger search box. Seeded with the ingredient name (the
+     auto-search has already run by the time this is visible); typing here
+     refines the product search WITHOUT touching the ingredient's name —
+     renames stay explicit (blur-save / Standardize chip / manual-entry
+     footer). @mousedown.stop is load-bearing: the popover root uses
+     @mousedown.prevent to keep the name cell focused, which would otherwise
+     make this input unfocusable. #}
+  <div class="ss-popover-search" style="padding:0.5rem 0.75rem 0.25rem;" @mousedown.stop>
+    <input type="search"
+           class="ss-input w-full"
+           style="font-size:0.8125rem; padding:0.375rem 0.625rem;"
+           placeholder="Search Kroger products…"
+           aria-label="Search Kroger products"
+           :value="acState.query"
+           @input="acType($event.target.value)"
+           @keydown.arrow-down.prevent="acState.active = Math.min(acState.active + 1, acState.results.length - 1)"
+           @keydown.arrow-up.prevent="acState.active = Math.max(acState.active - 1, 0)"
+           @keydown.enter.prevent="acSelectActive()"
+           @keydown.escape.prevent="acClose()" />
+  </div>
+
   {# 1 ─ Learned name standardization chip #}
   <div x-show="acSuggest.canonical" x-cloak class="ss-standardize-chip">
     <span class="ss-standardize-text">

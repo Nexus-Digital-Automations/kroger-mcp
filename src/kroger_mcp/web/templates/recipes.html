@@ -2,6 +2,7 @@
 {% from "_macros/action_menu.html" import action_menu %}
 {% from "_macros/recipe_add_modal.html" import recipe_add_modal %}
 {% from "_macros/recipe_plan_date_modal.html" import recipe_plan_date_modal %}
+{% from "_macros/cart_send_modal.html" import cart_send_modal %}
 {% from "_macros/sort_rank.html" import sort_rank %}
 
 {% block title %}Recipes — Smart Shopper{% endblock %}
@@ -95,7 +96,7 @@
   </div>
 
   <!-- Recipe Grid -->
-  <div class="grid grid-cols-3 gap-4">
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
     <template x-for="recipe in filtered" :key="recipe.id">
       <div class="relative flex flex-col"
         style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.875rem; border-left: 3.5px solid var(--terra); box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.04); transition: box-shadow 0.2s, border-color 0.2s;"
@@ -406,9 +407,14 @@ document.addEventListener('alpine:init', () => {
     deleteRecipe(id) {
       if (!confirm('Delete this recipe?')) return;
       fetch('/api/recipes/' + id, {method: 'DELETE'})
-        .then(r => r.ok
-          ? (this.recipes = this.recipes.filter(r2 => r2.id !== id))
-          : alert('Failed to delete recipe'));
+        .then(r => {
+          if (r.ok) {
+            this.recipes = this.recipes.filter(r2 => r2.id !== id);
+            window._ssToast('Recipe deleted');
+          } else {
+            window._ssToast('Failed to delete recipe', { level: 'error' });
+          }
+        });
     },
 
     // Counterpart: templates/_macros/action_menu.html dispatches
@@ -479,5 +485,6 @@ document.addEventListener('alpine:init', () => {
 
 {{ recipe_add_modal() }}
 {{ recipe_plan_date_modal() }}
+{{ cart_send_modal() }}
 
 {% endblock %}

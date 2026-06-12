@@ -80,6 +80,17 @@
     return task;
   }
 
+  /**
+   * Show a global toast (rendered by base.html's toastStack).
+   * @param {string} message
+   * @param {{level?: 'ok'|'info'|'warn'|'error', action?: {label: string, onClick: Function}}} [opts]
+   */
+  window._ssToast = function (message, opts) {
+    window.dispatchEvent(
+      new CustomEvent('toast:show', { detail: Object.assign({ message: message }, opts || {}) })
+    );
+  };
+
   window.api = {
     get: function (path) {
       return _request('GET', path);

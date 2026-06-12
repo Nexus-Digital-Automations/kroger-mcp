@@ -135,11 +135,13 @@ document.addEventListener('alpine:init', () => {
         const result = await window.api.post('/api/shopping-list/add-recipe', body);
         // Chain straight into scheduling. The added-to-list outcome is implied
         // by the popup appearing, so skip the intermediate toast to avoid two
-        // overlapping confirmations; the "Scheduled" toast is the single signal.
+        // overlapping confirmations; the popup's resolution toast is the single
+        // signal — and (third arg) it offers "Send to Kroger cart" since the
+        // list just gained items.
         const recipeId = this.recipeId, recipeName = this.recipeName;
         this.open = false;
         this.data = null;
-        Alpine.store('recipePlanDate').openModal(recipeId, recipeName);
+        Alpine.store('recipePlanDate').openModal(recipeId, recipeName, true);
       } catch (e) {
         this.error = (e && e.message) || 'Failed to add to list';
       }

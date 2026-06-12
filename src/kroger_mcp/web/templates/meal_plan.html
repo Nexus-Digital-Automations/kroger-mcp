@@ -54,14 +54,31 @@
   fromTemplateLoading: false,
   fromTemplateError: '',
 
-  /* ── Toast ── */
-  toast: '',
-  toastTimer: null,
+  init() {
+    // Let the shared cook_modal refresh the calendar in place instead of reloading.
+    window._ssRefreshMealPlan = () => this.refreshCalendar();
+  },
 
-  showToast(msg) {
-    this.toast = msg;
-    clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => { this.toast = ''; }, 3000);
+  /* ── Toast (delegates to the global toastStack in base.html) ── */
+  showToast(msg, level) {
+    window._ssToast(msg, level ? { level } : undefined);
+  },
+
+  /* Swap just the calendar + stats regions with fresh server HTML instead of a
+     full reload — keeps scroll, open modals, and swap-mode state alive. The
+     regions live inside this x-data wrapper, so Alpine re-binds the injected
+     DOM to this same scope. Falls back to a hard reload on fetch failure. */
+  async refreshCalendar() {
+    try {
+      const r = await fetch(window.location.href, { headers: { 'Accept': 'text/html' } });
+      if (!r.ok) throw new Error('refresh failed');
+      const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+      for (const id of ['mealplan-calendar', 'mealplan-stats']) {
+        const fresh = doc.getElementById(id);
+        const current = document.getElementById(id);
+        if (fresh && current) current.replaceWith(fresh);
+      }
+    } catch (e) { window.location.reload(); }
   },
 
   openAddMeal(date, slot) {
@@ -81,7 +98,11 @@
         body: JSON.stringify({recipe_id: this.addMealRecipe, meal_date: this.addMealDate, meal_slot: this.addMealSlot})
       });
       const d = await r.json();
-      if (r.ok) { window.location.reload(); }
+      if (r.ok) {
+        this.addMealOpen = false;
+        this.showToast('Meal added');
+        await this.refreshCalendar();
+      }
       else { this.addMealError = d.error || 'Failed to add meal'; }
     } catch(e) { this.addMealError = 'Network error'; }
     this.addMealLoading = false;
@@ -97,7 +118,10 @@
         body: JSON.stringify({name: this.name.trim(), start_date: this.startDate, plan_type: this.planType})
       });
       const d = await r.json();
-      if (r.ok && (d.success !== false)) { window.location.reload(); }
+      // A new plan is genuine navigation — land on it directly.
+      if (r.ok && (d.success !== false)) {
+        window.location.href = d.plan_id ? ('/meal-plan?plan_id=' + d.plan_id) : '/meal-plan';
+      }
       else { this.error = d.error || 'Failed to create plan'; }
     } catch(e) { this.error = 'Network error'; }
     this.loading = false;
@@ -126,21 +150,21 @@
         body: JSON.stringify({date1, slot1, date2, slot2})
       });
       const d = await r.json();
-      if (r.ok) { window.location.reload(); }
-      else { this.showToast('Swap failed: ' + (d.error || 'unknown error')); }
-    } catch(e) { this.showToast('Network error during swap'); }
+      if (r.ok) { this.showToast('Meals swapped'); await this.refreshCalendar(); }
+      else { this.showToast('Swap failed: ' + (d.error || 'unknown error'), 'error'); }
+    } catch(e) { this.showToast('Network error during swap', 'error'); }
   },
 
   /* ── Remove Meal ── */
   async removeMeal(planId, date, slot) {
     const r = await fetch('/api/meal-plan/' + planId + '/meals?meal_date=' + date + '&meal_slot=' + slot, {method: 'DELETE'});
-    if (r.ok) { window.location.reload(); }
-    else { alert('Failed to remove meal'); }
+    if (r.ok) { this.showToast('Meal removed'); await this.refreshCalendar(); }
+    else { this.showToast('Failed to remove meal', 'error'); }
   },
   async deletePlan(planId, planName) {
     const r = await fetch('/api/meal-plan/' + planId, {method: 'DELETE'});
     if (r.ok) { window.location.href = '/meal-plan'; }
-    else { alert('Failed to delete plan'); }
+    else { this.showToast('Failed to delete plan', 'error'); }
   },
 
   /* ── Toggle Cooked ── */
@@ -155,7 +179,8 @@
       // Unchecking reverses the pantry deduction exactly.
       try {
         await window.api.patch('/api/meal-plan/' + planId + '/meals/' + date + '/' + slot + '/cooked', {cooked: false});
-        window.location.reload();
+        this.showToast('Marked not cooked — pantry restored');
+        await this.refreshCalendar();
       } catch(e) { /* window.api surfaced an error toast */ }
     }
   },
@@ -247,11 +272,6 @@
     this.fromTemplateLoading = false;
   }
 }">
-
-<!-- ── Toast ── -->
-<div x-show="toast" x-cloak x-transition
-  class="fixed bottom-6 right-6 z-50 px-4 py-2 bg-gray-900 text-white text-sm rounded-lg shadow-lg"
-  x-text="toast"></div>
 
 <!-- ── Swap Mode Badge ── -->
 <div x-show="swapMode" x-cloak
@@ -579,8 +599,8 @@
       </div>
     </div>
 
-    <!-- Calendar Grid -->
-    <div class="ss-card overflow-hidden">
+    <!-- Calendar Grid (id = refreshCalendar() swap region) -->
+    <div id="mealplan-calendar" class="ss-card overflow-hidden">
       <!-- Day headers -->
       <div class="grid border-b border-gray-100" style="grid-template-columns: 90px repeat(7, 1fr)">
         <div class="px-3 py-2 bg-gray-50"></div>
@@ -682,8 +702,8 @@
       {% endfor %}
     </div>
 
-    <!-- Bottom Stats + Action Bar -->
-    <div class="ss-card mt-4 px-6 py-4 flex items-center justify-between">
+    <!-- Bottom Stats + Action Bar (id = refreshCalendar() swap region) -->
+    <div id="mealplan-stats" class="ss-card mt-4 px-6 py-4 flex items-center justify-between">
       <div class="flex items-center gap-6 text-sm text-gray-600">
         <span>✅ <strong>{{ cooked_count }}</strong> cooked</span>
         <span>🍽 <strong>{{ total_meals }}</strong> meal{{ 's' if total_meals != 1 else '' }}</span>

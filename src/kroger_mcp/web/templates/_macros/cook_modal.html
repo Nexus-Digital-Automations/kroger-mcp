@@ -87,7 +87,12 @@ document.addEventListener('alpine:init', () => {
       const committed = this.phase === 'results' && this.mode === 'meal';
       this.open = false;
       // A committed meal cook changes the grid's cooked styling — refresh it.
-      if (committed) window.location.reload();
+      // The meal-plan page registers _ssRefreshMealPlan (partial region swap);
+      // anywhere else falls back to a full reload.
+      if (committed) {
+        if (window._ssRefreshMealPlan) window._ssRefreshMealPlan();
+        else window.location.reload();
+      }
     },
 
     stepQty(it, delta) {
@@ -175,7 +180,10 @@ document.addEventListener('alpine:init', () => {
         // Reset phase so close() doesn't double-reload as a "committed" cook.
         this.phase = 'edit';
         this.open = false;
-        if (this.mode === 'meal') window.location.reload();
+        if (this.mode === 'meal') {
+          if (window._ssRefreshMealPlan) window._ssRefreshMealPlan();
+          else window.location.reload();
+        }
       } catch (e) {
         this.error = (e && e.message) || 'Failed to undo';
         this.submitting = false;

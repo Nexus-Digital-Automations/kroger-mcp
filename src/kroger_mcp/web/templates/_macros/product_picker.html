@@ -1,0 +1,83 @@
+{# Reusable Kroger product picker — search-by-name instead of raw product IDs.
+
+   Standalone Alpine component (deliberately NOT the recipe popover's mixin:
+   that one is entangled with ingredient-row anchoring). Renders a search input
+   plus a compact result list (description, brand · size, price/sale pill) and
+   dispatches `product-picker:select` with {product_id, description} on pick.
+
+   Usage (inside any x-data scope that wants the selection):
+     {% from "_macros/product_picker.html" import product_picker %}
+     <div @product-picker:select="pid = $event.detail.product_id; ...">
+       {{ product_picker() }}
+     </div>
+#}
+
+{% macro product_picker(placeholder='Search Kroger products…') %}
+<div x-data="productPicker" class="ss-product-picker" style="position: relative;">
+  <input type="search"
+         class="ss-input w-full"
+         placeholder="{{ placeholder }}"
+         aria-label="{{ placeholder }}"
+         x-model="query"
+         @input.debounce.250ms="search()" />
+  <div x-show="loading" style="padding: 0.375rem 0.25rem; font-size: 0.75rem; color: var(--text-3);">Searching…</div>
+  <div x-show="!loading && searched && !results.length"
+       style="padding: 0.375rem 0.25rem; font-size: 0.75rem; color: var(--text-3);">No Kroger matches.</div>
+  <div x-show="results.length" style="max-height: 14rem; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.5rem; margin-top: 0.375rem;">
+    <template x-for="p in results" :key="p.product_id">
+      <button type="button"
+              @click="pick(p)"
+              style="display: flex; align-items: center; gap: 0.5rem; width: 100%; text-align: left; padding: 0.5rem 0.75rem; border: 0; background: transparent; cursor: pointer; border-bottom: 1px solid var(--border-soft, var(--border));"
+              onmouseover="this.style.background='var(--surface-2, oklch(96% 0.01 70))'"
+              onmouseout="this.style.background='transparent'">
+        <span style="flex: 1; min-width: 0;">
+          <span style="display: block; font-size: 0.8125rem; font-weight: 500; color: var(--text-1);" x-text="p.description"></span>
+          <span style="display: block; font-size: 0.6875rem; color: var(--text-3);">
+            <span x-show="p.brand" x-text="p.brand"></span><span x-show="p.brand && p.size"> · </span><span x-show="p.size" x-text="p.size"></span>
+          </span>
+        </span>
+        <span x-show="p.on_sale" class="ss-autocomplete-sale-pill" x-text="'-' + p.savings_percent + '%'"></span>
+        <span style="font-size: 0.8125rem; font-variant-numeric: tabular-nums; color: var(--text-1);"
+              x-text="(p.sale_price || p.regular_price) ? '$' + (p.sale_price || p.regular_price).toFixed(2) : ''"></span>
+      </button>
+    </template>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data('productPicker', () => ({
+      query: '',
+      results: [],
+      loading: false,
+      searched: false,
+
+      async search() {
+        const q = this.query.trim();
+        if (q.length < 2) { this.results = []; this.searched = false; return; }
+        this.loading = true;
+        try {
+          const r = await fetch('/api/products/search?q=' + encodeURIComponent(q) + '&limit=8');
+          const d = r.ok ? await r.json() : [];
+          // /api/products/search returns a bare array; tolerate wrapped shapes.
+          this.results = Array.isArray(d) ? d : (d.products || d.results || []);
+        } catch (e) {
+          this.results = [];
+        }
+        this.searched = true;
+        this.loading = false;
+      },
+
+      pick(p) {
+        this.$dispatch('product-picker:select', {
+          product_id: p.product_id,
+          description: p.description || '',
+        });
+        this.results = [];
+        this.searched = false;
+        this.query = p.description || '';
+      },
+    }));
+  });
+</script>
+{% endmacro %}

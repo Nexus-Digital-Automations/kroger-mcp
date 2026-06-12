@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros/product_picker.html" import product_picker %}
 
 {% block title %}Pantry — Smart Shopper{% endblock %}
 {% block heading %}Pantry{% endblock %}
@@ -6,21 +7,32 @@
 {% block content %}
 
 <!-- Add Item Modal (Alpine.js) -->
-<div x-data="{ open: false, pid: '', desc: '', level: 100, saving: false, err: '' }"
+<div x-data="{ open: false, pid: '', desc: '', level: 100, saving: false, err: '', manualId: false }"
      x-show="open"
      x-cloak
      class="ss-modal-overlay"
      @keydown.escape.window="open = false"
-     @open-add-modal.window="open = true; pid = ''; desc = ''; level = 100; err = ''">
+     @open-add-modal.window="open = true; pid = ''; desc = ''; level = 100; err = ''; manualId = false"
+     @product-picker:select="pid = $event.detail.product_id; if (!desc.trim()) desc = $event.detail.description">
   <div class="ss-modal-card mx-4"
        @click.stop>
     <h3 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); margin-bottom: 1rem;">Add Pantry Item</h3>
     <p x-show="err" style="font-size: 0.75rem; color: var(--danger); margin-bottom: 0.75rem;" x-text="err"></p>
     <div class="space-y-3">
       <div>
-        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Product ID</label>
-        <input x-model="pid" type="text" placeholder="e.g. 0001111042018"
-               class="ss-input w-full" />
+        <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Product</label>
+        {{ product_picker(placeholder='Search Kroger by name…') }}
+        <p x-show="pid" style="font-size: 0.6875rem; color: var(--success); margin-top: 0.25rem;">
+          Selected: <span style="font-variant-numeric: tabular-nums;" x-text="pid"></span>
+          <button type="button" @click="pid = ''" style="margin-left: 0.375rem; border: 0; background: none; color: var(--text-3); cursor: pointer;">✕</button>
+        </p>
+        <button type="button" @click="manualId = !manualId"
+                style="border: 0; background: none; padding: 0; margin-top: 0.25rem; font-size: 0.6875rem; color: var(--text-3); cursor: pointer; text-decoration: underline;">
+          <span x-show="!manualId">enter a product ID manually</span>
+          <span x-show="manualId">hide manual entry</span>
+        </button>
+        <input x-show="manualId" x-cloak x-model="pid" type="text" placeholder="e.g. 0001111042018"
+               class="ss-input w-full" style="margin-top: 0.25rem;" />
       </div>
       <div>
         <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Description (optional)</label>
@@ -47,7 +59,14 @@
                   body: JSON.stringify({product_id: pid.trim(), description: desc.trim() || null, level_percent: level})
                 })
                 .then(r => r.json())
-                .then(d => { if (d.error) { err = d.error; saving = false; } else { window.location.reload(); } })
+                .then(d => {
+                  if (d.error) { err = d.error; saving = false; }
+                  else {
+                    open = false; saving = false;
+                    window._ssToast('Added to pantry');
+                    window.refreshPantry();
+                  }
+                })
                 .catch(() => { err = 'Network error'; saving = false; });
               "
               class="ss-btn-primary flex-1 justify-center">
@@ -76,15 +95,21 @@
       @click="
         restocking = true;
         const lowIds = [...document.querySelectorAll('[data-low-id]')].map(el => el.dataset.lowId);
-        if (!lowIds.length) { alert('No low items to restock.'); restocking = false; return; }
+        if (!lowIds.length) { window._ssToast('No low items to restock.', { level: 'info' }); restocking = false; return; }
         Promise.all(lowIds.map(id =>
           fetch('/api/pantry/restock', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({product_id: id})
           })
-        )).then(() => window.location.reload())
-        .catch(() => { alert('Restock failed'); restocking = false; });
+        )).then((responses) => {
+          const failed = responses.filter(r => !r.ok).length;
+          if (failed) window._ssToast(failed + ' of ' + responses.length + ' restocks failed', { level: 'warn' });
+          else window._ssToast('Restocked ' + responses.length + ' item' + (responses.length === 1 ? '' : 's'));
+          restocking = false;
+          window.refreshPantry();
+        })
+        .catch(() => { window._ssToast('Restock failed', { level: 'error' }); restocking = false; });
       "
       :disabled="restocking"
       class="ss-btn-warning gap-1.5">
@@ -100,8 +125,11 @@
         clearing = true;
         fetch('/api/pantry?confirmed=true', {method: 'DELETE'})
           .then(r => r.json())
-          .then(d => { if (d.success) window.location.reload(); else { alert(d.error || 'Failed'); clearing = false; } })
-          .catch(() => { alert('Network error'); clearing = false; });
+          .then(d => {
+            if (d.success) { window._ssToast('Pantry cleared'); clearing = false; window.refreshPantry(); }
+            else { window._ssToast(d.error || 'Failed to clear pantry', { level: 'error' }); clearing = false; }
+          })
+          .catch(() => { window._ssToast('Network error — pantry not cleared', { level: 'error' }); clearing = false; });
       "
       :disabled="clearing"
       class="ss-btn-danger gap-1.5">
@@ -111,8 +139,8 @@
   </div>
 </div>
 
-<!-- Summary strip -->
-<div class="grid grid-cols-4 gap-4 mb-6">
+<!-- Summary strip (id = refreshPantry() swap region) -->
+<div id="pantry-summary" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
   <div class="ss-card p-4">
     <p style="font-size: 0.8125rem; color: var(--text-3); font-weight: 500;">Tracked Items</p>
     <p style="font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; color: var(--text-1); letter-spacing: -0.03em; line-height: 1; margin-top: 0.25rem;">{{ total_count }}</p>
@@ -131,6 +159,9 @@
   </div>
 </div>
 
+{# Always-present wrapper so refreshPantry() can swap this region even when the
+   gap list empties (the inner card is conditional). #}
+<div id="pantry-gaps">
 {% if pending_gaps %}
 <div class="ss-card overflow-hidden mb-5" style="border-left: 3px solid var(--amber);">
   <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);">
@@ -179,7 +210,10 @@
   </ul>
 </div>
 {% endif %}
+</div>
 
+{# Always-present wrapper: refreshPantry() swap region for the items table. #}
+<div id="pantry-table">
 {% if not all_items %}
 <div style="text-align: center; padding: 4rem 1rem;">
   <p style="font-size: 0.875rem; color: var(--text-3);">No pantry items tracked yet. Add items to cart through Claude to start tracking.</p>
@@ -300,7 +334,7 @@
                            method: 'POST',
                            headers: {'Content-Type': 'application/json'},
                            body: JSON.stringify({product_id: '{{ item.product_id }}', level_percent: newLevel})
-                         }).then(() => window.location.reload());
+                         }).then(() => { window._ssToast('Level updated'); window.refreshPantry(); });
                        "
                        @keydown.escape="editing = false" />
                 <button :disabled="saving"
@@ -310,11 +344,11 @@
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({product_id: '{{ item.product_id }}', level_percent: newLevel})
-                          }).then(() => window.location.reload());
+                          }).then(() => { window._ssToast('Level updated'); window.refreshPantry(); });
                         "
                         class="ss-btn-primary"
                         style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
-                  Save
+                  <span x-show="!saving">Save</span><span x-show="saving">Saving…</span>
                 </button>
                 <button @click="editing = false"
                         class="ss-btn-secondary"
@@ -351,12 +385,12 @@
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({product_id: '{{ item.product_id }}'})
-                      }).then(() => window.location.reload());
+                      }).then(() => { window._ssToast('Restocked'); window.refreshPantry(); });
                     "
                     title="Restock to 100%"
                     class="ss-btn-secondary"
                     style="padding: 0.2rem 0.5rem; font-size: 0.75rem; border-color: var(--green-light); color: var(--success);">
-              Restock
+              <span x-show="!busy">Restock</span><span x-show="busy">…</span>
             </button>
 
             <!-- Remove button -->
@@ -365,12 +399,12 @@
                     @click="
                       busy = true;
                       fetch('/api/pantry/{{ item.product_id }}', {method: 'DELETE'})
-                        .then(() => window.location.reload());
+                        .then(() => { window._ssToast('Removed from pantry'); window.refreshPantry(); });
                     "
                     title="Remove from pantry"
                     class="ss-btn-danger"
                     style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
-              Remove
+              <span x-show="!busy">Remove</span><span x-show="busy">…</span>
             </button>
 
           </div>
@@ -382,6 +416,7 @@
 </div>
 
 {% endif %}
+</div>
 
 <!-- Per-item detail drawer (Alpine) -->
 <div x-data="pantryDetail()"
@@ -428,7 +463,29 @@
 </div>
 
 <script>
-  document.addEventListener('DOMContentLoaded', function () {
+  // Re-render just the dynamic regions in place of the legacy full-page reload:
+  // fetch this page's fresh HTML, swap the three id'd regions, re-run the
+  // non-Alpine extras. Alpine 3's MutationObserver re-initialises x-data in the
+  // injected rows automatically. Falls back to a hard reload if the fetch fails
+  // so the UI can never get stuck stale.
+  window.refreshPantry = function () {
+    return fetch(window.location.href, { headers: { 'Accept': 'text/html' } })
+      .then(function (r) { if (!r.ok) throw new Error('refresh failed'); return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        ['pantry-summary', 'pantry-gaps', 'pantry-table'].forEach(function (id) {
+          var fresh = doc.getElementById(id);
+          var current = document.getElementById(id);
+          if (fresh && current) current.replaceWith(fresh);
+        });
+        initPantryExtras();
+      })
+      .catch(function () { window.location.reload(); });
+  };
+
+  // Idempotent: runs on first load AND after every refreshPantry() swap (the
+  // swapped regions carry brand-new elements, so re-binding never duplicates).
+  function initPantryExtras() {
     document.querySelectorAll('.ss-spark[data-spark-pid]').forEach(function (el) {
       var pid = el.getAttribute('data-spark-pid');
       fetch('/api/pantry/' + encodeURIComponent(pid) + '/history?days=30')
@@ -447,6 +504,8 @@
     });
 
     document.querySelectorAll('[data-gap-resolve]').forEach(function (btn) {
+      if (btn.dataset.bound) return;
+      btn.dataset.bound = '1';
       btn.addEventListener('click', function () {
         var gapId = btn.getAttribute('data-gap-id');
         var resolution = btn.getAttribute('data-gap-resolve');
@@ -459,16 +518,22 @@
           .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, body: d }; }); })
           .then(function (res) {
             if (!res.ok || !res.body.success) {
-              alert(res.body.error || 'Failed to resolve gap');
+              window._ssToast(res.body.error || 'Failed to resolve gap', { level: 'error' });
               btn.disabled = false;
               return;
             }
-            window.location.reload();
+            window._ssToast('Gap resolved');
+            window.refreshPantry();
           })
-          .catch(function () { alert('Network error'); btn.disabled = false; });
+          .catch(function () {
+            window._ssToast('Network error — gap not resolved', { level: 'error' });
+            btn.disabled = false;
+          });
       });
     });
-  });
+  }
+
+  document.addEventListener('DOMContentLoaded', initPantryExtras);
 
   // SVG built via DOM API (no innerHTML) so the security hook stays happy.
   function renderSpark(container, events) {

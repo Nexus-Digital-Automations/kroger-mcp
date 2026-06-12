@@ -201,3 +201,16 @@
 .action-menu-panel .action-menu-submenu {
   z-index: 1;
 }
+
+/* Touch ergonomics: on coarse pointers (phones/tablets) the ~23px trigger and
+   menu rows are below Apple's 44px minimum tap target — mis-taps on the move. */
+@media (pointer: coarse) {
+  .action-menu-trigger {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.6rem 0.9rem;
+  }
+  .action-menu-item {
+    min-height: 44px;
+  }
+}

@@ -41,13 +41,18 @@ document.addEventListener('alpine:init', () => {
     recipeName: '',
     plannedDate: '',
     mealSlot: '',  // no default — the user must choose a slot
+    // Set only when arriving via the add-to-shopping-list chain: the list just
+    // gained items, so whichever way this popup resolves, the single follow-up
+    // signal offers "Send to Kroger cart" (one actionable toast — never two).
+    offerCartSend: false,
 
-    openModal(recipeId, recipeName) {
+    openModal(recipeId, recipeName, offerCartSend = false) {
       this.recipeId = recipeId;
       this.recipeName = recipeName || 'this recipe';
       this.plannedDate = localISO(addDays(7));  // same weekday next week
       this.mealSlot = '';
       this.error = '';
+      this.offerCartSend = !!offerCartSend && !!window.Alpine?.store('cartSend');
       this.open = true;
     },
 
@@ -56,6 +61,13 @@ document.addEventListener('alpine:init', () => {
     close() {
       if (this.submitting) return;
       this.open = false;
+      // "Not now" on a chained open: the list still updated — offer the cart.
+      if (this.offerCartSend) {
+        this.offerCartSend = false;
+        window._ssToast('Shopping list updated', {
+          action: { label: 'Send to Kroger cart', onClick: () => Alpine.store('cartSend').open() },
+        });
+      }
     },
 
     _label() {
@@ -80,10 +92,16 @@ document.addEventListener('alpine:init', () => {
         const message = res.overwrote && res.displaced_recipe_name
           ? `Scheduled · ${where} (replaced ${res.displaced_recipe_name})`
           : `Scheduled · ${where}`;
+        // Chained from add-to-list → the most valuable next step is sending the
+        // fresh list items to the Kroger cart; otherwise keep "View plan".
+        const action = this.offerCartSend
+          ? { label: 'Send to Kroger cart', onClick: () => Alpine.store('cartSend').open() }
+          : { label: 'View plan', onClick: () => { window.location.href = '/meal-plan'; } };
+        this.offerCartSend = false;
         window.dispatchEvent(new CustomEvent('toast:show', { detail: {
           message,
           level: res.overwrote ? 'warn' : 'ok',
-          action: { label: 'View plan', onClick: () => { window.location.href = '/meal-plan'; } },
+          action,
         }}));
         this.open = false;
       } catch (e) {

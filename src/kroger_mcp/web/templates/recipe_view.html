@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros/recipe_add_modal.html" import recipe_add_modal %}
 {% from "_macros/recipe_plan_date_modal.html" import recipe_plan_date_modal %}
+{% from "_macros/cart_send_modal.html" import cart_send_modal %}
 {% from "_macros/cook_modal.html" import cook_modal %}
 {% from "_macros/action_menu.html" import action_menu %}
 
@@ -459,6 +460,7 @@
 
 {{ recipe_add_modal() }}
 {{ recipe_plan_date_modal() }}
+{{ cart_send_modal() }}
 {{ cook_modal() }}
 
 <!-- Recipe page mode root. Edit is the default; the toggle now flips into a
@@ -476,7 +478,7 @@
 
 <!-- Header -->
 <script id="recipe-init-data" type="application/json">
-{{ {"id": recipe.id, "name": recipe.name, "description": recipe.description or "", "servings": recipe.servings, "tags": recipe.tags or []} | tojson }}
+{{ {"id": recipe.id, "name": recipe.name, "description": recipe.description or "", "servings": recipe.servings, "tags": recipe.tags or [], "ingredients": ingredients} | tojson }}
 </script>
 <div x-data="recipeHeader"
   @action-menu:shopping-add.window="$store.recipePreview.openModal(recipeId, $store.recipeServings.value || baseServings)"
@@ -650,482 +652,11 @@
 <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
   <!-- Ingredients -->
-  <script>
-  document.addEventListener('alpine:init', () => {
-    // Bridge: the header "Add to List" button lives outside the ingredients
-    // panel that owns the servings stepper. This store carries the live
-    // servings count across so the preview modal opens with the user's
-    // current scaling. ingredientPanel.init() writes on every change.
-    Alpine.store('recipeServings', { value: 0 });
-
-    Alpine.data('ingredientPanel', () => ({
-      ingView: 'usage',
-      ings: {{ ingredients | tojson }},
-      baseServings: {{ recipe.servings or 4 }},
-      servings: {{ recipe.servings or 4 }},
-
-      init() {
-        // Mirror servings into the shared store so the header button
-        // opens the preview at the value the user currently sees on the stepper.
-        this.$watch('servings', v => Alpine.store('recipeServings').value = v);
-        Alpine.store('recipeServings').value = this.servings;
-      },
-      gradeColor(g) {
-        const m = {
-          A: {bg:'oklch(91% 0.1 145)',  text:'oklch(30% 0.14 145)'},
-          B: {bg:'oklch(91% 0.08 175)', text:'oklch(30% 0.12 175)'},
-          C: {bg:'oklch(92% 0.1 80)',   text:'oklch(35% 0.12 75)'},
-          D: {bg:'oklch(92% 0.1 50)',   text:'oklch(33% 0.14 40)'},
-          F: {bg:'oklch(92% 0.08 25)',  text:'oklch(33% 0.14 25)'},
-        };
-        return m[g] || m.C;
-      },
-      catLabels: { produce: 'Produce', meat: 'Meat', seafood: 'Seafood', dairy: 'Dairy', frozen: 'Frozen', pantry: 'Pantry', beverages: 'Beverages', bakery: 'Bakery', other: 'Other' },
-      catOrder: ['produce', 'meat', 'seafood', 'dairy', 'frozen', 'pantry', 'beverages', 'bakery', 'other'],
-      catNorm: { vegetables: 'produce', aromatics: 'produce', greens: 'produce', herbs: 'produce', protein: 'meat', poultry: 'meat', baking: 'pantry', 'canned goods': 'pantry', condiments: 'pantry', grains: 'pantry', oil: 'pantry', oils: 'pantry', sauce: 'pantry', sauces: 'pantry', spices: 'pantry', acid: 'pantry', seasoning: 'pantry' },
-      catColors: {
-        produce:   { pill: 'oklch(91% 0.1 145)',  text: 'oklch(28% 0.14 145)', dot: 'oklch(50% 0.19 145)' },
-        meat:      { pill: 'oklch(92% 0.08 22)',   text: 'oklch(30% 0.14 22)',  dot: 'oklch(50% 0.18 22)'  },
-        seafood:   { pill: 'oklch(91% 0.08 220)',  text: 'oklch(30% 0.13 220)', dot: 'oklch(50% 0.16 220)' },
-        dairy:     { pill: 'oklch(92% 0.06 240)',  text: 'oklch(32% 0.11 240)', dot: 'oklch(54% 0.14 240)' },
-        frozen:    { pill: 'oklch(91% 0.09 268)',  text: 'oklch(30% 0.13 268)', dot: 'oklch(50% 0.16 268)' },
-        pantry:    { pill: 'oklch(92% 0.1 72)',    text: 'oklch(30% 0.16 68)',  dot: 'oklch(56% 0.19 70)'  },
-        beverages: { pill: 'oklch(91% 0.08 300)',  text: 'oklch(30% 0.11 300)', dot: 'oklch(50% 0.14 300)' },
-        bakery:    { pill: 'oklch(92% 0.09 52)',   text: 'oklch(30% 0.14 48)',  dot: 'oklch(56% 0.18 52)'  },
-        other:     { pill: 'oklch(92% 0.018 80)',  text: 'oklch(38% 0.03 80)',  dot: 'oklch(55% 0.05 80)'  },
-      },
-
-      inc() { if (this.servings < 50) this.servings++; },
-      dec() { if (this.servings > 1)  this.servings--; },
-
-      // Display a scaled quantity. Returns '' only when there is genuinely
-      // nothing to show (null/NaN). Never silently emits an empty string
-      // for a *positive* result \u2014 that used to mask scaling bugs by falling
-      // back to the unscaled value in the template.
-      fmtQty(raw) {
-        if (raw === null || raw === undefined) return '';
-        const n = parseFloat(raw);
-        if (isNaN(n)) return '';
-        if (n === 0) return '0';
-        // Snap to integer only when the rounded value is non-zero — otherwise
-        // 0.001 would silently become '0', resurrecting the silent-zero bug.
-        const _rnd = Math.round(n);
-        if (_rnd !== 0 && Math.abs(n - _rnd) < 0.005) return String(_rnd);
-        const sign  = n < 0 ? '-' : '';
-        const abs   = Math.abs(n);
-        const whole = Math.floor(abs);
-        const frac  = abs - whole;
-        const table = [
-          [0.0625, '\u2009\u00b9\u2044\u2081\u2086'], // 1/16 \u2014 fall back to literal when no precomposed glyph exists
-          [0.125, '\u215b'],   // \u215b
-          [0.1667, '\u2009\u00b9\u2044\u2086'], // 1/6
-          [0.25, '\u00bc'],    // \u00bc
-          [0.333, '\u2153'],   // \u2153
-          [0.375, '\u215c'],   // \u215c
-          [0.5, '\u00bd'],     // \u00bd
-          [0.625, '\u215d'],   // \u215d
-          [0.667, '\u2154'],   // \u2154
-          [0.75, '\u00be'],    // \u00be
-          [0.833, '\u2009\u2075\u2044\u2086'], // 5/6
-          [0.875, '\u215e'],   // \u215e
-        ];
-        for (const [v, sym] of table) {
-          if (Math.abs(frac - v) < 0.02) return sign + (whole ? whole + '\u2009' : '') + sym;
-        }
-        // Decimal fallback \u2014 never round a positive value to '0'.
-        if (abs < 0.05) return sign + abs.toFixed(2);
-        const r = Math.round(abs * 10) / 10;
-        if (r === Math.floor(r)) return sign + String(Math.floor(r));
-        return sign + r.toFixed(1);
-      },
-
-      get scaledIngs() {
-        const f = this.servings / this.baseServings;
-        return this.ings.map((i, idx) => ({
-          ...i,
-          _idx: idx,
-          sq: (i.quantity !== null && i.quantity !== undefined) ? i.quantity * f : null
-        }));
-      },
-
-      get groups() {
-        // View mode reads as a single flowing list; category grouping is an
-        // edit-mode aid for organizing ingredients while authoring.
-        const editing = Alpine.store('recipeMode')?.editing;
-        if (!editing || this.ingView === 'usage') return [{ header: null, key: null, items: this.scaledIngs }];
-        const map = {};
-        this.scaledIngs.forEach(i => {
-          const raw = ((i.category || '') + '').toLowerCase().trim();
-          const key = this.catOrder.includes(this.catNorm[raw] || raw) ? (this.catNorm[raw] || raw) : 'other';
-          (map[key] = map[key] || []).push(i);
-        });
-        return this.catOrder.filter(k => map[k]).map(k => ({ header: this.catLabels[k], key: k, items: map[k] }));
-      },
-
-      // ── Inline ingredient editing ─────────────────────────────────────
-      // All mutations go through PUT /api/recipes/{id}/ingredients atomically.
-      // After success we silently refetch the enriched ingredient list so
-      // safety/pantry chips reflect the server's recomputed view without
-      // a full HTML reload. Concurrent rapid edits are debounced (600ms)
-      // and a monotonic _saveSeq drops stale responses from racing
-      // earlier in-flight saves.
-      _recipeId() {
-        const el = document.getElementById('recipe-init-data');
-        return el ? JSON.parse(el.textContent).id : null;
-      },
-      _saveSeq: 0,
-      _debounceTimer: null,
-      _pendingNext: null,
-      _flashRow(idx) {
-        const row = document.querySelector('[data-ingredient-idx="' + idx + '"]');
-        if (!row) return;
-        row.classList.remove('ss-saved-pulse');
-        void row.offsetWidth;
-        row.classList.add('ss-saved-pulse');
-      },
-      async _putIngredientsNow(next, opts) {
-        const seq = ++this._saveSeq;
-        const flashIdx = opts && opts.flashIdx;
-        const label = (opts && opts.label) || 'ingredient';
-        try {
-          const payload = await window._ssRecipeSave(
-            'PUT',
-            '/api/recipes/' + this._recipeId() + '/ingredients',
-            { ingredients: next }
-          );
-          if (seq !== this._saveSeq) return false;
-          await this._refreshEnriched();
-          if (flashIdx !== undefined) this._flashRow(flashIdx);
-          window._ssToast('Saved ' + label);
-          return true;
-        } catch (e) {
-          if (seq === this._saveSeq) {
-            this.ings = (typeof _initIngs === 'function') ? _initIngs() : this.ings;
-          }
-          return false;
-        }
-      },
-      _putIngredientsDebounced(next, opts) {
-        this._pendingNext = next;
-        const flashIdx = opts && opts.flashIdx;
-        const label = opts && opts.label;
-        if (this._debounceTimer) clearTimeout(this._debounceTimer);
-        this._debounceTimer = setTimeout(() => {
-          const toSend = this._pendingNext;
-          this._pendingNext = null;
-          this._debounceTimer = null;
-          this._putIngredientsNow(toSend, { flashIdx, label });
-        }, 600);
-      },
-      async _refreshEnriched() {
-        try {
-          const r = await fetch('/api/recipes/' + this._recipeId() + '/ingredients');
-          if (!r.ok) return;
-          const d = await r.json();
-          if (d && d.success && Array.isArray(d.ingredients)) {
-            this.ings = d.ingredients;
-          }
-        } catch (_) { /* refresh is best-effort; the next save will retry */ }
-      },
-      _serialize(ings) {
-        return ings.map(i => ({
-          name: i.name,
-          quantity: i.quantity,
-          unit: i.unit,
-          category: i.category,
-          product_id: i.product_id,
-          override: !!i.override,
-          override_reason: i.override_reason,
-        }));
-      },
-      saveIngredientField(idx, field, raw, $el) {
-        const current = this.ings[idx];
-        if (!current) return;
-        let value = raw;
-        if (field === 'quantity') {
-          const trimmed = String(raw).trim();
-          if (trimmed === '') { value = null; }
-          else {
-            const n = parseFloat(trimmed);
-            if (isNaN(n) || n < 0) { if ($el) $el.innerText = String(current.quantity ?? ''); return; }
-            value = n;
-          }
-        } else {
-          value = (raw ?? '').trim() || null;
-        }
-        if (field === 'name' && !value) {
-          if ($el) $el.innerText = current.name;
-          return;
-        }
-        if (value === current[field]) return;
-        this.ings[idx][field] = value;  // optimistic
-        const next = this._serialize(this.ings);
-        this._putIngredientsDebounced(next, { flashIdx: idx, label: field });
-      },
-      linkProduct(idx, product) {
-        // Wires a Kroger product into an ingredient row, flipping it out of
-        // override and refreshing safety/pantry. Used by the autocomplete
-        // popover and the "Manual" pill picker.
-        if (!product) return;
-        const row = this.ings[idx]; if (!row) return;
-        row.name = product.description || row.name;
-        row.product_id = product.product_id;
-        row.override = false;
-        row.override_reason = null;
-        if (!row.category && product.category) row.category = product.category;
-        this._putIngredientsNow(this._serialize(this.ings),
-          { flashIdx: idx, label: 'Kroger link' });
-      },
-      unlinkProduct(idx) {
-        const row = this.ings[idx]; if (!row) return;
-        row.product_id = null;
-        row.override = true;
-        row.override_reason = 'Unlinked from Kroger product';
-        this._putIngredientsNow(this._serialize(this.ings),
-          { flashIdx: idx, label: 'unlink' });
-      },
-      removeIngredient(idx) {
-        const target = this.ings[idx];
-        if (!target) return;
-        // Optimistic remove + 5s undo via toast action. The "snapshot"
-        // captures the entire current list so an Undo restores the row at
-        // the same position even after subsequent edits.
-        const snapshot = this._serialize(this.ings);
-        const next = snapshot.filter((_, i) => i !== idx);
-        const targetName = target.name || 'ingredient';
-        this.ings.splice(idx, 1);
-        this._putIngredientsNow(next, { label: 'removal' }).then(ok => {
-          if (!ok) return;
-          window._ssToast('Removed “' + targetName + '”', {
-            action: {
-              label: 'Undo',
-              onClick: () => this._putIngredientsNow(snapshot, { label: 'restore' }),
-            },
-          });
-        });
-      },
-      reorderIngredient(fromIdx, toIdx) {
-        if (fromIdx === toIdx) return;
-        if (fromIdx < 0 || toIdx < 0) return;
-        if (fromIdx >= this.ings.length || toIdx > this.ings.length) return;
-        const next = this._serialize(this.ings);
-        const [moved] = next.splice(fromIdx, 1);
-        next.splice(toIdx, 0, moved);
-        this.ings = next;
-        this._putIngredientsNow(next, { label: 'reorder' });
-      },
-      async addIngredient(rawQty, rawUnit, rawName) {
-        const name = (rawName || '').trim();
-        if (!name) return;
-        let qty = null;
-        const tq = String(rawQty || '').trim();
-        if (tq) {
-          const n = parseFloat(tq);
-          if (!isNaN(n) && n >= 0) qty = n;
-        }
-        const unit = (rawUnit || '').trim() || null;
-        const next = this._serialize(this.ings).concat([{
-          name, quantity: qty, unit, category: null,
-          product_id: null, override: true,
-          override_reason: 'Added inline; not yet linked to Kroger product'
-        }]);
-        this.ings = next;  // optimistic
-        return this._putIngredientsNow(next, { label: 'new ingredient' });
-      },
-
-      // ── Product autocomplete (inline) ────────────────────────────────
-      // Search /api/products/search with a 250ms debounce. Results carry
-      // safety enrichment we re-use to colour the row chip on selection.
-      // detailCache survives across acOpenFor/acClose cycles intentionally —
-      // re-expanding a previously-seen product should not re-fetch.
-      // anchorPos is {left, top} in pixels relative to #ingredients-card;
-      // the popover lives as a child of that card and reads anchorPos via
-      // acPopoverStyle. Anchor element is stored unreactively (_anchorEl)
-      // so the DOM ref doesn't end up in Alpine's proxy machinery.
-      acState: { idx: null, query: '', results: [], active: 0, loading: false, debounce: null,
-                 expanded: null, detailCache: {}, detailLoading: {}, detailError: {},
-                 anchorPos: { left: 0, top: 0 } },
-      // Smart "your usuals" state — account-scoped suggestions, the learned
-      // canonical name, and the pre-selected best guess. Populated by
-      // _acFetchSuggestions via /api/ingredients/suggest (ingredient_linker.js).
-      acSuggest: { items: [], best: null, canonical: null, canonicalConf: null, loading: false },
-      _anchorEl: null,
-      _onAcReposition: null,
-      get acPopoverStyle() {
-        const p = this.acState.anchorPos || { left: 0, top: 0 };
-        return `left:${p.left}px; top:${p.top}px;`;
-      },
-      _acReposition() {
-        if (!this._anchorEl) return;
-        const card = document.getElementById('ingredients-card');
-        if (!card) return;
-        const a = this._anchorEl.getBoundingClientRect();
-        const c = card.getBoundingClientRect();
-        // Anchor under the bottom-left of the name cell, +4px gap.
-        this.acState.anchorPos = { left: Math.round(a.left - c.left), top: Math.round(a.bottom - c.top + 4) };
-      },
-      acOpenFor(idx, seed, anchorEl) {
-        const cache = this.acState.detailCache || {};
-        this._anchorEl = anchorEl || null;
-        this.acState = { idx, query: seed || '', results: [], active: 0, loading: false, debounce: null,
-                         expanded: null, detailCache: cache, detailLoading: {}, detailError: {},
-                         anchorPos: { left: 0, top: 0 } };
-        this._acReposition();
-        // Recompute on scroll/resize so the popover tracks its anchor.
-        if (!this._onAcReposition) {
-          this._onAcReposition = () => this._acReposition();
-          window.addEventListener('scroll', this._onAcReposition, true);
-          window.addEventListener('resize', this._onAcReposition);
-        }
-        if (this.acState.query.trim().length >= 2) this._acSearch(this.acState.query);
-        // Pull this account's "usuals" regardless of seed length — a short or
-        // empty seed still has a best guess worth pre-selecting.
-        this.acSuggest = { items: [], best: null, canonical: null, canonicalConf: null, loading: true };
-        this._acFetchSuggestions(idx, this.acState.query);
-      },
-      acClose() {
-        const cache = this.acState.detailCache || {};
-        this.acState = { idx: null, query: '', results: [], active: 0, loading: false, debounce: null,
-                         expanded: null, detailCache: cache, detailLoading: {}, detailError: {},
-                         anchorPos: { left: 0, top: 0 } };
-        this.acSuggest = { items: [], best: null, canonical: null, canonicalConf: null, loading: false };
-        this._anchorEl = null;
-        if (this._onAcReposition) {
-          window.removeEventListener('scroll', this._onAcReposition, true);
-          window.removeEventListener('resize', this._onAcReposition);
-          this._onAcReposition = null;
-        }
-      },
-      acType(text) {
-        this.acState.query = text;
-        if (this.acState.debounce) clearTimeout(this.acState.debounce);
-        const q = (text || '').trim();
-        if (q.length < 2) { this.acState.results = []; this.acState.expanded = null; return; }
-        this.acState.debounce = setTimeout(() => this._acSearch(q), 250);
-      },
-      async _acSearch(q) {
-        this.acState.loading = true;
-        try {
-          const r = await fetch('/api/products/search?q=' + encodeURIComponent(q) + '&limit=6');
-          if (!r.ok) { this.acState.results = []; return; }
-          const d = await r.json();
-          const list = Array.isArray(d) ? d : (d.products || d.results || []);
-          this.acState.results = list;
-          this.acState.active = 0;
-          this.acState.expanded = null;
-        } catch (_) {
-          this.acState.results = [];
-        } finally {
-          this.acState.loading = false;
-        }
-      },
-      acMove(dir) {
-        if (!this.acState.results.length) return;
-        const n = this.acState.results.length;
-        this.acState.active = (this.acState.active + dir + n) % n;
-      },
-      acToggleExpand(productId) {
-        if (!productId) return;
-        if (this.acState.expanded === productId) {
-          this.acState.expanded = null;
-          return;
-        }
-        this.acState.expanded = productId;
-        if (this.acState.detailCache[productId] || this.acState.detailLoading[productId]) return;
-        this._acFetchDetail(productId);
-      },
-      acToggleExpandActive() {
-        const p = this.acState.results[this.acState.active];
-        if (p && p.product_id) this.acToggleExpand(p.product_id);
-      },
-      async _acFetchDetail(productId) {
-        this.acState.detailLoading[productId] = true;
-        this.acState.detailError[productId] = null;
-        try {
-          const r = await fetch('/api/products/' + encodeURIComponent(productId));
-          if (!r.ok) {
-            this.acState.detailError[productId] = r.status === 404 ? 'Product not found' : 'Failed to load details';
-            return;
-          }
-          const detail = await r.json();
-          // Fall back to the search-row data for fields the detail endpoint
-          // might omit, so the panel never regresses what the row already shows.
-          const row = this.acState.results.find(x => x && x.product_id === productId) || {};
-          this.acState.detailCache[productId] = Object.assign({}, row, detail);
-        } catch (_) {
-          this.acState.detailError[productId] = 'Network error';
-        } finally {
-          this.acState.detailLoading[productId] = false;
-        }
-      },
-      acSelectActive() {
-        const p = this.acState.results[this.acState.active];
-        if (!p) return;
-        const idx = this.acState.idx;
-        this.acClose();
-        this.linkProduct(idx, p);
-      },
-      acUseManual(text) {
-        const idx = this.acState.idx;
-        this.acClose();
-        if (idx === null || idx === undefined) return;
-        const row = this.ings[idx]; if (!row) return;
-        row.name = (text || row.name).trim();
-        row.product_id = null;
-        row.override = true;
-        row.override_reason = row.override_reason || 'Manual entry';
-        this._putIngredientsNow(this._serialize(this.ings),
-          { flashIdx: idx, label: 'manual entry' });
-      },
-
-      // ── Smart "your usuals" (account-scoped) ─────────────────────────
-      // Fetch suggestions in parallel with live search. Guarded by idx so a
-      // late response from a previously-focused row never lands in the popover
-      // now open over a different ingredient.
-      async _acFetchSuggestions(idx, name) {
-        if (!window._ssSmartLink) { this.acSuggest.loading = false; return; }
-        try {
-          const d = await window._ssSmartLink.fetchSuggestions(name, 6);
-          if (this.acState.idx !== idx) return;
-          this.acSuggest.items = d.suggestions || [];
-          this.acSuggest.best = d.best_guess || null;
-          this.acSuggest.canonical = d.canonical_name || null;
-          this.acSuggest.canonicalConf = d.canonical_confidence ?? null;
-        } catch (_) {
-          this.acSuggest.items = [];
-        } finally {
-          this.acSuggest.loading = false;
-        }
-      },
-      acIsBestGuess(p) {
-        return !!(this.acSuggest.best && p && p.product_id === this.acSuggest.best.product_id);
-      },
-      acSelectSuggestion(p) {
-        if (!p) return;
-        const idx = this.acState.idx;
-        this.acClose();
-        // Suggestions carry product_id + product_description; linkProduct wants
-        // a product-shaped object (description / product_id / category).
-        this.linkProduct(idx, {
-          product_id: p.product_id,
-          description: p.product_description,
-          category: null,
-        });
-      },
-      acAcceptCanonical() {
-        const idx = this.acState.idx;
-        const canon = this.acSuggest.canonical;
-        if (idx === null || idx === undefined || !canon) return;
-        const row = this.ings[idx]; if (!row) return;
-        row.name = canon;
-        this.acSuggest.canonical = null;  // dismiss the chip
-        this._putIngredientsNow(this._serialize(this.ings),
-          { flashIdx: idx, label: 'standardized name' });
-      },
-
-    }));
-  });
-  </script>
+  {# ingredientPanel (Alpine component for this card + the linking popover)
+     is shared verbatim with the other recipe template — extracted to
+     static/js/ingredient_panel.js; server data flows via #recipe-init-data. #}
+  <script src="/static/js/linker_popover.js"></script>
+  <script src="/static/js/ingredient_panel.js"></script>
   <div id="ingredients-card" class="ss-card p-6" x-data="ingredientPanel()" style="position:relative;">
 
     <!-- Card header: title + stepper + view toggle -->
@@ -1263,8 +794,10 @@
                   style="font-size: 0.9375rem; color: var(--text-1); padding: 0 0.25rem; min-height: 1.1rem; display: inline-block; flex:1; min-width:0; line-height:1.4;"
                   :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
                   @focus="$el.dataset.original = $el.innerText.trim(); acOpenFor(ing._idx, $el.innerText.trim(), $el);"
-                  @input="acType($el.innerText.trim())"
-                  @blur="setTimeout(() => { if (acState.idx === ing._idx) acClose(); }, 150); saveIngredientField(ing._idx, 'name', $el.innerText.trim(), $el)"
+                  {# NOTE: no @input→acType here. Editing the NAME no longer drives the
+                     product search — the popover has its own search box, so a search
+                     refinement can never silently rename the ingredient. #}
+                  @blur="setTimeout(() => { if (acState.idx === ing._idx && !document.activeElement?.closest('.ss-autocomplete-popover')) acClose(); }, 150); saveIngredientField(ing._idx, 'name', $el.innerText.trim(), $el)"
                   @keydown.arrow-down.prevent="acMove(1)"
                   @keydown.arrow-up.prevent="acMove(-1)"
                   @keydown.arrow-right="if (acState.idx === ing._idx && acState.results.length) { $event.preventDefault(); acToggleExpandActive(); }"
@@ -1595,11 +1128,7 @@ document.addEventListener('alpine:init', () => {
   // Centralized save helper: dispatches a toast on success, surfaces
   // server-side validation/409 conflicts, advances the version stamp.
   // Replaces every legacy `window.location.reload()` after a save.
-  window._ssToast = (message, opts) => {
-    window.dispatchEvent(new CustomEvent('toast:show', {
-      detail: Object.assign({ message }, opts || {})
-    }));
-  };
+  // (window._ssToast itself is global — defined in api-client.js.)
   window._ssRecipeSave = async (method, path, body) => {
     const opts = { method, headers: {'Content-Type': 'application/json'} };
     if (body !== undefined) opts.body = JSON.stringify(body);

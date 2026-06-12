@@ -1,0 +1,320 @@
+{# Send-to-Kroger-Cart modal — shared across shopping-list and recipe pages.
+
+   Ported verbatim from shopping_list.html's inline modal so the recipe→cart
+   flow can offer "Send to Kroger cart" without navigating to /shopping-list.
+   Owns Alpine.store('cartSend'): the two-phase /api/shopping-list/add-to-cart
+   contract (confirm:false preview → user edits selections → confirm:true).
+
+   Differences from the original inline version:
+     - success/error surface via the global toast (window._ssToast), not a
+       page-local banner;
+     - a confirmed send dispatches CustomEvent('cart-send:done') so the host
+       page can refresh its own state (shopping_list reloads its items).
+
+   Usage: {% from "_macros/cart_send_modal.html" import cart_send_modal %}
+          {{ cart_send_modal() }}   (once per page, at content top level)
+          open with: Alpine.store('cartSend').open()
+#}
+
+{% macro cart_send_modal() %}
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.store('cartSend', {
+      // States: closed → previewLoading → preview shown → sendBusy → closed
+      isOpen: false,
+      previewLoading: false,
+      previewData: null,            // server response from confirm:false
+      modality: 'PICKUP',           // 'PICKUP' | 'DELIVERY'
+      sendBusy: false,
+      // Per-row selection state, keyed by product_id; reinitialised on every
+      // preview load so stale edits never leak into the next confirm.
+      cartSelected: {},
+      cartQty: {},
+      // Separate opt-in section for spices; default from the user's
+      // Advanced setting (summary.spice_default_included).
+      spiceChecked: {},
+
+      get checkedSpiceCount() {
+        return Object.values(this.spiceChecked).filter(Boolean).length;
+      },
+
+      toggleSpice(productId) {
+        this.spiceChecked = { ...this.spiceChecked, [productId]: !this.spiceChecked[productId] };
+      },
+
+      // Open the preview modal: fetch what will be added/skipped/manual.
+      // Counterpart: api/shopping_list.py shopping_list_to_cart(confirm:false).
+      async open() {
+        if (this.previewLoading) return;
+        this.isOpen = true;
+        this.previewLoading = true;
+        this.previewData = null;
+        this.spiceChecked = {};
+        try {
+          this.previewData = await window.api.post(
+            '/api/shopping-list/add-to-cart',
+            { confirm: false, modality: this.modality }
+          );
+          // Main rows: preselect every item with the server's pantry-aware qty.
+          const sel = {}, q = {};
+          for (const it of (this.previewData.items || [])) {
+            sel[it.product_id] = true;
+            q[it.product_id] = it.quantity;
+          }
+          this.cartSelected = sel;
+          this.cartQty = q;
+          const defaultChecked = !!this.previewData?.summary?.spice_default_included;
+          this.spiceChecked = Object.fromEntries(
+            (this.previewData?.spices || []).map(s => [s.product_id, defaultChecked])
+          );
+        } catch (e) {
+          this.isOpen = false;
+          this._error(e);
+        }
+        this.previewLoading = false;
+      },
+
+      close() {
+        if (this.sendBusy) return;
+        this.isOpen = false;
+        this.previewData = null;
+        this.spiceChecked = {};
+      },
+
+      stepCartQty(pid, delta) {
+        this.cartQty[pid] = Math.max(1, (this.cartQty[pid] || 1) + delta);
+      },
+
+      setCartQty(pid, val) {
+        const n = parseInt(val, 10);
+        this.cartQty[pid] = isFinite(n) && n >= 1 ? n : 1;
+      },
+
+      selectedCartCount() {
+        return (this.previewData?.items || []).filter(it => this.cartSelected[it.product_id]).length;
+      },
+
+      // Confirm step: send only the user-checked rows at user-chosen quantities.
+      // Counterpart: api/shopping_list.py _apply_cart_selections intersects
+      // these with server-computed items_to_add and silently drops stale ids.
+      async confirmSend() {
+        if (this.sendBusy) return;
+        const selections = (this.previewData?.items || [])
+          .filter(it => this.cartSelected[it.product_id])
+          .map(it => ({
+            product_id: it.product_id,
+            quantity: Math.max(1, parseInt(this.cartQty[it.product_id], 10) || 1),
+          }));
+        if (selections.length === 0 && this.checkedSpiceCount === 0) {
+          window._ssToast('Select at least one item.', { level: 'warn' });
+          return;
+        }
+        this.sendBusy = true;
+        const includedSpiceIds = Object.entries(this.spiceChecked)
+          .filter(([, on]) => on)
+          .map(([id]) => id);
+        try {
+          const result = await window.api.post('/api/shopping-list/add-to-cart', {
+            confirm: true,
+            modality: this.modality,
+            selections,
+            included_spice_ids: includedSpiceIds,
+          });
+          const parts = [result.message || `Sent ${result.items_added || 0} items to Kroger cart.`];
+          if (result.warning) parts.push(result.warning);
+          window._ssToast(parts.join(' '));
+          this.isOpen = false;
+          this.previewData = null;
+          this.spiceChecked = {};
+          window.dispatchEvent(new CustomEvent('cart-send:done', { detail: result }));
+        } catch (e) {
+          this._error(e);
+        }
+        this.sendBusy = false;
+      },
+
+      _error(e) {
+        const m = (e && e.message) || 'Failed to send to Kroger cart';
+        // 401 surfaces as the server's detail string — point at Settings.
+        window._ssToast(
+          /not authenticated|unauthorized|401/i.test(m)
+            ? 'Not authenticated. Connect your Kroger account in Settings.'
+            : m,
+          { level: 'error' }
+        );
+      },
+    });
+  });
+</script>
+
+<!-- ── Send to Kroger Cart preview modal (store-driven) ── -->
+<div x-data x-show="$store.cartSend.isOpen" x-cloak
+  @keydown.escape.window="$store.cartSend.close()"
+  class="fixed inset-0 z-50 flex items-center justify-center p-4"
+  style="background: rgba(0,0,0,0.45);">
+  <div @click="$store.cartSend.close()" class="absolute inset-0"></div>
+
+  <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+    <!-- Header -->
+    <div class="flex items-center justify-between p-4 border-b border-gray-100 flex-shrink-0">
+      <h3 style="font-family: 'Lora', serif; font-weight: 600; font-size: 1rem; color: var(--text-1);">
+        Send to Kroger Cart
+      </h3>
+      <button @click="$store.cartSend.close()" :disabled="$store.cartSend.sendBusy"
+        class="text-gray-400 hover:text-gray-600 disabled:opacity-50">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Body -->
+    <div class="p-4 overflow-y-auto flex-1">
+      <div x-show="$store.cartSend.previewLoading" class="text-center py-8 text-sm text-gray-500">
+        Loading preview…
+      </div>
+
+      <template x-if="!$store.cartSend.previewLoading && $store.cartSend.previewData">
+        <div>
+          <!-- Modality picker -->
+          <div class="mb-4">
+            <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Fulfillment</div>
+            <div class="inline-flex border border-gray-200 rounded-lg overflow-hidden text-sm">
+              <button type="button"
+                @click="$store.cartSend.modality = 'PICKUP'; $store.cartSend.open()"
+                :style="$store.cartSend.modality === 'PICKUP'
+                  ? 'background: var(--green); color: white;'
+                  : 'background: white; color: var(--text-2);'"
+                class="px-4 py-1.5 transition-colors">Pickup</button>
+              <button type="button"
+                @click="$store.cartSend.modality = 'DELIVERY'; $store.cartSend.open()"
+                :style="$store.cartSend.modality === 'DELIVERY'
+                  ? 'background: var(--green); color: white;'
+                  : 'background: white; color: var(--text-2);'"
+                class="px-4 py-1.5 border-l border-gray-200 transition-colors">Delivery</button>
+            </div>
+          </div>
+
+          <!-- Will add — editable rows with checkbox + integer stepper -->
+          <div class="mb-4">
+            <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+              Will add
+              <span class="ml-1 text-gray-400"
+                x-text="'(' + $store.cartSend.selectedCartCount() + ' of ' + (($store.cartSend.previewData.items || []).length) + ' selected)'"></span>
+            </div>
+            <template x-if="($store.cartSend.previewData.items || []).length === 0">
+              <p class="text-xs text-gray-400 italic">Nothing to add.</p>
+            </template>
+            <ul class="space-y-1.5">
+              <template x-for="it in ($store.cartSend.previewData.items || [])" :key="it.product_id">
+                <li class="flex items-center gap-2 py-1 border-b border-gray-50">
+                  <input type="checkbox"
+                    :id="'cart-' + it.product_id"
+                    x-model="$store.cartSend.cartSelected[it.product_id]"
+                    style="width: 1rem; height: 1rem; flex-shrink: 0; accent-color: var(--green);"/>
+                  <label class="flex-1 text-sm" :for="'cart-' + it.product_id" style="color: var(--text-1);">
+                    <span x-text="it.name"></span>
+                    <span x-show="it.recipe_name" class="text-gray-400 text-xs ml-1" x-text="'· ' + it.recipe_name"></span>
+                  </label>
+                  <div class="inline-flex items-center border border-gray-200 rounded-md text-sm flex-shrink-0">
+                    <button type="button"
+                      @click="$store.cartSend.stepCartQty(it.product_id, -1)"
+                      :disabled="!$store.cartSend.cartSelected[it.product_id]"
+                      class="px-2 py-0.5 disabled:opacity-40" aria-label="Decrease quantity">−</button>
+                    <input type="number" min="1" step="1"
+                      :value="$store.cartSend.cartQty[it.product_id]"
+                      @input="$store.cartSend.setCartQty(it.product_id, $event.target.value)"
+                      :disabled="!$store.cartSend.cartSelected[it.product_id]"
+                      class="w-12 text-center border-l border-r border-gray-200 py-0.5 disabled:opacity-40"
+                      aria-label="Quantity"/>
+                    <button type="button"
+                      @click="$store.cartSend.stepCartQty(it.product_id, 1)"
+                      :disabled="!$store.cartSend.cartSelected[it.product_id]"
+                      class="px-2 py-0.5 disabled:opacity-40" aria-label="Increase quantity">+</button>
+                  </div>
+                </li>
+              </template>
+            </ul>
+          </div>
+
+          <!-- Will skip -->
+          <template x-if="($store.cartSend.previewData.items_to_skip || []).length > 0">
+            <div class="mb-4">
+              <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+                Will skip (<span x-text="$store.cartSend.previewData.summary?.to_skip ?? 0"></span>)
+              </div>
+              <ul class="text-sm text-gray-600 space-y-1">
+                <template x-for="it in $store.cartSend.previewData.items_to_skip" :key="it.name">
+                  <li>
+                    <span x-text="it.name"></span>
+                    <span class="text-gray-400 text-xs ml-1" x-text="'— ' + it.reason"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+
+          <!-- Spices (optional) — unchecked spices stay on the shopping list -->
+          <template x-if="($store.cartSend.previewData.spices || []).length > 0">
+            <div class="mb-4">
+              <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+                Spices, optional (<span x-text="$store.cartSend.checkedSpiceCount"></span> /
+                <span x-text="$store.cartSend.previewData.summary?.spices ?? 0"></span>)
+              </div>
+              <p class="text-xs text-gray-400 mb-2">
+                Unchecked spices stay on your shopping list for next time.
+              </p>
+              <ul class="text-sm text-gray-700 space-y-1">
+                <template x-for="it in $store.cartSend.previewData.spices" :key="it.product_id">
+                  <li class="flex items-center justify-between gap-2">
+                    <label class="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                      <input type="checkbox"
+                        :checked="!!$store.cartSend.spiceChecked[it.product_id]"
+                        @change="$store.cartSend.toggleSpice(it.product_id)"
+                        class="flex-shrink-0"/>
+                      <span class="truncate" x-text="it.name"></span>
+                    </label>
+                    <span class="text-gray-500 text-xs flex-shrink-0" x-text="'×' + it.quantity"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+
+          <!-- Manual purchase -->
+          <template x-if="($store.cartSend.previewData.manual_purchase || []).length > 0">
+            <div class="mb-2">
+              <div class="text-xs font-medium text-amber-700 uppercase tracking-wide mb-1.5">
+                Manual purchase (<span x-text="$store.cartSend.previewData.summary?.manual ?? 0"></span>)
+              </div>
+              <ul class="text-sm text-gray-600 space-y-1">
+                <template x-for="it in $store.cartSend.previewData.manual_purchase" :key="it.name">
+                  <li>
+                    <span x-text="it.name"></span>
+                    <span class="text-gray-400 text-xs ml-1" x-text="it.notes ? '— ' + it.notes : ''"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <!-- Footer -->
+    <div class="flex justify-end gap-2 p-4 border-t border-gray-100 flex-shrink-0">
+      <button @click="$store.cartSend.close()" :disabled="$store.cartSend.sendBusy"
+        class="ss-btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+        Cancel
+      </button>
+      <button @click="$store.cartSend.confirmSend()"
+        :disabled="$store.cartSend.sendBusy || $store.cartSend.previewLoading || !$store.cartSend.previewData || ($store.cartSend.selectedCartCount() + $store.cartSend.checkedSpiceCount) === 0"
+        class="ss-btn-primary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+        <span x-show="!$store.cartSend.sendBusy"
+          x-text="'Confirm · ' + ($store.cartSend.selectedCartCount() + $store.cartSend.checkedSpiceCount) + ' item' + (($store.cartSend.selectedCartCount() + $store.cartSend.checkedSpiceCount) === 1 ? '' : 's')"></span>
+        <span x-show="$store.cartSend.sendBusy" x-cloak>Sending…</span>
+      </button>
+    </div>
+  </div>
+</div>
+{% endmacro %}
