@@ -42,6 +42,13 @@
 > none) and every Kroger-calling web route runs off the event loop.
 > Real fixes are box-level: tame/schedule the miner, add RAM, or move Smart
 > Shopper to the .108 box (this runbook's original purpose).
+>
+> **UPDATE 2026-06-13 — root cause removed.** The mempalace miner (a launchd
+> agent `com.user.mempalace-remote-mine` running CPU embeddings over all
+> `~/.claude/projects` transcripts) was the swap driver. It has been fully
+> removed from the mini (launchd agent, store, run script, binary) and the
+> laptop. Mini swap dropped 33 GB → ~1.7 GB; prod serves sub-10 ms. If
+> swap-thrash recurs, look for a NEW heavy tenant — mempalace is no longer it.
 
 > ## ⚙️ EFFICIENCY DEPLOY — 2026-06-11 (good-neighbor batch)
 > Deployed gzip, shared Jinja2 templates, static cache headers, 5 perf indexes
