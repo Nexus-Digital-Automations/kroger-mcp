@@ -316,7 +316,7 @@ function dealsSortVM() {
   @action-menu:cart-add.window="addToCart($event.detail.item)"
   @action-menu:shopping-add.window="addToShoppingList($event.detail.item)"
   @action-menu:recipe-add.window="menuAddToRecipe($event.detail.item, $event.detail.recipeId, $event.detail.recipeName)"
-  @action-menu:view-details.window="window.location.href = '/products?q=' + encodeURIComponent($event.detail.item.description || '')"
+  @action-menu:view-details.window="mode = 'search'; query = $event.detail.item.description || ''; search()"
 >
 
   <!-- Top bar: search input + action button + mode toggle -->

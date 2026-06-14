@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from ..auth.dependencies import mcp_user_id
+from ..cache import cache_read_through
 from .database import ensure_initialized, get_db_connection
 
 # Built-in holiday patterns with shopping lead times
@@ -103,15 +104,18 @@ def get_holiday_date(holiday: str, year: int) -> date | None:
 
 
 def get_upcoming_holidays(days_ahead: int = 30) -> list[dict[str, Any]]:
-    """
-    Get upcoming holidays with their shopping dates.
+    """Get upcoming holidays with their shopping dates (cached for the day).
 
-    Args:
-        days_ahead: Number of days to look ahead
-
-    Returns:
-        List of upcoming holidays with dates and shopping info
+    Pure date math over the fixed HOLIDAY_PATTERNS table — the result only
+    changes when the calendar day rolls over, so the cache key embeds today's
+    date and the result is reused for the rest of the day. Falls back to a live
+    computation when Redis is down (cache_read_through degrades gracefully).
     """
+    key = f"holidays:{date.today().isoformat()}:{days_ahead}"
+    return cache_read_through(key, 86400, lambda: _get_upcoming_holidays_uncached(days_ahead))
+
+
+def _get_upcoming_holidays_uncached(days_ahead: int = 30) -> list[dict[str, Any]]:
     today = date.today()
     upcoming = []
 

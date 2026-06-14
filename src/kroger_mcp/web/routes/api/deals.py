@@ -1,6 +1,7 @@
 """Deals API endpoints — find sales, manage watchlist, price history."""
 
 import asyncio
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Request
@@ -13,6 +14,7 @@ from kroger_mcp.analytics.database import (
     get_db_cursor,
 )
 from kroger_mcp.auth.dependencies import current_user_id
+from kroger_mcp.cache import get_redis
 from kroger_mcp.tools.shared import (
     get_client_credentials_client,
     get_preferred_location_id,
@@ -98,6 +100,18 @@ async def auto_deals(request: Request, min_savings: float = 5):
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+    # Cache the whole scan: ~5 Kroger searches per click, and deals barely move
+    # within 15 min. Best-effort — degrades to a live scan when Redis is down.
+    cache_key = f"deals:auto:{location_id}:{min_savings:g}"
+    redis = get_redis()
+    if redis is not None:
+        try:
+            cached = redis.get(cache_key)
+            if cached is not None:
+                return JSONResponse(content=json.loads(cached))
+        except Exception:
+            pass
+
     async def _search(term: str) -> list:
         try:
             result = await asyncio.to_thread(
@@ -162,6 +176,14 @@ async def auto_deals(request: Request, min_savings: float = 5):
             deal["positive_attributes"] = d.get("positive_attributes", [])
     except Exception:
         pass
+
+    # Cache write (miss path only). record_price_observation above therefore runs
+    # at most once per TTL — fine, the scan cadence stays >= every 15 min.
+    if redis is not None:
+        try:
+            redis.set(cache_key, json.dumps(deals), ex=900)
+        except Exception:
+            pass
 
     return JSONResponse(content=deals)
 

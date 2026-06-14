@@ -8,6 +8,7 @@ Provides tools for:
 """
 
 import asyncio
+import copy
 import logging
 import os
 import uuid
@@ -72,8 +73,35 @@ def _remember_ingredient_link(raw_name: str, product_id: str) -> None:
         logger.warning("ingredient_link.remember_failed product=%s", product_id, exc_info=True)
 
 
+# Fingerprint cache: (mtime_ns, size) -> pristine parsed recipes. Populated by
+# _load_recipes, invalidated implicitly when the file changes (save bumps mtime).
+_recipes_cache: tuple[tuple[int, int], dict[str, Any]] | None = None
+
+
 def _load_recipes() -> dict[str, Any]:
-    return _recipes_store.load()
+    """Load recipes, skipping the disk re-read when the file is unchanged.
+
+    Hot path: called 2-3x per web request (dashboard, meal-plan, recipes), and
+    JsonStore re-reads + re-parses the file on every call. Memoize by file
+    fingerprint (mtime_ns + size). WHY a deep copy is returned: callers mutate
+    the result in place (recipes.py adds _time/tags/cost_per_serving), and
+    JsonStore's contract is that each read yields fresh objects so mutations
+    never poison a later read — the cached master must stay pristine.
+    """
+    global _recipes_cache
+    try:
+        st = _recipes_store.path.stat()
+    except OSError:
+        # Missing/unreadable file — defer to the store's default-factory fallback.
+        return _recipes_store.load()
+
+    fingerprint = (st.st_mtime_ns, st.st_size)
+    if _recipes_cache is not None and _recipes_cache[0] == fingerprint:
+        return copy.deepcopy(_recipes_cache[1])
+
+    data = _recipes_store.load()
+    _recipes_cache = (fingerprint, data)
+    return copy.deepcopy(data)
 
 
 def _normalize_ingredients(ingredients: list[dict[str, Any]]) -> list[dict[str, Any]]:

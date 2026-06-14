@@ -122,10 +122,11 @@ def test_recommendations_cached_per_param_set(monkeypatch):
 
 
 def test_favorite_ids_cached_and_returned_as_set(monkeypatch):
-    fake = _FakeRedis()
-    monkeypatch.setattr(cache_mod, "get_redis", lambda: fake)
     import kroger_mcp.analytics.favorites as favorites
 
+    # Patch the consumer's cache_read_through (not cache.get_redis) so the test is
+    # immune to suite modules that reload cache out from under a get_redis patch.
+    monkeypatch.setattr(favorites, "cache_read_through", _local_cache_read_through({}))
     monkeypatch.setattr(favorites, "ensure_initialized", lambda: None)
     db_calls = {"n": 0}
 
@@ -252,3 +253,107 @@ def test_recipe_cost_redis_down_degrades_to_compute(monkeypatch):
     recipe_scoring.estimate_recipe_cost(_recipe())
     recipe_scoring.estimate_recipe_cost(_recipe())
     assert calls["n"] == 2  # no Redis → every call computes, nothing breaks
+
+
+# --- upcoming-holidays cache (date-keyed) -----------------------------------
+
+
+def _local_cache_read_through(store: dict):
+    """Stand-in for cache_read_through backed by a per-test dict.
+
+    Patched onto ``seasonal`` so the test pins seasonal's own caching contract
+    (date-scoped key + producer delegation) without depending on the shared
+    Redis singleton, which other suite modules reload out from under a
+    ``cache.get_redis`` monkeypatch.
+    """
+
+    def _crt(key, ttl_seconds, producer):
+        if key in store:
+            return store[key]
+        value = producer()
+        store[key] = value
+        return value
+
+    return _crt
+
+
+def test_upcoming_holidays_cached_within_day(monkeypatch):
+    import datetime as _dt
+
+    import kroger_mcp.analytics.seasonal as seasonal
+
+    store: dict = {}
+    monkeypatch.setattr(seasonal, "cache_read_through", _local_cache_read_through(store))
+
+    calls = {"n": 0}
+    real = seasonal._get_upcoming_holidays_uncached
+
+    def _counting(days_ahead=30):
+        calls["n"] += 1
+        return real(days_ahead)
+
+    monkeypatch.setattr(seasonal, "_get_upcoming_holidays_uncached", _counting)
+
+    a = seasonal.get_upcoming_holidays(30)
+    b = seasonal.get_upcoming_holidays(30)
+
+    assert a == b
+    assert calls["n"] == 1  # second call served from cache
+    # Key is date-scoped so it rolls over at midnight.
+    today = _dt.date.today().isoformat()
+    assert any(today in k for k in store)
+
+
+def test_upcoming_holidays_distinct_window_misses(monkeypatch):
+    import kroger_mcp.analytics.seasonal as seasonal
+
+    store: dict = {}
+    monkeypatch.setattr(seasonal, "cache_read_through", _local_cache_read_through(store))
+
+    calls = {"n": 0}
+    real = seasonal._get_upcoming_holidays_uncached
+
+    def _counting(days_ahead=30):
+        calls["n"] += 1
+        return real(days_ahead)
+
+    monkeypatch.setattr(seasonal, "_get_upcoming_holidays_uncached", _counting)
+
+    seasonal.get_upcoming_holidays(30)
+    seasonal.get_upcoming_holidays(60)  # different days_ahead → distinct key
+    assert calls["n"] == 2
+
+
+# --- predictions in-process memo --------------------------------------------
+
+
+def test_predictions_for_period_memoized(monkeypatch):
+    import kroger_mcp.analytics.predictions as predictions
+
+    predictions._predictions_memo.clear()
+    calls = {"n": 0}
+
+    def _fake_compute(days_ahead=14, category_filter=None, min_confidence=0.0, include_overdue=True):
+        calls["n"] += 1
+        return [
+            predictions.RepurchasePrediction(
+                "p1", "Milk", "routine", None, 3, 0.5, "medium", 0.8, None, 7.0
+            )
+        ]
+
+    monkeypatch.setattr(predictions, "_compute_predictions_for_period", _fake_compute)
+
+    a = predictions.get_predictions_for_period(days_ahead=14)
+    b = predictions.get_predictions_for_period(days_ahead=14)
+    assert a == b
+    assert calls["n"] == 1  # second call served from memo
+
+    # Returned list is a fresh copy — mutating it must not poison the memo.
+    a.append("x")
+    c = predictions.get_predictions_for_period(days_ahead=14)
+    assert len(c) == 1
+
+    predictions.get_predictions_for_period(days_ahead=30)  # distinct params recompute
+    assert calls["n"] == 2
+
+    predictions._predictions_memo.clear()

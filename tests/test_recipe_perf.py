@@ -323,3 +323,83 @@ def test_calculate_health_score_matches_reference_total(monkeypatch):
         )
         assert result["bonus_applied"] == bonus
         assert len(result["categories_detected"]) == comp["categories"]
+
+
+# ---------------------------------------------------------------------------
+# Task 1A (Batch 4) — _load_recipes fingerprint cache
+# ---------------------------------------------------------------------------
+
+import kroger_mcp.tools.recipe_tools as rt  # noqa: E402
+from kroger_mcp.tools._storage import JsonStore  # noqa: E402
+
+
+def _make_recipes_store(tmp_path, recipes: list[dict[str, Any]]):
+    path = tmp_path / "kroger_recipes.json"
+    path.write_text(json.dumps({"recipes": recipes, "last_updated": None}))
+    store = JsonStore(str(path), default=lambda: {"recipes": [], "last_updated": None})
+    return store, path
+
+
+def test_load_recipes_reads_file_once_when_unchanged(tmp_path, monkeypatch):
+    store, _ = _make_recipes_store(tmp_path, [{"id": "r1", "name": "Soup", "ingredients": []}])
+    calls = {"n": 0}
+    original = store.load
+
+    def counting_load():
+        calls["n"] += 1
+        return original()
+
+    monkeypatch.setattr(store, "load", counting_load)
+    monkeypatch.setattr(rt, "_recipes_store", store)
+    rt._recipes_cache = None
+
+    a = rt._load_recipes()
+    b = rt._load_recipes()
+    c = rt._load_recipes()
+
+    assert a == b == c
+    assert calls["n"] == 1  # only the first call touched disk
+    rt._recipes_cache = None
+
+
+def test_load_recipes_mutation_does_not_poison_cache(tmp_path, monkeypatch):
+    store, _ = _make_recipes_store(tmp_path, [{"id": "r1", "name": "Soup", "ingredients": []}])
+    monkeypatch.setattr(rt, "_recipes_store", store)
+    rt._recipes_cache = None
+
+    first = rt._load_recipes()
+    first["recipes"][0]["name"] = "MUTATED"
+    first["recipes"].append({"id": "x"})
+
+    second = rt._load_recipes()
+    assert second["recipes"][0]["name"] == "Soup"
+    assert len(second["recipes"]) == 1
+    rt._recipes_cache = None
+
+
+def test_load_recipes_invalidates_when_file_changes(tmp_path, monkeypatch):
+    store, path = _make_recipes_store(tmp_path, [{"id": "r1", "name": "Soup", "ingredients": []}])
+    monkeypatch.setattr(rt, "_recipes_store", store)
+    rt._recipes_cache = None
+
+    first = rt._load_recipes()
+    assert first["recipes"][0]["name"] == "Soup"
+
+    # Rewrite with different content (size changes → fingerprint changes even if
+    # the mtime resolution is coarse).
+    path.write_text(
+        json.dumps(
+            {
+                "recipes": [
+                    {"id": "r1", "name": "Stew", "ingredients": []},
+                    {"id": "r2", "name": "Salad", "ingredients": []},
+                ],
+                "last_updated": None,
+            }
+        )
+    )
+
+    second = rt._load_recipes()
+    assert second["recipes"][0]["name"] == "Stew"
+    assert len(second["recipes"]) == 2
+    rt._recipes_cache = None

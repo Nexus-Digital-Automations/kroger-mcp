@@ -57,6 +57,8 @@
   init() {
     // Let the shared cook_modal refresh the calendar in place instead of reloading.
     window._ssRefreshMealPlan = () => this.refreshCalendar();
+    // Back/forward after a plan-switch pushState: re-swap to match the URL.
+    window.addEventListener('popstate', () => this.refreshCalendar());
   },
 
   /* ── Toast (delegates to the global toastStack in base.html) ── */
@@ -64,21 +66,29 @@
     window._ssToast(msg, level ? { level } : undefined);
   },
 
-  /* Swap just the calendar + stats regions with fresh server HTML instead of a
-     full reload — keeps scroll, open modals, and swap-mode state alive. The
-     regions live inside this x-data wrapper, so Alpine re-binds the injected
-     DOM to this same scope. Falls back to a hard reload on fetch failure. */
-  async refreshCalendar() {
+  /* Swap the plan-specific regions (metadata strip + calendar + stats) with
+     fresh server HTML instead of a full reload — keeps scroll, open modals, and
+     swap-mode state alive. The regions live inside this x-data wrapper, so
+     Alpine re-binds the injected DOM to this same scope.
+
+     With no `url` it refreshes the current page (used after add/swap/remove).
+     With a `url` it loads a DIFFERENT plan and pushes the URL so the address bar
+     + back button track the active plan. Falls back to navigation on failure. */
+  async refreshCalendar(url) {
+    const target = url || window.location.href;
     try {
-      const r = await fetch(window.location.href, { headers: { 'Accept': 'text/html' } });
+      const r = await fetch(target, { headers: { 'Accept': 'text/html' } });
       if (!r.ok) throw new Error('refresh failed');
       const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
-      for (const id of ['mealplan-calendar', 'mealplan-stats']) {
+      for (const id of ['mealplan-meta', 'mealplan-calendar', 'mealplan-stats']) {
         const fresh = doc.getElementById(id);
         const current = document.getElementById(id);
         if (fresh && current) current.replaceWith(fresh);
       }
-    } catch (e) { window.location.reload(); }
+      if (url) window.history.pushState({}, '', url);
+    } catch (e) {
+      if (url) { window.location.href = url; } else { window.location.reload(); }
+    }
   },
 
   openAddMeal(date, slot) {
@@ -517,7 +527,7 @@
 
 <!-- Plan selector bar -->
 <div class="flex items-center gap-3 mb-4" x-data="{ switching: false }">
-  <select @change="switching = true; window.location='/meal-plan?plan_id='+$event.target.value"
+  <select @change="switching = true; refreshCalendar('/meal-plan?plan_id='+$event.target.value).finally(() => switching = false)"
     :disabled="switching"
     class="ss-input min-w-48 max-w-sm">
     {% for plan in plans %}
@@ -546,8 +556,8 @@
   <div class="min-w-0">
 
     {% if active_plan %}
-    <!-- Plan metadata strip + toolbar -->
-    <div class="ss-card px-6 py-4 mb-4 flex items-center justify-between">
+    <!-- Plan metadata strip + toolbar (id = refreshCalendar() swap region) -->
+    <div id="mealplan-meta" class="ss-card px-6 py-4 mb-4 flex items-center justify-between">
       <div>
         <h2 style="font-size: 0.9375rem; font-weight: 600; color: var(--text-1);">{{ active_plan.name }}</h2>
         <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.125rem;">

@@ -4,6 +4,7 @@ Repurchase prediction engine.
 Predicts when items will need to be repurchased based on consumption patterns.
 """
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -200,14 +201,28 @@ def predict_repurchase_date(
     )
 
 
+# In-process TTL memo for get_predictions_for_period. Results return dataclasses
+# (not JSON-serialisable, so Redis read-through can't wrap them), and the
+# function is re-run several times within one suggestions flow (get_overdue_items
+# + get_shopping_suggestions). The underlying product_statistics are global, so a
+# process-local memo is sound on the single-worker prod box; stats freshness lags
+# by at most the TTL, which is acceptable for shopping suggestions.
+_PREDICTIONS_MEMO_TTL_SECONDS = 600.0
+_predictions_memo: dict[tuple[int, str | None, float, bool], tuple[float, list["RepurchasePrediction"]]] = {}
+
+
 def get_predictions_for_period(
     days_ahead: int = 14,
     category_filter: str | None = None,
     min_confidence: float = 0.0,
     include_overdue: bool = True,
 ) -> list[RepurchasePrediction]:
-    """
-    Get predictions for items that will need repurchase within a period.
+    """Get predictions for items needing repurchase within a period.
+
+    Memoized in-process for ~10 min keyed by the four parameters (see
+    ``_predictions_memo``). Returns a fresh list each call so callers can't
+    mutate the cached one; the prediction objects themselves are consumed
+    read-only.
 
     Args:
         days_ahead: Number of days to look ahead
@@ -218,6 +233,26 @@ def get_predictions_for_period(
     Returns:
         List of RepurchasePrediction objects sorted by urgency
     """
+    memo_key = (days_ahead, category_filter, min_confidence, include_overdue)
+    now = time.monotonic()
+    cached = _predictions_memo.get(memo_key)
+    if cached is not None and cached[0] > now:
+        return list(cached[1])
+
+    result = _compute_predictions_for_period(
+        days_ahead, category_filter, min_confidence, include_overdue
+    )
+    _predictions_memo[memo_key] = (now + _PREDICTIONS_MEMO_TTL_SECONDS, result)
+    return list(result)
+
+
+def _compute_predictions_for_period(
+    days_ahead: int = 14,
+    category_filter: str | None = None,
+    min_confidence: float = 0.0,
+    include_overdue: bool = True,
+) -> list[RepurchasePrediction]:
+    """Uncached body of get_predictions_for_period (one DB scan + scoring)."""
     ensure_initialized()
 
     conn = get_db_connection()
