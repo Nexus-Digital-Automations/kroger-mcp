@@ -13,8 +13,12 @@ real analytics store.
 import sqlite3
 
 import pytest
+from _pg_support import skip_on_pg
 
 from kroger_mcp.analytics import consent, database, sharing
+
+# SQLite-specific: monkeypatches database.DB_FILE to an isolated temp SQLite db.
+pytestmark = skip_on_pg
 
 USER = "consent-test-user"
 

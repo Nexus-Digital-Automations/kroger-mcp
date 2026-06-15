@@ -11,12 +11,17 @@ import pytest
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from _pg_support import skip_on_pg
+
 from kroger_mcp.analytics.database import get_db_connection, initialize_database
 from kroger_mcp.analytics.ingredients import (
     check_product_safety,
     get_active_ingredients,
     get_compiled_patterns,
 )
+
+# SQLite-specific: relies on SQLite-only schema/DDL (AUTOINCREMENT, etc.).
+pytestmark = skip_on_pg
 
 
 @pytest.fixture

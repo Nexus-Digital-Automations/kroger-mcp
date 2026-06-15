@@ -14,6 +14,8 @@ import pytest
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from _pg_support import skip_on_pg
+
 from kroger_mcp.analytics.database import (
     ensure_initialized,
     get_db_connection,
@@ -259,6 +261,8 @@ class TestExpirationStatus:
         assert status == 'none'
 
 
+# SQLite-specific: clean_db fixture uses PRAGMA foreign_keys = OFF.
+@skip_on_pg
 class TestRestockWithExpiration:
     """Test restock_item() auto-calculates expiration."""
 
@@ -375,6 +379,8 @@ class TestRestockWithExpiration:
         assert exp2 is not None
 
 
+# SQLite-specific: clean_db fixture uses PRAGMA foreign_keys = OFF.
+@skip_on_pg
 class TestPantryStatusWithExpiration:
     """Test get_pantry_status() includes expiration fields."""
 
@@ -466,6 +472,8 @@ class TestPantryStatusWithExpiration:
         assert item['expiration_status'] == 'none'
 
 
+# SQLite-specific: clean_db fixture uses PRAGMA foreign_keys = OFF.
+@skip_on_pg
 class TestManualExpirationOverride:
     """Test manual expiration date setting (would use MCP tool)."""
 

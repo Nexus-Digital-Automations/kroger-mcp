@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from _pg_support import RUNNING_ON_PG
 
 from kroger_mcp.analytics import ingredient_links as il
 from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
@@ -20,14 +21,29 @@ from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
 
 @pytest.fixture
 def two_users():
-    """Two throwaway account ids; teardown purges their ingredient_links rows.
+    """Two throwaway account ids; teardown purges their rows.
 
     Random UUIDs keep these isolated from real data, so the live analytics DB
-    is safe to use without a separate fixture database.
+    is safe to use without a separate fixture database. On Postgres,
+    ingredient_links.user_id has an FK to users(id) (the multi-tenant schema;
+    SQLite is single-user and has no users table), so seed real users rows for
+    the throwaway ids and clean them up afterward.
     """
     ensure_initialized()
     a_id = str(uuid.uuid4())
     b_id = str(uuid.uuid4())
+    if RUNNING_ON_PG:
+        conn = get_db_connection()
+        try:
+            for uid in (a_id, b_id):
+                conn.execute(
+                    "INSERT INTO users (id, email, password_hash, display_name) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING",
+                    (uid, f"{uid}@tests.local", "x", "Test User"),
+                )
+            conn.commit()
+        finally:
+            conn.close()
     try:
         yield a_id, b_id
     finally:
@@ -35,6 +51,9 @@ def two_users():
         conn.execute(
             "DELETE FROM ingredient_links WHERE user_id IN (?, ?)", (a_id, b_id)
         )
+        if RUNNING_ON_PG:
+            # FK is ON DELETE CASCADE, so this also clears any leftover links.
+            conn.execute("DELETE FROM users WHERE id IN (?, ?)", (a_id, b_id))
         conn.commit()
         conn.close()
 

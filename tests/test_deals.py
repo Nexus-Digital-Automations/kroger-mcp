@@ -90,11 +90,13 @@ def test_record_price_observation(clean_db):
         )
         result = cursor.fetchone()
         assert result is not None
-        assert result["regular_price"] == 4.99
-        assert result["sale_price"] == 3.99
+        # PG returns Decimal for NUMERIC price columns; SQLite returns float.
+        # Compare numerically so the assertions hold on both backends.
+        assert float(result["regular_price"]) == 4.99
+        assert float(result["sale_price"]) == 3.99
         assert result["on_sale"] == 1
-        assert abs(result["savings_amount"] - 1.0) < 0.01
-        assert abs(result["savings_percent"] - 20.04) < 0.1
+        assert abs(float(result["savings_amount"]) - 1.0) < 0.01
+        assert abs(float(result["savings_percent"]) - 20.04) < 0.1
     finally:
         conn.close()
 
@@ -160,7 +162,9 @@ def test_get_price_statistics_with_data(clean_db):
                     "TEST003",
                     4.99,
                     sale_price,
-                    1 if sale_price else 0,
+                    # on_sale is a boolean column on PG; bind a bool (not 1/0)
+                    # so the insert works on both PG and SQLite.
+                    bool(sale_price),
                     (4.99 - sale_price) if sale_price else 0,
                     ((4.99 - sale_price) / 4.99 * 100) if sale_price else 0,
                     "01400943",
@@ -356,9 +360,10 @@ def test_deal_scan_results_add(clean_db):
         )
         result = cursor.fetchone()
         assert result is not None
-        assert result["regular_price"] == 4.99
-        assert result["sale_price"] == 3.99
-        assert result["savings_amount"] == 1.00
+        # PG returns Decimal for NUMERIC columns; compare numerically.
+        assert float(result["regular_price"]) == 4.99
+        assert float(result["sale_price"]) == 3.99
+        assert float(result["savings_amount"]) == 1.00
     finally:
         conn.close()
 
@@ -390,8 +395,13 @@ def test_deal_scan_results_cleanup(clean_db):
         )
         conn.commit()
 
-        # Clean old results (simulate background_scanner.py cleanup)
-        conn.execute("DELETE FROM deal_scan_results WHERE scan_date < date('now', '-7 days')")
+        # Clean old results (simulate background_scanner.py cleanup).
+        # Portable cutoff: compute in Python and bind, instead of the
+        # SQLite-only date('now', '-7 days') (no such function on PG).
+        cutoff_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        conn.execute(
+            "DELETE FROM deal_scan_results WHERE scan_date < ?", (cutoff_date,)
+        )
         conn.commit()
 
         # Verify old result is gone
@@ -409,15 +419,22 @@ def test_watchlist_add(clean_db):
     """Test adding item to watchlist."""
     insert_test_product("TEST_WATCH001", "Test Yogurt")
 
+    # deal_watchlist is user-scoped: user_id is NOT NULL with an FK to users on
+    # PG (the app always sets it). Bind the seeded default owner so the insert
+    # works on both backends.
+    from kroger_mcp.auth.dependencies import default_user_id
+
+    owner = default_user_id()
+
     conn = get_db_connection()
     try:
         conn.execute(
             """
             INSERT INTO deal_watchlist
-            (product_id, description, target_price, priority)
-            VALUES (?, ?, ?, ?)
+            (user_id, product_id, description, target_price, priority)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            ("TEST_WATCH001", "Test Yogurt", 2.99, 3),
+            (owner, "TEST_WATCH001", "Test Yogurt", 2.99, 3),
         )
         conn.commit()
 
@@ -429,7 +446,8 @@ def test_watchlist_add(clean_db):
         result = cursor.fetchone()
         assert result is not None
         assert result["description"] == "Test Yogurt"
-        assert result["target_price"] == 2.99
+        # PG returns Decimal for NUMERIC target_price; compare numerically.
+        assert float(result["target_price"]) == 2.99
         assert result["priority"] == 3
     finally:
         conn.close()

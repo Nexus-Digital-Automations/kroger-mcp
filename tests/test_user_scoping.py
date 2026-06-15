@@ -41,8 +41,11 @@ def two_users():
         conn.commit()
         yield a_id, b_id
     finally:
+        # favorite_list_items is NOT user-keyed (it has no usable user_id column —
+        # it is scoped via favorite_lists.id with ON DELETE CASCADE), so deleting
+        # favorite_lists below removes its items. Listing it here errored on
+        # Postgres (no such column) and was a no-op on SQLite.
         for table in (
-            "favorite_list_items",
             "favorite_lists",
             "pantry_items",
             "pantry_consumption_log",

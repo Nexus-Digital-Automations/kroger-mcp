@@ -15,6 +15,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from _pg_support import skip_on_pg
+
 from kroger_mcp.analytics.database import (
     ensure_initialized,
     get_db_connection,
@@ -30,6 +32,9 @@ from kroger_mcp.analytics.pantry import (
     resolve_gap,
     restock_item,
 )
+
+# SQLite-specific: uses PRAGMA foreign_keys = OFF for fixture setup.
+pytestmark = skip_on_pg
 
 
 @pytest.fixture

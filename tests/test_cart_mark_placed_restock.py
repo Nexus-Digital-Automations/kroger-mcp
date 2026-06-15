@@ -6,6 +6,14 @@ import sqlite3
 import sys
 from types import SimpleNamespace
 
+from _pg_support import skip_on_pg
+
+# This test harness opens sqlite3.connect(DB_FILE) directly to set up/verify and
+# uses a non-UUID "test-user" — both SQLite-only. The restock data path itself
+# (restock_item via get_db_cursor) is exercised on Postgres by test_pg_backend's
+# pantry write+read, so skipping the web-route integration here loses no PG coverage.
+pytestmark = skip_on_pg
+
 
 def _fake_request(user_id: str = "test-user"):
     """Minimal stand-in for FastAPI Request carrying an authenticated user.

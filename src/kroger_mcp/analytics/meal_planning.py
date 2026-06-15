@@ -2536,15 +2536,22 @@ def cleanup_expired_plans(retention_days: int = 90, user_id: str | None = None) 
     retention_days = max(1, retention_days)
     conn = get_db_connection()
     try:
+        # Portable cutoff: "end_date + retention_days < today" is equivalent to
+        # "end_date < today - retention_days". Compute the cutoff in Python and
+        # bind it, instead of the SQLite-only date(end_date, '+N days') / date('now')
+        # idioms (no such functions on PostgreSQL). Same date granularity as before.
+        cutoff_date = (datetime.now() - timedelta(days=retention_days)).strftime(
+            "%Y-%m-%d"
+        )
         # Identify plans to delete first (for informative response)
         expired = conn.execute(
             """
             SELECT id, name, end_date
             FROM meal_plans
             WHERE user_id = ?
-              AND date(end_date, '+' || ? || ' days') < date('now')
+              AND end_date < ?
             """,
-            (owner, str(retention_days)),
+            (owner, cutoff_date),
         ).fetchall()
 
         if not expired:
@@ -2559,9 +2566,9 @@ def cleanup_expired_plans(retention_days: int = 90, user_id: str | None = None) 
             """
             DELETE FROM meal_plans
             WHERE user_id = ?
-              AND date(end_date, '+' || ? || ' days') < date('now')
+              AND end_date < ?
             """,
-            (owner, str(retention_days)),
+            (owner, cutoff_date),
         )
         conn.commit()
 

@@ -16,9 +16,13 @@ import sqlite3
 from typing import Any
 
 import pytest
+from _pg_support import skip_on_pg
 
 from kroger_mcp.analytics import safety as safety_mod
 from kroger_mcp.analytics.ingredients import SafetyResult
+
+# SQLite-specific: exercises sqlite3 directly for batched price writes.
+pytestmark = skip_on_pg
 
 
 # --------------------------------------------------------------------------- #

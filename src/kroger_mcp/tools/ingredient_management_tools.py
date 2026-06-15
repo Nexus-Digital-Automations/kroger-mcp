@@ -960,14 +960,22 @@ def register_tools(mcp):
 
                 conn = get_db_connection()
                 try:
+                    # Portable cutoff: compute in Python and bind, instead of the
+                    # SQLite-only date('now', '-90 days') (no such function on PG).
+                    from datetime import datetime, timedelta
+
+                    cutoff_date = (datetime.now() - timedelta(days=90)).strftime(
+                        "%Y-%m-%d"
+                    )
                     cursor = conn.execute(
                         """
                         SELECT DISTINCT p.product_id, p.description, p.brand
                         FROM products p
                         JOIN purchase_events pe ON p.product_id = pe.product_id
-                        WHERE pe.event_date >= date('now', '-90 days')
+                        WHERE pe.event_date >= ?
                         LIMIT 500
-                        """
+                        """,
+                        (cutoff_date,),
                     )
                     products = cursor.fetchall()
 

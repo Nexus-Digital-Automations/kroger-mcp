@@ -16,6 +16,8 @@ import re
 import sqlite3
 from pathlib import Path
 
+from _pg_support import skip_on_pg
+
 # The six tables reconciled into the PG schema during the Phase 3 migration prep
 # — kept as an explicit sentinel so an accidental revert is caught immediately.
 # whole_foods_catalog + deal_scan_results are still created by the current SQLite
@@ -61,6 +63,8 @@ def _pg_schema_tables() -> set[str]:
     return set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA_SQL))
 
 
+# SQLite-specific: builds the live schema via SQLite DDL (AUTOINCREMENT) at runtime.
+@skip_on_pg
 def test_pg_schema_covers_every_sqlite_table(tmp_path):
     sqlite_tables = _sqlite_runtime_tables(tmp_path)
     pg_tables = _pg_schema_tables()

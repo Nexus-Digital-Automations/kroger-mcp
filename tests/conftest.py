@@ -15,6 +15,9 @@ import pytest
 
 os.environ.setdefault("KROGER_MCP_DEFAULT_USER_ID", str(uuid.uuid5(uuid.NAMESPACE_DNS, "smart-shopper.tests")))
 
+# Re-exported so existing imports keep working; canonical home is tests/_pg_support.py.
+from _pg_support import RUNNING_ON_PG  # noqa: E402,F401
+
 
 @pytest.fixture(autouse=True)
 def _isolate_database_url():
@@ -41,3 +44,59 @@ def _isolate_database_url():
             _db._initialized = False
         except Exception:
             pass
+
+
+@pytest.fixture(autouse=True)
+def _pg_isolation_between_tests():
+    """Give each test a fresh database when the suite runs on Postgres.
+
+    The SQLite suite isolates tests by monkeypatching ``database.DB_FILE`` to a
+    per-test tmp file. Under ``DATABASE_URL=postgres`` the backend ignores
+    ``DB_FILE``, so every test in a file would share one database and contaminate
+    the next (this is what produced the per-file errors when AC-2 was first run).
+    Restore fresh-DB semantics: ensure the schema+seed exist, TRUNCATE every data
+    table, then re-seed — before each test.
+
+    Inert on the default SQLite path (no ``DATABASE_URL`` → immediate yield), so
+    the SQLite suite is untouched.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        yield
+        return
+
+    import kroger_mcp.analytics.database as _db
+    from kroger_mcp.analytics import pg_database
+
+    # Self-managing tests (test_etl_sqlite_to_pg, test_pg_backend) create and DROP
+    # their own throwaway databases and flip DATABASE_URL. The connection pool is a
+    # module-level singleton bound to whatever DSN it first saw, so after those tests
+    # it points at a dropped DB and poisons every later test (even DB-less ones).
+    # Drop it here so this test rebuilds the pool against the CURRENT DATABASE_URL.
+    pg_database.close_pool()
+
+    # initialize_database() both creates tables and seeds reference rows
+    # (favorite_lists, safety_settings); run it, wipe, then re-seed so each test
+    # starts from the clean-with-seeds state a fresh SQLite file would give.
+    _db._initialized = False
+    _db.ensure_initialized()
+    with _db.get_db_cursor() as cursor:
+        cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+        tables = [row[0] for row in cursor.fetchall()]
+        if tables:
+            quoted = ", ".join('"' + t + '"' for t in tables)
+            cursor.execute("TRUNCATE " + quoted + " RESTART IDENTITY CASCADE")
+    _db._initialized = False
+    _db.ensure_initialized()
+
+    # Seed the default test user. Postgres enforces the user_id → users.id FKs
+    # that the SQLite test path silently tolerates, so user-scoped writes need a
+    # real users row for KROGER_MCP_DEFAULT_USER_ID (the ownership UUID set above).
+    default_user = os.environ.get("KROGER_MCP_DEFAULT_USER_ID")
+    if default_user:
+        with _db.get_db_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO users (id, email, password_hash, display_name) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING",
+                (default_user, "tests@smart-shopper.local", "x", "Test User"),
+            )
+    yield

@@ -118,10 +118,15 @@ def record_link(
                      product_description, times_linked, last_linked_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?)
                 ON CONFLICT(user_id, norm_name, product_id) DO UPDATE SET
-                    times_linked = times_linked + 1,
+                    -- Qualify the existing-row columns with the table name:
+                    -- PostgreSQL treats a bare column in DO UPDATE SET as the
+                    -- target and raises "ambiguous column" without the prefix.
+                    -- SQLite accepts the qualified form too, so it stays portable.
+                    times_linked = ingredient_links.times_linked + 1,
                     raw_name = excluded.raw_name,
                     product_description = COALESCE(
-                        excluded.product_description, product_description),
+                        excluded.product_description,
+                        ingredient_links.product_description),
                     last_linked_at = excluded.last_linked_at
                 """,
                 (user_id, norm, raw_name.strip(), product_id, product_description, now),
