@@ -70,6 +70,27 @@
 >   `launchctl kickstart` (no `-k`) or bootout→bootstrap for restarts.**
 > - The prod `.env` line should read **`WEB_WORKERS=1`** (the plist env also enforces it).
 
+> ## 📈 WORKER-SCALING TEST — 2026-06-15 (stays at 1; measured the headroom)
+> Question: how high can concurrency go on this 8-core/8 GB SHARED box? Measured
+> with `scripts/loadtest.py` (httpx sweep over `/login` + `/dashboard`, local,
+> $0, no Kroger endpoints). prod backend is **SQLite (WAL, busy_timeout 5 s)**,
+> so the local SQLite run is representative.
+> - **1 worker:** `/login` peaks ~260 req/s; `/dashboard` (the `run_in_thread`
+>   DB path) plateaus **~33 req/s**.
+> - **2 workers:** `/dashboard` ~**2.5×** (~83 req/s peak); cheap-path tail ~2× better.
+> - **4 workers:** cheap path scales (login ~660 req/s) but `/dashboard` regressed
+>   — SQLite write-lock contention across processes (real on prod too, same backend).
+> A 2-worker bump was applied + validated (2 workers served `:8000`, swap stayed
+> **flat at 256 M**, probes 200) **then ROLLED BACK to 1**. Why: prod is still
+> **uvicorn 0.47.0** — the version the spawn-under-launchd hazard above was written
+> against — and the box was left at **~66 M unused** (the warm `kroger-mcp` MCP
+> servers + system apps are the real RAM tenants, not the web app). The 2× isn't
+> needed for a household workload, and bare `uvicorn --workers` remains the
+> documented-unsafe path under launchd KeepAlive crash-recovery (untested on live
+> prod). **To actually capture multi-worker safely: gunicorn + `UvicornWorker`
+> (fork-based), not bare `uvicorn --workers`** — and/or free RAM by relocating the
+> MCP-server neighbors off the mini.
+
 ---
 
 Ordered, destructive-step-gated runbook for moving Smart Shopper's real data onto
