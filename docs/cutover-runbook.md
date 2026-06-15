@@ -227,3 +227,52 @@ leaves a verified copy.
 - [ ] Air: dummy data only; `APP_ENV=dev`; cannot reach the prod DB.
 - [ ] Per-user isolation holds on PG (tokens, watchlist, seasonal — see `tests/test_pg_backend.py`).
 - [ ] Fresh post-cutover backup taken + restore-verified.
+
+---
+
+## ✅ POSTGRES PORT READY — CUTOVER DEFERRED (2026-06-15)
+
+**State:** the PG port is code-complete and tested on both backends; prod stays on
+**SQLite** for now. Cutover deferred by decision — prod serves ~15 users / 1.9 MB
+data, and the 8 GB box is RAM-fragile (~200 MB phys free; see the swap-thrash note
+above). The throughput question was answered by measurement, not by cutting over.
+
+**What shipped (on `main`, rsync-deployed to prod, backend-agnostic / safe on SQLite):**
+- Backend-aware shim already in `analytics/database.py`; **zero** unported SQLite-only
+  SQL on the data path. This pass fixed the idioms the strftime port missed:
+  - `analytics/meal_planning.py` `cleanup_expired_plans` — `date(end_date,'+N days') <
+    date('now')` → Python-computed cutoff bound as a param.
+  - `tools/ingredient_management_tools.py` — `date('now','-90 days')` → same pattern.
+  - `analytics/ingredient_links.py` `record_link` — qualified ambiguous `ON CONFLICT
+    DO UPDATE` columns (`ingredient_links.times_linked`), portable to both.
+- AC-2 harness: `scripts/test_on_pg.sh` runs the full suite on a throwaway PG; per-test
+  isolation + default-user seed + pool reset in `tests/conftest.py`; `skip_on_pg` in
+  `tests/_pg_support.py` for SQLite-only tests. **PG: 355 passed / 75 skipped / 0 fail.
+  SQLite: 428 passed / 2 skipped.** ruff + mypy clean.
+
+**Measured gain (write path, `scripts/loadtest.py --mode write`, dev box; read
+RELATIVE not absolute):** SQLite write throughput does NOT scale with workers (2w
+*worse* than 1w — the WAL db-wide write lock), peak ~510 req/s. Postgres ~1.5–1.6×
+peak (~800 req/s) and holds/improves across workers, ~3× tighter p99 under load.
+Implication: cutover lifts the write-bound ceiling ~2–3× (~150–400 → ~500–1500
+concurrent), then RAM-bound; the structural win is multi-machine scaling SQLite can't do.
+
+**To cut over when load warrants it** (full procedure in §§1–9 above):
+1. `scripts/provision_prod.sh` on prod (installs+tunes `postgresql@16`+redis, localhost,
+   autostart; idempotent, never re-initdbs over data). Tune small: `shared_buffers≈192MB`.
+2. `scripts/backup_prod.sh` (SQLite snapshot — instant rollback point).
+3. `scripts/etl_sqlite_to_pg.py` dry-run → real; verify per-table row-count parity.
+4. Set `DATABASE_URL` in the launchd plist `EnvironmentVariables` (PlistBuddy) +
+   confirm `APP_ENV=prod`; graceful `bootout`→`bootstrap` (NEVER `kickstart -k`).
+5. Smoke-test on PG (login, pantry write+read, recipe save, seasonal/prediction,
+   consent); then bump `WEB_WORKERS` per the benchmark **gating on `vm.swapusage`**.
+6. **Rollback (instant):** unset `DATABASE_URL` in the plist + restart; SQLite file
+   is untouched.
+
+**Deploy note (drift myth):** prod deploys by **rsync** of the laptop working tree
+(`Automation Agent/scripts/deploy-smartshopper-to-mini.sh`), not git — prod's `git
+HEAD` is vestigial (CLT stub, no git deploy), so "prod is N commits behind" is
+cosmetic; the running FILES are current. **Caveat:** that deploy script uses
+`launchctl kickstart -k` (which the guidance above warns against) — works today
+because gunicorn `run()`→`stop()` frees the port, but worth switching to graceful
+`bootout`→`bootstrap`.

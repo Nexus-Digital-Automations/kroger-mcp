@@ -86,9 +86,8 @@ data/legacy/
 # Validation artifacts (ephemeral test output)
 .validation-artifacts/
 
-# Test output images
-output/*.png
-output/visual-check/
+# Generated/ephemeral artifacts (benchmarks, images, visual checks)
+output/
 
 # Claude Code workspace
 .claude/
