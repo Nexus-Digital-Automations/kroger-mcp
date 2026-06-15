@@ -91,6 +91,30 @@
 > (fork-based), not bare `uvicorn --workers`** — and/or free RAM by relocating the
 > MCP-server neighbors off the mini.
 
+> ## ✅ MULTI-WORKER SHIPPED + MCP HUB MOVED — 2026-06-15 (follow-up)
+> Did both of the above. **Prod now runs 2 workers via gunicorn + UvicornWorker**
+> (`app.run()` launches `gunicorn.app.base.BaseApplication`, `preload_app=False`,
+> `worker_class=uvicorn.workers.UvicornWorker`, `timeout=120`; plist
+> `WEB_WORKERS=2`). Fork-based = no spawn-under-launchd death; validated: gunicorn
+> master + 2 workers on :8000, probes 200, **swap flat at 256 M**. Bare
+> `uvicorn --workers` is gone — do NOT reintroduce it.
+> - **kroger-mcp leak fixed in code** (`server.py main()`): an idle watchdog
+>   (daemon thread) exits the process after `KROGER_MCP_IDLE_TIMEOUT` (default
+>   1800 s) of no MCP activity, or when orphaned (`getppid()==1`), plus
+>   SIGTERM/SIGHUP exit. Activity tracked via a FastMCP middleware heartbeat
+>   (needs fastmcp ≥3; floor bumped, import degrades gracefully on older). Stops
+>   the per-session ssh-stdio process accumulation.
+> - **Shared MCP hub relocated prod → `macmini2` (`mcp`, 100.105.113.44).** The
+>   stateless deepwiki+github mcp-proxy hub now runs there
+>   (`com.local.mcp-hub`, `~/.config/mcp/hub-run.sh`, bound 100.105.113.44:9090).
+>   Prod's `com.local.mcp-hub` + `hub-run.sh` retired to `.bak`; node procs gone;
+>   **prod freed to ~674 M unused with the 2 workers running**. Client
+>   `~/.claude.json` deepwiki/github point at macmini2. kroger stays on prod
+>   (stateful, coupled to prod's SQLite); ldr/playwright stay per-session
+>   ssh-stdio (per-user/stateful) — NOT hub-appropriate.
+> - **Roll back**: prod plist `.bak` (WEB_WORKERS) + retired `com.local.mcp-hub.plist.bak`
+>   / `hub-run.sh.bak` on macmini1 restore the old single-worker + local-hub setup.
+
 ---
 
 Ordered, destructive-step-gated runbook for moving Smart Shopper's real data onto
