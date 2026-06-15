@@ -14,8 +14,24 @@ Environment Variables Required:
 
 import asyncio
 import logging
+import os
+import signal
+import sys
+import threading
+import time
 
 from fastmcp import FastMCP
+
+# Activity middleware powers the idle watchdog (below) and needs FastMCP 3.x.
+# Prod ships 3.3.1 (uv.lock, pinned); guard the import so the module still loads
+# under an older fastmcp (e.g. a stale system test env), where main() never runs.
+try:
+    from fastmcp.server.middleware import Middleware
+
+    _HAS_MIDDLEWARE = True
+except ImportError:  # pragma: no cover - only on fastmcp < 3
+    Middleware = object  # type: ignore[assignment,misc]
+    _HAS_MIDDLEWARE = False
 
 # Import database initializer — run at startup to avoid first-call migration hang
 from .analytics.database import ensure_initialized
@@ -55,6 +71,68 @@ async def _cleanup_stale_sessions():
     while True:
         await asyncio.sleep(3600)  # 1 hour
         session_manager.cleanup_stale_sessions(max_age_hours=24)
+
+
+# ── Idle-watchdog: stop per-session ssh-stdio leaks ──────────────────────────
+# kroger-mcp is launched once per Claude session over ssh-stdio. The ssh channel
+# can stay open+idle for days after the client is gone, so stdin never reaches
+# EOF and the server would run forever — one leaked process per session. The
+# watchdog exits the process after KROGER_MCP_IDLE_TIMEOUT seconds with no MCP
+# message, or immediately once reparented to launchd (the ssh launcher died). The
+# client transparently respawns the server on next use.
+_last_activity = time.monotonic()
+
+
+class _ActivityMiddleware(Middleware):
+    """Bump the idle clock on every inbound MCP message."""
+
+    async def on_message(self, context, call_next):
+        global _last_activity
+        _last_activity = time.monotonic()
+        return await call_next(context)
+
+
+def _idle_exit_due(now: float, last_activity: float, timeout: float, ppid: int) -> bool:
+    """True when the server should self-exit: idle past timeout, or orphaned."""
+    return (now - last_activity) >= timeout or ppid == 1
+
+
+def _install_idle_watchdog() -> None:
+    """Start the daemon watchdog thread (no-op if KROGER_MCP_IDLE_TIMEOUT<=0)."""
+    try:
+        timeout = float(os.environ.get("KROGER_MCP_IDLE_TIMEOUT", "1800"))
+    except ValueError:
+        timeout = 1800.0
+    if timeout <= 0:
+        return
+
+    def _watch() -> None:
+        poll = min(60.0, max(1.0, timeout / 2))
+        while True:
+            time.sleep(poll)
+            if _idle_exit_due(time.monotonic(), _last_activity, timeout, os.getppid()):
+                orphaned = os.getppid() == 1
+                logger.info(
+                    "kroger-mcp self-exit (%s)",
+                    "orphaned" if orphaned else f"idle >= {timeout:.0f}s",
+                )
+                os._exit(0)
+
+    threading.Thread(target=_watch, name="kroger-mcp-idle-watchdog", daemon=True).start()
+
+
+def _install_signal_exit() -> None:
+    """Exit cleanly on SIGTERM/SIGHUP (e.g. ssh session teardown)."""
+
+    def _handler(signum, _frame):
+        logger.info("kroger-mcp exiting on signal %s", signum)
+        sys.exit(0)
+
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, _handler)
+        except (ValueError, OSError):
+            pass  # not running in the main thread / unsupported platform
 
 
 def create_server() -> FastMCP:
@@ -299,6 +377,15 @@ def create_server() -> FastMCP:
 def main():
     """Main entry point for the Kroger MCP server"""
     mcp = create_server()
+    _install_signal_exit()  # SIGTERM/SIGHUP exit is always safe
+    # Activity tracking + idle watchdog go together: the watchdog must only run
+    # when the middleware is feeding it heartbeats, else it would reap an active
+    # server. Prod (fastmcp 3.3.1) has both; older fastmcp degrades to no watchdog.
+    if _HAS_MIDDLEWARE and hasattr(mcp, "add_middleware"):
+        mcp.add_middleware(_ActivityMiddleware())
+        _install_idle_watchdog()
+    else:
+        logger.warning("fastmcp middleware unavailable; kroger-mcp idle watchdog disabled")
     mcp.run()
 
 

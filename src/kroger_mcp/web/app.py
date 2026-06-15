@@ -224,25 +224,44 @@ WORKERS = int(os.environ.get("WEB_WORKERS", 2))
 
 
 def run():
-    import uvicorn
+    from gunicorn.app.base import BaseApplication
 
     stop()
-    print(f"Smart Shopper running at http://localhost:{PORT} ({WORKERS} worker(s))")
-    # 0.0.0.0 bind is intentional — this is a local dev/single-user tool meant
-    # to be reachable from any interface on the host (e.g. companion phone on
-    # the LAN). bandit B104 flagged.
-    #
-    # Event loop is left at uvicorn's default (asyncio). uvloop was tried but its
-    # event-loop re-init across macOS multiprocessing `spawn` workers fails under
-    # launchd's restricted environment (workers die on boot → restart loop),
-    # while asyncio + multi-worker is the historically stable path on this box.
-    uvicorn.run(
-        "kroger_mcp.web.app:app",
-        host="0.0.0.0",  # nosec B104
-        port=PORT,
-        reload=False,
-        workers=WORKERS,
-    )
+    print(f"Smart Shopper running at http://localhost:{PORT} ({WORKERS} gunicorn worker(s))")
+
+    # gunicorn + UvicornWorker is FORK-based: unlike bare `uvicorn --workers`
+    # (whose macOS `spawn` workers die silently under launchd → restart loop), it
+    # runs multiple workers reliably under launchd. preload_app stays False so each
+    # worker imports the app AFTER fork and opens its own sockets — httpx (lifespan),
+    # Redis (cache.get_redis), and the DB pool are all lazily created per worker, so
+    # nothing fork-unsafe is inherited. 0.0.0.0 bind is intentional (LAN/phone access).
+    class _GunicornApp(BaseApplication):
+        def __init__(self, options: dict):
+            self._options = options
+            super().__init__()
+
+        def load_config(self):
+            for key, value in self._options.items():
+                self.cfg.set(key, value)
+
+        def load(self):
+            # preload_app=False → this runs in each worker post-fork (fork-safe).
+            from kroger_mcp.web.app import app
+
+            return app
+
+    _GunicornApp(
+        {
+            "bind": f"0.0.0.0:{PORT}",  # nosec B104
+            "workers": WORKERS,
+            "worker_class": "uvicorn.workers.UvicornWorker",
+            "preload_app": False,
+            # Kroger HTTP calls can run up to ~30 s; keep the worker timeout well
+            # above that so gunicorn never reaps a worker mid-request.
+            "timeout": 120,
+            "graceful_timeout": 30,
+        }
+    ).run()
 
 
 def _pids_on_port() -> list[int]:
