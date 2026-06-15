@@ -77,6 +77,44 @@ async function cleanup(): Promise<void> {
         }
       }
     }
+
+    // Meal plans are matched by name; deals watchlist + safe-list by description.
+    // (Pantry has no JSON list endpoint, so its spec self-deletes by product_id.)
+    const plans = await apiReq.get(`${BASE_URL}/api/meal-plan/list`);
+    if (plans.ok()) {
+      const body = await plans.json();
+      const items = Array.isArray(body) ? body : body.plans || body.data || [];
+      for (const plan of items) {
+        if (typeof plan.name === 'string' && plan.name.startsWith(prefix)) {
+          await apiReq.delete(`${BASE_URL}/api/meal-plan/${plan.id || plan.plan_id}`);
+          console.log(`[teardown] deleted meal plan "${plan.name}"`);
+        }
+      }
+    }
+
+    const watch = await apiReq.get(`${BASE_URL}/api/deals/watchlist`);
+    if (watch.ok()) {
+      const body = await watch.json();
+      const items = Array.isArray(body) ? body : body.data || [];
+      for (const row of items) {
+        if (typeof row.description === 'string' && row.description.startsWith(prefix)) {
+          await apiReq.delete(`${BASE_URL}/api/deals/watchlist/${encodeURIComponent(row.product_id)}`);
+          console.log(`[teardown] deleted watchlist item "${row.description}"`);
+        }
+      }
+    }
+
+    const approved = await apiReq.get(`${BASE_URL}/api/safety/approved`);
+    if (approved.ok()) {
+      const body = await approved.json();
+      const items = Array.isArray(body) ? body : body.data || [];
+      for (const row of items) {
+        if (typeof row.description === 'string' && row.description.startsWith(prefix)) {
+          await apiReq.delete(`${BASE_URL}/api/safety/approved/${encodeURIComponent(row.product_id)}`);
+          console.log(`[teardown] deleted safe-listed product "${row.description}"`);
+        }
+      }
+    }
   } finally {
     await ctx.close();
     await browser.close();
