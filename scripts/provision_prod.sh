@@ -26,6 +26,14 @@ APP_DB="${APP_DB:-smartshopper}"
 APP_ROLE="${APP_ROLE:-smartshopper_app}"
 REDIS_MAXMEM="${REDIS_MAXMEM:-512mb}"
 PG_FORMULA="postgresql@16"
+# Memory tuning — env-overridable so a RAM-tight box doesn't over-allocate.
+# Defaults suit a dedicated box; on the SHARED 8GB prod mini pass small values
+# (e.g. PG_SHARED_BUFFERS=192MB PG_EFFECTIVE_CACHE=512MB) to avoid swap pressure.
+PG_SHARED_BUFFERS="${PG_SHARED_BUFFERS:-1GB}"
+PG_EFFECTIVE_CACHE="${PG_EFFECTIVE_CACHE:-3GB}"
+PG_WORK_MEM="${PG_WORK_MEM:-16MB}"
+PG_MAINT_MEM="${PG_MAINT_MEM:-256MB}"
+PG_MAX_CONN="${PG_MAX_CONN:-50}"
 
 log() { printf '[provision_prod] %s\n' "$*" >&2; }
 die() { printf '[provision_prod] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -68,11 +76,11 @@ cat >> "${PG_CONF}" <<EOF
 ${MARK_BEGIN}
 listen_addresses = 'localhost'
 port = ${PG_PORT}
-shared_buffers = 1GB
-effective_cache_size = 3GB
-work_mem = 16MB
-maintenance_work_mem = 256MB
-max_connections = 50
+shared_buffers = ${PG_SHARED_BUFFERS}
+effective_cache_size = ${PG_EFFECTIVE_CACHE}
+work_mem = ${PG_WORK_MEM}
+maintenance_work_mem = ${PG_MAINT_MEM}
+max_connections = ${PG_MAX_CONN}
 wal_compression = on
 ${MARK_END}
 EOF

@@ -10,8 +10,11 @@ import os
 import re
 import sqlite3
 from contextlib import contextmanager
+from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 
 def get_backend() -> str:
@@ -111,11 +114,36 @@ class _HybridRow:
         return self._map.get(key, default)
 
 
+def _coerce_pg_value(value: Any) -> Any:
+    """Coerce a Postgres-native value to the JSON-serializable shape SQLite gives.
+
+    SQLite returns TEXT for timestamps and REAL for numbers, so the whole app
+    (and FastAPI's ``JSONResponse``) assumes str/float — but psycopg returns
+    native ``datetime``/``date``/``time``/``Decimal``/``UUID`` objects, which are
+    NOT JSON-serializable and 500 any endpoint that returns such a column
+    (e.g. ``added_at`` in get_safe_products). Normalise them to SQLite's
+    representation so call sites and JSON responses work unchanged. Booleans are
+    left as-is (JSON-serializable; Python ``True == 1`` keeps int comparisons working).
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime):
+        # SQLite CURRENT_TIMESTAMP style: space-separated, no 'T'.
+        return value.isoformat(sep=" ")
+    if isinstance(value, date | time):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    return value
+
+
 def _hybrid_row_factory(cursor: Any):
     cols = [c.name for c in cursor.description] if cursor.description else []
 
     def make_row(values: tuple) -> _HybridRow:
-        return _HybridRow(cols, values)
+        return _HybridRow(cols, tuple(_coerce_pg_value(v) for v in values))
 
     return make_row
 

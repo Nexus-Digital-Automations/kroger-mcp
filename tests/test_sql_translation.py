@@ -8,13 +8,62 @@ adapter now rewrites those literals to TRUE/FALSE for the PG path only.
 
 from __future__ import annotations
 
-from kroger_mcp.analytics.database import _translate_sql
+import datetime as dt
+import json
+from decimal import Decimal
+from uuid import UUID
+
+from kroger_mcp.analytics.database import _coerce_pg_value, _translate_sql
 
 
 def test_bool_eq_one_becomes_true():
     assert "is_active = TRUE" in _translate_sql(
         "SELECT 1 FROM users WHERE is_active = 1"
     )
+
+
+# --- PG-native value coercion (parity with SQLite's TEXT/REAL representation) ---
+# psycopg returns datetime/Decimal/UUID objects where SQLite returns str/float.
+# Returning those raw 500s any JSON endpoint (e.g. added_at in get_safe_products
+# after the prod cutover). _coerce_pg_value normalises them; these pin that.
+
+
+def test_coerce_datetime_to_string():
+    out = _coerce_pg_value(dt.datetime(2026, 6, 16, 3, 4, 5))
+    assert out == "2026-06-16 03:04:05" and isinstance(out, str)
+
+
+def test_coerce_date_and_time_to_string():
+    assert _coerce_pg_value(dt.date(2026, 6, 16)) == "2026-06-16"
+    assert _coerce_pg_value(dt.time(3, 4, 5)) == "03:04:05"
+
+
+def test_coerce_decimal_to_float():
+    out = _coerce_pg_value(Decimal("4.99"))
+    assert out == 4.99 and isinstance(out, float)
+
+
+def test_coerce_uuid_to_string():
+    u = UUID("12345678-1234-5678-1234-567812345678")
+    assert _coerce_pg_value(u) == str(u)
+
+
+def test_coerce_leaves_bool_and_primitives():
+    assert _coerce_pg_value(True) is True
+    assert _coerce_pg_value(1) == 1
+    assert _coerce_pg_value("x") == "x"
+    assert _coerce_pg_value(None) is None
+
+
+def test_coerced_row_is_json_serializable():
+    # The exact failure mode the cutover hit: a row with a timestamp/decimal/uuid.
+    row = {
+        "product_id": "X",
+        "added_at": _coerce_pg_value(dt.datetime(2026, 6, 16, 3, 4, 5)),
+        "price": _coerce_pg_value(Decimal("4.99")),
+        "user_id": _coerce_pg_value(UUID("12345678-1234-5678-1234-567812345678")),
+    }
+    json.dumps(row)  # must not raise
 
 
 def test_bool_eq_zero_becomes_false():
