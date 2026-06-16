@@ -276,3 +276,45 @@ cosmetic; the running FILES are current. **Caveat:** that deploy script uses
 `launchctl kickstart -k` (which the guidance above warns against) — works today
 because gunicorn `run()`→`stop()` frees the port, but worth switching to graceful
 `bootout`→`bootstrap`.
+
+---
+
+## ✅✅ CUTOVER COMPLETED — prod is on PostgreSQL (2026-06-15, supersedes "DEFERRED" above)
+
+**Prod now runs on PostgreSQL.** `postgresql@16` on `localhost:5433` (tuned
+`shared_buffers=192MB`), redis on localhost, both brew-services autostart. App:
+gunicorn + 2 UvicornWorkers, `backend=postgresql`, 1+ pooled connection,
+**swap flat (~233MB)**. All data migrated (15 users / 232 products / 5805
+price_history / 17 orders); 7 orphan rows (user_id with no users row) dropped by FK.
+
+**Config (single source of truth = the launchd plist, mode 600):**
+- `~/Library/LaunchAgents/com.smartshopper.web.plist` → `EnvironmentVariables`:
+  `WEB_WORKERS=2`, `APP_ENV=prod`, `DATABASE_URL=postgresql://smartshopper_app:<pw>@localhost:5433/smartshopper`.
+- The prod `.env` `DATABASE_URL`/`APP_ENV` lines are **intentionally DISABLED**
+  (commented; backup `.env.bak.rollback`). Keeping the DSN in ONE place avoids the
+  stale-DSN trap that bit us mid-cutover (an old `.env` DSN + a rotated role
+  password = auth outage). **If you ever rotate the role password, update the plist
+  DSN in the same step.**
+
+**WEB_WORKERS stays at 2** — RAM-gated, not benchmark-maxed. The box is tight
+(~57MB free phys with PG resident) but swap is flat at 2 workers; PG removes the
+SQLite write-lock so you *can* scale to 3–4 when load grows — bump only while
+watching `vm.swapusage`.
+
+**Two real PG bugs were found by the cutover smoke and fixed in code (commits on
+`main`):**
+1. `ON CONFLICT DO UPDATE` ambiguous columns, `date('now',…)` idioms (earlier commit).
+2. **psycopg returns native `datetime`/`Decimal`/`UUID`; the app JSON-serializes
+   rows → read endpoints 500'd** ("Object of type datetime is not JSON
+   serializable"). Fixed by coercing in the hybrid row factory
+   (`database._coerce_pg_value`: datetime/date/time→isoformat str, Decimal→float,
+   UUID→str; PG path only). Pinned by unit tests in `test_sql_translation.py`.
+
+**Rollback to SQLite (instant):** remove `DATABASE_URL` (+`APP_ENV`) from the plist
+`EnvironmentVariables` (PlistBuddy `Delete`), confirm `.env` DATABASE_URL stays
+disabled and `launchctl getenv DATABASE_URL` is empty, then graceful
+`bootout`→`bootstrap`. The pre-cutover SQLite (`data/kroger_analytics.db`) is
+untouched; verified off-box backup at `data/backups/prod/20260616T030033Z`.
+
+**Re-verify on PG:** `scripts/test_on_pg.sh tests/` (361 passed / 75 skipped) and
+the live smoke (login, dashboard, safety write+read, shopping-list) — all green.
