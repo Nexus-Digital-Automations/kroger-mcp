@@ -9,6 +9,9 @@ venv/
 # …but the root project manifest must be tracked so `npm run e2e:gate` ships with
 # the repo. Leading slash anchors to repo root — never un-ignores node_modules/**/package.json.
 !/package.json
+# …and the MCP client config (Kroger MCP over ssh-stdio to prod). No secrets — just
+# the ssh launch command; real creds stay in prod's gitignored .env.
+!/.mcp.json
 
 # Node tooling for the Playwright E2E suite (installed locally, never committed).
 node_modules/

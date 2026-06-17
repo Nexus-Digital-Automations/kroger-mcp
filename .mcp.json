@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "kroger": {
+      "command": "ssh",
+      "args": [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "IdentityFile=~/.ssh/mini_offload_ed25519",
+        "macmini1@100.125.64.95",
+        "--",
+        "/Users/macmini1/.config/mcp/kroger-run.sh"
+      ]
+    }
+  }
+}
