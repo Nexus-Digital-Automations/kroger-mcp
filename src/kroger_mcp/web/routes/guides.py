@@ -1,7 +1,5 @@
 """Guide routes — list, detail, and edit views for technique how-tos."""
 
-import json
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
@@ -41,27 +39,28 @@ def _guides_payload() -> dict:
 
     all_tags = _collect_all_tags(guides)
 
-    guides_json = json.dumps(
-        [
-            {
-                "id": g.get("id", ""),
-                "name": g.get("name", ""),
-                "description": g.get("description") or "",
-                "tags": g.get("tags", []),
-                "step_count": len(g.get("steps", [])),
-                "time": g.get("time") or "",
-                "difficulty": g.get("difficulty") or "",
-            }
-            for g in guides
-        ]
-    )
+    # Pass the card data as a Python object; the template serializes it with the
+    # script-safe `tojson` filter (escapes <, >, &, ', /) so a guide name or tag
+    # containing "</script>" can't break out of the inline <script>.
+    guides_data = [
+        {
+            "id": g.get("id", ""),
+            "name": g.get("name", ""),
+            "description": g.get("description") or "",
+            "tags": g.get("tags", []),
+            "step_count": len(g.get("steps", [])),
+            "time": g.get("time") or "",
+            "difficulty": g.get("difficulty") or "",
+        }
+        for g in guides
+    ]
 
     return {
         "active_page": "guides",
         "guides": guides,
         "all_tags": all_tags,
         "guide_count": len(guides),
-        "guides_json": guides_json,
+        "guides_data": guides_data,
         **action_menu_context(),
     }
 

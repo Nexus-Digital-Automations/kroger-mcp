@@ -79,7 +79,10 @@ def test_guides_payload_shape(tmp_guides):
     payload = _guides_payload()
     assert payload["active_page"] == "guides"
     assert payload["guide_count"] == 1
-    assert "Dice an Onion" in payload["guides_json"]
+    # guides_data is a Python list (template serializes it with the script-safe
+    # `tojson` filter), not a pre-serialized JSON string.
+    assert payload["guides_data"][0]["name"] == "Dice an Onion"
+    assert payload["guides_data"][0]["step_count"] == 3
     assert "knife-skills" in payload["all_tags"]
 
 
