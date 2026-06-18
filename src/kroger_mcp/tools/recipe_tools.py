@@ -268,6 +268,13 @@ def register_tools(mcp):
             default=None,
             description="True to confirm add after preview",
         ),
+        include_spices: bool | None = Field(
+            default=False,
+            description=(
+                "Fold spices/seasonings into total_cost & cost_per_serving "
+                "(default: spices are shown but excluded from per-serving cost)"
+            ),
+        ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Recipe management with Kroger product linking.
@@ -300,6 +307,7 @@ def register_tools(mcp):
             links,
             modality,
             confirm,
+            include_spices,
             ctx,
         )
 
@@ -323,6 +331,7 @@ def register_tools(mcp):
         links,
         modality,
         confirm,
+        include_spices,
         ctx,
     ):
         match action:
@@ -444,7 +453,11 @@ def register_tools(mcp):
 
                         loc_id = get_preferred_location_id()
                         recipe["health_score"] = calculate_health_score(recipe)
-                        recipe["cost_estimate"] = estimate_recipe_cost(recipe, location_id=loc_id)
+                        recipe["cost_estimate"] = estimate_recipe_cost(
+                            recipe,
+                            location_id=loc_id,
+                            include_spices=bool(include_spices),
+                        )
                     except Exception:
                         pass  # Never block get on scoring errors
                     return {"success": True, "recipe": recipe}
@@ -564,6 +577,8 @@ def register_tools(mcp):
                     if not recipe:
                         return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
 
+                    from ..analytics.recipe_scoring import _ingredient_is_spice
+
                     _skip = skip_items or []
                     _scale = scale if scale is not None else 1.0
                     ingredients_preview = []
@@ -608,6 +623,7 @@ def register_tools(mcp):
                                 "scaled_quantity": round(qty * _scale, 2) if qty else None,
                                 "product_id": pid,
                                 "has_product_id": pid is not None,
+                                "is_spice": _ingredient_is_spice(ing),
                                 "action": action_val,
                                 "will_order": action_val == "ORDER",
                                 "skip_reason": (
@@ -621,6 +637,19 @@ def register_tools(mcp):
                             }
                         )
 
+                    cost_estimate = None
+                    try:
+                        from ..analytics.recipe_scoring import estimate_recipe_cost
+                        from .shared import get_preferred_location_id
+
+                        cost_estimate = estimate_recipe_cost(
+                            recipe,
+                            location_id=get_preferred_location_id(),
+                            include_spices=bool(include_spices),
+                        )
+                    except Exception:
+                        pass  # Never block the preview on cost errors
+
                     return {
                         "success": True,
                         "recipe_id": recipe_id,
@@ -633,6 +662,7 @@ def register_tools(mcp):
                         "items_to_skip": items_to_skip_count,
                         "manual_purchase": manual_purchase,
                         "total_ingredients": len(ingredients_preview),
+                        "cost_estimate": cost_estimate,
                     }
                 except Exception as e:
                     return {"success": False, "error": f"Failed to preview: {str(e)}"}
@@ -1100,9 +1130,18 @@ def register_tools(mcp):
                     api_fallback_note = None
                     try:
                         client = get_client_credentials_client()
-                        cost = estimate_recipe_cost_with_api(recipe, loc_id, client)
+                        cost = estimate_recipe_cost_with_api(
+                            recipe,
+                            loc_id,
+                            client,
+                            include_spices=bool(include_spices),
+                        )
                     except Exception as api_err:
-                        cost = estimate_recipe_cost(recipe, location_id=loc_id)
+                        cost = estimate_recipe_cost(
+                            recipe,
+                            location_id=loc_id,
+                            include_spices=bool(include_spices),
+                        )
                         api_fallback_note = f"API unavailable: {str(api_err)}"
 
                     if api_fallback_note:

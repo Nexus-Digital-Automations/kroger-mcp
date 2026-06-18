@@ -293,11 +293,12 @@ def _annotate_pantry(request: Request, ingredients: list[dict]) -> None:
             ing.setdefault("pantry", None)
 
 
-def _build_recipe_context(request: Request, recipe_id: str) -> dict:
+def _build_recipe_context(request: Request, recipe_id: str, include_spices: bool = False) -> dict:
     """Load + shape the recipe context shared by the view and edit routes.
 
     Failure modes: HTTPException(404) when the recipe id is unknown; health
-    score and ingredient enrichment are best-effort and never raise.
+    score, cost estimate, and ingredient enrichment are best-effort and never
+    raise. ``include_spices`` folds spices into the cost total when truthy.
     """
     recipe = _find_recipe(recipe_id)
     if not recipe:
@@ -330,6 +331,12 @@ def _build_recipe_context(request: Request, recipe_id: str) -> dict:
     except Exception:
         pass
 
+    cost_data = None
+    try:
+        cost_data = estimate_recipe_cost(recipe, include_spices=include_spices)
+    except Exception:
+        pass
+
     enrich_ingredients_for_view(request, ingredients)
 
     return {
@@ -339,13 +346,15 @@ def _build_recipe_context(request: Request, recipe_id: str) -> dict:
         "instruction_groups": instruction_groups,
         "step_time_data": step_time_data,
         "health_data": health_data,
+        "cost_data": cost_data,
+        "include_spices": include_spices,
         **action_menu_context(),
     }
 
 
 @router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
-async def recipe_detail(request: Request, recipe_id: str):
-    context = await run_in_thread(_build_recipe_context, request, recipe_id)
+async def recipe_detail(request: Request, recipe_id: str, include_spices: bool = False):
+    context = await run_in_thread(_build_recipe_context, request, recipe_id, include_spices)
     context["initial_editing"] = False
     return templates.TemplateResponse(request, "recipe_view.html", context)
 
