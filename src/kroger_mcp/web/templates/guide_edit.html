@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ guide.name }} — Smart Shopper{% endblock %}
+{% block heading %}Edit Guide{% endblock %}
+
+{% block content %}
+
+<div x-data="guideEditor({{ guide | tojson }})" class="max-w-2xl">
+
+  <!-- Back link -->
+  <a href="/guides/{{ guide.id }}" class="inline-flex items-center gap-1 mb-4" style="font-size:0.8125rem; color:var(--text-3);">
+    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+    </svg>
+    Back to guide
+  </a>
+
+  <div class="space-y-5">
+    <!-- Name -->
+    <div>
+      <label class="block mb-1" style="font-size:0.8125rem; font-weight:600; color:var(--text-2);">Name</label>
+      <input type="text" x-model="name" class="ss-input w-full" placeholder="e.g. Soaking Dried Beans"/>
+    </div>
+
+    <!-- Description -->
+    <div>
+      <label class="block mb-1" style="font-size:0.8125rem; font-weight:600; color:var(--text-2);">Description</label>
+      <textarea x-model="description" rows="2" class="ss-input w-full" placeholder="A short summary of the technique."></textarea>
+    </div>
+
+    <!-- Time + Difficulty -->
+    <div class="flex gap-4">
+      <div class="flex-1">
+        <label class="block mb-1" style="font-size:0.8125rem; font-weight:600; color:var(--text-2);">Time</label>
+        <input type="text" x-model="time" class="ss-input w-full" placeholder="e.g. 8–12 h"/>
+      </div>
+      <div class="flex-1">
+        <label class="block mb-1" style="font-size:0.8125rem; font-weight:600; color:var(--text-2);">Difficulty</label>
+        <select x-model="difficulty" class="ss-input w-full">
+          <option value="">—</option>
+          <option value="easy">Easy</option>
+          <option value="medium">Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Tags -->
+    <div>
+      <label class="block mb-1" style="font-size:0.8125rem; font-weight:600; color:var(--text-2);">Tags <span style="font-weight:400; color:var(--text-3);">(comma-separated)</span></label>
+      <input type="text" x-model="tagsText" class="ss-input w-full" placeholder="beans, prep, make-ahead"/>
+    </div>
+
+    <!-- Steps -->
+    <div>
+      <label class="block mb-2" style="font-size:0.8125rem; font-weight:600; color:var(--text-2);">Steps</label>
+      <div class="space-y-2">
+        <template x-for="(step, i) in steps" :key="i">
+          <div class="flex items-start gap-2">
+            <span style="flex-shrink:0; width:1.5rem; height:1.5rem; margin-top:0.5rem; border-radius:99px; background:var(--green-light); color:var(--green); font-size:0.75rem; font-weight:700; display:flex; align-items:center; justify-content:center;" x-text="i + 1"></span>
+            <textarea x-model="steps[i]" rows="2" class="ss-input flex-1" placeholder="Describe this step…"></textarea>
+            <div class="flex flex-col gap-1 flex-shrink-0" style="margin-top:0.25rem;">
+              <button type="button" @click="move(i, -1)" :disabled="i === 0" class="ss-btn-ghost" style="padding:0.15rem 0.4rem; font-size:0.75rem;" title="Move up">↑</button>
+              <button type="button" @click="move(i, 1)" :disabled="i === steps.length - 1" class="ss-btn-ghost" style="padding:0.15rem 0.4rem; font-size:0.75rem;" title="Move down">↓</button>
+              <button type="button" @click="removeStep(i)" class="ss-btn-danger" style="padding:0.15rem 0.4rem; font-size:0.75rem;" title="Remove">✕</button>
+            </div>
+          </div>
+        </template>
+      </div>
+      <button type="button" @click="addStep()" class="ss-btn-ghost" style="margin-top:0.625rem; font-size:0.8125rem;">+ Add step</button>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex items-center gap-3 pt-2">
+      <button @click="save()" :disabled="saving" class="ss-btn-primary" x-text="saving ? 'Saving…' : 'Save guide'"></button>
+      <a href="/guides/{{ guide.id }}" class="ss-btn-ghost">Cancel</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+  Alpine.data('guideEditor', (guide) => ({
+    name: guide.name || '',
+    description: guide.description || '',
+    time: guide.time || '',
+    difficulty: guide.difficulty || '',
+    tagsText: (guide.tags || []).join(', '),
+    steps: (guide.steps || []).slice(),
+    updatedAt: guide.updated_at || '',
+    saving: false,
+
+    addStep() { this.steps.push(''); },
+    removeStep(i) { this.steps.splice(i, 1); },
+    move(i, dir) {
+      const j = i + dir;
+      if (j < 0 || j >= this.steps.length) return;
+      const tmp = this.steps[i];
+      this.steps[i] = this.steps[j];
+      this.steps[j] = tmp;
+    },
+
+    tagList() {
+      return this.tagsText.split(',').map(t => t.trim()).filter(Boolean);
+    },
+
+    async save() {
+      if (this.saving) return;
+      this.saving = true;
+      try {
+        // Metadata first; it bumps updated_at, which the steps PUT must match.
+        const metaRes = await fetch('/api/guides/{{ guide.id }}', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json', 'If-Match': this.updatedAt},
+          body: JSON.stringify({
+            name: this.name.trim() || 'Untitled guide',
+            description: this.description,
+            tags: this.tagList(),
+            time: this.time || null,
+            difficulty: this.difficulty || null,
+          }),
+        });
+        const meta = await metaRes.json();
+        if (!metaRes.ok) {
+          window._ssToast(meta.error || 'Could not save guide', { level: 'error' });
+          this.saving = false;
+          return;
+        }
+        this.updatedAt = meta.updated_at;
+
+        const stepsRes = await fetch('/api/guides/{{ guide.id }}/steps', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json', 'If-Match': this.updatedAt},
+          body: JSON.stringify({ steps: this.steps.map(s => (s || '').trim()).filter(Boolean) }),
+        });
+        const stepsData = await stepsRes.json();
+        if (!stepsRes.ok) {
+          window._ssToast(stepsData.error || 'Could not save steps', { level: 'error' });
+          this.saving = false;
+          return;
+        }
+        window.location.href = '/guides/{{ guide.id }}';
+      } catch (e) {
+        window._ssToast('Network error', { level: 'error' });
+        this.saving = false;
+      }
+    },
+  }));
+});
+</script>
+
+{% endblock %}

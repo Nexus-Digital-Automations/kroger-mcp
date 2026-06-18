@@ -48,6 +48,7 @@ from .tools import (
     cart_tools,
     deal_tools,
     favorites_tools,
+    guide_tools,
     info_tools,
     ingredient_management_tools,
     location_tools,
@@ -355,6 +356,7 @@ def create_server() -> FastMCP:
     _register(auth_tools, "auth_tools")
     _register(prediction_tools, "prediction_tools")
     _register(recipe_tools, "recipe_tools")
+    _register(guide_tools, "guide_tools")
     _register(reporting_tools, "reporting_tools")
     _register(favorites_tools, "favorites_tools")
     _register(meal_planner_tools, "meal_planner_tools")

@@ -82,7 +82,7 @@ from fastapi.staticfiles import StaticFiles
 logger = logging.getLogger(__name__)
 
 from .routes import auth as auth_routes
-from .routes import dashboard, favorites, meal_plan, pantry, recipes
+from .routes import dashboard, favorites, guides, meal_plan, pantry, recipes
 from .routes import deals as deals_page
 from .routes import ingredients as ingredients_page
 from .routes import products as products_page
@@ -93,6 +93,7 @@ from .routes.api import cart as api_cart
 from .routes.api import chat as api_chat
 from .routes.api import deals as api_deals
 from .routes.api import favorites as api_favorites
+from .routes.api import guides as api_guides
 from .routes.api import ingredients as api_ingredients
 from .routes.api import meal_plan as api_meal_plan
 from .routes.api import pantry as api_pantry
@@ -178,6 +179,7 @@ app.include_router(auth_routes.router)
 # Page routes
 app.include_router(dashboard.router)
 app.include_router(recipes.router)
+app.include_router(guides.router)
 app.include_router(meal_plan.router)
 app.include_router(favorites.router)
 app.include_router(pantry.router)
@@ -199,6 +201,7 @@ app.include_router(api_ingredients.router)
 app.include_router(api_settings.router)
 app.include_router(api_favorites.router)
 app.include_router(api_recipes.router)
+app.include_router(api_guides.router)
 app.include_router(api_meal_plan.router)
 app.include_router(api_chat.router)
 

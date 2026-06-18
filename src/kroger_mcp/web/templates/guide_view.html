@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}{{ guide.name }} — Smart Shopper{% endblock %}
+{% block heading %}Guide{% endblock %}
+
+{% block content %}
+
+<div x-data="guideView" class="max-w-2xl">
+
+  <!-- Back link -->
+  <a href="/guides" class="inline-flex items-center gap-1 mb-4" style="font-size:0.8125rem; color:var(--text-3);">
+    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+    </svg>
+    All guides
+  </a>
+
+  <!-- Header -->
+  <div class="flex items-start justify-between gap-4 mb-3">
+    <h1 style="font-family:'Lora', serif; font-weight:700; font-size:1.5rem; color:var(--text-1); line-height:1.25; letter-spacing:-0.02em;">{{ guide.name }}</h1>
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <a href="/guides/{{ guide.id }}/edit" class="ss-btn-secondary" style="font-size:0.8125rem;">Edit</a>
+      <button @click="deleteGuide()" class="ss-btn-danger" style="font-size:0.8125rem;">Delete</button>
+    </div>
+  </div>
+
+  <!-- Meta chips -->
+  <div class="flex items-center gap-3 mb-4 flex-wrap" style="font-size:0.8125rem; color:var(--text-3);">
+    {% if guide.steps %}<span>{{ guide.steps|length }} step{{ '' if guide.steps|length == 1 else 's' }}</span>{% endif %}
+    {% if guide.time %}<span>⏱ {{ guide.time }}</span>{% endif %}
+    {% if guide.difficulty %}<span style="background: oklch(93% 0.015 80); color: var(--text-2); padding:0.1rem 0.5rem; border-radius:99px; text-transform:capitalize;">{{ guide.difficulty }}</span>{% endif %}
+  </div>
+
+  {% if guide.description %}
+  <p style="font-size:0.9375rem; color:var(--text-2); line-height:1.55; margin-bottom:1.5rem;">{{ guide.description }}</p>
+  {% endif %}
+
+  <!-- Tags -->
+  {% if guide.tags %}
+  <div class="flex flex-wrap gap-1 mb-6">
+    {% for tag in guide.tags %}
+    <span style="font-size:0.6875rem; background: oklch(93% 0.015 80); color: var(--text-2); padding:0.1rem 0.5rem; border-radius:99px; letter-spacing:0.01em;">{{ tag }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Steps -->
+  {% if steps %}
+  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 0.875rem; padding: 1.25rem 1.5rem;">
+    <ol style="list-style:none; counter-reset: step; padding:0; margin:0;">
+      {% for step in steps %}
+      <li style="counter-increment: step; display:flex; gap:0.875rem; padding:0.625rem 0; {% if not loop.last %}border-bottom:1px solid oklch(95% 0.01 80);{% endif %}">
+        <span style="flex-shrink:0; width:1.5rem; height:1.5rem; border-radius:99px; background:var(--green-light); color:var(--green); font-size:0.75rem; font-weight:700; display:flex; align-items:center; justify-content:center;">{{ loop.index }}</span>
+        <span style="font-size:0.9375rem; color:var(--text-1); line-height:1.5;">{{ step }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% else %}
+  <div class="text-center py-10" style="color: var(--text-3);">
+    <p style="font-size:0.875rem;">This guide has no steps yet.</p>
+    <a href="/guides/{{ guide.id }}/edit" class="ss-btn-secondary" style="font-size:0.8125rem; margin-top:0.75rem; display:inline-block;">Add steps</a>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+  Alpine.data('guideView', () => ({
+    async deleteGuide() {
+      const ok = await Alpine.store('ssConfirm').ask({
+        title: 'Delete this guide?',
+        body: 'This cannot be undone.',
+        confirmLabel: 'Delete',
+        danger: true,
+      });
+      if (!ok) return;
+      const r = await fetch('/api/guides/{{ guide.id }}', {method: 'DELETE'});
+      if (r.ok) {
+        window.location.href = '/guides';
+      } else {
+        window._ssToast('Failed to delete guide', { level: 'error' });
+      }
+    },
+  }));
+});
+</script>
+
+{% endblock %}
