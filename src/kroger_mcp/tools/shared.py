@@ -148,8 +148,8 @@ def get_authenticated_client(user_id: str | None = None) -> KrogerAPI:
         creds = get_kroger_credentials(user_id=resolved_user_id)
         if not creds["client_id"] or not creds["client_secret"]:
             raise Exception(
-                "Authentication required. Please use the start_authentication tool to begin "
-                "the OAuth flow, then complete it with the complete_authentication tool."
+                "Authentication required. Run auth(action='start') to begin the OAuth flow, "
+                "then auth(action='complete', redirect_url=...) to finish it."
             )
 
         token_info = load_kroger_token(resolved_user_id)
@@ -189,8 +189,8 @@ def get_authenticated_client(user_id: str | None = None) -> KrogerAPI:
 
         # No usable token → user-initiated authentication required.
         raise Exception(
-            "Authentication required. Please use the start_authentication tool to begin the OAuth flow, "
-            "then complete it with the complete_authentication tool."
+            "Authentication required. Run auth(action='start') to begin the OAuth flow, "
+            "then auth(action='complete', redirect_url=...) to finish it."
         )
     except Exception as e:
         if "Authentication required" in str(e):

@@ -742,14 +742,22 @@ def _estimate_cost_with_conn(
             row = _fetch_price_by_product_id(conn, pid, location_id)
             if row:
                 effective, entry = _apply_price_row(row, entry, "exact")
-                total_cost += effective
-                priced_count += 1
+                if effective is not None:
+                    total_cost += effective
+                    priced_count += 1
+                else:
+                    # Row exists but carries no usable price; leave as unknown
+                    # so the API fallback can retry and confidence stays honest.
+                    entry["price_source"] = "unknown"
         else:
             row = _fetch_price_by_name(conn, ing_name, location_id)
             if row:
                 effective, entry = _apply_price_row(row, entry, "estimated")
-                total_cost += effective
-                priced_count += 1
+                if effective is not None:
+                    total_cost += effective
+                    priced_count += 1
+                else:
+                    entry["price_source"] = "unknown"
 
         breakdown.append(entry)
 
@@ -844,13 +852,13 @@ def _apply_price_row(
     on_sale = bool(row["on_sale"]) if row["on_sale"] is not None else False
     effective = sale if (on_sale and sale is not None) else regular
 
-    entry["matched_description"] = row.get("product_description")
+    entry["matched_description"] = row["product_description"]
     entry["price"] = effective
     entry["on_sale"] = on_sale
     entry["regular_price"] = regular
     entry["sale_price"] = sale
     entry["price_source"] = source
-    entry["last_observed"] = row.get("observed_at")
+    entry["last_observed"] = row["observed_at"]
     return effective, entry
 
 

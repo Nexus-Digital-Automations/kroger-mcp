@@ -860,8 +860,22 @@ def register_tools(mcp):
                     return {"success": False, "error": str(e)}
 
             case "search_by_id":
-                if not product_id:
-                    return {"success": False, "error": "product_id is required"}
+                ids = []
+                if product_ids:
+                    ids = product_ids
+                elif product_id:
+                    ids = [product_id]
+                else:
+                    return {
+                        "success": False,
+                        "error": "product_id or product_ids is required",
+                    }
+
+                if len(ids) > 20:
+                    return {
+                        "success": False,
+                        "error": f"Too many product IDs ({len(ids)}). Maximum is 20.",
+                    }
 
                 loc_id, err = await asyncio.to_thread(_get_location, location_id)
                 if err:
@@ -871,29 +885,34 @@ def register_tools(mcp):
 
                 if ctx:
                     await ctx.info(
-                        f"Searching for products with ID '{product_id}' at location {loc_id}"
+                        f"Looking up {len(ids)} product ID(s) at location {loc_id}"
                     )
 
                 client = await asyncio.to_thread(get_client_credentials_client)
                 filtering, safe_ids, blocked_ids, disabled, bmode = _get_safety_data()
 
                 try:
-                    prods = await asyncio.to_thread(
-                        functools.partial(
-                            client.product.search_products,
-                            product_id=product_id,
-                            location_id=loc_id,
+                    product_records: list[dict] = []
+                    for one_id in ids:
+                        prods = await asyncio.to_thread(
+                            functools.partial(
+                                client.product.search_products,
+                                product_id=one_id,
+                                location_id=loc_id,
+                            )
                         )
-                    )
-                    if not prods or "data" not in prods or not prods["data"]:
+                        if prods and prods.get("data"):
+                            product_records.extend(prods["data"])
+
+                    if not product_records:
                         return {
                             "success": False,
-                            "message": f"No products found with ID '{product_id}'",
+                            "message": f"No products found for the given ID(s): {', '.join(ids)}",
                             "data": [],
                         }
 
                     formatted_products = []
-                    for product in prods["data"]:
+                    for product in product_records:
                         pid = product.get("productId", "")
                         desc = product.get("description", "")
                         prd_brand = product.get("brand")
@@ -1037,7 +1056,7 @@ def register_tools(mcp):
                     return {
                         "success": True,
                         "search_params": {
-                            "product_id": product_id,
+                            "product_ids": ids,
                             "location_id": loc_id,
                             "prioritize_favorites": _prio_favs,
                         },
