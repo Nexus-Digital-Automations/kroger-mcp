@@ -1022,6 +1022,50 @@
 
 </div>
 
+<!-- Cost breakdown: per-ingredient full price + cost-per-serving. Spices are
+     shown but greyed and excluded from the per-serving total unless opted in. -->
+{% if cost_data and cost_data.breakdown %}
+<div class="ss-card p-6 mt-6">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; gap:0.75rem; margin-bottom:0.875rem; padding-bottom:0.875rem; border-bottom:1px solid var(--border); flex-wrap:wrap;">
+    <h3 style="font-family:'Lora',serif; font-weight:600; font-size:0.9375rem; color:var(--text-1); letter-spacing:-0.01em; margin:0;">Cost</h3>
+    <div style="display:flex; align-items:baseline; gap:0.5rem; font-family:'DM Sans',sans-serif;">
+      {% if cost_data.cost_per_serving is not none %}
+      <span style="font-size:1.0625rem; font-weight:700; color:var(--text-1); font-variant-numeric:tabular-nums;">${{ '%.2f'|format(cost_data.cost_per_serving) }}</span>
+      <span style="font-size:0.75rem; color:var(--text-3);">/ serving</span>
+      {% if cost_data.total_cost is not none %}<span style="font-size:0.75rem; color:var(--text-3);">· ${{ '%.2f'|format(cost_data.total_cost) }} total ({{ cost_data.servings }} servings)</span>{% endif %}
+      {% else %}
+      <span style="font-size:0.8125rem; color:var(--text-3);">No price data</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div style="display:flex; flex-direction:column; gap:0.25rem; font-family:'DM Sans',sans-serif; font-size:0.8125rem;">
+    {% for item in cost_data.breakdown %}
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:0.75rem; padding:0.2rem 0;{% if item.excluded_from_total %} color:var(--text-3);{% else %} color:var(--text-1);{% endif %}">
+      <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+        {{ item.ingredient }}{% if item.excluded_from_total %} <span style="font-size:0.6875rem; color:var(--text-3); font-style:italic;">· spice, not counted</span>{% endif %}
+      </span>
+      <span style="white-space:nowrap; font-variant-numeric:tabular-nums; color:var(--text-3);">
+        {% if item.price is not none %}
+          {% if item.cost_per_serving is not none %}${{ '%.2f'|format(item.cost_per_serving) }}/srv{% endif %}
+          <span style="opacity:0.7;">(${{ '%.2f'|format(item.price) }})</span>
+        {% else %}—{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border); flex-wrap:wrap; font-family:'DM Sans',sans-serif;">
+    <span style="font-size:0.6875rem; color:var(--text-3);">{% if cost_data.note %}{{ cost_data.note }}{% endif %}</span>
+    {% if include_spices %}
+    <a href="/recipes/{{ recipe.id }}" style="font-size:0.75rem; color:var(--green); white-space:nowrap;">Exclude spices from total</a>
+    {% else %}
+    <a href="/recipes/{{ recipe.id }}?include_spices=1" style="font-size:0.75rem; color:var(--green); white-space:nowrap;">Include spices in total</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Footer metadata -->
 <div class="mt-6 flex flex-wrap items-center justify-end gap-x-4 gap-y-1" style="font-size:0.6875rem; color:var(--text-3); opacity:0.75; font-family:'DM Sans',sans-serif; letter-spacing:0.02em;">
   {% if recipe.created_at %}

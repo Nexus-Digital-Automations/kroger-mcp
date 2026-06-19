@@ -225,7 +225,7 @@ def test_recipe_cost_cached_and_location_scoped(monkeypatch):
     monkeypatch.setattr(cache_mod, "get_redis", lambda: fake)
     calls = {"n": 0}
 
-    def _fake_cost(recipe, location_id=None):
+    def _fake_cost(recipe, location_id=None, include_spices=False):
         calls["n"] += 1
         return {"total_cost": 5.0, "cost_per_serving": 2.5, "breakdown": []}
 
@@ -239,12 +239,15 @@ def test_recipe_cost_cached_and_location_scoped(monkeypatch):
     recipe_scoring.estimate_recipe_cost(_recipe(), location_id=None)
     assert calls["n"] == 2  # different location scope → distinct key
 
+    recipe_scoring.estimate_recipe_cost(_recipe(), location_id="03400014", include_spices=True)
+    assert calls["n"] == 3  # spice mode is part of the key → distinct entry, recomputes
+
 
 def test_recipe_cost_redis_down_degrades_to_compute(monkeypatch):
     monkeypatch.setattr(cache_mod, "get_redis", lambda: None)
     calls = {"n": 0}
 
-    def _fake_cost(recipe, location_id=None):
+    def _fake_cost(recipe, location_id=None, include_spices=False):
         calls["n"] += 1
         return {"total_cost": 1.0, "cost_per_serving": 0.5, "breakdown": []}
 
