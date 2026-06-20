@@ -45,6 +45,27 @@ def _get_connection():
         return get_db_connection(), "sqlite"
 
 
+def _release(conn, backend) -> None:
+    """Return a connection to its home: the pool for Postgres, close for SQLite.
+
+    A pooled psycopg connection MUST go back via ``putconn``. Calling ``.close()``
+    on it instead (which the SQLite path needs) drops the socket without returning
+    the pool slot, so each uncached validation permanently leaks one connection
+    until the pool is exhausted and every request fails with PoolTimeout. Mirrors
+    the correct idiom in web/routes/auth.py.
+    """
+    if backend == "postgresql":
+        from kroger_mcp.analytics.pg_database import _get_pool
+
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        _get_pool().putconn(conn)
+    else:
+        conn.close()
+
+
 def create_session(user_id: str, ip_address: str = "") -> str:
     """Create a new session for a user. Returns the raw token (store in cookie)."""
     token = _generate_token()
@@ -68,7 +89,7 @@ def create_session(user_id: str, ip_address: str = "") -> str:
             )
         conn.commit()
     finally:
-        conn.close()
+        _release(conn, backend)
 
     return token
 
@@ -156,7 +177,7 @@ def validate_session(token: str) -> dict | None:
 
         return result
     finally:
-        conn.close()
+        _release(conn, backend)
 
 
 def delete_session(token: str) -> None:
@@ -172,7 +193,7 @@ def delete_session(token: str) -> None:
         )
         conn.commit()
     finally:
-        conn.close()
+        _release(conn, backend)
 
     # Evict the read-through cache so a logged-out / expired session is not
     # served from a stale entry. Best-effort; never raises. This path covers

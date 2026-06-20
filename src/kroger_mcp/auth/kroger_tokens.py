@@ -35,6 +35,25 @@ def _get_connection():
     return get_db_connection(), "sqlite"
 
 
+def _release(conn, backend) -> None:
+    """Return a connection to its home: the pool for Postgres, close for SQLite.
+
+    A pooled psycopg connection MUST go back via ``putconn``; calling ``.close()``
+    on it leaks the pool slot until the pool is exhausted. Mirrors the correct
+    idiom in web/routes/auth.py.
+    """
+    if backend == "postgresql":
+        from kroger_mcp.analytics.pg_database import _get_pool
+
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        _get_pool().putconn(conn)
+    else:
+        conn.close()
+
+
 def save_kroger_token(user_id: str, token_info: dict[str, Any]) -> None:
     """Encrypt and persist a user's Kroger token (insert or replace).
 
@@ -93,7 +112,7 @@ def save_kroger_token(user_id: str, token_info: dict[str, Any]) -> None:
             )
         conn.commit()
     finally:
-        conn.close()
+        _release(conn, backend)
 
 
 def load_kroger_token(user_id: str) -> dict[str, Any] | None:
@@ -112,7 +131,7 @@ def load_kroger_token(user_id: str) -> dict[str, Any] | None:
         )
         row = cur.fetchone()
     finally:
-        conn.close()
+        _release(conn, backend)
 
     if not row:
         return None
@@ -153,4 +172,4 @@ def delete_kroger_token(user_id: str) -> None:
         )
         conn.commit()
     finally:
-        conn.close()
+        _release(conn, backend)
