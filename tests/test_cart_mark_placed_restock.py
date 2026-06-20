@@ -6,6 +6,7 @@ import sqlite3
 import sys
 from types import SimpleNamespace
 
+import pytest
 from _pg_support import skip_on_pg
 
 # This test harness opens sqlite3.connect(DB_FILE) directly to set up/verify and
@@ -47,6 +48,24 @@ def _clear_kroger_modules():
     for k in list(sys.modules.keys()):
         if 'kroger_mcp' in k:
             del sys.modules[k]
+
+
+@pytest.fixture(autouse=True)
+def _restore_kroger_modules():
+    """Undo this file's wholesale ``sys.modules`` purge after each test.
+
+    The tests here delete every ``kroger_mcp`` module so cart can be re-imported
+    with patched deps. Left unrestored, that orphans OTHER test files' import-time
+    references (e.g. test_guides.py's ``gt``): their monkeypatches then target a
+    dead module while live code re-imports a fresh one — a cross-file flake.
+    Snapshot the originals and restore them so downstream tests see one set of
+    module objects again.
+    """
+    saved = {k: v for k, v in sys.modules.items() if 'kroger_mcp' in k}
+    yield
+    for k in [k for k in sys.modules if 'kroger_mcp' in k]:
+        del sys.modules[k]
+    sys.modules.update(saved)
 
 
 class TestMarkPlacedRestockWebRoute:
