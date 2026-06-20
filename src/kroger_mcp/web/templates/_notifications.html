@@ -1,0 +1,86 @@
+{# Notification bell + dropdown popup — favorite-on-sale alerts.
+   Included in the global header (base.html). Behaviour: static/js/notifications.js
+   (Alpine component `notifBell`). Acts on alerts inline (list / cart / view). #}
+<style>
+  .ss-notif-wrap { margin-left: auto; position: relative; }
+  .ss-notif-bell {
+    position: relative; display: inline-flex; align-items: center;
+    justify-content: center; width: 2.25rem; height: 2.25rem;
+    border-radius: 0.5rem; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-2, var(--text-1)); cursor: pointer;
+  }
+  .ss-notif-bell:hover { background: var(--green-light); color: var(--green); }
+  .ss-notif-badge {
+    position: absolute; top: -0.3rem; right: -0.3rem; min-width: 1.05rem;
+    height: 1.05rem; padding: 0 0.25rem; border-radius: 99px;
+    background: oklch(60% 0.18 25); color: #fff; font-size: 0.65rem;
+    font-weight: 700; display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .ss-notif-popup {
+    position: absolute; top: 2.75rem; right: 0; width: 22rem; max-width: 90vw;
+    max-height: 28rem; overflow-y: auto; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 0.75rem;
+    box-shadow: 0 8px 28px oklch(18% 0.025 80 / 0.16); z-index: 50;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .ss-notif-head {
+    padding: 0.75rem 0.875rem; font-weight: 700; font-size: 0.8125rem;
+    color: var(--text-1); border-bottom: 1px solid var(--border);
+  }
+  .ss-notif-empty { padding: 1.25rem 0.875rem; font-size: 0.8125rem; color: var(--text-3); }
+  .ss-notif-row {
+    display: flex; gap: 0.625rem; padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid oklch(95% 0.01 80); align-items: flex-start;
+  }
+  .ss-notif-info { flex: 1; min-width: 0; }
+  .ss-notif-name { font-size: 0.8125rem; font-weight: 600; color: var(--text-1); }
+  .ss-notif-brand { font-size: 0.6875rem; color: var(--text-3); }
+  .ss-notif-price { font-size: 0.75rem; font-weight: 700; color: var(--green); margin-top: 0.15rem; }
+  .ss-notif-actions { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+  .ss-notif-btn {
+    font-size: 0.6875rem; font-weight: 600; padding: 0.2rem 0.45rem;
+    border-radius: 0.35rem; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-1); cursor: pointer;
+  }
+  .ss-notif-btn:hover { background: var(--green-light); color: var(--green); border-color: var(--green); }
+  .ss-notif-btn:disabled { opacity: 0.5; cursor: default; }
+  .ss-notif-x {
+    font-size: 0.95rem; line-height: 1; color: var(--text-3);
+    background: transparent; border: none; cursor: pointer; padding: 0 0.15rem;
+  }
+</style>
+
+<div x-data="notifBell" class="ss-notif-wrap" @keydown.escape.window="open=false">
+  <button type="button" class="ss-notif-bell" @click="toggle()" aria-label="Notifications">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+    </svg>
+    <span class="ss-notif-badge" x-show="unseen > 0" x-cloak
+          x-text="unseen > 9 ? '9+' : unseen"></span>
+  </button>
+
+  <div class="ss-notif-popup" x-show="open" x-cloak @click.away="open=false"
+       x-transition.opacity.duration.120ms>
+    <div class="ss-notif-head">Favorites on sale</div>
+    <template x-if="alerts.length === 0">
+      <div class="ss-notif-empty">No sale alerts right now.</div>
+    </template>
+    <template x-for="a in alerts" :key="a.id">
+      <div class="ss-notif-row">
+        <div class="ss-notif-info">
+          <div class="ss-notif-name" x-text="a.description"></div>
+          <div class="ss-notif-brand" x-show="a.brand" x-text="a.brand"></div>
+          <div class="ss-notif-price" x-text="priceLabel(a)"></div>
+        </div>
+        <div class="ss-notif-actions">
+          <button class="ss-notif-btn" @click="addToList(a)" :disabled="busy[a.id]">List</button>
+          <button class="ss-notif-btn" @click="addToCart(a)" :disabled="busy[a.id]">Cart</button>
+          <button class="ss-notif-btn" @click="view(a)">View</button>
+          <button class="ss-notif-x" @click="dismiss(a)" aria-label="Dismiss">×</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>

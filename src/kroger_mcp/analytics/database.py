@@ -586,6 +586,27 @@ def initialize_database() -> None:
                 FOREIGN KEY (product_id) REFERENCES products(product_id)
             );
 
+            -- Favorite-on-sale alerts (one per user per sale event; feeds the
+            -- in-app notification bell). Written by the daily favorites scan.
+            CREATE TABLE IF NOT EXISTS favorite_sale_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                product_id TEXT NOT NULL,
+                list_id TEXT,
+                description TEXT,
+                brand TEXT,
+                regular_price REAL,
+                sale_price REAL,
+                savings_percent REAL DEFAULT 0,
+                default_quantity REAL DEFAULT 1,
+                preferred_modality TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                seen INTEGER DEFAULT 0,
+                dismissed INTEGER DEFAULT 0,
+                acted INTEGER DEFAULT 0,
+                UNIQUE(user_id, product_id, sale_price)
+            );
+
             -- Custom ingredients (user-added ingredients beyond defaults)
             CREATE TABLE IF NOT EXISTS custom_ingredients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

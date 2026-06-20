@@ -1,0 +1,157 @@
+"""Tests for favorite-on-sale alert detection + per-user read/state.
+
+Data-integrity critical path: the scan must alert exactly once per *newly* on
+sale favorite (no spam), dedupe re-runs, auto-dismiss when a sale ends, and
+scope reads/state to the owning user.
+"""
+
+import os
+
+import pytest
+
+from kroger_mcp.analytics import notifications
+from kroger_mcp.analytics.database import (
+    ensure_initialized,
+    get_db_cursor,
+    reset_initialization,
+)
+
+USER = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+LIST_ID = "TESTLIST_fav_alerts"
+PID = "TEST_FAV_SALE_1"
+LOC = "03400014"
+
+
+def _on_sale_lookup(product_id, location_id):
+    """Fake price lookup: only the TEST product is on sale; others → None
+    (so real favorites in a shared dev DB are left untouched)."""
+    if product_id != PID:
+        return None
+    return {
+        "product_id": PID,
+        "regular_price": 5.00,
+        "sale_price": 3.50,
+        "on_sale": True,
+        "savings_percent": 30.0,
+    }
+
+
+def _not_on_sale_lookup(product_id, location_id):
+    if product_id != PID:
+        return None
+    return {
+        "product_id": PID,
+        "regular_price": 5.00,
+        "sale_price": None,
+        "on_sale": False,
+        "savings_percent": 0.0,
+    }
+
+
+def _seed_favorite():
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "INSERT OR IGNORE INTO favorite_lists (id, name, user_id) VALUES (?, ?, ?)",
+            (LIST_ID, "Test Alerts List", USER),
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO favorite_list_items "
+            "(list_id, product_id, description, brand, default_quantity, preferred_modality) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (LIST_ID, PID, "Test Favorite Beans", "TestBrand", 2, "DELIVERY"),
+        )
+
+
+def _cleanup():
+    with get_db_cursor() as cursor:
+        cursor.execute("DELETE FROM favorite_sale_alerts WHERE product_id LIKE 'TEST%'")
+        cursor.execute("DELETE FROM favorite_list_items WHERE list_id = ?", (LIST_ID,))
+        cursor.execute("DELETE FROM favorite_lists WHERE id = ?", (LIST_ID,))
+        cursor.execute("DELETE FROM price_history WHERE product_id LIKE 'TEST%'")
+
+
+@pytest.fixture(scope="function")
+def clean_db():
+    reset_initialization()
+    ensure_initialized()
+    _cleanup()
+    _seed_favorite()
+    yield
+    _cleanup()
+    reset_initialization()
+
+
+def test_newly_on_sale_creates_one_alert(clean_db):
+    created = notifications.scan_favorites_for_sales(LOC, price_lookup=_on_sale_lookup)
+    assert created == 1
+
+    alerts = notifications.list_alerts(USER)
+    mine = [a for a in alerts if a["product_id"] == PID]
+    assert len(mine) == 1
+    alert = mine[0]
+    assert alert["sale_price"] == 3.50
+    assert alert["regular_price"] == 5.00
+    assert alert["default_quantity"] == 2
+    assert alert["preferred_modality"] == "DELIVERY"
+    assert alert["list_id"] == LIST_ID
+    assert notifications.unseen_count(USER) >= 1
+
+
+def test_rerun_does_not_duplicate(clean_db):
+    first = notifications.scan_favorites_for_sales(LOC, price_lookup=_on_sale_lookup)
+    second = notifications.scan_favorites_for_sales(LOC, price_lookup=_on_sale_lookup)
+    assert first == 1
+    # Second run: already on sale at the prior observation → not "newly" on sale,
+    # and the unique key would dedupe anyway.
+    assert second == 0
+    mine = [a for a in notifications.list_alerts(USER) if a["product_id"] == PID]
+    assert len(mine) == 1
+
+
+def test_already_on_sale_is_not_newly_on_sale(clean_db):
+    # Pre-existing observation says it was already on sale → no alert.
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO price_history "
+            "(product_id, regular_price, sale_price, on_sale, savings_amount, "
+            " savings_percent, location_id, observed_at, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (PID, 5.00, 3.50, 1, 1.50, 30.0, LOC, "2026-01-01T00:00:00", "test"),
+        )
+    created = notifications.scan_favorites_for_sales(LOC, price_lookup=_on_sale_lookup)
+    assert created == 0
+
+
+def test_sale_ended_auto_dismisses(clean_db):
+    notifications.scan_favorites_for_sales(LOC, price_lookup=_on_sale_lookup)
+    assert any(a["product_id"] == PID for a in notifications.list_alerts(USER))
+
+    # Next scan finds it no longer on sale → outstanding alert auto-dismissed.
+    notifications.scan_favorites_for_sales(LOC, price_lookup=_not_on_sale_lookup)
+    assert not any(a["product_id"] == PID for a in notifications.list_alerts(USER))
+
+
+def test_mark_seen_clears_badge(clean_db):
+    notifications.scan_favorites_for_sales(LOC, price_lookup=_on_sale_lookup)
+    assert notifications.unseen_count(USER) >= 1
+    notifications.mark_alerts_seen(USER)
+    assert notifications.unseen_count(USER) == 0
+    # Marked seen, but still listed until dismissed.
+    assert any(a["product_id"] == PID for a in notifications.list_alerts(USER))
+
+
+def test_dismiss_removes_alert(clean_db):
+    notifications.scan_favorites_for_sales(LOC, price_lookup=_on_sale_lookup)
+    mine = [a for a in notifications.list_alerts(USER) if a["product_id"] == PID]
+    assert mine
+    assert notifications.dismiss_alert(USER, mine[0]["id"]) is True
+    assert not any(a["product_id"] == PID for a in notifications.list_alerts(USER))
+
+
+def test_dismiss_is_user_scoped(clean_db):
+    notifications.scan_favorites_for_sales(LOC, price_lookup=_on_sale_lookup)
+    mine = [a for a in notifications.list_alerts(USER) if a["product_id"] == PID]
+    assert mine
+    other_user = "00000000-0000-0000-0000-000000000000"
+    assert notifications.dismiss_alert(other_user, mine[0]["id"]) is False
+    assert any(a["product_id"] == PID for a in notifications.list_alerts(USER))

@@ -234,9 +234,30 @@ def send_notification(deal_count: int):
         logging.warning(f"Failed to send notification: {e}")
 
 
+def scan_favorites():
+    """Scan favorited products for newly-on-sale items → in-app bell alerts.
+
+    Kept separate from the watchlist scan so a failure in one never aborts the
+    other. Detection lives in analytics.notifications (portable across the
+    SQLite/Postgres backends); this just invokes it and logs the outcome.
+    """
+    from kroger_mcp.analytics.notifications import scan_favorites_for_sales
+
+    created = scan_favorites_for_sales()
+    logging.info("Favorites sale scan created %d alert(s)", created)
+
+
 if __name__ == "__main__":
+    failed = False
     try:
         scan_watchlist_for_deals()
     except Exception as e:
-        logging.error(f"Scan failed: {e}", exc_info=True)
+        logging.error(f"Watchlist scan failed: {e}", exc_info=True)
+        failed = True
+    try:
+        scan_favorites()
+    except Exception as e:
+        logging.error(f"Favorites scan failed: {e}", exc_info=True)
+        failed = True
+    if failed:
         sys.exit(1)

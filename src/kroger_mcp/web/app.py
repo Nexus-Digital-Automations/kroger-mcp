@@ -96,6 +96,7 @@ from .routes.api import favorites as api_favorites
 from .routes.api import guides as api_guides
 from .routes.api import ingredients as api_ingredients
 from .routes.api import meal_plan as api_meal_plan
+from .routes.api import notifications as api_notifications
 from .routes.api import pantry as api_pantry
 from .routes.api import products as api_products
 from .routes.api import recipes as api_recipes
@@ -203,6 +204,7 @@ app.include_router(api_favorites.router)
 app.include_router(api_recipes.router)
 app.include_router(api_guides.router)
 app.include_router(api_meal_plan.router)
+app.include_router(api_notifications.router)
 app.include_router(api_chat.router)
 
 

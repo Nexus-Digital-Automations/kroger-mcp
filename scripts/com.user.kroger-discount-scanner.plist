@@ -18,27 +18,15 @@
   <key>RunAtLoad</key>
   <true/>
 
-  <!-- Schedule: Monday 9:00 AM -->
+  <!-- Schedule: daily at 9:00 AM (omitting Weekday = every day). Catches
+       favorite price drops within a day; the watchlist scan rides along. -->
   <key>StartCalendarInterval</key>
-  <array>
-    <dict>
-      <key>Weekday</key>
-      <integer>1</integer>
-      <key>Hour</key>
-      <integer>9</integer>
-      <key>Minute</key>
-      <integer>0</integer>
-    </dict>
-    <!-- Thursday 9:00 AM -->
-    <dict>
-      <key>Weekday</key>
-      <integer>4</integer>
-      <key>Hour</key>
-      <integer>9</integer>
-      <key>Minute</key>
-      <integer>0</integer>
-    </dict>
-  </array>
+  <dict>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
 
   <!-- Logging -->
   <key>StandardOutPath</key>

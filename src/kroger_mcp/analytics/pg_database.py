@@ -387,6 +387,31 @@ CREATE TABLE IF NOT EXISTS deal_watchlist (
     UNIQUE(user_id, product_id)
 );
 
+-- Favorite-on-sale alerts (one per user per sale event; feeds the in-app
+-- notification bell). Written by the daily favorites scan.
+CREATE TABLE IF NOT EXISTS favorite_sale_alerts (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id VARCHAR(50) NOT NULL,
+    list_id TEXT,
+    description TEXT,
+    brand TEXT,
+    regular_price NUMERIC(10,2),
+    sale_price NUMERIC(10,2),
+    savings_percent NUMERIC(5,2) DEFAULT 0,
+    default_quantity NUMERIC(10,2) DEFAULT 1,
+    preferred_modality VARCHAR(20),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    -- 0/1 flags kept INTEGER (not BOOLEAN) so the SQLite `= 0|1` idiom stays
+    -- portable without adding these to the adapter's _PG_BOOL_COLS list.
+    seen INTEGER DEFAULT 0,
+    dismissed INTEGER DEFAULT 0,
+    acted INTEGER DEFAULT 0,
+    UNIQUE(user_id, product_id, sale_price)
+);
+CREATE INDEX IF NOT EXISTS idx_fav_alerts_user
+    ON favorite_sale_alerts(user_id, dismissed, created_at DESC);
+
 -- User preferences (replaces kroger_preferences.json)
 CREATE TABLE IF NOT EXISTS user_preferences (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
