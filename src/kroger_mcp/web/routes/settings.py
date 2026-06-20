@@ -98,9 +98,24 @@ async def oauth_callback(
     if state != saved.get("state"):
         return RedirectResponse(url="/settings?oauth=error&detail=state_mismatch")
 
+    # Resolve the connecting user from the session cookie directly. /callback is a
+    # PUBLIC_PATH, so AuthMiddleware leaves request.state.user None and never
+    # validates the cookie — but the SameSite=Lax session cookie still rides along
+    # on this top-level redirect back from Kroger. current_user_id(request) would
+    # therefore 401 ("authentication required") even for a logged-in user, so read
+    # and validate the cookie ourselves.
+    from kroger_mcp.auth.middleware import SESSION_COOKIE
+    from kroger_mcp.auth.sessions import validate_session
+
+    session_token = request.cookies.get(SESSION_COOKIE)
+    user = validate_session(session_token) if session_token else None
+    if not user:
+        return RedirectResponse(url="/settings?oauth=error&detail=not_logged_in")
+    user_id = str(user["id"])
+
     # Exchange authorization code for token (scoped to the logged-in user so a
     # power user's own client_id/secret mints the token, not the env app's).
-    creds = get_kroger_credentials(user_id=current_user_id(request))
+    creds = get_kroger_credentials(user_id=user_id)
     redirect_uri = saved.get("redirect_uri", "http://localhost:8000/callback")
 
     try:
@@ -120,7 +135,6 @@ async def oauth_callback(
     # is the source of truth get_authenticated_client() reads — the legacy
     # ``.kroger_token_user.json`` file kroger-api also wrote is no longer used.
     try:
-        user_id = current_user_id(request)
         save_kroger_token(user_id, token_info)
     except Exception:
         return RedirectResponse(url="/settings?oauth=error&detail=token_persist_failed")
