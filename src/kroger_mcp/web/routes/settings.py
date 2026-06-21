@@ -74,10 +74,7 @@ async def oauth_callback(
     from kroger_api import KrogerAPI
 
     from kroger_mcp.auth.kroger_tokens import save_kroger_token
-    from kroger_mcp.tools.shared import (
-        get_kroger_credentials,
-        invalidate_authenticated_client,
-    )
+    from kroger_mcp.tools.shared import get_kroger_credentials
 
     if error:
         return RedirectResponse(url=f"/settings?oauth=error&detail={error}")
@@ -141,8 +138,5 @@ async def oauth_callback(
 
     # Clean up state file
     _WEB_OAUTH_STATE_FILE.unlink(missing_ok=True)
-
-    # Drop any stale token so the next call reloads the freshly stored one.
-    invalidate_authenticated_client(user_id)
 
     return RedirectResponse(url="/settings?oauth=success")

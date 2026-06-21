@@ -49,15 +49,18 @@ def stub_token_exchange(monkeypatch):
         "kroger_mcp.tools.shared.get_kroger_credentials",
         lambda user_id=None: {"client_id": "c", "client_secret": "s", "redirect_uri": "r"},
     )
-    monkeypatch.setattr(
-        "kroger_mcp.tools.shared.invalidate_authenticated_client",
-        lambda user_id: None,
-    )
 
     saved = {}
     monkeypatch.setattr(
         "kroger_mcp.auth.kroger_tokens.save_kroger_token",
         lambda user_id, token_info: saved.update({"user_id": user_id, "token": token_info}),
+    )
+    # The callback must NOT delete the token it just saved. Track deletes so the
+    # regression (a stray invalidate_authenticated_client wiping the fresh token,
+    # leaving kroger_tokens empty under a "success" banner) is caught.
+    monkeypatch.setattr(
+        "kroger_mcp.auth.kroger_tokens.delete_kroger_token",
+        lambda user_id: saved.update({"deleted": user_id}),
     )
 
     class _FakeClient:
@@ -91,6 +94,8 @@ def test_callback_resolves_user_from_cookie_and_saves_token(
     assert "oauth=success" in resp.headers["location"]
     # The token was scoped to the cookie's user — not a 401.
     assert stub_token_exchange["user_id"] == USER_ID
+    # The freshly saved token must survive — the callback must not delete it.
+    assert "deleted" not in stub_token_exchange
     # State file consumed on success.
     assert not oauth_state_file.exists()
 
