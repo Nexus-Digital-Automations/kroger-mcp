@@ -243,6 +243,7 @@
         <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-40">Pantry Level</th>
         <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
         <th class="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ordered</th>
+        <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Qty</th>
         <th class="px-4 py-3"></th>
       </tr>
     </thead>
@@ -289,6 +290,25 @@
         <td class="px-6 py-4 text-right text-gray-500">
           {{ item.times_ordered or 0 }}x
         </td>
+        <td class="px-4 py-4">
+          <div
+            x-data="favoriteQtyEditor({{ lst.id | tojson }}, {{ item.product_id | tojson }}, {{ (item.default_quantity or 1) | tojson }})"
+            class="flex items-center justify-center gap-1"
+          >
+            <button type="button" @click="step(-1)" :disabled="qty <= 1"
+              class="w-6 h-6 flex items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Decrease quantity">−</button>
+            <input type="number" min="1" step="1" x-model.number="qty"
+              @input.debounce.600ms="save()" @blur="save()" @keydown.enter="$event.target.blur()"
+              class="w-12 text-center text-sm border border-gray-200 rounded py-1 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+              aria-label="Quantity" />
+            <button type="button" @click="step(1)"
+              class="w-6 h-6 flex items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-100"
+              aria-label="Increase quantity">+</button>
+            <span x-show="saved" x-transition class="text-xs text-emerald-600 w-10">Saved</span>
+            <span x-show="error" x-transition class="text-xs text-red-600" x-text="error"></span>
+          </div>
+        </td>
         <td class="px-4 py-4 text-right">
           {{ action_menu('favorite_item', item_expr=(item | tojson), current_list_expr=(lst.id | tojson)) }}
         </td>
@@ -304,6 +324,50 @@
 </div>
 
 <script>
+/**
+ * favoriteQtyEditor — inline, auto-saving editor for a favorite item's
+ * default_quantity. Debounced on typing, immediate on +/− steppers; clamps to
+ * an integer >= 1 and reconciles with the server's returned value.
+ */
+function favoriteQtyEditor(listId, productId, initial) {
+  return {
+    qty: initial,
+    saved: false,
+    error: '',
+    _last: initial,
+    step(delta) {
+      this.qty = Math.max(1, (parseInt(this.qty, 10) || 1) + delta);
+      this.save();
+    },
+    async save() {
+      let q = parseInt(this.qty, 10);
+      if (!Number.isFinite(q) || q < 1) q = 1;
+      this.qty = q;
+      if (q === this._last) return;  // nothing changed since last persist
+      this.error = '';
+      try {
+        const r = await fetch('/api/favorites/lists/' + listId + '/items/' + productId, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ default_quantity: q }),
+        });
+        const d = await r.json();
+        if (r.ok && d.success) {
+          this.qty = d.default_quantity;
+          this._last = d.default_quantity;
+          this.saved = true;
+          clearTimeout(this._savedTimer);
+          this._savedTimer = setTimeout(() => { this.saved = false; }, 1500);
+        } else {
+          this.error = d.error || 'Error';
+        }
+      } catch (e) {
+        this.error = 'Error';
+      }
+    },
+  };
+}
+
 /**
  * favoriteItemsActions — event handlers for the action-menu on each row.
  *

@@ -30,6 +30,10 @@ class AddItemBody(BaseModel):
     notes: str | None = None
 
 
+class UpdateItemBody(BaseModel):
+    default_quantity: int
+
+
 @router.get("/api/favorites/lists")
 async def get_favorites_lists(request: Request):
     """Return all favorites lists owned by the authenticated user."""
@@ -152,6 +156,30 @@ async def add_item(list_id: str, body: AddItemBody, request: Request):
         if not result.get("success"):
             return JSONResponse(status_code=400, content=result)
         return result
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.patch("/api/favorites/lists/{list_id}/items/{product_id}")
+async def update_item(list_id: str, product_id: str, body: UpdateItemBody, request: Request):
+    """Update a favorite item's default order quantity.
+
+    Clamps to a minimum of 1 (an integer count can't be < 1) and returns the
+    saved value so the client can reconcile if it sent something out of range.
+    """
+    try:
+        from kroger_mcp.analytics.favorites import update_list_item
+
+        quantity = max(1, body.default_quantity)
+        result = update_list_item(
+            list_id=list_id,
+            product_id=product_id,
+            default_quantity=quantity,
+            user_id=current_user_id(request),
+        )
+        if not result.get("success"):
+            return JSONResponse(status_code=404, content=result)
+        return {"success": True, "default_quantity": quantity}
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
