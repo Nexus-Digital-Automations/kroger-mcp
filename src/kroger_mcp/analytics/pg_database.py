@@ -272,6 +272,8 @@ CREATE TABLE IF NOT EXISTS favorite_list_items (
     min_stock_percent INTEGER,
     min_stock_quantity INTEGER,
     current_stock_quantity INTEGER,
+    last_ordered_at TIMESTAMP WITH TIME ZONE,
+    typical_gap_days INTEGER,
     PRIMARY KEY (list_id, product_id)
 );
 
@@ -713,11 +715,24 @@ CREATE TABLE IF NOT EXISTS kroger_tokens (
 """
 
 
+# Idempotent column additions for databases created before a column existed.
+# CREATE TABLE IF NOT EXISTS never alters an existing table, so new columns on
+# already-provisioned Postgres databases are added here (mirrors SQLite's
+# run_schema_migrations). Postgres supports ADD COLUMN IF NOT EXISTS natively.
+_PG_COLUMN_MIGRATIONS = (
+    "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS last_ordered_at "
+    "TIMESTAMP WITH TIME ZONE",
+    "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS typical_gap_days INTEGER",
+)
+
+
 def initialize_pg_database() -> None:
-    """Create all PostgreSQL tables if they don't exist."""
+    """Create all PostgreSQL tables if they don't exist, then run column migrations."""
     conn = get_pg_connection()
     try:
         conn.execute(SCHEMA_SQL)
+        for stmt in _PG_COLUMN_MIGRATIONS:
+            conn.execute(stmt)
         conn.commit()
     finally:
         _get_pool().putconn(conn)

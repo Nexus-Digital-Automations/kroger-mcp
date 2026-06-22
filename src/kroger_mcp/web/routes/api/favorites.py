@@ -43,7 +43,12 @@ async def get_favorites_lists(request: Request):
         lists = get_lists(user_id=current_user_id(request))
         return JSONResponse(
             content=[
-                {"id": lst["id"], "name": lst["name"], "item_count": lst["item_count"]}
+                {
+                    "id": lst["id"],
+                    "name": lst["name"],
+                    "item_count": lst["item_count"],
+                    "list_type": lst["list_type"],
+                }
                 for lst in lists
                 if not lst.get("is_default")
             ]
@@ -275,3 +280,70 @@ async def add_list_to_shopping_list(list_id: str, request: Request):
         "items_skipped": items_skipped,
         "total_items": len(data["items"]),
     }
+
+
+class AddSnacksBody(BaseModel):
+    """Snacks the user ticked in the pre-cart check-up, by product_id."""
+
+    product_ids: list[str]
+
+
+@router.get("/api/favorites/snacks/check")
+async def check_snacks_route(request: Request):
+    """Return the pre-cart snack replenishment checklist for the user."""
+    from kroger_mcp.analytics.favorites import check_snacks as _check_snacks
+
+    try:
+        return _check_snacks(user_id=current_user_id(request))
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/favorites/snacks/add-to-list")
+async def add_snacks_to_shopping_list(body: AddSnacksBody, request: Request):
+    """Append the chosen snacks (by product_id) to the shopping list.
+
+    Only product_ids that are genuinely on a snacks list are honored — the
+    check-up snapshot is the allow-list, so a stale/forged id is ignored.
+    """
+    from datetime import datetime
+
+    from kroger_mcp.analytics.favorites import check_snacks as _check_snacks
+    from kroger_mcp.tools.shopping_list_tools import (
+        _consolidate_items,
+        _generate_list_item_id,
+        _load_shopping_list,
+        _save_shopping_list,
+    )
+
+    user_id = current_user_id(request)
+    chosen = set(body.product_ids)
+    if not chosen:
+        return {"success": True, "items_added": 0}
+
+    by_id = {c["product_id"]: c for c in _check_snacks(user_id=user_id).get("candidates", [])}
+
+    data = _load_shopping_list(user_id=user_id)
+    now = datetime.now().isoformat()
+    items_added = 0
+    for product_id in chosen:
+        snack = by_id.get(product_id)
+        if not snack:
+            continue
+        data["items"].append(
+            {
+                "id": _generate_list_item_id(),
+                "product_id": product_id,
+                "name": snack["description"],
+                "quantity": snack.get("default_quantity") or 1,
+                "unit": "",
+                "added_at": now,
+                "notes": None,
+                "sources": [{"snacks_list_id": snack["list_id"]}],
+            }
+        )
+        items_added += 1
+
+    data["items"] = _consolidate_items(data["items"])
+    _save_shopping_list(data, user_id=user_id)
+    return {"success": True, "items_added": items_added, "total_items": len(data["items"])}

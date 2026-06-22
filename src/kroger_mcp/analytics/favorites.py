@@ -14,6 +14,13 @@ from kroger_mcp.cache import cache_read_through
 
 from .database import ensure_initialized, get_db_cursor
 
+# Default "days between buys" used to flag a snack as stale when the item has
+# no explicit typical_gap_days set. Snacks have no fixed reorder schedule, so
+# this is only a pre-tick heuristic for the pre-cart check-up — never a hard
+# cadence like favorite_lists.reorder_weeks.
+SNACK_DEFAULT_GAP_DAYS = 21
+SNACK_PANTRY_LOW_PERCENT = 30
+
 
 def _resolve_user_id(user_id: str | None) -> str:
     """Resolve user_id for user-scoped queries.
@@ -184,6 +191,7 @@ def get_lists(user_id: str | None = None) -> list[dict[str, Any]]:
     ensure_initialized()
     owner = _resolve_user_id(user_id)
     _ensure_default_list_for_user(owner)
+    _ensure_snacks_list_for_user(owner)
 
     with get_db_cursor() as cursor:
         cursor.execute(
@@ -247,6 +255,32 @@ def _ensure_default_list_for_user(user_id: str) -> None:
             """,
             (new_id, user_id),
         )
+
+
+def _ensure_snacks_list_for_user(user_id: str) -> str:
+    """Lazily create the built-in 'Snacks' list for a user; return its id.
+
+    Snacks are favorites eaten on no schedule, so the list carries no
+    reorder_weeks. The list is identified by list_type='snacks' (not by name),
+    so a renamed list keeps its snack behavior.
+    """
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "SELECT id FROM favorite_lists WHERE user_id = ? AND list_type = 'snacks' LIMIT 1",
+            (user_id,),
+        )
+        existing = cursor.fetchone()
+        if existing:
+            return existing["id"]
+        new_id = f"snacks-{uuid.uuid4().hex[:8]}"
+        cursor.execute(
+            """
+            INSERT INTO favorite_lists (id, name, description, list_type, user_id)
+            VALUES (?, 'Snacks', 'Snacks eaten on no schedule — checked before each cart', 'snacks', ?)
+            """,
+            (new_id, user_id),
+        )
+        return new_id
 
 
 def get_list(list_id: str, user_id: str | None = None) -> dict[str, Any] | None:
@@ -394,6 +428,7 @@ def add_to_list(
     min_stock_percent: int | None = None,
     min_stock_quantity: int | None = None,
     current_stock_quantity: int | None = None,
+    typical_gap_days: int | None = None,
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """Add a product to a favorite list, only if the list belongs to `user_id`."""
@@ -411,8 +446,8 @@ def add_to_list(
                 INSERT INTO favorite_list_items
                 (list_id, product_id, description, brand, default_quantity,
                  preferred_modality, notes, min_stock_percent, min_stock_quantity,
-                 current_stock_quantity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 current_stock_quantity, typical_gap_days)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     list_id,
@@ -425,6 +460,7 @@ def add_to_list(
                     min_stock_percent,
                     min_stock_quantity,
                     current_stock_quantity,
+                    typical_gap_days,
                 ),
             )
 
@@ -485,8 +521,8 @@ def bulk_add_to_list(
                     INSERT INTO favorite_list_items
                     (list_id, product_id, description, brand, default_quantity,
                      preferred_modality, notes, min_stock_percent, min_stock_quantity,
-                     current_stock_quantity)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     current_stock_quantity, typical_gap_days)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         list_id,
@@ -499,6 +535,7 @@ def bulk_add_to_list(
                         item.get("min_stock_percent"),
                         item.get("min_stock_quantity"),
                         item.get("current_stock_quantity"),
+                        item.get("typical_gap_days"),
                     ),
                 )
                 added.append({"product_id": product_id, "description": description})
@@ -611,6 +648,8 @@ def get_list_items(
                         MIN(fli.min_stock_percent) as min_stock_percent,
                         MIN(fli.min_stock_quantity) as min_stock_quantity,
                         MIN(fli.current_stock_quantity) as current_stock_quantity,
+                        MAX(fli.last_ordered_at) as last_ordered_at,
+                        MAX(fli.typical_gap_days) as typical_gap_days,
                         pi.level_percent,
                         pi.daily_depletion_rate,
                         pi.low_threshold
@@ -634,7 +673,9 @@ def get_list_items(
                         SUM(fli.times_ordered) as times_ordered,
                         MIN(fli.min_stock_percent) as min_stock_percent,
                         MIN(fli.min_stock_quantity) as min_stock_quantity,
-                        MIN(fli.current_stock_quantity) as current_stock_quantity
+                        MIN(fli.current_stock_quantity) as current_stock_quantity,
+                        MAX(fli.last_ordered_at) as last_ordered_at,
+                        MAX(fli.typical_gap_days) as typical_gap_days
                     FROM favorite_list_items fli
                     GROUP BY fli.product_id
                     ORDER BY {agg_sort_column}
@@ -655,6 +696,8 @@ def get_list_items(
                     fli.min_stock_percent,
                     fli.min_stock_quantity,
                     fli.current_stock_quantity,
+                    fli.last_ordered_at,
+                    fli.typical_gap_days,
                     pi.level_percent,
                     pi.daily_depletion_rate,
                     pi.low_threshold
@@ -679,7 +722,9 @@ def get_list_items(
                     fli.times_ordered,
                     fli.min_stock_percent,
                     fli.min_stock_quantity,
-                    fli.current_stock_quantity
+                    fli.current_stock_quantity,
+                    fli.last_ordered_at,
+                    fli.typical_gap_days
                 FROM favorite_list_items fli
                 WHERE fli.list_id = ?
                 ORDER BY {sort_column}
@@ -707,6 +752,8 @@ def get_list_items(
             "min_stock_percent": min_pct,
             "min_stock_quantity": min_qty,
             "current_stock_quantity": cur_qty,
+            "last_ordered_at": row["last_ordered_at"],
+            "typical_gap_days": row["typical_gap_days"],
         }
 
         if include_pantry_status:
@@ -765,6 +812,7 @@ def update_list_item(
         "min_stock_percent",
         "min_stock_quantity",
         "current_stock_quantity",
+        "typical_gap_days",
     }
     # Use `is not None` so 0 is a valid stock count but unprovided fields are skipped
     updates = {k: v for k, v in kwargs.items() if k in allowed_fields and v is not None}
@@ -814,18 +862,171 @@ def increment_times_ordered(
         return
 
     placeholders = ", ".join("?" * len(product_ids))
+    now = datetime.now().isoformat()
     with get_db_cursor() as cursor:
         cursor.execute(
             f"""
             UPDATE favorite_list_items
-            SET times_ordered = times_ordered + 1
+            SET times_ordered = times_ordered + 1,
+                last_ordered_at = ?
             WHERE list_id = ? AND product_id IN ({placeholders})
             """,
-            [list_id] + product_ids,
+            [now, list_id] + product_ids,
         )
 
 
 # ========== Smart Features ==========
+
+
+def get_snacks_list_ids(user_id: str | None = None) -> list[str]:
+    """Return the ids of the user's snack-type lists, ensuring one exists."""
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    _ensure_snacks_list_for_user(owner)
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "SELECT id FROM favorite_lists WHERE user_id = ? AND list_type = 'snacks'",
+            (owner,),
+        )
+        return [row["id"] for row in cursor.fetchall()]
+
+
+def _days_since(iso_timestamp: str | None) -> int | None:
+    """Whole days between an ISO timestamp and now; None if missing/unparseable."""
+    if not iso_timestamp:
+        return None
+    try:
+        when = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+        if when.tzinfo is not None:
+            when = when.replace(tzinfo=None)
+    except (ValueError, AttributeError):
+        return None
+    return (datetime.now() - when).days
+
+
+def check_snacks(
+    user_id: str | None = None,
+    pantry_low_percent: int = SNACK_PANTRY_LOW_PERCENT,
+) -> dict[str, Any]:
+    """Build the pre-cart snack replenishment checklist.
+
+    A snack is pre-ticked ("likely needs replenishing") when ANY holds:
+      - it is pantry-tracked and below `pantry_low_percent`, or
+      - it has never been ordered, or
+      - days since last ordered >= its typical_gap_days (default 21).
+
+    The user always confirms — nothing is added to any cart or list here.
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    snack_list_ids = get_snacks_list_ids(owner)
+    if not snack_list_ids:
+        return {
+            "success": True,
+            "snacks_list_ids": [],
+            "candidates": [],
+            "count": 0,
+            "flagged_count": 0,
+        }
+
+    placeholders = ", ".join("?" * len(snack_list_ids))
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT
+                fli.list_id,
+                fli.product_id,
+                fli.description,
+                fli.brand,
+                fli.default_quantity,
+                fli.preferred_modality,
+                fli.last_ordered_at,
+                fli.typical_gap_days,
+                pi.level_percent
+            FROM favorite_list_items fli
+            LEFT JOIN pantry_items pi ON fli.product_id = pi.product_id
+            WHERE fli.list_id IN ({placeholders})
+            ORDER BY fli.description
+            """,
+            snack_list_ids,
+        )
+        rows = cursor.fetchall()
+
+    candidates = []
+    for row in rows:
+        level = row["level_percent"]
+        gap = row["typical_gap_days"] or SNACK_DEFAULT_GAP_DAYS
+        days_since = _days_since(row["last_ordered_at"])
+        never_ordered = row["last_ordered_at"] is None
+
+        pantry_low = level is not None and level < pantry_low_percent
+        stale = days_since is not None and days_since >= gap
+        pre_ticked = pantry_low or never_ordered or stale
+
+        if pantry_low:
+            reason = f"Pantry at {level}%"
+        elif never_ordered:
+            reason = "Never ordered yet"
+        elif stale:
+            reason = f"Last bought {days_since}d ago (≈ every {gap}d)"
+        elif days_since is not None:
+            reason = f"Bought {days_since}d ago"
+        else:
+            reason = "Recently ordered"
+
+        candidates.append(
+            {
+                "list_id": row["list_id"],
+                "product_id": row["product_id"],
+                "description": row["description"],
+                "brand": row["brand"],
+                "default_quantity": row["default_quantity"],
+                "preferred_modality": row["preferred_modality"],
+                "pantry_level": level,
+                "days_since_ordered": days_since,
+                "typical_gap_days": gap,
+                "never_ordered": never_ordered,
+                "pre_ticked": pre_ticked,
+                "reason": reason,
+            }
+        )
+
+    return {
+        "success": True,
+        "snacks_list_ids": snack_list_ids,
+        "candidates": candidates,
+        "count": len(candidates),
+        "flagged_count": sum(1 for c in candidates if c["pre_ticked"]),
+    }
+
+
+def mark_snacks_ordered(product_ids: list[str], user_id: str | None = None) -> int:
+    """Stamp last_ordered_at + bump times_ordered for snacks just sent to cart.
+
+    Scoped to the user's snack-type lists so a product that also lives in a
+    scheduled list isn't disturbed. Returns the number of rows stamped.
+    """
+    ensure_initialized()
+    if not product_ids:
+        return 0
+    owner = _resolve_user_id(user_id)
+    snack_list_ids = get_snacks_list_ids(owner)
+    if not snack_list_ids:
+        return 0
+
+    now = datetime.now().isoformat()
+    list_ph = ", ".join("?" * len(snack_list_ids))
+    prod_ph = ", ".join("?" * len(product_ids))
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            UPDATE favorite_list_items
+            SET last_ordered_at = ?, times_ordered = times_ordered + 1
+            WHERE list_id IN ({list_ph}) AND product_id IN ({prod_ph})
+            """,
+            [now] + snack_list_ids + product_ids,
+        )
+        return cursor.rowcount
 
 
 def get_items_needing_reorder(

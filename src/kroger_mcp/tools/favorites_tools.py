@@ -28,10 +28,14 @@ def register_tools(mcp):
             "set_stock_level",
             "update_quantity",
             "get_low_stock",
+            "check_snacks",
         ] = Field(
             description=(
                 "order — ADD ENTIRE LIST TO CART in one call (skips well-stocked items). "
                 "Use this whenever user asks to order/add a favorites list. "
+                "check_snacks — pre-cart replenishment checklist for the Snacks list: "
+                "returns each snack with a pre_ticked guess (pantry-low, stale, or never ordered) "
+                "for the user to confirm before sending the list to cart. "
                 "set_stock_level — set min_stock_percent and/or min_stock_quantity thresholds per item. "
                 "update_quantity — update current_stock_quantity for an item. "
                 "get_low_stock — list items below their minimum thresholds. "
@@ -106,6 +110,10 @@ def register_tools(mcp):
             default=None,
             description="Actual on-hand unit count (user-managed)",
         ),
+        typical_gap_days: int | None = Field(
+            default=None,
+            description="Snacks: typical days between buys; staleness threshold for the check-up (default 21)",
+        ),
         include_pantry_status: bool | None = Field(
             default=True,
             description="Include pantry levels",
@@ -170,6 +178,7 @@ def register_tools(mcp):
             min_stock_percent,
             min_stock_quantity,
             current_stock_quantity,
+            typical_gap_days,
             include_pantry_status,
             sort_by,
             skip_if_stocked,
@@ -200,6 +209,7 @@ def register_tools(mcp):
         min_stock_percent,
         min_stock_quantity,
         current_stock_quantity,
+        typical_gap_days,
         include_pantry_status,
         sort_by,
         skip_if_stocked,
@@ -282,6 +292,7 @@ def register_tools(mcp):
                     min_stock_percent=min_stock_percent,
                     min_stock_quantity=min_stock_quantity,
                     current_stock_quantity=current_stock_quantity,
+                    typical_gap_days=typical_gap_days,
                 )
 
             case "remove_item":
@@ -519,6 +530,7 @@ def register_tools(mcp):
                     min_stock_percent=min_stock_percent,
                     min_stock_quantity=min_stock_quantity,
                     current_stock_quantity=current_stock_quantity,
+                    typical_gap_days=typical_gap_days,
                 )
 
             case "update_quantity":
@@ -540,6 +552,11 @@ def register_tools(mcp):
                 from ..analytics.favorites import get_low_stock_items
 
                 return get_low_stock_items(list_id=list_id)
+
+            case "check_snacks":
+                from ..analytics.favorites import check_snacks
+
+                return check_snacks(user_id=user_id)
 
             case _:
                 return {"success": False, "error": f"Unknown action: {action}"}

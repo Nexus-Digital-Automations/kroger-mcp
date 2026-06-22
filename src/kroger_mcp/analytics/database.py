@@ -454,6 +454,8 @@ def initialize_database() -> None:
                 notes TEXT,
                 added_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 times_ordered INTEGER DEFAULT 0,
+                last_ordered_at TEXT DEFAULT NULL,
+                typical_gap_days INTEGER DEFAULT NULL,
                 PRIMARY KEY (list_id, product_id),
                 FOREIGN KEY (list_id) REFERENCES favorite_lists(id) ON DELETE CASCADE
             );
@@ -1033,11 +1035,40 @@ def run_schema_migrations() -> None:
             ("min_stock_percent", "INTEGER DEFAULT NULL"),
             ("min_stock_quantity", "INTEGER DEFAULT NULL"),
             ("current_stock_quantity", "INTEGER DEFAULT NULL"),
+            # Snack replenishment tracking (no fixed reorder schedule):
+            # last_ordered_at drives the staleness signal; typical_gap_days is
+            # the per-item "days between buys" threshold (defaults to 21 in app).
+            ("last_ordered_at", "TEXT DEFAULT NULL"),
+            ("typical_gap_days", "INTEGER DEFAULT NULL"),
         ]
 
+        added_fli_columns = []
         for col_name, col_def in fli_new_columns:
             if col_name not in fli_columns:
                 conn.execute(f"ALTER TABLE favorite_list_items ADD COLUMN {col_name} {col_def}")
+                added_fli_columns.append(col_name)
+
+        # One-time backfill: seed last_ordered_at for pre-existing favorites from
+        # the pantry's last restock date so snacks aren't all cold-start "never
+        # ordered" the first time the check-up runs. Only fires the migration
+        # pass that first adds the column.
+        if "last_ordered_at" in added_fli_columns:
+            conn.execute(
+                """
+                UPDATE favorite_list_items
+                SET last_ordered_at = (
+                    SELECT pi.last_restocked_at
+                    FROM pantry_items pi
+                    WHERE pi.product_id = favorite_list_items.product_id
+                )
+                WHERE last_ordered_at IS NULL
+                  AND EXISTS (
+                    SELECT 1 FROM pantry_items pi
+                    WHERE pi.product_id = favorite_list_items.product_id
+                      AND pi.last_restocked_at IS NOT NULL
+                  )
+                """
+            )
 
         # Migrate meal_entries table - add cooking/deduction tracking
         cursor = conn.execute("PRAGMA table_info(meal_entries)")

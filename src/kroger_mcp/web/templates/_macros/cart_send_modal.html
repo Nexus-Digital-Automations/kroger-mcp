@@ -34,19 +34,84 @@
       // Advanced setting (summary.spice_default_included).
       spiceChecked: {},
 
+      // Pre-cart snack check-up. Runs before the add/skip/manual preview:
+      // inSnackCheck gates which body + footer button are shown.
+      inSnackCheck: false,
+      snacksLoading: false,
+      snackCandidates: [],
+      snackChecked: {},
+
       get checkedSpiceCount() {
         return Object.values(this.spiceChecked).filter(Boolean).length;
+      },
+
+      get checkedSnackCount() {
+        return Object.values(this.snackChecked).filter(Boolean).length;
       },
 
       toggleSpice(productId) {
         this.spiceChecked = { ...this.spiceChecked, [productId]: !this.spiceChecked[productId] };
       },
 
-      // Open the preview modal: fetch what will be added/skipped/manual.
-      // Counterpart: api/shopping_list.py shopping_list_to_cart(confirm:false).
+      toggleSnack(productId) {
+        this.snackChecked = { ...this.snackChecked, [productId]: !this.snackChecked[productId] };
+      },
+
+      // Open the modal. The snack check-up runs FIRST: if any snacks look like
+      // they need replenishing, show that step and wait for the user to Continue;
+      // otherwise fall straight through to the add/skip/manual preview.
       async open() {
-        if (this.previewLoading) return;
+        if (this.previewLoading || this.snacksLoading) return;
         this.isOpen = true;
+        this.inSnackCheck = false;
+        this.previewData = null;
+        this.spiceChecked = {};
+        this.snackCandidates = [];
+        this.snackChecked = {};
+        this.snacksLoading = true;
+        try {
+          const snap = await window.api.get('/api/favorites/snacks/check');
+          const cands = (snap && snap.candidates) || [];
+          if (cands.length > 0) {
+            this.snackCandidates = cands;
+            this.snackChecked = Object.fromEntries(cands.map(c => [c.product_id, !!c.pre_ticked]));
+            this.inSnackCheck = true;
+            this.snacksLoading = false;
+            return;  // wait for continueFromSnacks()
+          }
+        } catch (e) {
+          // A snack-check failure must never block sending the cart — fall through.
+        }
+        this.snacksLoading = false;
+        await this._loadPreview();
+      },
+
+      // Add the ticked snacks to the shopping list, then advance to the preview.
+      async continueFromSnacks() {
+        if (this.previewLoading) return;
+        const productIds = Object.entries(this.snackChecked)
+          .filter(([, on]) => on)
+          .map(([id]) => id);
+        this.inSnackCheck = false;
+        if (productIds.length > 0) {
+          try {
+            await window.api.post('/api/favorites/snacks/add-to-list', { product_ids: productIds });
+          } catch (e) {
+            this._error(e);
+          }
+        }
+        await this._loadPreview();
+      },
+
+      // Reload only the preview (e.g. after a modality switch); never redoes
+      // the snack check-up.
+      async reloadPreview() {
+        await this._loadPreview();
+      },
+
+      // Fetch the confirm:false preview and seed per-row selection state.
+      // Counterpart: api/shopping_list.py shopping_list_to_cart(confirm:false).
+      async _loadPreview() {
         this.previewLoading = true;
         this.previewData = null;
         this.spiceChecked = {};
@@ -79,6 +144,9 @@
         this.isOpen = false;
         this.previewData = null;
         this.spiceChecked = {};
+        this.inSnackCheck = false;
+        this.snackCandidates = [];
+        this.snackChecked = {};
       },
 
       stepCartQty(pid, delta) {
@@ -170,9 +238,43 @@
 
     <!-- Body -->
     <div class="p-4 overflow-y-auto flex-1">
+      <div x-show="$store.cartSend.snacksLoading" class="text-center py-8 text-sm text-gray-500">
+        Checking snacks…
+      </div>
+
       <div x-show="$store.cartSend.previewLoading" class="text-center py-8 text-sm text-gray-500">
         Loading preview…
       </div>
+
+      <!-- Snack check-up — shown before the preview when snacks may need replenishing -->
+      <template x-if="$store.cartSend.inSnackCheck && !$store.cartSend.snacksLoading">
+        <div>
+          <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+            Snack check-up
+            <span class="ml-1 text-gray-400"
+              x-text="'(' + $store.cartSend.checkedSnackCount + ' of ' + $store.cartSend.snackCandidates.length + ' selected)'"></span>
+          </div>
+          <p class="text-xs text-gray-400 mb-2">
+            Snacks have no schedule — the ones that look low or overdue are pre-ticked.
+            Confirm what to add to the list before sending.
+          </p>
+          <ul class="space-y-1.5">
+            <template x-for="s in $store.cartSend.snackCandidates" :key="s.product_id">
+              <li class="flex items-center gap-2 py-1 border-b border-gray-50">
+                <input type="checkbox"
+                  :id="'snack-' + s.product_id"
+                  :checked="!!$store.cartSend.snackChecked[s.product_id]"
+                  @change="$store.cartSend.toggleSnack(s.product_id)"
+                  style="width: 1rem; height: 1rem; flex-shrink: 0; accent-color: var(--green);"/>
+                <label class="flex-1 text-sm min-w-0" :for="'snack-' + s.product_id" style="color: var(--text-1);">
+                  <span x-text="s.description"></span>
+                  <span class="block text-gray-400 text-xs" x-text="s.reason"></span>
+                </label>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
 
       <template x-if="!$store.cartSend.previewLoading && $store.cartSend.previewData">
         <div>
@@ -181,13 +283,13 @@
             <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Fulfillment</div>
             <div class="inline-flex border border-gray-200 rounded-lg overflow-hidden text-sm">
               <button type="button"
-                @click="$store.cartSend.modality = 'PICKUP'; $store.cartSend.open()"
+                @click="$store.cartSend.modality = 'PICKUP'; $store.cartSend.reloadPreview()"
                 :style="$store.cartSend.modality === 'PICKUP'
                   ? 'background: var(--green); color: white;'
                   : 'background: white; color: var(--text-2);'"
                 class="px-4 py-1.5 transition-colors">Pickup</button>
               <button type="button"
-                @click="$store.cartSend.modality = 'DELIVERY'; $store.cartSend.open()"
+                @click="$store.cartSend.modality = 'DELIVERY'; $store.cartSend.reloadPreview()"
                 :style="$store.cartSend.modality === 'DELIVERY'
                   ? 'background: var(--green); color: white;'
                   : 'background: white; color: var(--text-2);'"
@@ -307,7 +409,20 @@
         class="ss-btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
         Cancel
       </button>
-      <button @click="$store.cartSend.confirmSend()"
+
+      <!-- Snack check-up step: add ticked snacks to the list, then move to preview -->
+      <button x-show="$store.cartSend.inSnackCheck"
+        @click="$store.cartSend.continueFromSnacks()"
+        :disabled="$store.cartSend.previewLoading"
+        class="ss-btn-primary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
+        <span x-text="$store.cartSend.checkedSnackCount > 0
+          ? 'Add ' + $store.cartSend.checkedSnackCount + ' snack' + ($store.cartSend.checkedSnackCount === 1 ? '' : 's') + ' · Continue'
+          : 'Skip snacks · Continue'"></span>
+      </button>
+
+      <!-- Preview step: confirm the cart submission -->
+      <button x-show="!$store.cartSend.inSnackCheck"
+        @click="$store.cartSend.confirmSend()"
         :disabled="$store.cartSend.sendBusy || $store.cartSend.previewLoading || !$store.cartSend.previewData || ($store.cartSend.selectedCartCount() + $store.cartSend.checkedSpiceCount) === 0"
         class="ss-btn-primary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
         <span x-show="!$store.cartSend.sendBusy"

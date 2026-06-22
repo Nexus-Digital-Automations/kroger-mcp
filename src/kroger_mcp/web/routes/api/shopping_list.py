@@ -667,6 +667,15 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
 
         added_ids = {it["product_id"] for it in added_items}
 
+        # Stamp snacks' last_ordered_at so the next check-up sees them as fresh.
+        # No-op for non-snack products (scoped to the user's snack-type lists).
+        try:
+            from kroger_mcp.analytics.favorites import mark_snacks_ordered
+
+            mark_snacks_ordered(list(added_ids), current_user_id(request))
+        except Exception:
+            logger.warning("mark_snacks_ordered failed; staleness signal not updated")
+
         for it in added_items:
             try:
                 _add_item_to_local_cart(
