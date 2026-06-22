@@ -286,23 +286,20 @@
           <span class="text-xs text-gray-300">—</span>
           {% endif %}
         </td>
+        {# Single-quoted x-data: the tojson args emit double quotes, which would
+           break a double-quoted attribute (Alpine then sees a syntax error and
+           the editor never initialises). #}
         <td class="px-4 py-4">
           <div
-            x-data="favoriteQtyEditor({{ lst.id | tojson }}, {{ item.product_id | tojson }}, {{ (item.default_quantity or 1) | tojson }})"
+            x-data='favoriteQtyEditor({{ lst.id | tojson }}, {{ item.product_id | tojson }}, {{ (item.default_quantity or 1) | tojson }})'
             class="flex flex-col items-center gap-1"
           >
-            <div class="flex items-center gap-1">
-              <button type="button" @click="step(-1)" :disabled="qty <= 1"
-                class="w-6 h-6 flex items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                aria-label="Decrease quantity">−</button>
+            <div class="flex items-center gap-2">
               <input type="number" min="1" step="1" x-model.number="qty"
-                @input.debounce.600ms="save()" @blur="save()" @keydown.enter="$event.target.blur()"
-                class="w-12 text-center text-sm border border-gray-200 rounded py-1 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                @change="save()" @blur="save()" @keydown.enter="$event.target.blur()"
+                class="w-16 text-center text-sm border border-gray-200 rounded py-1 focus:outline-none focus:ring-1 focus:ring-emerald-400"
                 aria-label="Quantity" />
-              <button type="button" @click="step(1)"
-                class="w-6 h-6 flex items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-100"
-                aria-label="Increase quantity">+</button>
-              <span x-show="saved" x-transition class="text-xs text-emerald-600 w-10">Saved</span>
+              <span x-show="saved" x-transition class="text-xs text-emerald-600">Saved</span>
               <span x-show="error" x-transition class="text-xs text-red-600" x-text="error"></span>
             </div>
             <span class="text-xs text-gray-400">ordered {{ item.times_ordered or 0 }}×</span>
@@ -325,8 +322,8 @@
 <script>
 /**
  * favoriteQtyEditor — inline, auto-saving editor for a favorite item's
- * default_quantity. Debounced on typing, immediate on +/− steppers; clamps to
- * an integer >= 1 and reconciles with the server's returned value.
+ * default_quantity. Saves on change/blur/Enter; clamps to an integer >= 1 and
+ * reconciles with the server's returned value.
  */
 function favoriteQtyEditor(listId, productId, initial) {
   return {
@@ -334,10 +331,6 @@ function favoriteQtyEditor(listId, productId, initial) {
     saved: false,
     error: '',
     _last: initial,
-    step(delta) {
-      this.qty = Math.max(1, (parseInt(this.qty, 10) || 1) + delta);
-      this.save();
-    },
     async save() {
       let q = parseInt(this.qty, 10);
       if (!Number.isFinite(q) || q < 1) q = 1;
