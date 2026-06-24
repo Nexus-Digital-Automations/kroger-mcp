@@ -6,6 +6,53 @@
 > answer is no (or "only under a commercial agreement"), it reshapes everything
 > below it. This is a legal/ops action — not something the code can settle.
 
+## Findings (researched 2026-06-23, Claude)
+> Sources: Kroger Developer portal (developer.kroger.com), the `CupOfOwls/kroger-api`
+> client library this project depends on, and Kroger API search results. The
+> developer Terms/Acceptable-Use pages are JavaScript-only SPAs that could not be
+> rendered headlessly (and web.archive.org is blocked from this environment), so
+> the **exact ToS prose on commercial/multi-user serving is NOT yet confirmed** —
+> see "Still needs you" below.
+
+**Confirmed (evidence):**
+- **Rate limits are per-app, per-day** ("a daily rate limit applied equally across
+  all clients"):
+  - Products API: **10,000 calls/day**
+  - Cart API: **5,000 calls/day**
+  - Locations API: **1,600 calls/day per endpoint**
+  - Identity API: **5,000 calls/day**
+  - Limits reset 24h after the first call. *Partner* APIs reportedly have no rate
+    limit — but those require a separate partner agreement.
+- **The Cart API is designed to act on behalf of an individual authenticated
+  customer** (`cart.basic:write` scope, per-user OAuth). This is exactly how the
+  app already works (per-user encrypted tokens) — so the **technical model is
+  aligned with Kroger's intent**, not a hack.
+- Kroger describes the public APIs as "available for all clients to build new
+  products, services, or customer experiences" — building a product on them is
+  anticipated.
+
+**The binding practical constraint = the Products 10k/day cap (shared app).**
+Rough math: if a typical active user triggers ~50–150 product calls/day (recipe
+ingredient linking + browsing), the single shared app supports only **~roughly
+70–200 active users/day** before throttling — *before* Redis caching, which the
+app already does (products cached 1h, shared across users by `client_id`), so the
+real ceiling is higher but still finite. Cart (5k/day) and Locations (the app uses
+one fixed store) are not the bottleneck. **This cap, not server capacity, is what
+limits how "public" the shared-app model can go** without a higher tier from Kroger.
+
+**Unconfirmed / conflicting:** one secondary result mentioned "may not …
+distribute, resell or otherwise use … for any commercial purpose," but that
+appeared to reference a **consumer Kroger-app EULA**, not the developer API terms —
+so it is NOT reliable evidence about the developer agreement. Do not treat it as
+settled either way.
+
+**Still needs you (cannot be done from public pages):**
+1. Read the developer **Terms of Service** + **Acceptable Use** while logged in at
+   developer.kroger.com (they render in a real browser) and confirm the
+   multi-user / commercial / redistribution clauses.
+2. If ambiguous, send the support questions below to get it in writing, and ask
+   for a **higher Products rate tier** for a multi-user app.
+
 ## Why this is the gating item
 - Today **every user shares one Kroger developer app** (`KROGER_CLIENT_ID` /
   `KROGER_CLIENT_SECRET`). Power users *can* bring their own credentials, but the
