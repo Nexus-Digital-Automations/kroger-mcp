@@ -168,10 +168,17 @@ async def set_location(body: LocationBody, request: Request):
 async def search_locations(zip: str = Query(..., description="ZIP code to search near")):
     """Search for nearby Kroger stores by ZIP code."""
     try:
-        from kroger_mcp.tools.shared import get_client_credentials_client
+        from kroger_mcp.cache import cache_read_through
+        from kroger_mcp.tools.shared import get_client_credentials_client, kroger_cache_key
 
         client = get_client_credentials_client()
-        raw = client.location.search_locations(zip_code=zip, limit=5)
+        # Store locations are stable; share a 6h cache across users (keyed by
+        # client_id + zip) so repeat ZIP lookups don't each hit Kroger.
+        raw = cache_read_through(
+            kroger_cache_key(client, "location_search", zip=zip, limit=5),
+            21600,
+            lambda: client.location.search_locations(zip_code=zip, limit=5),
+        )
 
         # Normalise to a flat list of dicts
         locations = []

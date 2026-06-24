@@ -32,8 +32,14 @@ class _CountingProduct:
         return {"data": []}
 
 
+class _Inner:
+    # The per-search cache_read_through keys on client.client.client_id.
+    client_id = "testcid"
+
+
 class _CountingClient:
     def __init__(self, counter: dict) -> None:
+        self.client = _Inner()
         self.product = _CountingProduct(counter)
 
 
@@ -42,6 +48,9 @@ def _wire(monkeypatch, counter, redis):
     monkeypatch.setattr(deals, "get_client_credentials_client", lambda user_id: _CountingClient(counter))
     monkeypatch.setattr(deals, "get_preferred_location_id", lambda user_id=None: "LOC1")
     monkeypatch.setattr(deals, "get_redis", lambda: redis)
+    # The per-category search now reads through the shared cache; keep it
+    # transparent here so these tests measure the route-level cache only.
+    monkeypatch.setattr("kroger_mcp.cache.get_redis", lambda: None)
 
 
 def test_auto_deals_second_call_issues_no_new_searches(monkeypatch):

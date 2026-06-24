@@ -24,13 +24,21 @@ from ..analytics.safety import (
     get_disabled_ingredients,
     is_filtering_enabled,
 )
+from ..cache import cache_read_through
+from .product_catalog import product_detail_read_through
 from .shared import (
     format_currency,
     get_client_credentials_client,
     get_default_zip_code,
     get_preferred_location_id,
+    kroger_cache_key,
     set_preferred_location_id,
 )
+
+# Public-read cache TTLs (seconds), matching the web routes: prices drift slowly,
+# so a 1h shared-cache window spares the rate bucket without showing stale data.
+_PRODUCT_SEARCH_TTL = 3600
+_PRODUCT_DETAIL_TTL = 3600
 
 
 def _cache_usda_ingredients(product: dict[str, Any]) -> None:
@@ -486,7 +494,14 @@ def register_tools(mcp):
 
                 async def search_single(term: str):
                     try:
+                        _key = kroger_cache_key(
+                            client, "product_search", term=term, location=loc_id,
+                            limit=_limit, fulfillment=fulfillment, brand=brand,
+                        )
                         prods = await asyncio.to_thread(
+                            cache_read_through,
+                            _key,
+                            _PRODUCT_SEARCH_TTL,
                             functools.partial(
                                 client.product.search_products,
                                 term=term,
@@ -494,7 +509,7 @@ def register_tools(mcp):
                                 limit=_limit,
                                 fulfillment=fulfillment,
                                 brand=brand,
-                            )
+                            ),
                         )
                         if not prods or "data" not in prods or not prods["data"]:
                             return (
@@ -707,29 +722,15 @@ def register_tools(mcp):
 
                 async def fetch_single(pid: str):
                     try:
-                        product_details = await asyncio.to_thread(
-                            functools.partial(
-                                client.product.get_product,
-                                product_id=pid,
-                                location_id=loc_id,
-                            )
+                        # Local catalog read-through: serves metadata + fresh
+                        # price without a Kroger call; refreshes on miss/stale
+                        # and records the price observation itself.
+                        record = await asyncio.to_thread(
+                            product_detail_read_through, client, pid, loc_id
                         )
-                        if not product_details or "data" not in product_details:
+                        if not record:
                             return (pid, {"error": f"Product {pid} not found"})
-                        result = format_details(product_details["data"])
-                        try:
-                            pricing = result.get("pricing", {})
-                            if pricing and loc_id:
-                                record_price_observation(
-                                    product_id=pid,
-                                    regular_price=pricing.get("regular_price"),
-                                    sale_price=pricing.get("sale_price"),
-                                    location_id=loc_id,
-                                    source="details",
-                                )
-                        except Exception:
-                            pass
-                        return (pid, result)
+                        return (pid, format_details(record))
                     except Exception as e:
                         return (pid, {"error": str(e)})
 
@@ -782,12 +783,21 @@ def register_tools(mcp):
                 client = await asyncio.to_thread(get_client_credentials_client)
 
                 try:
+                    # Images live on the full Kroger record (which the local
+                    # read-through strips), so cache the raw detail in Redis —
+                    # sharing the product_detail key with the detail fallback.
+                    _key = kroger_cache_key(
+                        client, "product_detail", pid=product_id, location=loc_id
+                    )
                     product_details = await asyncio.to_thread(
+                        cache_read_through,
+                        _key,
+                        _PRODUCT_DETAIL_TTL,
                         functools.partial(
                             client.product.get_product,
                             product_id=product_id,
                             location_id=loc_id,
-                        )
+                        ),
                     )
                     if not product_details or "data" not in product_details:
                         return {"success": False, "message": f"Product {product_id} not found"}
@@ -894,12 +904,18 @@ def register_tools(mcp):
                 try:
                     product_records: list[dict] = []
                     for one_id in ids:
+                        _key = kroger_cache_key(
+                            client, "product_search", product_id=one_id, location=loc_id
+                        )
                         prods = await asyncio.to_thread(
+                            cache_read_through,
+                            _key,
+                            _PRODUCT_SEARCH_TTL,
                             functools.partial(
                                 client.product.search_products,
                                 product_id=one_id,
                                 location_id=loc_id,
-                            )
+                            ),
                         )
                         if prods and prods.get("data"):
                             product_records.extend(prods["data"])

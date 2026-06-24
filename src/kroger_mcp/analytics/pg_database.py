@@ -676,6 +676,21 @@ CREATE TABLE IF NOT EXISTS user_notion_sync (
     last_sync_at TIMESTAMP WITH TIME ZONE,
     config_json TEXT
 );
+
+-- Kroger API call meter (per-day aggregated counters). Mirrors the SQLite
+-- kroger_api_calls table; incremented via UPSERT at the retry choke point.
+CREATE TABLE IF NOT EXISTS kroger_api_calls (
+    id SERIAL PRIMARY KEY,
+    call_date DATE NOT NULL,
+    api_family VARCHAR(20) NOT NULL,
+    op_name VARCHAR(50) NOT NULL,
+    outcome VARCHAR(20) NOT NULL,
+    call_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(call_date, api_family, op_name, outcome)
+);
+CREATE INDEX IF NOT EXISTS idx_kroger_api_calls_date
+    ON kroger_api_calls(call_date);
 """
 
 

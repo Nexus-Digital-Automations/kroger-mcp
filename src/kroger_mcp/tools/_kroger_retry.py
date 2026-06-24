@@ -28,6 +28,8 @@ from typing import Any
 import requests
 from kroger_api.client import KrogerClient
 
+from ..analytics.api_meter import meter_kroger_call
+
 logger = logging.getLogger(__name__)
 
 # HTTP statuses worth retrying: explicit rate-limit + transient upstream errors.
@@ -117,13 +119,24 @@ def _with_retry(method: Callable[..., Any], op_name: str) -> Callable[..., Any]:
 
     @functools.wraps(method)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
+        # Resource calls funnel through _make_request(self, method, endpoint, …);
+        # the endpoint path is what lets the meter attribute the call to the
+        # Products budget vs Locations/Cart. Token grants carry no endpoint.
+        endpoint = None
+        if op_name == "make_request":
+            endpoint = args[2] if len(args) > 2 else kwargs.get("endpoint")
+
         last_exc: Exception | None = None
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                return method(*args, **kwargs)
+                result = method(*args, **kwargs)
+                meter_kroger_call(op_name, endpoint, "success")
+                return result
             except requests.exceptions.HTTPError as exc:
                 status = _status_of(exc)
                 if status not in RETRYABLE_STATUS:
+                    # A non-retryable 4xx still consumed Kroger quota — meter it.
+                    meter_kroger_call(op_name, endpoint, "failure")
                     raise
                 last_exc = exc
                 retry_after = _retry_after_seconds(exc)
@@ -139,6 +152,7 @@ def _with_retry(method: Callable[..., Any], op_name: str) -> Callable[..., Any]:
                     status,
                     MAX_ATTEMPTS,
                 )
+                meter_kroger_call(op_name, endpoint, "failure")
                 assert last_exc is not None  # nosec B101 — set in every except above
                 raise last_exc
             sleep = _sleep_for(attempt, retry_after)

@@ -1,6 +1,7 @@
 """Deals API endpoints — find sales, manage watchlist, price history."""
 
 import asyncio
+import functools
 import json
 from datetime import datetime
 
@@ -14,11 +15,15 @@ from kroger_mcp.analytics.database import (
     get_db_cursor,
 )
 from kroger_mcp.auth.dependencies import current_user_id
-from kroger_mcp.cache import get_redis
+from kroger_mcp.cache import cache_read_through, get_redis
 from kroger_mcp.tools.shared import (
     get_client_credentials_client,
     get_preferred_location_id,
+    kroger_cache_key,
 )
+
+# Shared 1h TTL for on-sale product searches (deals move slowly within the hour).
+_DEAL_SEARCH_TTL = 3600
 
 router = APIRouter()
 
@@ -115,10 +120,17 @@ async def auto_deals(request: Request, min_savings: float = 5):
     async def _search(term: str) -> list:
         try:
             result = await asyncio.to_thread(
-                client.product.search_products,
-                term=term,
-                location_id=location_id,
-                limit=50,
+                cache_read_through,
+                kroger_cache_key(
+                    client, "product_search", term=term, location=location_id, limit=50
+                ),
+                _DEAL_SEARCH_TTL,
+                functools.partial(
+                    client.product.search_products,
+                    term=term,
+                    location_id=location_id,
+                    limit=50,
+                ),
             )
             if isinstance(result, dict):
                 return result.get("data", []) or []
@@ -212,10 +224,17 @@ async def find_deals(
 
     try:
         result = await asyncio.to_thread(
-            client.product.search_products,
-            term=search_term,
-            location_id=location_id,
-            limit=50,
+            cache_read_through,
+            kroger_cache_key(
+                client, "product_search", term=search_term, location=location_id, limit=50
+            ),
+            _DEAL_SEARCH_TTL,
+            functools.partial(
+                client.product.search_products,
+                term=search_term,
+                location_id=location_id,
+                limit=50,
+            ),
         )
         if isinstance(result, dict):
             raw_products = result.get("data", []) or []

@@ -15,7 +15,12 @@ from ..analytics.favorites import get_all_favorite_product_ids
 from ..analytics.pantry import get_low_inventory_items
 from ..analytics.statistics import get_recent_purchases
 from ..auth.dependencies import mcp_user_id
-from .shared import get_client_credentials_client, get_preferred_location_id
+from ..cache import cache_read_through
+from .shared import get_client_credentials_client, get_preferred_location_id, kroger_cache_key
+
+# Shared public-read cache TTLs (seconds); align with the web routes.
+_DEAL_SEARCH_TTL = 3600
+_DEAL_DETAIL_TTL = 3600
 
 # Category search mappings
 CATEGORY_SEARCHES = {
@@ -215,10 +220,15 @@ def register_tools(mcp):
                 for query in search_queries:
                     try:
                         client = get_client_credentials_client()
-                        search_response = client.product.search_products(
-                            term=query,
-                            location_id=location_id,
-                            limit=50,
+                        search_response = cache_read_through(
+                            kroger_cache_key(
+                                client, "product_search", term=query,
+                                location=location_id, limit=50,
+                            ),
+                            _DEAL_SEARCH_TTL,
+                            lambda client=client, query=query: client.product.search_products(
+                                term=query, location_id=location_id, limit=50
+                            ),
                         )
 
                         if not search_response or "data" not in search_response:
@@ -361,8 +371,14 @@ def register_tools(mcp):
                             if loc_id:
                                 try:
                                     client = get_client_credentials_client()
-                                    product_response = client.product.get_product(
-                                        product_id=pid, location_id=loc_id
+                                    product_response = cache_read_through(
+                                        kroger_cache_key(
+                                            client, "product_detail", pid=pid, location=loc_id
+                                        ),
+                                        _DEAL_DETAIL_TTL,
+                                        lambda client=client, pid=pid: client.product.get_product(
+                                            product_id=pid, location_id=loc_id
+                                        ),
                                     )
                                     if product_response and "data" in product_response:
                                         product_data = product_response.get("data", {})
@@ -495,8 +511,14 @@ def register_tools(mcp):
                 try:
                     if loc_id:
                         client = get_client_credentials_client()
-                        product_response = client.product.get_product(
-                            product_id=product_id, location_id=loc_id
+                        product_response = cache_read_through(
+                            kroger_cache_key(
+                                client, "product_detail", pid=product_id, location=loc_id
+                            ),
+                            _DEAL_DETAIL_TTL,
+                            lambda: client.product.get_product(
+                                product_id=product_id, location_id=loc_id
+                            ),
                         )
                         if product_response and "data" in product_response:
                             prod_description = product_response.get("data", {}).get("description")
@@ -532,8 +554,14 @@ def register_tools(mcp):
                 loc_id = location_id or get_preferred_location_id()
                 try:
                     client = get_client_credentials_client()
-                    product_response = client.product.get_product(
-                        product_id=product_id, location_id=loc_id
+                    product_response = cache_read_through(
+                        kroger_cache_key(
+                            client, "product_detail", pid=product_id, location=loc_id
+                        ),
+                        _DEAL_DETAIL_TTL,
+                        lambda: client.product.get_product(
+                            product_id=product_id, location_id=loc_id
+                        ),
                     )
                 except Exception as e:
                     return {
@@ -691,8 +719,15 @@ def register_tools(mcp):
                 for item in watchlist:
                     try:
                         client = get_client_credentials_client()
-                        product_response = client.product.get_product(
-                            product_id=item["product_id"], location_id=loc_id
+                        _wpid = item["product_id"]
+                        product_response = cache_read_through(
+                            kroger_cache_key(
+                                client, "product_detail", pid=_wpid, location=loc_id
+                            ),
+                            _DEAL_DETAIL_TTL,
+                            lambda client=client, _wpid=_wpid: client.product.get_product(
+                                product_id=_wpid, location_id=loc_id
+                            ),
                         )
 
                         if not product_response or "data" not in product_response:

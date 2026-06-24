@@ -16,6 +16,7 @@ from kroger_mcp.analytics.ingredient_links import (
 )
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.cache import cache_read_through
+from kroger_mcp.tools.product_catalog import product_detail_read_through
 from kroger_mcp.tools.shared import (
     get_authenticated_client,
     get_client_credentials_client,
@@ -244,24 +245,16 @@ async def get_product_detail(request: Request, product_id: str):
 
 
 def _product_detail_payload(user_id: str | None, pid: str) -> dict | None:
-    """Sync body of /api/products/{id}, run via run_in_thread. None = 404."""
+    """Sync body of /api/products/{id}, run via run_in_thread. None = 404.
+
+    Served from the local catalog read-through (Kroger only on miss/stale price),
+    so repeat detail views don't each cost a Products API call.
+    """
     client = get_client_credentials_client(user_id)
     location_id = get_preferred_location_id(user_id=user_id) or "03400014"
-    cache_key = kroger_cache_key(
-        client, "product_detail", pid=pid, location=location_id
+    record = product_detail_read_through(
+        client, pid, location_id, ttl_seconds=_PRODUCT_DETAIL_TTL
     )
-    raw = cache_read_through(
-        cache_key,
-        _PRODUCT_DETAIL_TTL,
-        lambda: client.product.get_product(product_id=pid, location_id=location_id),
-    )
-
-    # Kroger SDK returns {"data": {...}} or an object exposing .data
-    record = None
-    if isinstance(raw, dict):
-        record = raw.get("data")
-    elif hasattr(raw, "data"):
-        record = raw.data
     if not record:
         return None
 

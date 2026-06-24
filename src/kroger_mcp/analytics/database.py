@@ -671,6 +671,23 @@ def initialize_database() -> None:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- Kroger API call meter: per-day aggregated counters so we can see
+            -- where the shared app's 10k/day Products budget goes and produce
+            -- usage numbers to justify a higher rate tier. One row per
+            -- (day, api_family, op_name, outcome); incremented via UPSERT at the
+            -- single retry choke point. Best-effort — a dropped increment never
+            -- blocks a Kroger call.
+            CREATE TABLE IF NOT EXISTS kroger_api_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                call_date TEXT NOT NULL,
+                api_family TEXT NOT NULL,
+                op_name TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                call_count INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(call_date, api_family, op_name, outcome)
+            );
+
             -- Create default favorites list
             INSERT OR IGNORE INTO favorite_lists (id, name, description, list_type)
             VALUES ('default', 'My Favorites', 'Default favorites list', 'custom');
@@ -724,6 +741,8 @@ def initialize_database() -> None:
                 ON favorite_list_items(product_id);
             CREATE INDEX IF NOT EXISTS idx_cook_deductions_event
                 ON cook_deductions(cook_event_id, source_type, user_id);
+            CREATE INDEX IF NOT EXISTS idx_kroger_api_calls_date
+                ON kroger_api_calls(call_date);
             CREATE INDEX IF NOT EXISTS idx_meal_entries_plan
                 ON meal_entries(plan_id);
             CREATE INDEX IF NOT EXISTS idx_meal_entries_date
