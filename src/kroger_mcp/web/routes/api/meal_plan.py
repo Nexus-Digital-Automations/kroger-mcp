@@ -630,7 +630,15 @@ async def plan_week_view(
     """
     user_id = current_user_id(request)
     try:
-        from kroger_mcp.analytics.meal_planning import get_meal_entries_for_dates, get_recipe
+        from kroger_mcp.analytics.meal_planning import (
+            get_meal_entries_for_dates,
+            get_recipe,
+            reconcile_past_meals,
+        )
+
+        # Viewing the plan is the lazy trigger: auto-deduct any meals whose date
+        # has passed so the grid (and pantry levels behind it) stay accurate.
+        reconcile_past_meals(user_id=user_id, plan_id=plan_id)
 
         today = datetime.now()
         days_since_monday = today.weekday()

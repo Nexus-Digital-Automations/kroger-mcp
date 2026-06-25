@@ -1090,22 +1090,128 @@ _POSITIVE_PATTERNS = _compile_positive_patterns()
 
 
 # Pantry-staple seasonings worth treating as spices for cart gating.
-# Standalone "pepper" is intentionally excluded — it collides with "bell pepper",
-# "red pepper", and other produce. Only multi-word forms that unambiguously name
-# the spice are included.
+# Standalone "pepper", "garlic", "onion", "vanilla" are intentionally excluded —
+# they collide with produce ("bell pepper", "yellow onion") and dairy ("vanilla
+# yogurt"). Only forms that unambiguously name the spice/seasoning are included.
+# Bare single words that double as adjectives ("savory") or other foods are
+# avoided; their seasoning forms ("summer savory") are listed instead.
 _SPICE_EXTRA_ALIASES: frozenset[str] = frozenset(
     {
+        # Salt & pepper forms
         "salt",
+        "seasoned salt",
+        "seasoning salt",
+        "celery salt",
+        "garlic salt",
+        "onion salt",
         "black pepper",
         "white pepper",
         "ground pepper",
+        "lemon pepper",
         "peppercorn",
         "peppercorns",
+        "peppercorn medley",
         "red pepper flakes",
         "crushed red pepper",
+        "chili flakes",
+        # Sauces / acids used as seasoning
         "soy sauce",
         "vinegar",
+        # Aromatic powders (specific forms only — never a bare ".*powder" rule,
+        # which would wrongly catch "baking/cocoa/protein powder")
+        "garlic powder",
+        "onion powder",
+        "curry powder",
+        "chili powder",
+        "mustard powder",
+        "dry mustard",
+        "ground mustard",
+        "chipotle powder",
+        "five spice powder",
+        # Seeds
+        "celery seed",
+        "mustard seed",
+        "mustard seeds",
+        "fennel seed",
+        "fennel seeds",
+        "coriander seed",
+        "caraway",
+        "caraway seed",
+        "poppy seed",
+        "poppy seeds",
+        "sesame seed",
+        "sesame seeds",
+        "nigella",
+        # Whole / ground spices
+        "allspice",
+        "mace",
+        "marjoram",
+        "summer savory",
+        "winter savory",
+        "anise",
+        "star anise",
+        "fenugreek",
+        "asafoetida",
+        "annatto",
+        "achiote",
+        "sumac",
+        "cream of tartar",
+        "ground cloves",
+        "ground cinnamon",
+        "ground ginger",
+        "ground nutmeg",
+        "smoked paprika",
+        "vanilla extract",
+        "vanilla bean",
+        "almond extract",
+        "lemongrass",
+        "kaffir lime",
+        # Blends (named)
+        "garam masala",
+        "italian seasoning",
+        "italian herbs",
+        "taco seasoning",
+        "cajun seasoning",
+        "creole seasoning",
+        "jerk seasoning",
+        "poultry seasoning",
+        "pumpkin pie spice",
+        "apple pie spice",
+        "herbes de provence",
+        "za'atar",
+        "zaatar",
+        "old bay",
+        "five spice",
+        "chinese five spice",
+        "chinese five-spice",
+        "ras el hanout",
+        "harissa",
+        "adobo",
+        "sazon",
+        # Dried herb forms
+        "dill weed",
+        "dried oregano",
+        "dried basil",
+        "dried thyme",
+        "dried parsley",
     }
+)
+
+# Narrow blend regexes for names not in the literal set. Deliberately minimal:
+# "seasoning"/"spice blend"/"spice mix"/"seasoning blend" have zero overlap with
+# any non-spice case. NOT included: ".*powder" (baking/cocoa/protein powder),
+# "ground .*" (ground beef), ".*extract" (yeast extract) — too broad.
+_SPICE_BLEND_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"\bseasoning\b", re.IGNORECASE),
+    re.compile(r"\bspice blend\b", re.IGNORECASE),
+    re.compile(r"\bseasoning blend\b", re.IGNORECASE),
+    re.compile(r"\bspice mix\b", re.IGNORECASE),
+)
+
+# Kroger category_type / aisle values that authoritatively mark a spice. Mirrors
+# the set in recipe_scoring._ingredient_is_spice so the two stay consistent.
+_SPICE_CATEGORY_TYPES: frozenset[str] = frozenset(
+    {"spice", "spices", "herb", "herbs", "seasoning", "seasonings", "herbs_spices"}
 )
 
 
@@ -1126,18 +1232,58 @@ def _build_spice_pattern() -> re.Pattern:
 _SPICE_PATTERN: re.Pattern = _build_spice_pattern()
 
 
-def is_spice(name: str | None) -> bool:
-    """Return True when `name` reads as a herb, spice, or seasoning.
+def category_type_from_aisles(aisle_descriptions: list[str] | None) -> str | None:
+    """Derive a 'spice' category from Kroger aisle descriptions, else None.
 
-    Backed by the alias list already declared in GOOD_ATTRIBUTES so the source
-    of truth stays single. Parenthetical notes (e.g. "(optional)") are stripped
-    before matching. Word boundaries prevent false positives like "salted
-    butter" matching "salt".
+    Returns None (not a non-spice label) when no aisle reads as spice/seasoning/
+    herb, so a guess never overwrites an existing good category on upsert.
     """
+    for desc in aisle_descriptions or []:
+        d = (desc or "").lower()
+        if "spice" in d or "seasoning" in d or "herb" in d:
+            return "spice"
+    return None
+
+
+def classify_spice(
+    name: str | None,
+    *,
+    category_type: str | None = None,
+    aisle_descriptions: list[str] | None = None,
+) -> bool:
+    """Return True when an ingredient/product reads as a herb, spice, or seasoning.
+
+    Layered signal precedence:
+    1. Authoritative Kroger signal (positive-only): a linked product's cached
+       ``category_type`` in the spice set, or an aisle description naming a spice
+       aisle. A *non*-spice category never forces False — it falls through to the
+       name match, because category_type defaults to 'uncategorized' for most rows.
+    2. Expanded curated lexicon (word-boundary matched) + a narrow seasoning-blend
+       regex. Parenthetical notes (e.g. "(optional)") are stripped first.
+
+    Word boundaries keep the negatives safe: "salted butter" ≠ "salt", "yellow
+    onion" ≠ "onion powder", "vanilla yogurt" ≠ "vanilla extract".
+    """
+    if category_type and category_type.strip().lower() in _SPICE_CATEGORY_TYPES:
+        return True
+    if category_type_from_aisles(aisle_descriptions) is not None:
+        return True
     if not name:
         return False
     cleaned = re.sub(r"\([^)]*\)", " ", name).lower()
-    return bool(_SPICE_PATTERN.search(cleaned))
+    if _SPICE_PATTERN.search(cleaned):
+        return True
+    return any(pattern.search(cleaned) for pattern in _SPICE_BLEND_PATTERNS)
+
+
+def is_spice(name: str | None) -> bool:
+    """Name-only spice check — thin wrapper over :func:`classify_spice`.
+
+    Kept so the existing callers that have only a name keep working unchanged.
+    Callers that also hold a linked product pass category_type to classify_spice
+    directly for the authoritative path.
+    """
+    return classify_spice(name)
 
 
 def check_positive_attributes(text: str) -> list[AttributeMatch]:

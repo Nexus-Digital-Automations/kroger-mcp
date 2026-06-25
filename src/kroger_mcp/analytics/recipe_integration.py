@@ -12,7 +12,9 @@ from .pantry import get_pantry_item, get_pantry_status
 
 
 def match_ingredient_to_pantry(
-    ingredient_name: str, product_id: str | None = None
+    ingredient_name: str,
+    product_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any] | None:
     """
     Find pantry item matching a recipe ingredient.
@@ -20,18 +22,21 @@ def match_ingredient_to_pantry(
     Args:
         ingredient_name: Name of the ingredient
         product_id: Optional product ID if linked
+        user_id: Owner whose pantry to search; None resolves to the default user.
+            Must be threaded through or the match silently targets the default
+            user's pantry — a multi-tenant correctness bug in the deduction path.
 
     Returns:
         Pantry item info or None if not found
     """
     # If we have a product_id, try direct match
     if product_id:
-        pantry_item = get_pantry_item(product_id)
+        pantry_item = get_pantry_item(product_id, user_id)
         if pantry_item:
             return pantry_item
 
     # Otherwise, try to match by description (fuzzy matching)
-    pantry_items = get_pantry_status(apply_depletion=True)
+    pantry_items = get_pantry_status(apply_depletion=True, user_id=user_id)
 
     # Normalize ingredient name for matching
     ingredient_lower = ingredient_name.lower()

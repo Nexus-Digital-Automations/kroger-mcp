@@ -1096,6 +1096,9 @@ def run_schema_migrations() -> None:
         meal_entries_new_columns = [
             ("cooked_at", "TEXT DEFAULT NULL"),
             ("pantry_deducted", "INTEGER DEFAULT 0"),
+            # Tombstone set when a user undoes a past meal ("I didn't cook this"),
+            # so the lazy reconciler never silently re-deducts it.
+            ("cook_skipped", "INTEGER DEFAULT 0"),
         ]
 
         for col_name, col_def in meal_entries_new_columns:

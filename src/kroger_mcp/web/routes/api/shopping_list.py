@@ -41,6 +41,35 @@ def _pantry_levels() -> dict[str, int]:
         return {}
 
 
+def _category_types(product_ids: list[str]) -> dict[str, str]:
+    """Best-effort `{product_id: category_type}` for the given products.
+
+    One batched query feeds the authoritative spice signal so a product whose
+    Kroger aisle says "Seasonings & Spices" is gated even when its name alone
+    wouldn't match. Empty on failure — callers fall back to name matching.
+    """
+    ids = [p for p in product_ids if p]
+    if not ids:
+        return {}
+    try:
+        from kroger_mcp.analytics.database import get_db_connection
+
+        placeholders = ",".join("?" * len(ids))
+        conn = get_db_connection()
+        try:
+            rows = conn.execute(
+                f"SELECT product_id, category_type FROM products "
+                f"WHERE product_id IN ({placeholders})",
+                ids,
+            ).fetchall()
+        finally:
+            conn.close()
+        return {r["product_id"]: r["category_type"] for r in rows if r["category_type"]}
+    except Exception as exc:
+        logger.debug("category context unavailable: %s", exc)
+        return {}
+
+
 def _round_scaled_qty(raw: float) -> float:
     """Match the in-browser ingredient scaler so previewed qty == committed qty."""
     if raw >= 3:
@@ -508,7 +537,7 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
     ``body.included_spice_ids`` are promoted into the actual cart submission.
     """
     try:
-        from kroger_mcp.analytics.ingredients import is_spice
+        from kroger_mcp.analytics.ingredients import classify_spice
         from kroger_mcp.tools.shared import get_include_spices_by_default
 
         data = _load_shopping_list()
@@ -524,6 +553,7 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
             )
 
         pantry_context = _pantry_levels()
+        category_by_pid = _category_types([it.get("product_id") for it in items])
 
         spice_default_included = get_include_spices_by_default()
 
@@ -578,7 +608,7 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
                 ),
             }
 
-            if is_spice(name):
+            if classify_spice(name, category_type=category_by_pid.get(product_id)):
                 items_spices.append(
                     {**normalized_entry, "default_included": spice_default_included}
                 )

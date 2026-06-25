@@ -308,6 +308,9 @@ CREATE TABLE IF NOT EXISTS meal_entries (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     cooked_at TIMESTAMP WITH TIME ZONE,
     pantry_deducted BOOLEAN DEFAULT FALSE,
+    -- Tombstone: user undid a past meal ("didn't cook this") so the lazy
+    -- reconciler never silently re-deducts it.
+    cook_skipped BOOLEAN DEFAULT FALSE,
     UNIQUE(plan_id, meal_date, meal_slot)
 );
 
@@ -738,6 +741,7 @@ _PG_COLUMN_MIGRATIONS = (
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS last_ordered_at "
     "TIMESTAMP WITH TIME ZONE",
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS typical_gap_days INTEGER",
+    "ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS cook_skipped BOOLEAN DEFAULT FALSE",
 )
 
 

@@ -74,32 +74,62 @@ def _detail_price_from_record(record: dict) -> tuple[object, object]:
     return price.get("regular"), price.get("promo")
 
 
+def _aisle_descriptions(record: dict) -> list[str]:
+    """Pull aisle description strings out of a raw Kroger detail record."""
+    out: list[str] = []
+    for aisle in record.get("aisleLocations") or []:
+        desc = aisle.get("description") if isinstance(aisle, dict) else None
+        if desc:
+            out.append(desc)
+    return out
+
+
 def _upsert_product_metadata(record: dict) -> None:
-    """Persist name/brand/upc from a Kroger detail record (best-effort).
+    """Persist name/brand/upc/category from a Kroger detail record (best-effort).
 
     Mirrors the COALESCE upsert in product_tools._cache_usda_ingredients so a
     sparse payload never nulls out previously-good metadata, and never touches
-    ingredients_text (owned by the USDA cache path).
+    ingredients_text (owned by the USDA cache path). When the product's aisle
+    data reads as a spice aisle, caches category_type='spice' — but never
+    overrides a user's manual categorization (category_override = 1).
     """
     from ..analytics.database import get_db_cursor
+    from ..analytics.ingredients import category_type_from_aisles
 
     pid = record.get("productId") or record.get("upc")
     if not pid:
         return
     now = datetime.now().isoformat()
+    category = category_type_from_aisles(_aisle_descriptions(record))
     try:
         with get_db_cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO products (product_id, upc, description, brand, "
-                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(product_id) DO UPDATE SET "
-                "upc = COALESCE(excluded.upc, products.upc), "
-                "description = COALESCE(excluded.description, products.description), "
-                "brand = COALESCE(excluded.brand, products.brand), "
-                "updated_at = excluded.updated_at",
-                (pid, record.get("upc"), record.get("description"),
-                 record.get("brand"), now, now),
-            )
+            if category is not None:
+                cursor.execute(
+                    "INSERT INTO products (product_id, upc, description, brand, "
+                    "category_type, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(product_id) DO UPDATE SET "
+                    "upc = COALESCE(excluded.upc, products.upc), "
+                    "description = COALESCE(excluded.description, products.description), "
+                    "brand = COALESCE(excluded.brand, products.brand), "
+                    "category_type = CASE WHEN COALESCE(products.category_override, 0) = 0 "
+                    "THEN excluded.category_type ELSE products.category_type END, "
+                    "updated_at = excluded.updated_at",
+                    (pid, record.get("upc"), record.get("description"),
+                     record.get("brand"), category, now, now),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO products (product_id, upc, description, brand, "
+                    "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(product_id) DO UPDATE SET "
+                    "upc = COALESCE(excluded.upc, products.upc), "
+                    "description = COALESCE(excluded.description, products.description), "
+                    "brand = COALESCE(excluded.brand, products.brand), "
+                    "updated_at = excluded.updated_at",
+                    (pid, record.get("upc"), record.get("description"),
+                     record.get("brand"), now, now),
+                )
     except Exception:
         logger.debug("product metadata upsert skipped (best-effort)", exc_info=True)
 

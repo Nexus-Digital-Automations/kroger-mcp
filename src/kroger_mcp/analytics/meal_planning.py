@@ -1074,6 +1074,7 @@ def get_meal_entries_for_dates(
     start_date: str | None = None,
     end_date: str | None = None,
     user_id: str | None = None,
+    exclude_cooked: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Get meal entries for `user_id` in a date range (optionally filtered by plan).
@@ -1083,6 +1084,9 @@ def get_meal_entries_for_dates(
         start_date: Start of date range YYYY-MM-DD
         end_date: End of date range YYYY-MM-DD
         user_id: Owner. None resolves to the migration-installed default user.
+        exclude_cooked: When True, omit meals already deducted from the pantry so
+            shopping lists don't re-buy ingredients for meals already consumed.
+            The week view leaves this False so cooked meals still render.
 
     Returns:
         List of meal entries with recipe info
@@ -1099,6 +1103,9 @@ def get_meal_entries_for_dates(
             WHERE me.user_id = ?
         """
         params: list[Any] = [owner]
+
+        if exclude_cooked:
+            query += " AND (me.pantry_deducted = 0 OR me.pantry_deducted IS NULL)"
 
         if plan_id:
             query += " AND me.plan_id = ?"
@@ -1171,8 +1178,15 @@ def generate_meal_plan_shopping_list(
     if not start_date or not end_date:
         return {"success": False, "error": "Must specify plan_id, date range, or days_ahead"}
 
-    # Get meal entries (owner-scoped)
-    entries = get_meal_entries_for_dates(plan_id, start_date, end_date, user_id=owner)
+    # Auto-deduct any meals whose date has passed before reading pantry levels,
+    # so the list reflects what's actually been consumed (lazy reconcile trigger).
+    reconcile_past_meals(user_id=owner, plan_id=plan_id)
+
+    # Get meal entries (owner-scoped). Exclude already-cooked meals so we don't
+    # recommend buying ingredients for meals that were already deducted.
+    entries = get_meal_entries_for_dates(
+        plan_id, start_date, end_date, user_id=owner, exclude_cooked=True
+    )
 
     if not entries:
         return {
@@ -1464,6 +1478,7 @@ def _deduct_ingredients(
     deducted (matching the prior mark_meal_cooked behavior).
     """
     from ..analytics.pantry import consume_from_pantry, get_pantry_item
+    from ..analytics.recipe_integration import match_ingredient_to_pantry
 
     owner = _resolve_user_id(user_id)
     actual_by_pid = {
@@ -1485,6 +1500,15 @@ def _deduct_ingredients(
             unit = override.get("unit") or unit
         else:
             qty = ing.get("scaled_quantity") or ing.get("quantity") or 0
+
+        # Typed-name ingredients (no linked product) used to be silently dropped.
+        # Resolve them to a pantry item by canonical/fuzzy name so they deduct;
+        # the resolved product_id then flows through the unchanged path below
+        # (including the reversal ledger), so undo keeps working.
+        if not product_id and name:
+            match = match_ingredient_to_pantry(name, None, user_id=owner)
+            if match and match.get("product_id"):
+                product_id = match["product_id"]
 
         if not product_id or not qty or qty <= 0:
             skipped_no_product_id.append(name)
@@ -1684,11 +1708,13 @@ def mark_meal_cooked(
 
         now = datetime.now().isoformat()
 
-        # Mark as cooked (owner-scoped guard on update)
+        # Mark as cooked (owner-scoped guard on update). Clear any prior
+        # cook_skipped tombstone — actually cooking it overrides a past "I didn't
+        # cook this" decision.
         conn.execute(
             """
             UPDATE meal_entries
-            SET cooked_at = ?
+            SET cooked_at = ?, cook_skipped = 0
             WHERE id = ? AND user_id = ?
         """,
             (now, entry_id, owner),
@@ -1828,11 +1854,17 @@ def undo_meal_cooked(
     entry_id = entry["id"]
     restored = _reverse_cook_deductions(str(entry_id), "meal_plan", owner)
 
+    # Undoing a meal whose date has already passed means "I didn't actually cook
+    # this" — tombstone it so the lazy reconciler never silently re-deducts it.
+    # A still-future meal is just un-marked and remains eligible if its day comes.
+    skip_past = str(meal_date) < _format_date(datetime.now())
+
     with get_db_cursor() as cursor:
         cursor.execute(
-            "UPDATE meal_entries SET cooked_at = NULL, pantry_deducted = 0 "
+            "UPDATE meal_entries "
+            "SET cooked_at = NULL, pantry_deducted = 0, cook_skipped = ? "
             "WHERE id = ? AND user_id = ?",
-            (entry_id, owner),
+            (1 if skip_past else 0, entry_id, owner),
         )
 
     return {
@@ -1843,6 +1875,74 @@ def undo_meal_cooked(
         "reversed": restored,
         "message": f"Undid cook — restored {len(restored)} ingredient(s) to the pantry.",
     }
+
+
+def reconcile_past_meals(
+    user_id: str | None = None,
+    today: str | None = None,
+    plan_id: str | None = None,
+) -> dict[str, Any]:
+    """Auto-deduct any planned meal whose date has already passed.
+
+    The pantry-deduction machinery only ran when a user manually marked each meal
+    cooked, so levels never tracked the plan. This is the lazy trigger: called on
+    meal-plan views and shopping-list generation (there is no scheduler), it finds
+    strictly-past meals that were never cooked or explicitly skipped and runs them
+    through the normal cook path.
+
+    Idempotent: the candidate query excludes already-deducted/cooked/skipped rows,
+    and mark_meal_cooked flips pantry_deducted, so a second call deducts nothing.
+
+    Args:
+        user_id: Owner whose meals to reconcile. None resolves to the default user.
+        today: YYYY-MM-DD override for "now" (tests pass this); defaults to today.
+        plan_id: Limit reconciliation to one plan (the one being viewed).
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    today = today or _format_date(datetime.now())
+
+    # Strictly past: a meal dated today may not be cooked yet, so never auto-deduct
+    # it (absorbs intraday/timezone skew and avoids fighting the user's own cook).
+    query = (
+        "SELECT plan_id, meal_date, meal_slot FROM meal_entries "
+        "WHERE user_id = ? AND pantry_deducted = 0 AND cook_skipped = 0 "
+        "AND cooked_at IS NULL AND meal_date < ?"
+    )
+    params: list[Any] = [owner, today]
+    if plan_id:
+        query += " AND plan_id = ?"
+        params.append(plan_id)
+    query += " ORDER BY meal_date, meal_slot"
+
+    conn = get_db_connection()
+    try:
+        candidates = [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
+    finally:
+        conn.close()
+
+    reconciled: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for meal in candidates:
+        try:
+            result = mark_meal_cooked(
+                meal["plan_id"], meal["meal_date"], meal["meal_slot"],
+                deduct_pantry=True, user_id=owner,
+            )
+        except Exception as exc:
+            logger.error(
+                "reconcile_past_meals failed plan=%s date=%s slot=%s: %s",
+                meal["plan_id"], meal["meal_date"], meal["meal_slot"], exc,
+            )
+            skipped.append({**meal, "error": str(exc)})
+            continue
+        if result.get("success"):
+            reconciled.append({**meal, "deductions": result.get("deductions", [])})
+        else:
+            # e.g. recipe was deleted — leave it for a later retry, don't crash.
+            skipped.append({**meal, "error": result.get("error")})
+
+    return {"success": True, "reconciled": len(reconciled), "meals": reconciled, "skipped": skipped}
 
 
 def cook_recipe_adhoc(
