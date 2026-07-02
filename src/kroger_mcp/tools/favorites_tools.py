@@ -8,6 +8,8 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ._cart_safety import check_cart_items_safety
+
 
 def register_tools(mcp):
     """Register favorite list tools with the FastMCP server."""
@@ -146,13 +148,22 @@ def register_tools(mcp):
             default=10,
             description="Max suggestions to return",
         ),
+        confirm: bool | None = Field(
+            default=False,
+            description="order — False=preview, True=execute (add to cart)",
+        ),
+        confirm_unsafe: bool | None = Field(
+            default=False,
+            description="order — override safety warnings",
+        ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Favorite list management operations.
 
         IMPORTANT — To add a favorites list to cart:
-          favorites(action='order', list_id='weekly-essentials')
+          favorites(action='order', list_id='weekly-essentials', confirm=True)
         This adds ALL items in one call, skipping well-stocked pantry items.
+        Call with confirm=False (default) first to preview what will be ordered.
         Do NOT use get_items + loop cart(action='add') — use order instead.
 
         Other actions: get_lists, get_items, add_item, remove_item, create_list,
@@ -187,6 +198,8 @@ def register_tools(mcp):
             min_purchases,
             min_frequency_score,
             limit,
+            confirm,
+            confirm_unsafe,
             ctx,
         )
 
@@ -218,6 +231,8 @@ def register_tools(mcp):
         min_purchases,
         min_frequency_score,
         limit,
+        confirm,
+        confirm_unsafe,
         ctx,
     ):
         from kroger_mcp.auth.dependencies import mcp_user_id
@@ -416,6 +431,39 @@ def register_tools(mcp):
                         "skip_count": len(items_skipped),
                         "reorder_status": list_info.get("reorder_status"),
                     }
+
+                if not confirm:
+                    return {
+                        "success": True,
+                        "confirmation_required": True,
+                        "preview": {
+                            "items_to_order": [
+                                {
+                                    "product_id": i["product_id"],
+                                    "description": i["description"],
+                                    "quantity": i["quantity"],
+                                    "modality": i["modality"],
+                                }
+                                for i in items_to_order
+                            ],
+                            "items_skipped": items_skipped,
+                            "order_count": len(items_to_order),
+                            "skip_count": len(items_skipped),
+                        },
+                        "next_step": (
+                            "Review the items above. Call again with confirm=True to add to cart."
+                        ),
+                    }
+
+                safety_response = check_cart_items_safety(
+                    [
+                        {"product_id": item["product_id"], "description": item.get("description", "")}
+                        for item in items_to_order
+                    ],
+                    confirm_unsafe=bool(confirm_unsafe),
+                )
+                if safety_response is not None:
+                    return safety_response
 
                 try:
                     from .cart_tools import _add_item_to_local_cart

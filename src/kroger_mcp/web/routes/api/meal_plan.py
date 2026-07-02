@@ -70,6 +70,7 @@ class ToggleTemplateBody(BaseModel):
 
 class AddToCartBody(BaseModel):
     modality: str = "PICKUP"
+    confirm_unsafe: bool = False
 
 
 class ScheduleRecipeBody(BaseModel):
@@ -542,6 +543,19 @@ async def add_plan_to_cart(plan_id: str, body: AddToCartBody, request: Request):
             if item.get("product_id")
         ]
 
+        from kroger_mcp.tools._cart_safety import check_cart_items_safety
+
+        safety_response = check_cart_items_safety(
+            [
+                {"product_id": item["product_id"], "description": item.get("name", "")}
+                for item in items_to_add
+                if item.get("product_id")
+            ],
+            confirm_unsafe=body.confirm_unsafe,
+        )
+        if safety_response is not None:
+            return safety_response
+
         # Add with per-item fallback on 400
         failed_upcs: list = []
         added_api_items = list(api_items)
@@ -571,6 +585,7 @@ async def add_plan_to_cart(plan_id: str, body: AddToCartBody, request: Request):
                     item["product_id"],
                     max(1, int(round(item.get("quantity", 1)))),
                     mod,
+                    user_id=user_id,
                 )
 
         result = {

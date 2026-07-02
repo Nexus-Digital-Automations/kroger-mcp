@@ -19,6 +19,7 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ._cart_safety import check_cart_items_safety
 from ._storage import JsonStore
 from .shared import get_authenticated_client
 
@@ -268,6 +269,10 @@ def register_tools(mcp):
             default=None,
             description="True to confirm add after preview",
         ),
+        confirm_unsafe: bool | None = Field(
+            default=False,
+            description="Override safety warnings for add_to_cart",
+        ),
         include_spices: bool | None = Field(
             default=False,
             description=(
@@ -307,6 +312,7 @@ def register_tools(mcp):
             links,
             modality,
             confirm,
+            confirm_unsafe,
             include_spices,
             ctx,
         )
@@ -331,6 +337,7 @@ def register_tools(mcp):
         links,
         modality,
         confirm,
+        confirm_unsafe,
         include_spices,
         ctx,
     ):
@@ -1008,6 +1015,16 @@ def register_tools(mcp):
                             "items_skipped": items_to_skip,
                             "manual_purchase_required": items_manual,
                         }
+
+                    safety_response = check_cart_items_safety(
+                        [
+                            {"product_id": item["product_id"], "description": item.get("name", "")}
+                            for item in items_to_add
+                        ],
+                        confirm_unsafe=bool(confirm_unsafe),
+                    )
+                    if safety_response is not None:
+                        return safety_response
 
                     if ctx:
                         ctx.info(f"Adding {len(items_to_add)} items to cart...")

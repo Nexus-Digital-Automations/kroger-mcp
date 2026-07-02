@@ -501,6 +501,7 @@ class SelectedCartItem(BaseModel):
 
 class AddToCartBody(BaseModel):
     confirm: bool = False
+    confirm_unsafe: bool = False
     modality: str = "PICKUP"
     # Product IDs from the modal's Spices section the user ticked. None on
     # the initial preview round-trip; populated by the client on confirm.
@@ -663,8 +664,19 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
                 }
             )
 
+        from kroger_mcp.tools._cart_safety import check_cart_items_safety
         from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
         from kroger_mcp.tools.shared import get_authenticated_client
+
+        safety_response = check_cart_items_safety(
+            [
+                {"product_id": it["product_id"], "description": it.get("name", "")}
+                for it in items_to_add
+            ],
+            confirm_unsafe=body.confirm_unsafe,
+        )
+        if safety_response is not None:
+            return safety_response
 
         client = await asyncio.to_thread(get_authenticated_client, current_user_id(request))
         api_items = [
@@ -713,6 +725,7 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
                     quantity=it["quantity"],
                     modality=body.modality,
                     product_details={"description": it.get("name")},
+                    user_id=current_user_id(request),
                 )
             except Exception:
                 pass

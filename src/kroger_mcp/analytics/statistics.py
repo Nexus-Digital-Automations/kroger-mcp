@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from ._user_scope import resolve_user_id
 from .config import load_config
 from .database import ensure_initialized, get_db_connection
 from .trend_analysis import (
@@ -145,17 +146,19 @@ def _parse_date(date_str: str) -> datetime | None:
         return None
 
 
-def update_product_stats(product_id: str) -> dict[str, Any]:
+def update_product_stats(product_id: str, user_id: str | None = None) -> dict[str, Any]:
     """
     Update statistics for a single product.
 
     Args:
         product_id: The product identifier
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with updated statistics
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -165,13 +168,13 @@ def update_product_stats(product_id: str) -> dict[str, Any]:
         cursor = conn.execute(
             """
             SELECT * FROM purchase_events
-            WHERE product_id = ? AND event_type IN (
+            WHERE product_id = ? AND user_id = ? AND event_type IN (
                 'order_placed', 'pantry_depleted',
                 'recipe_consumed', 'manual_use', 'gap_reconciled'
             )
             ORDER BY event_date ASC
         """,
-            (product_id,),
+            (product_id, owner),
         )
         events = [dict(row) for row in cursor.fetchall()]
 
@@ -217,13 +220,13 @@ def update_product_stats(product_id: str) -> dict[str, Any]:
         conn.execute(
             """
             INSERT INTO product_statistics
-            (product_id, total_purchases, total_quantity, avg_quantity_per_purchase,
+            (user_id, product_id, total_purchases, total_quantity, avg_quantity_per_purchase,
              avg_days_between_purchases, std_dev_days, last_purchase_date,
              first_purchase_date, purchase_frequency_score, seasonality_score,
              detected_category, trend_direction, trend_strength,
              quantity_adjusted_rate, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(product_id) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, product_id) DO UPDATE SET
                 total_purchases = excluded.total_purchases,
                 total_quantity = excluded.total_quantity,
                 avg_quantity_per_purchase = excluded.avg_quantity_per_purchase,
@@ -240,6 +243,7 @@ def update_product_stats(product_id: str) -> dict[str, Any]:
                 updated_at = excluded.updated_at
         """,
             (
+                owner,
                 product_id,
                 total_purchases,
                 total_quantity,
@@ -280,35 +284,40 @@ def update_product_stats(product_id: str) -> dict[str, Any]:
         conn.close()
 
 
-def update_all_product_stats(product_ids: list[str]) -> dict[str, Any]:
+def update_all_product_stats(
+    product_ids: list[str], user_id: str | None = None
+) -> dict[str, Any]:
     """
     Update statistics for multiple products.
 
     Args:
         product_ids: List of product identifiers
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with summary of updates
     """
     results = []
     for product_id in product_ids:
-        result = update_product_stats(product_id)
+        result = update_product_stats(product_id, user_id=user_id)
         results.append(result)
 
     return {"updated_count": len(results), "products": results}
 
 
-def get_product_statistics(product_id: str) -> dict[str, Any] | None:
+def get_product_statistics(product_id: str, user_id: str | None = None) -> dict[str, Any] | None:
     """
     Get cached statistics for a product.
 
     Args:
         product_id: The product identifier
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with statistics or None if not found
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -317,9 +326,9 @@ def get_product_statistics(product_id: str) -> dict[str, Any] | None:
             SELECT ps.*, p.description, p.brand, p.category_type, p.category_override
             FROM product_statistics ps
             LEFT JOIN products p ON ps.product_id = p.product_id
-            WHERE ps.product_id = ?
+            WHERE ps.product_id = ? AND ps.user_id = ?
         """,
-            (product_id,),
+            (product_id, owner),
         )
         row = cursor.fetchone()
         return dict(row) if row else None
@@ -327,14 +336,18 @@ def get_product_statistics(product_id: str) -> dict[str, Any] | None:
         conn.close()
 
 
-def get_all_product_statistics() -> list[dict[str, Any]]:
+def get_all_product_statistics(user_id: str | None = None) -> list[dict[str, Any]]:
     """
     Get statistics for all tracked products.
+
+    Args:
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of statistics dictionaries
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -343,8 +356,10 @@ def get_all_product_statistics() -> list[dict[str, Any]]:
             SELECT ps.*, p.description, p.brand, p.category_type, p.category_override
             FROM product_statistics ps
             LEFT JOIN products p ON ps.product_id = p.product_id
+            WHERE ps.user_id = ?
             ORDER BY ps.last_purchase_date DESC
-        """
+        """,
+            (owner,),
         )
         return [dict(row) for row in cursor.fetchall()]
     finally:
@@ -352,7 +367,10 @@ def get_all_product_statistics() -> list[dict[str, Any]]:
 
 
 def get_recent_purchases(
-    days: int = 30, limit: int = 100, event_type: str = "order_placed"
+    days: int = 30,
+    limit: int = 100,
+    event_type: str = "order_placed",
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Get recent product purchases within specified time window.
@@ -364,6 +382,7 @@ def get_recent_purchases(
         days: Number of days to look back (default: 30)
         limit: Maximum number of products to return (default: 100)
         event_type: Type of event to filter ('order_placed' or 'cart_add')
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of dicts with keys:
@@ -380,6 +399,7 @@ def get_recent_purchases(
     from datetime import timedelta
 
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     # Calculate cutoff date
     cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -397,11 +417,12 @@ def get_recent_purchases(
             LEFT JOIN products p ON pe.product_id = p.product_id
             WHERE pe.event_date >= ?
               AND pe.event_type = ?
+              AND pe.user_id = ?
             GROUP BY pe.product_id
             ORDER BY last_purchase DESC
             LIMIT ?
         """,
-            (cutoff_date, event_type, limit),
+            (cutoff_date, event_type, owner, limit),
         )
 
         return [dict(row) for row in cursor.fetchall()]

@@ -172,6 +172,13 @@
     else { this.showToast('Failed to remove meal', 'error'); }
   },
   async deletePlan(planId, planName) {
+    const ok = await Alpine.store('ssConfirm').ask({
+      title: 'Delete "' + planName + '"?',
+      body: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     const r = await fetch('/api/meal-plan/' + planId, {method: 'DELETE'});
     if (r.ok) { window.location.href = '/meal-plan'; }
     else { this.showToast('Failed to delete plan', 'error'); }
@@ -207,17 +214,30 @@
   },
 
   /* ── Add to Cart ── */
-  async addAllToCart() {
+  async addAllToCart(confirmUnsafe = false) {
     const planId = '{{ active_plan.id if active_plan else '' }}';
     this.cartLoading = true; this.cartError = ''; this.cartDone = false;
     try {
       const r = await fetch('/api/meal-plan/' + planId + '/add-to-cart', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({modality: this.cartModality})
+        body: JSON.stringify({modality: this.cartModality, confirm_unsafe: confirmUnsafe})
       });
       const d = await r.json();
       if (r.ok && d.success) { this.cartDone = true; this.shopPreviewOpen = false; }
+      else if (d.requires_confirmation) {
+        this.cartLoading = false;
+        const flagged = (d.safety_warnings || []).concat(d.blocked_items || [])
+          .map(w => w.description || w.product_id).join(', ');
+        const ok = await Alpine.store('ssConfirm').ask({
+          title: 'Some items have safety concerns',
+          body: (d.message || 'Review flagged ingredients before adding.') + (flagged ? ' Flagged: ' + flagged : ''),
+          confirmLabel: 'Add anyway',
+          danger: true,
+        });
+        if (ok) { await this.addAllToCart(true); return; }
+        this.cartError = d.message || 'Add to cart cancelled';
+      }
       else if (d.auth_required) { this.cartError = d.error; }
       else { this.cartError = d.error || 'Failed to add to cart'; }
     } catch(e) { this.cartError = 'Network error'; }

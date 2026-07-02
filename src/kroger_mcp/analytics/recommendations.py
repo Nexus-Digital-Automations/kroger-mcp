@@ -16,6 +16,7 @@ from typing import Any
 
 from kroger_mcp.cache import cache_read_through
 
+from ._user_scope import resolve_user_id
 from .database import ensure_initialized, get_db_connection
 from .deals import get_price_statistics
 from .favorites import get_all_favorite_product_ids
@@ -243,17 +244,20 @@ def get_comprehensive_recommendations(
     min_score: int = 20,
     max_results: int = 50,
     location_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Cached wrapper around the (expensive) recommendation computation.
 
-    Recommendations are advisory and derived from global (not per-user) data, so
-    one Redis key per parameter-set with a 10-min TTL is both safe — there is no
-    per-user data to leak — and appropriate: a few minutes of staleness on
-    shopping advice is harmless. Redis-down degrades to a direct compute.
+    Recommendations are derived from per-user pantry/purchase-stats data, so
+    the Redis key is scoped by the resolved owner in addition to the
+    parameter-set — otherwise one user's recommendations would be served to
+    another for the 10-min TTL window. Redis-down degrades to a direct compute.
     """
+    owner = resolve_user_id(user_id)
     key = "rec:" + ":".join(
         str(x)
         for x in (
+            owner,
             days_ahead,
             include_low_pantry,
             include_deals,
@@ -276,6 +280,7 @@ def get_comprehensive_recommendations(
             min_score=min_score,
             max_results=max_results,
             location_id=location_id,
+            user_id=owner,
         ),
     )
 
@@ -289,6 +294,7 @@ def _compute_comprehensive_recommendations(
     min_score: int = 20,
     max_results: int = 50,
     location_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Generate comprehensive shopping recommendations.
@@ -312,11 +318,13 @@ def _compute_comprehensive_recommendations(
         min_score: Filter out items below this score (0-100)
         max_results: Maximum recommendations to return (1-100)
         location_id: Optional location filter for deals
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with prioritized recommendations grouped by tier
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     # Get favorite product IDs for fast lookup
     favorite_ids = get_all_favorite_product_ids()
@@ -340,17 +348,17 @@ def _compute_comprehensive_recommendations(
                 pi.days_to_expiration
             FROM product_statistics ps
             LEFT JOIN products p ON ps.product_id = p.product_id
-            LEFT JOIN pantry_items pi ON ps.product_id = pi.product_id
-            WHERE ps.total_purchases >= 2
+            LEFT JOIN pantry_items pi
+                ON ps.product_id = pi.product_id AND pi.user_id = ps.user_id
+            WHERE ps.user_id = ? AND ps.total_purchases >= 2
         """
+        params: list[Any] = [owner]
 
         # Apply favorites filter if requested
         if include_favorites_only and favorite_ids:
             placeholders = ",".join("?" * len(favorite_ids))
             query += f" AND ps.product_id IN ({placeholders})"
-            params = list(favorite_ids)
-        else:
-            params = []
+            params.extend(favorite_ids)
 
         cursor = conn.execute(query, params)
         rows = cursor.fetchall()
@@ -401,7 +409,7 @@ def _compute_comprehensive_recommendations(
                     "last_purchase_date": row["last_purchase_date"],
                     "category_type": row["detected_category"],
                 }
-                prediction = predict_repurchase_date(product_id, stats)
+                prediction = predict_repurchase_date(product_id, stats, user_id=owner)
                 product_data["predicted_date"] = (
                     prediction.predicted_date.isoformat() if prediction.predicted_date else None
                 )

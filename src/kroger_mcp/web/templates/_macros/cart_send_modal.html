@@ -165,7 +165,7 @@
       // Confirm step: send only the user-checked rows at user-chosen quantities.
       // Counterpart: api/shopping_list.py _apply_cart_selections intersects
       // these with server-computed items_to_add and silently drops stale ids.
-      async confirmSend() {
+      async confirmSend(confirmUnsafe = false) {
         if (this.sendBusy) return;
         const selections = (this.previewData?.items || [])
           .filter(it => this.cartSelected[it.product_id])
@@ -184,10 +184,25 @@
         try {
           const result = await window.api.post('/api/shopping-list/add-to-cart', {
             confirm: true,
+            confirm_unsafe: confirmUnsafe,
             modality: this.modality,
             selections,
             included_spice_ids: includedSpiceIds,
           });
+          if (result.requires_confirmation) {
+            this.sendBusy = false;
+            const flagged = (result.safety_warnings || []).concat(result.blocked_items || [])
+              .map(w => w.description || w.product_id).join(', ');
+            const ok = await Alpine.store('ssConfirm').ask({
+              title: 'Some items have safety concerns',
+              body: (result.message || 'Review flagged ingredients before adding.')
+                + (flagged ? ' Flagged: ' + flagged : ''),
+              confirmLabel: 'Add anyway',
+              danger: true,
+            });
+            if (ok) { await this.confirmSend(true); }
+            return;
+          }
           const parts = [result.message || `Sent ${result.items_added || 0} items to Kroger cart.`];
           if (result.warning) parts.push(result.warning);
           window._ssToast(parts.join(' '));

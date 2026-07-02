@@ -35,7 +35,7 @@ class CartAddBody(BaseModel):
 
 
 @router.post("/api/cart")
-async def add_to_cart(body: CartAddBody):
+async def add_to_cart(body: CartAddBody, request: Request):
     """Add a single item to the local cart."""
     try:
         product_details: dict[str, Any] = {}
@@ -50,6 +50,7 @@ async def add_to_cart(body: CartAddBody):
             quantity=body.quantity,
             modality=body.modality,
             product_details=product_details or None,
+            user_id=current_user_id(request),
         )
         return JSONResponse(content={"success": True, "product_id": body.product_id})
     except Exception as e:
@@ -174,7 +175,7 @@ async def mark_order_placed(request: Request):
 
         # Record the order in purchase analytics
         try:
-            record_order(current_cart)
+            record_order(current_cart, user_id=current_user_id(request))
         except Exception as record_err:
             logger.warning("Could not record order analytics: %s", record_err)
 

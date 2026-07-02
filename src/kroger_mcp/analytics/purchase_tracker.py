@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
+from ._user_scope import resolve_user_id
 from .database import ensure_initialized, get_db_connection, insert_returning_id
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ def record_cart_add(
     modality: str,
     product_details: dict[str, Any] | None = None,
     price: float | None = None,
+    user_id: str | None = None,
 ) -> int:
     """
     Record a cart addition event.
@@ -93,11 +95,13 @@ def record_cart_add(
         modality: 'PICKUP' or 'DELIVERY'
         product_details: Optional product metadata
         price: Optional price at time of addition
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         The ID of the created purchase event
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     # Ensure product exists
     ensure_product_exists(product_id, product_details)
@@ -109,10 +113,18 @@ def record_cart_add(
             conn,
             """
             INSERT INTO purchase_events
-            (product_id, quantity, event_type, modality, price, event_date, event_timestamp)
-            VALUES (?, ?, 'cart_add', ?, ?, ?, ?)
+            (user_id, product_id, quantity, event_type, modality, price, event_date, event_timestamp)
+            VALUES (?, ?, ?, 'cart_add', ?, ?, ?, ?)
         """,
-            (product_id, quantity, modality, price, now.strftime("%Y-%m-%d"), now.isoformat()),
+            (
+                owner,
+                product_id,
+                quantity,
+                modality,
+                price,
+                now.strftime("%Y-%m-%d"),
+                now.isoformat(),
+            ),
         )
         conn.commit()
         if event_id is None:
@@ -122,7 +134,11 @@ def record_cart_add(
         conn.close()
 
 
-def record_order(cart_items: list[dict[str, Any]], order_notes: str | None = None) -> int:
+def record_order(
+    cart_items: list[dict[str, Any]],
+    order_notes: str | None = None,
+    user_id: str | None = None,
+) -> int:
     """
     Record a completed order and link cart items to it.
 
@@ -131,11 +147,13 @@ def record_order(cart_items: list[dict[str, Any]], order_notes: str | None = Non
     Args:
         cart_items: List of cart items, each with product_id, quantity, modality
         order_notes: Optional notes about the order
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         The ID of the created order
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -149,10 +167,10 @@ def record_order(cart_items: list[dict[str, Any]], order_notes: str | None = Non
         order_id = insert_returning_id(
             conn,
             """
-            INSERT INTO orders (placed_at, item_count, total_quantity, notes)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO orders (user_id, placed_at, item_count, total_quantity, notes)
+            VALUES (?, ?, ?, ?, ?)
         """,
-            (now.isoformat(), item_count, total_quantity, order_notes),
+            (owner, now.isoformat(), item_count, total_quantity, order_notes),
         )
         if order_id is None:
             raise RuntimeError("Failed to create order record")
@@ -173,11 +191,12 @@ def record_order(cart_items: list[dict[str, Any]], order_notes: str | None = Non
             conn.execute(
                 """
                 INSERT INTO purchase_events
-                (product_id, quantity, event_type, modality, event_date,
+                (user_id, product_id, quantity, event_type, modality, event_date,
                  event_timestamp, order_id)
-                VALUES (?, ?, 'order_placed', ?, ?, ?, ?)
+                VALUES (?, ?, ?, 'order_placed', ?, ?, ?, ?)
             """,
                 (
+                    owner,
                     product_id,
                     quantity,
                     modality,
@@ -190,14 +209,14 @@ def record_order(cart_items: list[dict[str, Any]], order_notes: str | None = Non
         conn.commit()
 
         # Auto-restock pantry items (after commit to ensure order is recorded)
-        _restock_pantry_items(cart_items)
+        _restock_pantry_items(cart_items, user_id=owner)
 
         return order_id
     finally:
         conn.close()
 
 
-def _restock_pantry_items(cart_items: list[dict[str, Any]]) -> None:
+def _restock_pantry_items(cart_items: list[dict[str, Any]], user_id: str | None = None) -> None:
     """
     Restock pantry items for products in the order.
 
@@ -205,6 +224,7 @@ def _restock_pantry_items(cart_items: list[dict[str, Any]]) -> None:
 
     Args:
         cart_items: List of cart items from the order
+        user_id: Owner. None resolves to the migration-installed default user.
     """
     try:
         from .pantry import add_to_pantry, get_pantry_item, restock_item
@@ -214,18 +234,26 @@ def _restock_pantry_items(cart_items: list[dict[str, Any]]) -> None:
             if not product_id:
                 continue
             description = item.get("description")
-            pantry_item = get_pantry_item(product_id)
+            pantry_item = get_pantry_item(product_id, user_id=user_id)
             if pantry_item:
-                restock_item(product_id, level=100, description=description)
+                restock_item(product_id, level=100, description=description, user_id=user_id)
             else:
                 # Not yet tracked — add to pantry at 100%
-                add_to_pantry(product_id=product_id, description=description, level=100)
+                add_to_pantry(
+                    product_id=product_id,
+                    description=description,
+                    level=100,
+                    user_id=user_id,
+                )
     except Exception as e:
         logger.warning("Could not restock pantry items: %s", e, exc_info=True)
 
 
 def get_purchase_events(
-    product_id: str, event_type: str | None = None, limit: int = 100
+    product_id: str,
+    event_type: str | None = None,
+    limit: int = 100,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Get purchase events for a product.
@@ -234,19 +262,21 @@ def get_purchase_events(
         product_id: The product identifier
         event_type: Optional filter by event type ('cart_add' or 'order_placed')
         limit: Maximum number of events to return
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of purchase event dictionaries
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
         query = """
             SELECT * FROM purchase_events
-            WHERE product_id = ?
+            WHERE product_id = ? AND user_id = ?
         """
-        params: list[Any] = [product_id]
+        params: list[Any] = [product_id, owner]
 
         if event_type:
             query += " AND event_type = ?"
@@ -261,17 +291,19 @@ def get_purchase_events(
         conn.close()
 
 
-def get_order_history(limit: int = 50) -> list[dict[str, Any]]:
+def get_order_history(limit: int = 50, user_id: str | None = None) -> list[dict[str, Any]]:
     """
     Get order history.
 
     Args:
         limit: Maximum number of orders to return
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of order dictionaries with their items
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -279,10 +311,11 @@ def get_order_history(limit: int = 50) -> list[dict[str, Any]]:
         cursor = conn.execute(
             """
             SELECT * FROM orders
+            WHERE user_id = ?
             ORDER BY placed_at DESC
             LIMIT ?
         """,
-            (limit,),
+            (owner, limit),
         )
         orders = [dict(row) for row in cursor.fetchall()]
         if not orders:

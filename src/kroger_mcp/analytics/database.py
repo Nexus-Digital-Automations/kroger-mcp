@@ -332,9 +332,10 @@ def initialize_database() -> None:
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
-            -- Every cart add/order event
+            -- Every cart add/order event (user-scoped; NULL on legacy pre-multi-tenant rows)
             CREATE TABLE IF NOT EXISTS purchase_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
                 product_id TEXT NOT NULL,
                 quantity INTEGER NOT NULL DEFAULT 1,
                 event_type TEXT NOT NULL,
@@ -346,9 +347,10 @@ def initialize_database() -> None:
                 FOREIGN KEY (product_id) REFERENCES products(product_id)
             );
 
-            -- Completed orders
+            -- Completed orders (user-scoped; NULL on legacy pre-multi-tenant rows)
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
                 placed_at TEXT NOT NULL,
                 item_count INTEGER,
                 total_quantity INTEGER,
@@ -356,9 +358,11 @@ def initialize_database() -> None:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
-            -- Pre-computed statistics (updated on each order)
+            -- Pre-computed statistics (updated on each order; user-scoped)
             CREATE TABLE IF NOT EXISTS product_statistics (
-                product_id TEXT PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                product_id TEXT NOT NULL,
                 total_purchases INTEGER DEFAULT 0,
                 total_quantity INTEGER DEFAULT 0,
                 avg_quantity_per_purchase REAL,
@@ -370,7 +374,8 @@ def initialize_database() -> None:
                 seasonality_score REAL,
                 detected_category TEXT,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (product_id) REFERENCES products(product_id)
+                FOREIGN KEY (product_id) REFERENCES products(product_id),
+                UNIQUE(user_id, product_id)
             );
 
             -- Seasonal patterns for treats (user-scoped)
@@ -903,20 +908,24 @@ def get_table_counts() -> dict:
         conn.close()
 
 
-def _rebuild_table_add_user_id(executor: Any, table: str, new_ddl: str) -> None:
+def _rebuild_table_add_user_id(
+    executor: Any, table: str, new_ddl: str, backfill: bool = True
+) -> None:
     """Rebuild a SQLite ``table`` into ``new_ddl`` (which adds ``user_id`` and a
-    user-scoped composite UNIQUE), backfilling ``user_id`` to the default owner.
+    user-scoped composite UNIQUE/PRIMARY KEY).
 
-    Used to migrate the formerly-global ``deal_watchlist`` / ``seasonal_patterns``
-    in place — SQLite cannot drop a column-level UNIQUE via ALTER, so we
+    Used to migrate a formerly-global table in place — SQLite cannot drop a
+    column-level UNIQUE or change the PRIMARY KEY via ALTER, so we
     rename → create-fresh → copy the intersection of columns → drop the old table.
-    The owner resolves via ``mcp_user_id()`` (KROGER_MCP_USER_ID, then the
-    migration-installed default). SQLite DDL is transactional, so the caller's
-    surrounding transaction keeps this atomic.
-    """
-    from kroger_mcp.auth.dependencies import mcp_user_id
 
-    owner = mcp_user_id()
+    When ``backfill`` is True (the default), existing rows are attributed to
+    the default owner (resolved via ``mcp_user_id()`` — KROGER_MCP_USER_ID,
+    then the migration-installed default). When False, existing rows carry
+    ``user_id = NULL`` — used for tables where legacy data predates
+    multi-tenancy with no reliable attribution signal; they simply won't
+    surface in per-user views going forward. SQLite DDL is transactional, so
+    the caller's surrounding transaction keeps this atomic.
+    """
     old_cols = [r[1] for r in executor.execute(f"PRAGMA table_info({table})").fetchall()]
     executor.execute(f"ALTER TABLE {table} RENAME TO {table}_old")
     executor.execute(new_ddl)
@@ -924,11 +933,17 @@ def _rebuild_table_add_user_id(executor: Any, table: str, new_ddl: str) -> None:
     # Copy only columns present in both shapes; user_id is set explicitly.
     carried = [c for c in new_cols if c in old_cols and c != "user_id"]
     col_list = ", ".join(carried)
-    executor.execute(
-        f"INSERT INTO {table} (user_id, {col_list}) "
-        f"SELECT ?, {col_list} FROM {table}_old",
-        (owner,),
-    )
+    if backfill:
+        from kroger_mcp.auth.dependencies import mcp_user_id
+
+        owner = mcp_user_id()
+        executor.execute(
+            f"INSERT INTO {table} (user_id, {col_list}) "
+            f"SELECT ?, {col_list} FROM {table}_old",
+            (owner,),
+        )
+    else:
+        executor.execute(f"INSERT INTO {table} ({col_list}) SELECT {col_list} FROM {table}_old")
     executor.execute(f"DROP TABLE {table}_old")
 
 
@@ -1006,9 +1021,12 @@ def run_schema_migrations() -> None:
         # Enrich purchase_events for source-attributed consumption.
         # event_type CHECK is intentionally NOT added; existing rows use free-form
         # values (order_placed, pantry_depleted) and SQLite cannot ALTER CHECK in place.
+        # user_id: legacy rows predate multi-tenancy with no reliable attribution
+        # signal, so they're left NULL rather than backfilled to one user.
         cursor = conn.execute("PRAGMA table_info(purchase_events)")
         purchase_events_columns = {row[1] for row in cursor.fetchall()}
         purchase_events_new_columns = [
+            ("user_id", "TEXT DEFAULT NULL"),
             ("recipe_id", "TEXT DEFAULT NULL"),
             ("quantity_delta", "REAL DEFAULT NULL"),
             ("unit", "TEXT DEFAULT NULL"),
@@ -1017,6 +1035,16 @@ def run_schema_migrations() -> None:
         for col_name, col_def in purchase_events_new_columns:
             if col_name not in purchase_events_columns:
                 conn.execute(f"ALTER TABLE purchase_events ADD COLUMN {col_name} {col_def}")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_purchase_events_user_product "
+            "ON purchase_events(user_id, product_id)"
+        )
+
+        # orders: same legacy-unattributed treatment as purchase_events.
+        cursor = conn.execute("PRAGMA table_info(orders)")
+        if "user_id" not in {row[1] for row in cursor.fetchall()}:
+            conn.execute("ALTER TABLE orders ADD COLUMN user_id TEXT DEFAULT NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id)")
 
         # Gap reconciliation: tracks shortfalls where a placed order delivered
         # less of a product than a contributing recipe required.
@@ -1159,6 +1187,50 @@ def run_schema_migrations() -> None:
                     UNIQUE(user_id, product_id, month)
                 )
                 """,
+            )
+
+        # product_statistics: was globally keyed on product_id alone. SQLite can't
+        # change a PRIMARY KEY via ALTER, so it's rebuilt with a surrogate id +
+        # user-scoped UNIQUE. It's a pre-computed/derived cache table, so legacy
+        # rows are carried forward unattributed (user_id NULL) rather than
+        # backfilled — they'll be superseded as update_all_product_stats recomputes
+        # per user going forward.
+        #
+        # Checked by PK shape, not column presence: an earlier one-time script
+        # (scripts/migrate_to_multi_tenant.py) already bolted a bare `user_id`
+        # column onto this table without rebuilding the PRIMARY KEY, so a
+        # column-presence check would wrongly skip the rebuild and leave the
+        # table without the UNIQUE(user_id, product_id) constraint callers rely on.
+        cursor = conn.execute("PRAGMA table_info(product_statistics)")
+        if any(row[1] == "product_id" and row[5] == 1 for row in cursor.fetchall()):
+            _rebuild_table_add_user_id(
+                conn,
+                "product_statistics",
+                """
+                CREATE TABLE product_statistics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    product_id TEXT NOT NULL,
+                    total_purchases INTEGER DEFAULT 0,
+                    total_quantity INTEGER DEFAULT 0,
+                    avg_quantity_per_purchase REAL,
+                    avg_days_between_purchases REAL,
+                    std_dev_days REAL,
+                    last_purchase_date TEXT,
+                    first_purchase_date TEXT,
+                    purchase_frequency_score REAL,
+                    seasonality_score REAL,
+                    detected_category TEXT,
+                    trend_direction TEXT DEFAULT 'stable',
+                    trend_strength REAL DEFAULT 0.0,
+                    quantity_adjusted_rate REAL DEFAULT NULL,
+                    prediction_accuracy REAL DEFAULT NULL,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (product_id) REFERENCES products(product_id),
+                    UNIQUE(user_id, product_id)
+                )
+                """,
+                backfill=False,
             )
 
         conn.commit()

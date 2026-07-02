@@ -7,21 +7,26 @@ Generates reports for spending, predictions, shopping patterns, and pantry statu
 from datetime import datetime, timedelta
 from typing import Any
 
+from ._user_scope import resolve_user_id
 from .database import ensure_initialized, get_db_connection
 
 
-def generate_spending_report(days_back: int = 30, group_by: str = "category") -> dict[str, Any]:
+def generate_spending_report(
+    days_back: int = 30, group_by: str = "category", user_id: str | None = None
+) -> dict[str, Any]:
     """
     Generate spending/purchase analytics report.
 
     Args:
         days_back: Number of days to analyze
         group_by: Grouping method ('category', 'week', 'product')
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with spending breakdown and trends
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
@@ -35,9 +40,10 @@ def generate_spending_report(days_back: int = 30, group_by: str = "category") ->
             LEFT JOIN products p ON pe.product_id = p.product_id
             WHERE pe.event_type = 'order_placed'
               AND pe.event_date >= ?
+              AND pe.user_id = ?
             ORDER BY pe.event_date
         """,
-            (start_date,),
+            (start_date, owner),
         )
         events = [dict(row) for row in cursor.fetchall()]
 
@@ -108,16 +114,20 @@ def generate_spending_report(days_back: int = 30, group_by: str = "category") ->
         conn.close()
 
 
-def generate_prediction_accuracy_report() -> dict[str, Any]:
+def generate_prediction_accuracy_report(user_id: str | None = None) -> dict[str, Any]:
     """
     Analyze how accurate purchase predictions have been.
 
     Compares predicted dates to actual purchase dates.
 
+    Args:
+        user_id: Owner. None resolves to the migration-installed default user.
+
     Returns:
         Dict with prediction accuracy metrics
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -127,8 +137,9 @@ def generate_prediction_accuracy_report() -> dict[str, Any]:
             SELECT ps.*, p.description
             FROM product_statistics ps
             JOIN products p ON ps.product_id = p.product_id
-            WHERE ps.total_purchases >= 3
-        """
+            WHERE ps.user_id = ? AND ps.total_purchases >= 3
+        """,
+            (owner,),
         )
         products = [dict(row) for row in cursor.fetchall()]
 
@@ -216,17 +227,19 @@ def generate_prediction_accuracy_report() -> dict[str, Any]:
         conn.close()
 
 
-def generate_patterns_report(days_back: int = 90) -> dict[str, Any]:
+def generate_patterns_report(days_back: int = 90, user_id: str | None = None) -> dict[str, Any]:
     """
     Generate shopping behavior patterns report.
 
     Args:
         days_back: Number of days to analyze
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with shopping patterns and insights
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
@@ -236,10 +249,10 @@ def generate_patterns_report(days_back: int = 90) -> dict[str, Any]:
         cursor = conn.execute(
             """
             SELECT * FROM orders
-            WHERE placed_at >= ?
+            WHERE placed_at >= ? AND user_id = ?
             ORDER BY placed_at
         """,
-            (start_date,),
+            (start_date, owner),
         )
         orders = [dict(row) for row in cursor.fetchall()]
 
@@ -269,9 +282,10 @@ def generate_patterns_report(days_back: int = 90) -> dict[str, Any]:
             FROM purchase_events
             WHERE event_type = 'order_placed'
               AND event_date >= ?
+              AND user_id = ?
             GROUP BY modality
         """,
-            (start_date,),
+            (start_date, owner),
         )
         modality_counts = {row["modality"]: row["count"] for row in cursor.fetchall()}
 
@@ -294,14 +308,18 @@ def generate_patterns_report(days_back: int = 90) -> dict[str, Any]:
         conn.close()
 
 
-def generate_pantry_report() -> dict[str, Any]:
+def generate_pantry_report(user_id: str | None = None) -> dict[str, Any]:
     """
     Generate pantry inventory status report.
+
+    Args:
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with pantry status and recommendations
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -310,8 +328,10 @@ def generate_pantry_report() -> dict[str, Any]:
             SELECT pi.*, p.category_type
             FROM pantry_items pi
             LEFT JOIN products p ON pi.product_id = p.product_id
+            WHERE pi.user_id = ?
             ORDER BY pi.level_percent ASC
-        """
+        """,
+            (owner,),
         )
         items = [dict(row) for row in cursor.fetchall()]
 
@@ -379,6 +399,7 @@ def export_all_data(
     include_products: bool = True,
     include_pantry: bool = True,
     include_recipes: bool = True,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Export all analytics data for backup or external analysis.
@@ -388,11 +409,15 @@ def export_all_data(
         include_products: Include product catalog and stats
         include_pantry: Include pantry inventory
         include_recipes: Include saved recipes
+        user_id: Owner. None resolves to the migration-installed default user.
+            Scopes orders/purchase_events/product_statistics/pantry; the
+            product catalog and recipe box are shared, not per-user.
 
     Returns:
         Dict with all requested data
     """
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     export: dict[str, Any] = {
         "export_date": datetime.now().isoformat(),
@@ -402,14 +427,18 @@ def export_all_data(
     conn = get_db_connection()
     try:
         if include_orders:
-            cursor = conn.execute("SELECT * FROM orders ORDER BY placed_at DESC")
+            cursor = conn.execute(
+                "SELECT * FROM orders WHERE user_id = ? ORDER BY placed_at DESC", (owner,)
+            )
             orders = [dict(row) for row in cursor.fetchall()]
 
             cursor = conn.execute(
                 """
                 SELECT * FROM purchase_events
+                WHERE user_id = ?
                 ORDER BY event_date DESC
-            """
+            """,
+                (owner,),
             )
             events = [dict(row) for row in cursor.fetchall()]
 
@@ -420,14 +449,14 @@ def export_all_data(
             cursor = conn.execute("SELECT * FROM products")
             products = [dict(row) for row in cursor.fetchall()]
 
-            cursor = conn.execute("SELECT * FROM product_statistics")
+            cursor = conn.execute("SELECT * FROM product_statistics WHERE user_id = ?", (owner,))
             stats = [dict(row) for row in cursor.fetchall()]
 
             export["products"] = {"count": len(products), "data": products}
             export["product_statistics"] = {"count": len(stats), "data": stats}
 
         if include_pantry:
-            cursor = conn.execute("SELECT * FROM pantry_items")
+            cursor = conn.execute("SELECT * FROM pantry_items WHERE user_id = ?", (owner,))
             pantry = [dict(row) for row in cursor.fetchall()]
 
             export["pantry"] = {"count": len(pantry), "data": pantry}

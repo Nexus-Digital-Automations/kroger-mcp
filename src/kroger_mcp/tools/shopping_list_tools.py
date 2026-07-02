@@ -17,6 +17,8 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ._cart_safety import check_cart_items_safety
+
 logger = logging.getLogger(__name__)
 
 
@@ -223,6 +225,9 @@ def register_tools(mcp):
         notes: str | None = Field(default=None, description="Item notes"),
         modality: str | None = Field(default=None, description="PICKUP or DELIVERY"),
         confirm: bool | None = Field(default=None, description="False=preview, True=execute"),
+        confirm_unsafe: bool | None = Field(
+            default=False, description="Override safety warnings for add_to_cart"
+        ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Shopping list — intermediate buffer between recipes and cart.
@@ -245,6 +250,7 @@ def register_tools(mcp):
             notes,
             modality,
             confirm,
+            confirm_unsafe,
             ctx,
         )
 
@@ -260,6 +266,7 @@ def register_tools(mcp):
         notes,
         modality,
         confirm,
+        confirm_unsafe,
         ctx,
     ):
         match action:
@@ -672,6 +679,19 @@ def register_tools(mcp):
                             "items_skipped": len(items_to_skip),
                             "manual_purchase_required": items_manual,
                         }
+
+                    safety_response = check_cart_items_safety(
+                        [
+                            {
+                                "product_id": item["product_id"],
+                                "description": item.get("ingredient_name", ""),
+                            }
+                            for item in items_to_add
+                        ],
+                        confirm_unsafe=bool(confirm_unsafe),
+                    )
+                    if safety_response is not None:
+                        return safety_response
 
                     if ctx:
                         ctx.info(f"Adding {len(items_to_add)} items from shopping list to cart...")

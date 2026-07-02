@@ -509,13 +509,14 @@ async def get_recipe_ingredients(request: Request, recipe_id: str):
 
 
 @router.post("/api/recipes/{recipe_id}/add-to-cart")
-async def add_recipe_to_cart(recipe_id: str, body: AddToCartBody):
+async def add_recipe_to_cart(recipe_id: str, body: AddToCartBody, request: Request):
     """
     Preview or confirm adding a recipe's ingredients to the local cart.
 
     - confirm=false  →  returns a list of ingredients that would be added
     - confirm=true   →  adds each Kroger-linked ingredient to the local cart
     """
+    user_id = current_user_id(request)
     try:
         from kroger_mcp.tools.recipe_tools import _find_recipe
 
@@ -579,6 +580,7 @@ async def add_recipe_to_cart(recipe_id: str, body: AddToCartBody):
                         "description": ing.get("name"),
                         "brand": ing.get("brand"),
                     },
+                    user_id=user_id,
                 )
                 added.append(ing.get("name"))
             except Exception as exc:

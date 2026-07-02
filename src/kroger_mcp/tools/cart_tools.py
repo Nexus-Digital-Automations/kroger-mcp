@@ -12,13 +12,7 @@ from fastmcp import Context
 from pydantic import Field
 
 from ..analytics.deals import calculate_cart_savings, record_price_observation
-from ..analytics.ingredients import check_product_safety
-from ..analytics.safety import (
-    get_all_blocked_product_ids,
-    get_all_safe_product_ids,
-    get_disabled_ingredients,
-    is_filtering_enabled,
-)
+from ._cart_safety import check_cart_items_safety
 from ._storage import JsonStore
 from .shared import get_authenticated_client, get_preferred_location_id
 
@@ -142,6 +136,7 @@ def _add_item_to_local_cart(
     quantity: int,
     modality: str,
     product_details: dict[str, Any] | None = None,
+    user_id: str | None = None,
 ) -> None:
     """Add an item to the local cart tracking and analytics database"""
     cart_data = _load_cart_data()
@@ -175,7 +170,7 @@ def _add_item_to_local_cart(
     try:
         from ..analytics.purchase_tracker import record_cart_add
 
-        record_cart_add(product_id, quantity, modality, product_details)
+        record_cart_add(product_id, quantity, modality, product_details, user_id=user_id)
     except Exception as e:
         logger.warning("Could not record analytics: %s", e)
 
@@ -198,7 +193,7 @@ def _add_item_to_local_cart(
         from ..analytics.pantry import add_to_pantry
 
         description = (product_details or {}).get("description") or None
-        add_to_pantry(product_id=product_id, description=description)
+        add_to_pantry(product_id=product_id, description=description, user_id=user_id)
     except Exception as e:
         logger.warning("Could not add product %s to pantry: %s", product_id, e)
 
@@ -244,8 +239,8 @@ def register_tools(mcp):
             ),
         ),
         preview_only: bool | None = Field(
-            default=False,
-            description="Preview without adding",
+            default=True,
+            description="True=preview only (default). Set False to actually add to cart.",
         ),
         confirm_unsafe: bool | None = Field(
             default=False,
@@ -395,76 +390,11 @@ def register_tools(mcp):
                             "next_step": "Review and call again with preview_only=False to add",
                         }
 
-                    filtering_enabled = is_filtering_enabled()
-                    safety_warnings = []
-                    blocked_items = []
-
-                    if filtering_enabled and not (confirm_unsafe or False):
-                        safe_ids = get_all_safe_product_ids()
-                        blocked_ids_set = get_all_blocked_product_ids()
-                        disabled_ingredients = get_disabled_ingredients()
-
-                        for item in formatted_items:
-                            pid = item["product_id"]
-                            description = item.get("description") or ""
-
-                            if pid in safe_ids:
-                                continue
-                            if pid in blocked_ids_set:
-                                blocked_items.append(
-                                    {
-                                        "product_id": pid,
-                                        "description": description,
-                                        "reason": "Product is on your blocked list",
-                                    }
-                                )
-                                continue
-                            if description:
-                                safety_result = check_product_safety(
-                                    description=description,
-                                    disabled_ingredients=disabled_ingredients,
-                                )
-                                if safety_result.has_concerns:
-                                    safety_warnings.append(
-                                        {
-                                            "product_id": pid,
-                                            "description": description,
-                                            "severity": (
-                                            safety_result.highest_severity.value
-                                            if safety_result.highest_severity
-                                            else ""
-                                        ),
-                                            "flagged_ingredients": [
-                                                {
-                                                    "ingredient": match.ingredient_name,
-                                                    "severity": match.severity.value,
-                                                    "reason": match.reason,
-                                                    "matched_text": match.matched_text,
-                                                }
-                                                for match in safety_result.matches
-                                            ],
-                                        }
-                                    )
-
-                        if blocked_items or safety_warnings:
-                            return {
-                                "success": False,
-                                "requires_confirmation": True,
-                                "message": (
-                                    "Some products have safety concerns. "
-                                    "Set confirm_unsafe=True to add anyway."
-                                ),
-                                "blocked_items": blocked_items,
-                                "safety_warnings": safety_warnings,
-                                "total_flagged": len(blocked_items) + len(safety_warnings),
-                                "items_requested": len(formatted_items),
-                                "next_step": (
-                                    "Review the flagged ingredients and either: "
-                                    "(1) call again with confirm_unsafe=True to add anyway, "
-                                    "(2) remove flagged items from your request, or "
-                                    "(3) use safety(action='approve_product') to safe-list products you trust"
-                                ),
-                            }
+                    safety_response = check_cart_items_safety(
+                        formatted_items, confirm_unsafe=bool(confirm_unsafe)
+                    )
+                    if safety_response is not None:
+                        return safety_response
 
                     if ctx:
                         await ctx.info(f"Adding {len(formatted_items)} item(s) to cart")

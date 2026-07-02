@@ -336,7 +336,9 @@ def test_predictions_for_period_memoized(monkeypatch):
     predictions._predictions_memo.clear()
     calls = {"n": 0}
 
-    def _fake_compute(days_ahead=14, category_filter=None, min_confidence=0.0, include_overdue=True):
+    def _fake_compute(
+        days_ahead=14, category_filter=None, min_confidence=0.0, include_overdue=True, user_id=None
+    ):
         calls["n"] += 1
         return [
             predictions.RepurchasePrediction(

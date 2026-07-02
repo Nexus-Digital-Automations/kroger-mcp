@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.web.chat_engine import (
     DEFAULT_PROVIDER,
     execute_approved_action,
@@ -115,12 +116,13 @@ async def chat_message(request: Request, body: ChatMessageRequest):
 
 
 @router.post("/api/chat/approve")
-async def chat_approve(body: ChatApproveRequest):
+async def chat_approve(body: ChatApproveRequest, request: Request):
     """Execute a previously proposed mutating action after user approval."""
     try:
         result = execute_approved_action(
             function_name=body.function_name,
             args=body.args,
+            user_id=current_user_id(request),
         )
         return JSONResponse(content=result)
     except Exception as exc:

@@ -622,6 +622,7 @@ def _handle_add_to_cart(
     quantity: int = 1,
     modality: str = "PICKUP",
     description: str = "",
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Add item to local cart."""
     try:
@@ -632,6 +633,7 @@ def _handle_add_to_cart(
             quantity=quantity,
             modality=modality,
             product_details={"description": description} if description else None,
+            user_id=user_id,
         )
         return {"success": True, "product_id": product_id, "quantity": quantity}
     except Exception as exc:
@@ -1559,7 +1561,9 @@ async def process_message_stream(
     yield ("done", {"response": content, "messages": full_messages, "pending_action": None})
 
 
-def execute_approved_action(function_name: str, args: dict[str, Any]) -> dict[str, Any]:
+def execute_approved_action(
+    function_name: str, args: dict[str, Any], user_id: str | None = None
+) -> dict[str, Any]:
     """
     Execute a previously approved mutating action.
 
@@ -1575,7 +1579,12 @@ def execute_approved_action(function_name: str, args: dict[str, Any]) -> dict[st
 
     handler = tool_info["handler"]
     try:
-        result = handler(**args)
+        # Only add_to_cart's handler accepts user_id today; other handlers
+        # still resolve via the mcp_user_id() default fallback.
+        if function_name == "add_to_cart":
+            result = handler(**args, user_id=user_id)
+        else:
+            result = handler(**args)
     except TypeError as exc:
         return {"success": False, "result": {}, "summary": f"Invalid arguments: {str(exc)[:200]}"}
     except Exception as exc:

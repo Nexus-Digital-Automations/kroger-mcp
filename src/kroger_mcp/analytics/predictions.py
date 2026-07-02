@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from ._user_scope import resolve_user_id
 from .config import load_config
 from .database import ensure_initialized, get_db_connection
 from .statistics import get_product_statistics
@@ -60,7 +61,9 @@ def get_urgency_label(urgency: float, is_overdue: bool = False) -> str:
 
 
 def predict_repurchase_date(
-    product_id: str, stats: dict[str, Any] | None = None
+    product_id: str,
+    stats: dict[str, Any] | None = None,
+    user_id: str | None = None,
 ) -> RepurchasePrediction:
     """
     Predict when a product will need to be repurchased.
@@ -68,6 +71,7 @@ def predict_repurchase_date(
     Args:
         product_id: The product identifier
         stats: Optional pre-fetched statistics
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         RepurchasePrediction with date, urgency, and confidence
@@ -76,7 +80,7 @@ def predict_repurchase_date(
 
     # Get statistics if not provided
     if stats is None:
-        stats = get_product_statistics(product_id)
+        stats = get_product_statistics(product_id, user_id=user_id)
 
     if not stats or stats.get("total_purchases", 0) < 2:
         return RepurchasePrediction(
@@ -204,11 +208,13 @@ def predict_repurchase_date(
 # In-process TTL memo for get_predictions_for_period. Results return dataclasses
 # (not JSON-serialisable, so Redis read-through can't wrap them), and the
 # function is re-run several times within one suggestions flow (get_overdue_items
-# + get_shopping_suggestions). The underlying product_statistics are global, so a
-# process-local memo is sound on the single-worker prod box; stats freshness lags
-# by at most the TTL, which is acceptable for shopping suggestions.
+# + get_shopping_suggestions). Keyed by resolved owner + the four filter params so
+# distinct users' predictions never collide within the TTL window; stats freshness
+# lags by at most the TTL, which is acceptable for shopping suggestions.
 _PREDICTIONS_MEMO_TTL_SECONDS = 600.0
-_predictions_memo: dict[tuple[int, str | None, float, bool], tuple[float, list["RepurchasePrediction"]]] = {}
+_predictions_memo: dict[
+    tuple[str, int, str | None, float, bool], tuple[float, list["RepurchasePrediction"]]
+] = {}
 
 
 def get_predictions_for_period(
@@ -216,31 +222,34 @@ def get_predictions_for_period(
     category_filter: str | None = None,
     min_confidence: float = 0.0,
     include_overdue: bool = True,
+    user_id: str | None = None,
 ) -> list[RepurchasePrediction]:
     """Get predictions for items needing repurchase within a period.
 
-    Memoized in-process for ~10 min keyed by the four parameters (see
-    ``_predictions_memo``). Returns a fresh list each call so callers can't
-    mutate the cached one; the prediction objects themselves are consumed
-    read-only.
+    Memoized in-process for ~10 min keyed by the resolved owner + the four
+    filter parameters (see ``_predictions_memo``). Returns a fresh list each
+    call so callers can't mutate the cached one; the prediction objects
+    themselves are consumed read-only.
 
     Args:
         days_ahead: Number of days to look ahead
         category_filter: Optional category filter ('routine', 'regular', 'treat')
         min_confidence: Minimum confidence threshold
         include_overdue: Whether to include overdue items
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of RepurchasePrediction objects sorted by urgency
     """
-    memo_key = (days_ahead, category_filter, min_confidence, include_overdue)
+    owner = resolve_user_id(user_id)
+    memo_key = (owner, days_ahead, category_filter, min_confidence, include_overdue)
     now = time.monotonic()
     cached = _predictions_memo.get(memo_key)
     if cached is not None and cached[0] > now:
         return list(cached[1])
 
     result = _compute_predictions_for_period(
-        days_ahead, category_filter, min_confidence, include_overdue
+        days_ahead, category_filter, min_confidence, include_overdue, owner
     )
     _predictions_memo[memo_key] = (now + _PREDICTIONS_MEMO_TTL_SECONDS, result)
     return list(result)
@@ -251,9 +260,11 @@ def _compute_predictions_for_period(
     category_filter: str | None = None,
     min_confidence: float = 0.0,
     include_overdue: bool = True,
+    user_id: str | None = None,
 ) -> list[RepurchasePrediction]:
     """Uncached body of get_predictions_for_period (one DB scan + scoring)."""
     ensure_initialized()
+    owner = resolve_user_id(user_id)
 
     conn = get_db_connection()
     try:
@@ -262,9 +273,9 @@ def _compute_predictions_for_period(
             SELECT ps.*, p.description, p.brand, p.category_type
             FROM product_statistics ps
             JOIN products p ON ps.product_id = p.product_id
-            WHERE ps.total_purchases >= 2
+            WHERE ps.user_id = ? AND ps.total_purchases >= 2
         """
-        params = []
+        params: list[Any] = [owner]
 
         if category_filter:
             query += " AND p.category_type = ?"
@@ -275,7 +286,7 @@ def _compute_predictions_for_period(
 
         predictions = []
         for product in products:
-            pred = predict_repurchase_date(product["product_id"], product)
+            pred = predict_repurchase_date(product["product_id"], product, user_id=owner)
 
             # Filter by confidence
             if pred.confidence < min_confidence:
@@ -301,18 +312,21 @@ def _compute_predictions_for_period(
         conn.close()
 
 
-def get_overdue_items(category_filter: str | None = None) -> list[RepurchasePrediction]:
+def get_overdue_items(
+    category_filter: str | None = None, user_id: str | None = None
+) -> list[RepurchasePrediction]:
     """
     Get items that are overdue for repurchase.
 
     Args:
         category_filter: Optional category filter
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         List of overdue items sorted by days overdue
     """
     predictions = get_predictions_for_period(
-        days_ahead=0, category_filter=category_filter, include_overdue=True
+        days_ahead=0, category_filter=category_filter, include_overdue=True, user_id=user_id
     )
 
     return [p for p in predictions if p.days_until is not None and p.days_until < 0]
@@ -324,6 +338,7 @@ def get_shopping_suggestions(
     include_seasonal: bool = True,
     days_ahead: int = 7,
     min_confidence: float = 0.5,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Generate smart shopping suggestions.
@@ -334,6 +349,7 @@ def get_shopping_suggestions(
         include_seasonal: Include upcoming seasonal items
         days_ahead: Days to look ahead
         min_confidence: Minimum prediction confidence
+        user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
         Dict with categorized shopping suggestions
@@ -349,7 +365,7 @@ def get_shopping_suggestions(
     }
 
     # Get overdue items (always include if any)
-    overdue = get_overdue_items()
+    overdue = get_overdue_items(user_id=user_id)
     suggestions["overdue"] = [
         {
             "product_id": p.product_id,
@@ -364,7 +380,10 @@ def get_shopping_suggestions(
 
     if include_routine or include_predicted:
         predictions = get_predictions_for_period(
-            days_ahead=days_ahead, min_confidence=min_confidence, include_overdue=False
+            days_ahead=days_ahead,
+            min_confidence=min_confidence,
+            include_overdue=False,
+            user_id=user_id,
         )
 
         for p in predictions:
@@ -387,7 +406,7 @@ def get_shopping_suggestions(
     if include_seasonal:
         from .seasonal import get_upcoming_seasonal_items
 
-        seasonal = get_upcoming_seasonal_items(days_ahead)
+        seasonal = get_upcoming_seasonal_items(days_ahead, user_id=user_id)
         suggestions["seasonal_items"] = seasonal
 
     # Summary
