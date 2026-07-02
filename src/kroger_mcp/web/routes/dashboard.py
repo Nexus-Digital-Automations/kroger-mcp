@@ -212,9 +212,13 @@ def _dashboard_payload(user_id: str) -> dict:
         "meal_plan_count": meal_plan_count,
         "favorites_count": len(fav_lists),
         # First-run signal for the onboarding banner: every account auto-gets
-        # a default "My Favorites" list, so count only user-created lists.
+        # a default "My Favorites" list AND a built-in "Snacks" list (list_type
+        # 'snacks'), neither of which is_default alone captures — so count
+        # only genuinely user-created lists.
         "custom_favorites_count": sum(
-            1 for lst in fav_lists if not lst.get("is_default")
+            1
+            for lst in fav_lists
+            if not lst.get("is_default") and lst.get("list_type") != "snacks"
         ),
         "pantry_alerts": pantry_alerts,
         "week_days": week_days,

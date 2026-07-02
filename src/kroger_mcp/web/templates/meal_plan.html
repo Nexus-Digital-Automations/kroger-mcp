@@ -172,8 +172,13 @@
     else { this.showToast('Failed to remove meal', 'error'); }
   },
   async deletePlan(planId, planName) {
+    // Use the &quot; entity, never a raw double-quote character: this whole
+    // x-data lives in a double-quoted HTML attribute, so a raw one would
+    // terminate it early and silently break every method on this component
+    // (Alpine emits per-expression 'is not defined' warnings, not a
+    // page-level failure).
     const ok = await Alpine.store('ssConfirm').ask({
-      title: 'Delete "' + planName + '"?',
+      title: 'Delete &quot;' + planName + '&quot;?',
       body: 'This cannot be undone.',
       confirmLabel: 'Delete',
       danger: true,

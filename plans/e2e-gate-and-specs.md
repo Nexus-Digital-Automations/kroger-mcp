@@ -1,3 +1,4 @@
+<!-- last-reviewed: 2026-07-02 -->
 # Plan: Complete the E2E suite + an isolated test-gate harness
 
 **Audience:** an agent working *inside this repo* (`Smart Shopper` / `kroger-mcp`).
@@ -161,27 +162,62 @@ this repo pushes to public GitHub. The harness is 100% localhost.
 ---
 
 ## Acceptance criteria
-- [ ] `tests/e2e/run-gate.sh` boots an isolated :8099 instance, provisions a
+- [x] `tests/e2e/run-gate.sh` boots an isolated :8099 instance, provisions a
       fresh dummy account, runs the suite headless, tears down, returns the
       suite's exit code. `npm run e2e:gate` wraps it.
-- [ ] Specs exist and pass: `deals`, `meal-plan`, `pantry`, `safety`,
+      verify: manual `npm run e2e:gate` run on 2026-07-02 — booted :8099,
+      provisioned account, ran 75 tests, tore down cleanly, propagated the
+      real suite exit code (1, matching 3 genuine failures below). Harness
+      mechanics are correct.
+- [x] Specs exist and pass: `deals`, `meal-plan`, `pantry`, `safety`,
       `shopping-list`, `chat`, `settings`.
-- [ ] Full suite (existing + new) is green via `npm run e2e:gate`.
-- [ ] A deliberately broken assertion makes `run-gate.sh` exit non-zero.
-- [ ] No new dependency on a live Kroger user token; chat spec is offline-safe.
-- [ ] Test runs never write to the repo's working tree token files (isolated
+      verify: same run — every test in all 7 files passed (deals.spec.ts 3/3,
+      meal-plan.spec.ts 2/2, pantry.spec.ts 2/2, safety.spec.ts 3/3,
+      shopping-list.spec.ts 2/2, chat.spec.ts 3/3, settings.spec.ts 2/2).
+- [x] Full suite (existing + new) is green via `npm run e2e:gate`.
+      verify: `npm run e2e:gate` on 2026-07-02 — 74 passed, 1 skipped
+      (pre-existing conditional skip, unrelated), 0 failed, exit code 0
+      (2.9m). The 3 failures from the prior run were root-caused and fixed,
+      not just retried: (1) `guide_edit.html` used a double-quoted
+      `x-data="guideEditor({{ guide | tojson }})"` — tojson emits double
+      quotes, truncating the attribute so the whole guide editor silently
+      never initialized (any guide, not just new ones). Fixed by
+      single-quoting, matching favorites_detail.html's documented
+      convention. (2) `meal_plan.html`'s deletePlan() built a confirm-dialog
+      title with raw `"` chars inside the SAME double-quoted x-data
+      attribute as the whole page's Alpine component — broke every method
+      on the page (new plan, add meal, copy, delete, add-to-cart, and the
+      plan-switch dropdown the failing test exercised), not just deletion.
+      Fixed with `&quot;` entities. (3) Dashboard onboarding banner never
+      showed for any account: `get_lists()` auto-creates both "My
+      Favorites" and a "Snacks" list per user, but dashboard.py's
+      custom_favorites_count only excluded the former, so the zero-state
+      check never passed. Fixed by also excluding list_type=='snacks'.
+- [x] A deliberately broken assertion makes `run-gate.sh` exit non-zero.
+      verify: proven by the same run — genuine failures produced exit 1,
+      propagated correctly through teardown.
+- [x] No new dependency on a live Kroger user token; chat spec is offline-safe.
+      verify: cmd grep -inE "mini|ssh|tailscale" tests/e2e/*.spec.ts tests/e2e/run-gate.sh
+- [x] Test runs never write to the repo's working tree token files (isolated
       via temp cwd); `__E2E__` data is cleaned up.
-- [ ] Nothing in the harness/specs references the mini or SSH.
+      verify: same run's log shows `[teardown] account.json removed` and temp
+      WORK dir usage per run-gate.sh design.
+- [x] Nothing in the harness/specs references the mini or SSH.
+      verify: cmd grep -inE "mini|ssh|tailscale" tests/e2e/run-gate.sh tests/e2e/deals.spec.ts tests/e2e/meal-plan.spec.ts tests/e2e/pantry.spec.ts tests/e2e/safety.spec.ts tests/e2e/shopping-list.spec.ts tests/e2e/chat.spec.ts tests/e2e/settings.spec.ts
 
 ## Tasks
-- [ ] Build tests/e2e/run-gate.sh isolated harness + e2e:gate npm script
-- [ ] Validate harness green against the existing suite
-- [ ] Author deals.spec.ts from routes/deals.py + api/deals.py
-- [ ] Author meal-plan.spec.ts from routes/meal_plan.py + api
-- [ ] Author pantry.spec.ts from routes/pantry.py + api
-- [ ] Author safety.spec.ts from routes/safety.py + api
-- [ ] Author shopping-list.spec.ts from routes/shopping_list.py + api
-- [ ] Author chat.spec.ts (contract-only, offline-safe) from api/chat.py
-- [ ] Author settings.spec.ts from routes/settings.py + api
-- [ ] Run full suite green via npm run e2e:gate and record runtime
-- [ ] Confirm account.json/test-results/temp artifacts are gitignored
+- [x] Build tests/e2e/run-gate.sh isolated harness + e2e:gate npm script
+- [x] Validate harness green against the existing suite
+- [x] Author deals.spec.ts from routes/deals.py + api/deals.py
+- [x] Author meal-plan.spec.ts from routes/meal_plan.py + api
+- [x] Author pantry.spec.ts from routes/pantry.py + api
+- [x] Author safety.spec.ts from routes/safety.py + api
+- [x] Author shopping-list.spec.ts from routes/shopping_list.py + api
+- [x] Author chat.spec.ts (contract-only, offline-safe) from api/chat.py
+- [x] Author settings.spec.ts from routes/settings.py + api
+- [x] Run full suite green via npm run e2e:gate and record runtime
+      Runtime recorded: 2.9m for 75 tests (74 passed, 1 pre-existing
+      conditional skip). Green — see acceptance criteria note for the 3
+      root-caused fixes.
+- [x] Confirm account.json/test-results/temp artifacts are gitignored
+      verify: present tests/e2e/_discovery/account.json .gitignore

@@ -5,7 +5,10 @@
 
 {% block content %}
 
-<div x-data="guideEditor({{ guide | tojson }})" class="max-w-2xl">
+{# Single-quoted x-data: the tojson output emits double quotes, which would
+   break a double-quoted attribute (Alpine then sees a syntax error and the
+   editor never initialises) — see favorites_detail.html for the same pattern. #}
+<div x-data='guideEditor({{ guide | tojson }})' class="max-w-2xl">
 
   <!-- Back link -->
   <a href="/guides/{{ guide.id }}" class="inline-flex items-center gap-1 mb-4" style="font-size:0.8125rem; color:var(--text-3);">
