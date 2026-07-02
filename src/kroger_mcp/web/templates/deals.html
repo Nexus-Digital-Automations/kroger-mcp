@@ -181,8 +181,18 @@ function dealsData() {
     },
 
     async removeWatch(productId) {
-      await fetch('/api/deals/watchlist/' + productId, {method: 'DELETE'});
-      await this.reloadWatchlist();
+      try {
+        const r = await fetch('/api/deals/watchlist/' + productId, {method: 'DELETE'});
+        if (r.ok) {
+          await this.reloadWatchlist();
+        } else {
+          this.msg = 'Failed to remove from watchlist';
+          setTimeout(() => this.msg = '', 3000);
+        }
+      } catch(e) {
+        this.msg = 'Failed to remove from watchlist';
+        setTimeout(() => this.msg = '', 3000);
+      }
     },
 
     async reloadWatchlist() {

@@ -60,10 +60,16 @@ function ingredientsData() {
     },
     async removeIng(name) {
       try {
-        await fetch('/api/ingredients/custom/' + encodeURIComponent(name), {method: 'DELETE'});
-        await this.loadCustom();
-        await this.loadAll();
-      } catch(e) {}
+        const r = await fetch('/api/ingredients/custom/' + encodeURIComponent(name), {method: 'DELETE'});
+        if (r.ok) {
+          await this.loadCustom();
+          await this.loadAll();
+        } else {
+          this.showMsg('Failed to remove ingredient', 'error');
+        }
+      } catch(e) {
+        this.showMsg('Failed to remove ingredient', 'error');
+      }
     },
     showMsg(text, type) {
       this.msg = text;

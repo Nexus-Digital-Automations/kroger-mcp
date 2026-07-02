@@ -33,19 +33,28 @@ function safetyData() {
       try {
         const r = await fetch('/api/safety/ingredients');
         if (r.ok) { const d = await r.json(); this.ingredients = d; }
-      } catch(e) {}
+        else { this.showMsg('Failed to load flagged ingredients', 'error'); }
+      } catch(e) {
+        this.showMsg('Failed to load flagged ingredients', 'error');
+      }
     },
     async loadSafe() {
       try {
         const r = await fetch('/api/safety/approved');
         if (r.ok) { const d = await r.json(); this.safe = d; }
-      } catch(e) {}
+        else { this.showMsg('Failed to load safe products', 'error'); }
+      } catch(e) {
+        this.showMsg('Failed to load safe products', 'error');
+      }
     },
     async loadBlocked() {
       try {
         const r = await fetch('/api/safety/blocked');
         if (r.ok) { const d = await r.json(); this.blocked = d; }
-      } catch(e) {}
+        else { this.showMsg('Failed to load blocked products', 'error'); }
+      } catch(e) {
+        this.showMsg('Failed to load blocked products', 'error');
+      }
     },
     async loadCustom() {
       try {
@@ -58,8 +67,12 @@ function safetyData() {
             category: r.category || '',
             reason: r.reason || '',
           }));
+        } else {
+          this.showMsg('Failed to load custom ingredients', 'error');
         }
-      } catch(e) {}
+      } catch(e) {
+        this.showMsg('Failed to load custom ingredients', 'error');
+      }
     },
     async saveSettings() {
       try {
@@ -76,38 +89,58 @@ function safetyData() {
     async approveProd() {
       if (!this.newSafe.product_id) return;
       try {
-        await fetch('/api/safety/approved', {
+        const r = await fetch('/api/safety/approved', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(this.newSafe)
         });
-        this.newSafe = {product_id: '', description: ''};
-        await this.loadSafe();
-      } catch(e) {}
+        if (r.ok) {
+          this.newSafe = {product_id: '', description: ''};
+          await this.loadSafe();
+          this.showMsg('Product approved', 'success');
+        } else {
+          this.showMsg('Failed to approve product', 'error');
+        }
+      } catch(e) {
+        this.showMsg('Failed to approve product', 'error');
+      }
     },
     async unapproveProd(pid) {
       try {
-        await fetch('/api/safety/approved/' + encodeURIComponent(pid), {method: 'DELETE'});
-        await this.loadSafe();
-      } catch(e) {}
+        const r = await fetch('/api/safety/approved/' + encodeURIComponent(pid), {method: 'DELETE'});
+        if (r.ok) { await this.loadSafe(); }
+        else { this.showMsg('Failed to remove approved product', 'error'); }
+      } catch(e) {
+        this.showMsg('Failed to remove approved product', 'error');
+      }
     },
     async blockProd() {
       if (!this.newBlocked.product_id) return;
       try {
-        await fetch('/api/safety/blocked', {
+        const r = await fetch('/api/safety/blocked', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(this.newBlocked)
         });
-        this.newBlocked = {product_id: '', description: '', reason: ''};
-        await this.loadBlocked();
-      } catch(e) {}
+        if (r.ok) {
+          this.newBlocked = {product_id: '', description: '', reason: ''};
+          await this.loadBlocked();
+          this.showMsg('Product blocked', 'success');
+        } else {
+          this.showMsg('Failed to block product', 'error');
+        }
+      } catch(e) {
+        this.showMsg('Failed to block product', 'error');
+      }
     },
     async unblockProd(pid) {
       try {
-        await fetch('/api/safety/blocked/' + encodeURIComponent(pid), {method: 'DELETE'});
-        await this.loadBlocked();
-      } catch(e) {}
+        const r = await fetch('/api/safety/blocked/' + encodeURIComponent(pid), {method: 'DELETE'});
+        if (r.ok) { await this.loadBlocked(); }
+        else { this.showMsg('Failed to unblock product', 'error'); }
+      } catch(e) {
+        this.showMsg('Failed to unblock product', 'error');
+      }
     },
     async addIng() {
       if (!this.newIng.name.trim()) {
@@ -135,10 +168,16 @@ function safetyData() {
     },
     async removeIng(name) {
       try {
-        await fetch('/api/ingredients/custom/' + encodeURIComponent(name), {method: 'DELETE'});
-        await this.loadCustom();
-        await this.loadIngredients();
-      } catch(e) {}
+        const r = await fetch('/api/ingredients/custom/' + encodeURIComponent(name), {method: 'DELETE'});
+        if (r.ok) {
+          await this.loadCustom();
+          await this.loadIngredients();
+        } else {
+          this.showMsg('Failed to remove ingredient', 'error');
+        }
+      } catch(e) {
+        this.showMsg('Failed to remove ingredient', 'error');
+      }
     },
     showMsg(text, type) {
       this.msg = text;

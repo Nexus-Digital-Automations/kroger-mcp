@@ -24,7 +24,7 @@
         {{ product_picker(placeholder='Search Kroger by name…') }}
         <p x-show="pid" style="font-size: 0.6875rem; color: var(--success); margin-top: 0.25rem;">
           Selected: <span style="font-variant-numeric: tabular-nums;" x-text="pid"></span>
-          <button type="button" @click="pid = ''" style="margin-left: 0.375rem; border: 0; background: none; color: var(--text-3); cursor: pointer;">✕</button>
+          <button type="button" @click="pid = ''" aria-label="Clear selected product" style="margin-left: 0.375rem; border: 0; background: none; color: var(--text-3); cursor: pointer;">✕</button>
         </p>
         <button type="button" @click="manualId = !manualId"
                 style="border: 0; background: none; padding: 0; margin-top: 0.25rem; font-size: 0.6875rem; color: var(--text-3); cursor: pointer; text-decoration: underline;">
@@ -367,6 +367,7 @@
                 </button>
                 <button @click="editing = false"
                         class="ss-btn-secondary"
+                        aria-label="Cancel editing level"
                         style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
                   ✕
                 </button>
@@ -452,7 +453,7 @@
           </template>
         </p>
       </div>
-      <button @click="open = false" class="ss-btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">✕</button>
+      <button @click="open = false" class="ss-btn-secondary" aria-label="Close details" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">✕</button>
     </div>
 
     <h4 style="font-size: 0.75rem; font-weight: 600; color: var(--text-2); margin: 1rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">

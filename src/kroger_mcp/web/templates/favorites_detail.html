@@ -453,6 +453,13 @@ function favoriteItemsActions(currentListId) {
     },
 
     async removeItem(item) {
+      const ok = await Alpine.store('ssConfirm').ask({
+        title: 'Remove "' + (item.description || item.product_id) + '"?',
+        body: 'This removes the item from this list.',
+        confirmLabel: 'Remove',
+        danger: true,
+      });
+      if (!ok) return;
       const r = await fetch(
         '/api/favorites/lists/' + this.currentListId + '/items/' + item.product_id,
         {method: 'DELETE'},
