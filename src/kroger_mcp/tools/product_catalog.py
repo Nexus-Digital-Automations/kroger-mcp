@@ -62,7 +62,7 @@ def _local_price_block(regular: object, sale: object) -> dict:
     return block
 
 
-def _detail_price_from_record(record: dict) -> tuple[object, object]:
+def _detail_price_from_record(record: dict) -> tuple[float | None, float | None]:
     """Pull (regular, promo) out of a raw Kroger detail record's first item."""
     items = record.get("items") or [{}]
     first = items[0] if items else {}
@@ -188,7 +188,7 @@ def product_detail_read_through(
             is_fresh = 0 <= age <= freshness_seconds
 
     # Local hit — serve without touching Kroger.
-    if meta is not None and meta["description"] and is_fresh:
+    if meta is not None and meta["description"] and is_fresh and price_row is not None:
         record: dict = {
             "productId": product_id,
             "description": meta["description"],
@@ -212,7 +212,7 @@ def product_detail_read_through(
     record_obj = raw.get("data") if isinstance(raw, dict) else getattr(raw, "data", None)
     if not record_obj:
         return None
-    rec = record_obj if isinstance(record_obj, dict) else vars(record_obj)
+    rec = record_obj if isinstance(record_obj, dict) else dict(vars(record_obj))
 
     _upsert_product_metadata(rec)
     regular, promo = _detail_price_from_record(rec)
