@@ -14,9 +14,24 @@ import asyncio
 import json
 
 import httpx
+import pytest
 
 from kroger_mcp.web import chat_engine as ce
 from kroger_mcp.web.chat_engine import OpenAICompatibleClient, process_message_stream
+
+
+@pytest.fixture(autouse=True)
+def _stub_tools_array(monkeypatch):
+    """Avoid spinning up the real FastMCP server (DB migration, tool
+    introspection) for every test — process_message_stream now fetches the
+    tool surface via mcp_bridge on first use. Tests that care about the real
+    surface (test_tool_surface_covers_all_registered_mcp_tools) do it explicitly.
+    """
+
+    async def _fake_tools_array():
+        return []
+
+    monkeypatch.setattr(ce, "_ensure_tools_array", _fake_tools_array)
 
 
 def _sse_body(chunks: list[dict]) -> bytes:
@@ -154,14 +169,13 @@ def test_stream_plaintext_matches_sync(monkeypatch):
     assert sync_result["messages"][-1] == {"role": "assistant", "content": reply}
 
 
-def test_stream_mutating_action_emits_single_pending_action(monkeypatch):
-    """A mutating tool call yields exactly one pending_action and never executes."""
+def _one_tool_call_then_text(tool_name: str, tool_args: dict, follow_text: str):
+    """Build a fake chat_stream: turn 1 emits one tool call, turn 2 free text."""
     call = {"n": 0}
 
     async def fake_chat_stream(self, http, messages, tools=None):
         call["n"] += 1
         if call["n"] == 1:
-            # First turn: the model asks to add to cart (mutating).
             yield (
                 "assembled",
                 {
@@ -171,20 +185,27 @@ def test_stream_mutating_action_emits_single_pending_action(monkeypatch):
                         {
                             "id": "call_x",
                             "type": "function",
-                            "function": {
-                                "name": "add_to_cart",
-                                "arguments": json.dumps({"product_id": "0001", "quantity": 2}),
-                            },
+                            "function": {"name": tool_name, "arguments": json.dumps(tool_args)},
                         }
                     ],
                 },
             )
         else:
-            # Second turn: natural-language description of the pending action.
-            for piece in ["I'll add ", "that to your cart."]:
-                yield ("token", piece)
-            yield ("assembled", {"role": "assistant", "content": "I'll add that to your cart."})
+            words = follow_text.split(" ")
+            for i, piece in enumerate(words):
+                yield ("token", piece if i == len(words) - 1 else piece + " ")
+            yield ("assembled", {"role": "assistant", "content": follow_text})
 
+    return fake_chat_stream
+
+
+def test_stream_mutating_action_emits_single_pending_action(monkeypatch):
+    """A hard-blocked tool call yields exactly one pending_action and never executes."""
+    fake_chat_stream = _one_tool_call_then_text(
+        "cart",
+        {"action": "add", "product_id": "0001", "quantity": 2, "preview_only": False},
+        "I'll add that to your cart.",
+    )
     monkeypatch.setattr(OpenAICompatibleClient, "chat_stream", fake_chat_stream)
 
     async def run_stream():
@@ -197,9 +218,144 @@ def test_stream_mutating_action_emits_single_pending_action(monkeypatch):
     done = [p for k, p in events if k == "done"][0]
 
     assert len(pending) == 1
-    assert pending[0]["function_name"] == "add_to_cart"
-    assert pending[0]["args"] == {"product_id": "0001", "quantity": 2}
+    assert pending[0]["function_name"] == "cart"
+    assert pending[0]["args"]["action"] == "add"
     assert done["pending_action"] is pending[0]
-    # The mutating tool must NOT have executed — no real cart write happened,
-    # the engine only produced a preview for approval.
+    # The hard-blocked tool must NOT have executed — no real cart write
+    # happened, the engine only produced a preview for approval.
     assert done["response"] == "I'll add that to your cart."
+
+
+def test_cart_preview_only_auto_executes_without_approval(monkeypatch):
+    """A cart(add, preview_only=True) call is read-only and never gates."""
+    fake_chat_stream = _one_tool_call_then_text(
+        "cart",
+        {"action": "add", "product_id": "0001", "quantity": 1, "preview_only": True},
+        "Here's a preview of that item.",
+    )
+    monkeypatch.setattr(OpenAICompatibleClient, "chat_stream", fake_chat_stream)
+
+    async def fake_call_tool(conversation_id, name, args):
+        return {"success": True, "preview": True}
+
+    monkeypatch.setattr(ce.mcp_bridge, "call_tool", fake_call_tool)
+
+    async def run_stream():
+        return await _collect(
+            process_message_stream([], "preview adding item 0001", http=None, provider="deepseek")
+        )
+
+    events = asyncio.run(run_stream())
+    pending = [p for k, p in events if k == "pending_action"]
+    done = [p for k, p in events if k == "done"][0]
+
+    assert pending == []
+    assert done["pending_action"] is None
+
+
+def test_mode_ask_confirms_normal_write(monkeypatch):
+    """A write-tier call (pantry add) confirms in Ask mode."""
+    fake_chat_stream = _one_tool_call_then_text(
+        "pantry", {"action": "add", "product_id": "0002", "level": 100}, "Added to pantry."
+    )
+    monkeypatch.setattr(OpenAICompatibleClient, "chat_stream", fake_chat_stream)
+
+    async def run_stream():
+        return await _collect(
+            process_message_stream(
+                [], "add milk to pantry", http=None, provider="deepseek", mode="ask"
+            )
+        )
+
+    events = asyncio.run(run_stream())
+    pending = [p for k, p in events if k == "pending_action"]
+    assert len(pending) == 1
+    assert pending[0]["function_name"] == "pantry"
+
+
+def test_mode_auto_executes_normal_write(monkeypatch):
+    """The same write-tier call auto-executes in Auto mode, no approval step."""
+    fake_chat_stream = _one_tool_call_then_text(
+        "pantry", {"action": "add", "product_id": "0002", "level": 100}, "Added to pantry."
+    )
+    monkeypatch.setattr(OpenAICompatibleClient, "chat_stream", fake_chat_stream)
+
+    async def fake_call_tool(conversation_id, name, args):
+        return {"success": True}
+
+    monkeypatch.setattr(ce.mcp_bridge, "call_tool", fake_call_tool)
+
+    async def run_stream():
+        return await _collect(
+            process_message_stream(
+                [], "add milk to pantry", http=None, provider="deepseek", mode="auto"
+            )
+        )
+
+    events = asyncio.run(run_stream())
+    pending = [p for k, p in events if k == "pending_action"]
+    done = [p for k, p in events if k == "done"][0]
+    assert pending == []
+    assert done["pending_action"] is None
+
+
+def test_hard_blocked_always_confirms_even_in_auto_mode(monkeypatch):
+    """cart(clear) still confirms in Auto mode — hard-blocked has no exceptions."""
+    fake_chat_stream = _one_tool_call_then_text("cart", {"action": "clear"}, "Clearing your cart.")
+    monkeypatch.setattr(OpenAICompatibleClient, "chat_stream", fake_chat_stream)
+
+    async def run_stream():
+        return await _collect(
+            process_message_stream(
+                [], "clear my cart", http=None, provider="deepseek", mode="auto"
+            )
+        )
+
+    events = asyncio.run(run_stream())
+    pending = [p for k, p in events if k == "pending_action"]
+    assert len(pending) == 1
+    assert pending[0]["function_name"] == "cart"
+    assert pending[0]["args"]["action"] == "clear"
+
+
+def test_tool_surface_covers_all_registered_mcp_tools():
+    """mcp_bridge exposes every tool the real MCP server registers — no drift."""
+    from fastmcp import Client
+
+    from kroger_mcp.server import create_server
+    from kroger_mcp.web import mcp_bridge
+
+    async def run():
+        async with Client(create_server()) as client:
+            expected = {t.name for t in await client.list_tools()}
+        actual = {t["function"]["name"] for t in await mcp_bridge.list_openai_tools()}
+        return expected, actual
+
+    expected, actual = asyncio.run(run())
+    assert actual == expected
+    assert len(expected) >= 18
+
+
+def test_execute_approved_action_scopes_to_web_user(monkeypatch):
+    """An approved action runs as the requesting web user, not the MCP default."""
+    from kroger_mcp.auth.dependencies import mcp_user_id
+
+    captured = {}
+
+    async def fake_call_tool(conversation_id, name, args):
+        captured["user_id"] = mcp_user_id()
+        return {"success": True}
+
+    monkeypatch.setattr(ce.mcp_bridge, "call_tool", fake_call_tool)
+
+    result = asyncio.run(
+        ce.execute_approved_action(
+            function_name="pantry",
+            args={"action": "add", "product_id": "0001"},
+            user_id="user-123",
+            conversation_id="c1",
+        )
+    )
+
+    assert captured["user_id"] == "user-123"
+    assert result["success"] is True

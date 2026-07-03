@@ -699,6 +699,16 @@
               <option :value="p.id" x-text="p.label"></option>
             </template>
           </select>
+          <select
+            x-model="mode"
+            @change="persistMode()"
+            class="chat-provider-select"
+            aria-label="Select chat mode"
+            title="Ask: every write needs approval. Auto: writes execute automatically (cart/checkout always still ask)."
+          >
+            <option value="ask">Ask before acting</option>
+            <option value="auto">Auto-execute</option>
+          </select>
           <button @click="open = false" class="chat-close-btn" aria-label="Close chat">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -1202,8 +1212,17 @@
         approving: false,
         providers: [],
         provider: null,
+        mode: 'ask',
+        conversationId: null,
 
         async init() {
+          // A fresh id per page load — matches the MCP session-gate semantics
+          // (e.g. pantry(get_attention)), which reset when a conversation ends.
+          this.conversationId = crypto.randomUUID();
+
+          const savedMode = localStorage.getItem('ss_chat_mode');
+          this.mode = savedMode === 'auto' ? 'auto' : 'ask';
+
           // Load only providers whose API key is configured server-side.
           const saved = localStorage.getItem('ss_chat_provider');
           try {
@@ -1227,6 +1246,10 @@
 
         persistProvider() {
           if (this.provider) localStorage.setItem('ss_chat_provider', this.provider);
+        },
+
+        persistMode() {
+          localStorage.setItem('ss_chat_mode', this.mode);
         },
 
         get displayMessages() {
@@ -1271,6 +1294,8 @@
               body: JSON.stringify({
                 messages: payloadMessages,
                 user_message: text,
+                conversation_id: this.conversationId,
+                mode: this.mode,
                 ...(this.provider ? { provider: this.provider } : {}),
               }),
             });
@@ -1344,7 +1369,7 @@
             const res = await fetch('/api/chat/approve', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(this.pendingAction),
+              body: JSON.stringify({ ...this.pendingAction, conversation_id: this.conversationId }),
             });
             const data = await res.json();
 

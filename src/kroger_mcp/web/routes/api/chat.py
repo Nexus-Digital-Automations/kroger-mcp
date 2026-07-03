@@ -8,7 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from kroger_mcp.auth.dependencies import current_user_id
+from kroger_mcp.auth.dependencies import current_user_id, reset_web_user_id, set_web_user_id
 from kroger_mcp.web.chat_engine import (
     DEFAULT_PROVIDER,
     execute_approved_action,
@@ -17,6 +17,8 @@ from kroger_mcp.web.chat_engine import (
 )
 
 router = APIRouter()
+
+_VALID_MODES = {"ask", "auto"}
 
 
 # -------------------------------------------------------------------
@@ -34,13 +36,16 @@ class ChatMessage(BaseModel):
 class ChatMessageRequest(BaseModel):
     messages: list[dict[str, Any]] = []
     user_message: str
-    provider: str | None = None  # None → server default (DeepSeek)
+    provider: str | None = None  # None → server default (Gemma 4)
+    conversation_id: str = "default"
+    mode: str = "ask"
 
 
 class ChatApproveRequest(BaseModel):
     id: str
     function_name: str
     args: dict[str, Any] = {}
+    conversation_id: str = "default"
 
 
 class ChatRejectRequest(BaseModel):
@@ -79,18 +84,24 @@ async def _chat_event_stream(request: Request, body: ChatMessageRequest) -> Asyn
     than a broken connection (status is already committed once streaming).
     """
     http = request.app.state.http
+    mode = body.mode if body.mode in _VALID_MODES else "ask"
+    token = set_web_user_id(current_user_id(request))
     try:
         async for event_type, payload in process_message_stream(
             messages=body.messages,
             user_message=body.user_message.strip(),
             http=http,
             provider=body.provider,
+            mode=mode,
+            conversation_id=body.conversation_id,
         ):
             if await request.is_disconnected():
                 break
             yield _sse(event_type, payload)
     except Exception as exc:  # noqa: BLE001 - terminal event, not a swallow
         yield _sse("error", {"error": f"Chat processing failed: {str(exc)[:300]}"})
+    finally:
+        reset_web_user_id(token)
 
 
 @router.post("/api/chat/message")
@@ -119,10 +130,11 @@ async def chat_message(request: Request, body: ChatMessageRequest):
 async def chat_approve(body: ChatApproveRequest, request: Request):
     """Execute a previously proposed mutating action after user approval."""
     try:
-        result = execute_approved_action(
+        result = await execute_approved_action(
             function_name=body.function_name,
             args=body.args,
             user_id=current_user_id(request),
+            conversation_id=body.conversation_id,
         )
         return JSONResponse(content=result)
     except Exception as exc:
