@@ -22,7 +22,7 @@ from kroger_mcp.analytics.favorites import (
     create_list,
     get_list_items,
 )
-from kroger_mcp.web.routes.api.favorites import AddItemBody, add_item
+from kroger_mcp.web.routes.api.favorites import AddItemBody, add_item, remove_item
 from kroger_mcp.web.routes.snacks import _snacks_payload
 
 
@@ -146,3 +146,28 @@ def test_new_snack_added_via_picker_lands_on_snacks_list_only(snacks_db):
     }
     assert "SNACKPAGE_new" in snack_pids
     assert "SNACKPAGE_new" not in other_pids
+
+
+def test_remove_snack_only_affects_snacks_list(snacks_db):
+    """DELETE against the snacks list removes the item from the snacks list only —
+    the same product on another of the user's lists is left in place."""
+    snacks_list_id = snacks_db
+    other = create_list(name="SNACKPAGE_other", list_type="custom", user_id=USER)
+    other_list_id = other["list_id"]
+
+    _seed_into(snacks_list_id, "SNACKPAGE_shared", "Shared Snack")
+    _seed_into(other_list_id, "SNACKPAGE_shared", "Shared Snack")
+
+    result = asyncio.run(remove_item(snacks_list_id, "SNACKPAGE_shared", _request(USER)))
+    assert result.get("success") is True
+
+    snack_pids = {
+        i["product_id"]
+        for i in get_list_items(snacks_list_id, user_id=USER).get("items", [])
+    }
+    other_pids = {
+        i["product_id"]
+        for i in get_list_items(other_list_id, user_id=USER).get("items", [])
+    }
+    assert "SNACKPAGE_shared" not in snack_pids
+    assert "SNACKPAGE_shared" in other_pids
