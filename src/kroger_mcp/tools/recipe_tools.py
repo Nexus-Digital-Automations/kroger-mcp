@@ -452,10 +452,8 @@ def register_tools(mcp):
                     if not recipe:
                         return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
                     try:
-                        from ..analytics.recipe_scoring import (
-                            calculate_health_score,
-                            estimate_recipe_cost,
-                        )
+                        from ..analytics.recipe_cost import estimate_recipe_cost
+                        from ..analytics.recipe_scoring import calculate_health_score
                         from .shared import get_preferred_location_id
 
                         loc_id = get_preferred_location_id()
@@ -584,7 +582,7 @@ def register_tools(mcp):
                     if not recipe:
                         return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
 
-                    from ..analytics.recipe_scoring import _ingredient_is_spice
+                    from ..analytics.recipe_cost import _ingredient_is_spice
 
                     _skip = skip_items or []
                     _scale = scale if scale is not None else 1.0
@@ -646,7 +644,7 @@ def register_tools(mcp):
 
                     cost_estimate = None
                     try:
-                        from ..analytics.recipe_scoring import estimate_recipe_cost
+                        from ..analytics.recipe_cost import estimate_recipe_cost
                         from .shared import get_preferred_location_id
 
                         cost_estimate = estimate_recipe_cost(
@@ -1133,11 +1131,11 @@ def register_tools(mcp):
                     if not recipe:
                         return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
 
-                    from ..analytics.recipe_scoring import (
-                        calculate_health_score,
+                    from ..analytics.recipe_cost import (
                         estimate_recipe_cost,
                         estimate_recipe_cost_with_api,
                     )
+                    from ..analytics.recipe_scoring import calculate_health_score
                     from .shared import get_client_credentials_client, get_preferred_location_id
 
                     loc_id = get_preferred_location_id()

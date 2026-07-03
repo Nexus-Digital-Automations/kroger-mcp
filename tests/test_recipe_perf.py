@@ -21,6 +21,7 @@ import json
 from typing import Any
 
 import kroger_mcp.analytics.meal_planning as mp
+import kroger_mcp.analytics.recipe_keywords as rk
 import kroger_mcp.analytics.recipe_scoring as rs
 
 # ---------------------------------------------------------------------------
@@ -124,42 +125,42 @@ def _reference_components(ing_names: list[str]) -> dict[str, int]:
 
     # ORIGINAL: plain lists, rebuilt all_keywords.
     categories_detected: list[str] = []
-    for cat, keywords in rs.HEALTHY_CATEGORIES.items():
+    for cat, keywords in rk.HEALTHY_CATEGORIES.items():
         if any(kw in all_ing_text for kw in keywords):
             categories_detected.append(cat)
     cat_score = min(len(categories_detected) * 7, 35)
 
-    all_keywords = [kw for kws in rs.HEALTHY_CATEGORIES.values() for kw in kws]
+    all_keywords = [kw for kws in rk.HEALTHY_CATEGORIES.values() for kw in kws]
     non_staple = [
         name
         for name in ing_names_lower
-        if not any(staple in name for staple in rs.NEUTRAL_STAPLES)
+        if not any(staple in name for staple in rk.NEUTRAL_STAPLES)
     ]
     denom = max(1, len(non_staple))
     quality_hits = sum(1 for name in non_staple if any(kw in name for kw in all_keywords))
     quality_score = round((quality_hits / denom) * 30)
 
     whole_hits = sum(
-        1 for name in ing_names_lower if any(sig in name for sig in rs.WHOLE_FOOD_SIGNALS)
+        1 for name in ing_names_lower if any(sig in name for sig in rk.WHOLE_FOOD_SIGNALS)
     )
     whole_score = min(round((whole_hits / total) * 15), 5) if total else 0
 
     proc_penalty = 0
     for name in ing_names_lower:
         scan = name.replace("instant pot", "")
-        if any(ind in scan for ind in rs.PROCESSED_INDICATORS):
+        if any(ind in scan for ind in rk.PROCESSED_INDICATORS):
             proc_penalty += 5
     proc_penalty = min(proc_penalty, 15)
 
     conv_penalty = 0
     for name in ing_names_lower:
-        if any(ind in name for ind in rs.CONVENIENCE_INDICATORS):
+        if any(ind in name for ind in rk.CONVENIENCE_INDICATORS):
             conv_penalty += 3
     conv_penalty = min(conv_penalty, 8)
 
     heavy_penalty = 0
     for name in ing_names_lower:
-        if any(ind in name for ind in rs.HEAVY_NEGATIVES):
+        if any(ind in name for ind in rk.HEAVY_NEGATIVES):
             heavy_penalty += 3
     heavy_penalty = min(heavy_penalty, 10)
 
@@ -167,7 +168,7 @@ def _reference_components(ing_names: list[str]) -> dict[str, int]:
     for name in ing_names_lower:
         if "stevia" in name:
             continue
-        if any(kw in name for kw in rs.SUGAR_KEYWORDS):
+        if any(kw in name for kw in rk.SUGAR_KEYWORDS):
             sugar_penalty += 2
     sugar_penalty = min(sugar_penalty, 6)
 
@@ -190,7 +191,7 @@ def _optimized_components(ing_names: list[str]) -> dict[str, int]:
     total = len(ing_names_lower)
 
     categories_detected: list[str] = []
-    for cat, keywords in rs.HEALTHY_CATEGORY_KEYWORDS.items():
+    for cat, keywords in rk.HEALTHY_CATEGORY_KEYWORDS.items():
         if any(kw in all_ing_text for kw in keywords):
             categories_detected.append(cat)
     cat_score = min(len(categories_detected) * 7, 35)
@@ -198,35 +199,35 @@ def _optimized_components(ing_names: list[str]) -> dict[str, int]:
     non_staple = [
         name
         for name in ing_names_lower
-        if not any(staple in name for staple in rs.NEUTRAL_STAPLE_SET)
+        if not any(staple in name for staple in rk.NEUTRAL_STAPLE_SET)
     ]
     denom = max(1, len(non_staple))
     quality_hits = sum(
-        1 for name in non_staple if any(kw in name for kw in rs.ALL_HEALTHY_KEYWORDS)
+        1 for name in non_staple if any(kw in name for kw in rk.ALL_HEALTHY_KEYWORDS)
     )
     quality_score = round((quality_hits / denom) * 30)
 
     whole_hits = sum(
-        1 for name in ing_names_lower if any(sig in name for sig in rs.WHOLE_FOOD_SIGNAL_SET)
+        1 for name in ing_names_lower if any(sig in name for sig in rk.WHOLE_FOOD_SIGNAL_SET)
     )
     whole_score = min(round((whole_hits / total) * 15), 5) if total else 0
 
     proc_penalty = 0
     for name in ing_names_lower:
         scan = name.replace("instant pot", "")
-        if any(ind in scan for ind in rs.PROCESSED_INDICATOR_SET):
+        if any(ind in scan for ind in rk.PROCESSED_INDICATOR_SET):
             proc_penalty += 5
     proc_penalty = min(proc_penalty, 15)
 
     conv_penalty = 0
     for name in ing_names_lower:
-        if any(ind in name for ind in rs.CONVENIENCE_INDICATOR_SET):
+        if any(ind in name for ind in rk.CONVENIENCE_INDICATOR_SET):
             conv_penalty += 3
     conv_penalty = min(conv_penalty, 8)
 
     heavy_penalty = 0
     for name in ing_names_lower:
-        if any(ind in name for ind in rs.HEAVY_NEGATIVE_SET):
+        if any(ind in name for ind in rk.HEAVY_NEGATIVE_SET):
             heavy_penalty += 3
     heavy_penalty = min(heavy_penalty, 10)
 
@@ -234,7 +235,7 @@ def _optimized_components(ing_names: list[str]) -> dict[str, int]:
     for name in ing_names_lower:
         if "stevia" in name:
             continue
-        if any(kw in name for kw in rs.SUGAR_KEYWORD_SET):
+        if any(kw in name for kw in rk.SUGAR_KEYWORD_SET):
             sugar_penalty += 2
     sugar_penalty = min(sugar_penalty, 6)
 

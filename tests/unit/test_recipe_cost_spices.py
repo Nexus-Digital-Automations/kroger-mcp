@@ -3,10 +3,10 @@
 Pins the behavior added for detailed per-serving costs: every priced ingredient
 exposes ``cost_per_serving`` (price / servings), spices are shown but excluded
 from the recipe total by default, and ``include_spices=True`` folds them back in.
-Owner: recipe cost analytics (analytics/recipe_scoring.py).
+Owner: recipe cost analytics (analytics/recipe_cost.py).
 """
 
-from kroger_mcp.analytics import recipe_scoring
+from kroger_mcp.analytics import recipe_cost
 
 
 class _FakeCursor:
@@ -57,14 +57,14 @@ def _conn():
 
 
 def test_per_ingredient_cost_per_serving_is_price_over_servings():
-    result = recipe_scoring._estimate_cost_with_conn(_recipe(), "loc", _conn())
+    result = recipe_cost._estimate_cost_with_conn(_recipe(), "loc", _conn())
     by_name = {e["ingredient"]: e for e in result["breakdown"]}
     assert by_name["chicken breast"]["cost_per_serving"] == 4.0  # 8.0 / 2
     assert by_name["cumin"]["cost_per_serving"] == 2.0  # 4.0 / 2 (still shown)
 
 
 def test_spices_shown_but_excluded_from_total_by_default():
-    result = recipe_scoring._estimate_cost_with_conn(_recipe(), "loc", _conn())
+    result = recipe_cost._estimate_cost_with_conn(_recipe(), "loc", _conn())
     cumin = next(e for e in result["breakdown"] if e["ingredient"] == "cumin")
     assert cumin["is_spice"] is True
     assert cumin["excluded_from_total"] is True
@@ -76,7 +76,7 @@ def test_spices_shown_but_excluded_from_total_by_default():
 
 
 def test_include_spices_folds_spice_into_total():
-    result = recipe_scoring._estimate_cost_with_conn(_recipe(), "loc", _conn(), include_spices=True)
+    result = recipe_cost._estimate_cost_with_conn(_recipe(), "loc", _conn(), include_spices=True)
     cumin = next(e for e in result["breakdown"] if e["ingredient"] == "cumin")
     assert cumin["is_spice"] is True
     assert cumin["excluded_from_total"] is False
@@ -86,12 +86,12 @@ def test_include_spices_folds_spice_into_total():
 
 def test_spice_only_recipe_has_no_countable_total():
     recipe = {"id": "r2", "servings": 2, "ingredients": [{"name": "cumin", "product_id": "cmn"}]}
-    result = recipe_scoring._estimate_cost_with_conn(recipe, "loc", _conn())
+    result = recipe_cost._estimate_cost_with_conn(recipe, "loc", _conn())
     assert result["total_cost"] is None
     assert result["cost_per_serving"] is None
     assert result["confidence"] == "low"
 
 
 def test_ingredient_is_spice_honors_category_tag():
-    assert recipe_scoring._ingredient_is_spice({"name": "house blend", "category": "spice"})
-    assert not recipe_scoring._ingredient_is_spice({"name": "chicken breast"})
+    assert recipe_cost._ingredient_is_spice({"name": "house blend", "category": "spice"})
+    assert not recipe_cost._ingredient_is_spice({"name": "chicken breast"})

@@ -8,6 +8,7 @@ hot reads memoize and that distinct inputs don't collide.
 from __future__ import annotations
 
 import kroger_mcp.analytics.purchase_tracker as purchase_tracker
+import kroger_mcp.analytics.recipe_cost as recipe_cost
 import kroger_mcp.analytics.recipe_scoring as recipe_scoring
 import kroger_mcp.analytics.recommendations as recommendations
 import kroger_mcp.cache as cache_mod
@@ -229,17 +230,17 @@ def test_recipe_cost_cached_and_location_scoped(monkeypatch):
         calls["n"] += 1
         return {"total_cost": 5.0, "cost_per_serving": 2.5, "breakdown": []}
 
-    monkeypatch.setattr(recipe_scoring, "_estimate_recipe_cost_uncached", _fake_cost)
+    monkeypatch.setattr(recipe_cost, "_estimate_recipe_cost_uncached", _fake_cost)
 
-    a = recipe_scoring.estimate_recipe_cost(_recipe(), location_id="03400014")
-    b = recipe_scoring.estimate_recipe_cost(_recipe(), location_id="03400014")
+    a = recipe_cost.estimate_recipe_cost(_recipe(), location_id="03400014")
+    b = recipe_cost.estimate_recipe_cost(_recipe(), location_id="03400014")
     assert a == b
     assert calls["n"] == 1
 
-    recipe_scoring.estimate_recipe_cost(_recipe(), location_id=None)
+    recipe_cost.estimate_recipe_cost(_recipe(), location_id=None)
     assert calls["n"] == 2  # different location scope → distinct key
 
-    recipe_scoring.estimate_recipe_cost(_recipe(), location_id="03400014", include_spices=True)
+    recipe_cost.estimate_recipe_cost(_recipe(), location_id="03400014", include_spices=True)
     assert calls["n"] == 3  # spice mode is part of the key → distinct entry, recomputes
 
 
@@ -251,10 +252,10 @@ def test_recipe_cost_redis_down_degrades_to_compute(monkeypatch):
         calls["n"] += 1
         return {"total_cost": 1.0, "cost_per_serving": 0.5, "breakdown": []}
 
-    monkeypatch.setattr(recipe_scoring, "_estimate_recipe_cost_uncached", _fake_cost)
+    monkeypatch.setattr(recipe_cost, "_estimate_recipe_cost_uncached", _fake_cost)
 
-    recipe_scoring.estimate_recipe_cost(_recipe())
-    recipe_scoring.estimate_recipe_cost(_recipe())
+    recipe_cost.estimate_recipe_cost(_recipe())
+    recipe_cost.estimate_recipe_cost(_recipe())
     assert calls["n"] == 2  # no Redis → every call computes, nothing breaks
 
 

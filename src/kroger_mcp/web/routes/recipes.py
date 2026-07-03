@@ -8,7 +8,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from kroger_mcp.analytics.database import run_in_thread
-from kroger_mcp.analytics.recipe_scoring import calculate_health_score, estimate_recipe_cost
+from kroger_mcp.analytics.recipe_cost import estimate_recipe_cost
+from kroger_mcp.analytics.recipe_scoring import calculate_health_score
 from kroger_mcp.tools.recipe_tools import _find_recipe, _load_recipes
 from kroger_mcp.tools.step_times import annotate_steps, recipe_time_summary
 from kroger_mcp.web.context import action_menu_context

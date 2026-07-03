@@ -51,10 +51,10 @@ def fake_redis(monkeypatch: pytest.MonkeyPatch) -> _FakeRedis:
     stable ingredients version so the key is deterministic.
     """
     client = _FakeRedis()
-    # cache.get_redis is referenced as cache.get_redis inside safety.py.
-    monkeypatch.setattr(safety_mod.cache, "get_redis", lambda: client)
+    # cache.get_redis is referenced as cache.get_redis inside safety/_cache.py.
+    monkeypatch.setattr(safety_mod._cache.cache, "get_redis", lambda: client)
     monkeypatch.setattr(
-        safety_mod.cache, "get_version", lambda key: 7
+        safety_mod._cache.cache, "get_version", lambda key: 7
     )
     return client
 
@@ -67,13 +67,13 @@ def _spy_check_product_safety(
     ``counter[0]`` is incremented on each underlying heavy scan.
     """
     counter = [0]
-    real = safety_mod.check_product_safety
+    real = safety_mod._cache.check_product_safety
 
     def _counting(*args: Any, **kwargs: Any) -> SafetyResult:
         counter[0] += 1
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(safety_mod, "check_product_safety", _counting)
+    monkeypatch.setattr(safety_mod._cache, "check_product_safety", _counting)
     return counter
 
 
@@ -133,8 +133,8 @@ def test_safety_batch_graceful_when_redis_unavailable(
 ) -> None:
     """With Redis down (get_redis -> None) the batch still computes results."""
     counter = _spy_check_product_safety(monkeypatch)
-    monkeypatch.setattr(safety_mod.cache, "get_redis", lambda: None)
-    monkeypatch.setattr(safety_mod.cache, "get_version", lambda key: None)
+    monkeypatch.setattr(safety_mod._cache.cache, "get_redis", lambda: None)
+    monkeypatch.setattr(safety_mod._cache.cache, "get_version", lambda key: None)
 
     product = {
         "product_id": "TESTPERF003",
@@ -165,8 +165,8 @@ def test_safety_batch_survives_redis_get_error(
         def set(self, key: str, value: str, ex: int | None = None) -> None:
             raise RuntimeError("redis exploded")
 
-    monkeypatch.setattr(safety_mod.cache, "get_redis", lambda: _BoomRedis())
-    monkeypatch.setattr(safety_mod.cache, "get_version", lambda key: 1)
+    monkeypatch.setattr(safety_mod._cache.cache, "get_redis", lambda: _BoomRedis())
+    monkeypatch.setattr(safety_mod._cache.cache, "get_version", lambda key: 1)
 
     product = {
         "product_id": "TESTPERF004",
