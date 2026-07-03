@@ -1202,6 +1202,24 @@
   </style>
 
   <script>
+    // crypto.randomUUID() only exists in secure contexts (HTTPS or
+    // http://localhost). This app is intentionally reachable over plain HTTP
+    // on a LAN/phone IP (see app.py's 0.0.0.0 bind), which is NOT a secure
+    // context, so randomUUID is undefined there — crypto.getRandomValues()
+    // has no such restriction and covers that case.
+    function randomId() {
+      if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = [...bytes].map(b => b.toString(16).padStart(2, '0'));
+      return (
+        hex.slice(0, 4).join('') + '-' + hex.slice(4, 6).join('') + '-' +
+        hex.slice(6, 8).join('') + '-' + hex.slice(8, 10).join('') + '-' +
+        hex.slice(10, 16).join('')
+      );
+    }
+
     function chatWidget() {
       return {
         open: false,
@@ -1216,12 +1234,15 @@
         conversationId: null,
 
         async init() {
-          // A fresh id per page load — matches the MCP session-gate semantics
-          // (e.g. pantry(get_attention)), which reset when a conversation ends.
-          this.conversationId = crypto.randomUUID();
-
+          // Restore mode/provider from localStorage first so a later error
+          // (e.g. generating conversationId) can never leave them stuck at
+          // their x-data defaults.
           const savedMode = localStorage.getItem('ss_chat_mode');
           this.mode = savedMode === 'auto' ? 'auto' : 'ask';
+
+          // A fresh id per page load — matches the MCP session-gate semantics
+          // (e.g. pantry(get_attention)), which reset when a conversation ends.
+          this.conversationId = randomId();
 
           // Load only providers whose API key is configured server-side.
           const saved = localStorage.getItem('ss_chat_provider');
