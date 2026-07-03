@@ -100,3 +100,23 @@ def test_update_is_user_scoped(clean_db):
     assert resp.status_code == 404
     assert body["success"] is False
     assert _stored_gap() == 21
+
+
+def test_empty_body_returns_400(clean_db):
+    """PATCH with neither field set is a 400 contract error, not a silent no-op."""
+    resp = asyncio.run(update_item(LIST_ID, PID, UpdateItemBody(), _request(USER)))
+    body = json.loads(bytes(resp.body))
+    assert resp.status_code == 400
+    assert body["success"] is False
+    assert _stored_gap() == 21  # unchanged
+
+
+def test_both_fields_update_in_one_request(clean_db):
+    """A single PATCH can carry default_quantity and typical_gap_days independently."""
+    resp = asyncio.run(
+        update_item(
+            LIST_ID, PID, UpdateItemBody(default_quantity=4, typical_gap_days=9), _request(USER)
+        )
+    )
+    assert resp == {"success": True, "default_quantity": 4, "typical_gap_days": 9}
+    assert _stored_gap() == 9
