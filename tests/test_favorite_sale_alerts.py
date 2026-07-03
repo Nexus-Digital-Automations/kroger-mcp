@@ -5,16 +5,14 @@ sale favorite (no spam), dedupe re-runs, auto-dismiss when a sale ends, and
 scope reads/state to the owning user.
 """
 
+import importlib
 import os
+import sys
 
 import pytest
 
 from kroger_mcp.analytics import notifications
-from kroger_mcp.analytics.database import (
-    ensure_initialized,
-    get_db_cursor,
-    reset_initialization,
-)
+from kroger_mcp.analytics.database import get_db_cursor
 
 USER = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
 LIST_ID = "TESTLIST_fav_alerts"
@@ -71,14 +69,33 @@ def _cleanup():
 
 
 @pytest.fixture(scope="function")
-def clean_db():
-    reset_initialization()
-    ensure_initialized()
+def clean_db(monkeypatch):
+    """Rebind to the live modules before touching the shared DB.
+
+    ``test_cart_mark_placed_restock`` deletes every ``kroger_mcp`` module from
+    ``sys.modules`` mid-suite. That orphans this file's import-time
+    ``notifications`` / ``get_db_cursor`` references against a stale ``database``
+    module, so the scan writes through one module's connection while the reads
+    go through another — a cross-file flake. Re-import ``database`` from the live
+    ``sys.modules``, reload ``notifications`` so its ``from .database import``
+    rebinds to that live module, and rebind this module's globals so seeding,
+    scanning, and listing all run through one module set on the (fully migrated)
+    shared DB.
+    """
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    notif = importlib.import_module("kroger_mcp.analytics.notifications")
+
+    this = sys.modules[__name__]
+    monkeypatch.setattr(this, "notifications", notif)
+    monkeypatch.setattr(this, "get_db_cursor", db.get_db_cursor)
+
+    db.reset_initialization()
+    db.ensure_initialized()
     _cleanup()
     _seed_favorite()
     yield
     _cleanup()
-    reset_initialization()
+    db.reset_initialization()
 
 
 def test_newly_on_sale_creates_one_alert(clean_db):
