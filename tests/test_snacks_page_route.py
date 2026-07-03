@@ -5,8 +5,10 @@ check_snacks heuristic (reason/pre_ticked/gap) with get_list_items metadata
 (times_ordered/notes) by product_id, and is scoped to the owning user.
 """
 
+import asyncio
 import os
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,8 +17,17 @@ from kroger_mcp.analytics.database import (
     get_db_cursor,
     reset_initialization,
 )
-from kroger_mcp.analytics.favorites import _ensure_snacks_list_for_user
+from kroger_mcp.analytics.favorites import (
+    _ensure_snacks_list_for_user,
+    create_list,
+    get_list_items,
+)
+from kroger_mcp.web.routes.api.favorites import AddItemBody, add_item
 from kroger_mcp.web.routes.snacks import _snacks_payload
+
+
+def _request(user_id: str) -> SimpleNamespace:
+    return SimpleNamespace(state=SimpleNamespace(user={"id": user_id}))
 
 USER = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
 OTHER_USER = "11111111-1111-1111-1111-111111111111"
@@ -52,6 +63,7 @@ def _cleanup():
             "DELETE FROM favorite_lists WHERE list_type = 'snacks' AND user_id IN (?, ?)",
             (USER, OTHER_USER),
         )
+        cursor.execute("DELETE FROM favorite_lists WHERE name LIKE 'SNACKPAGE_%'")
 
 
 @pytest.fixture(scope="function")
@@ -106,3 +118,31 @@ def test_payload_is_user_scoped(snacks_db):
     other = _snacks_payload(OTHER_USER)
     assert all(i["product_id"] != "SNACKPAGE_mine" for i in other["items"])
     assert other["list_id"] != list_id
+
+
+def test_new_snack_added_via_picker_lands_on_snacks_list_only(snacks_db):
+    """The product picker POSTs to the snacks list's own id, so a new snack
+    lands on the Snacks list specifically — not on any other list the user owns."""
+    snacks_list_id = snacks_db
+    other = create_list(name="SNACKPAGE_other", list_type="custom", user_id=USER)
+    other_list_id = other["list_id"]
+
+    result = asyncio.run(
+        add_item(
+            snacks_list_id,
+            AddItemBody(product_id="SNACKPAGE_new", description="New Snack"),
+            _request(USER),
+        )
+    )
+    assert result.get("success") is True
+
+    snack_pids = {
+        i["product_id"]
+        for i in get_list_items(snacks_list_id, user_id=USER).get("items", [])
+    }
+    other_pids = {
+        i["product_id"]
+        for i in get_list_items(other_list_id, user_id=USER).get("items", [])
+    }
+    assert "SNACKPAGE_new" in snack_pids
+    assert "SNACKPAGE_new" not in other_pids
