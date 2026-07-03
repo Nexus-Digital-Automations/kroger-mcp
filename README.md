@@ -132,6 +132,25 @@ KROGER_REDIRECT_URI=http://localhost:8000/callback
 KROGER_USER_ZIP_CODE=90274
 ```
 
+#### Chat Assistant LLM Provider Keys
+
+The web dashboard's chat assistant (`src/kroger_mcp/web/chat_engine.py`) talks to an
+OpenAI-compatible LLM provider. Only providers with a key set below appear in the
+model picker; add these to the same `.env` file used above:
+
+```bash
+# GEMINI_API_KEY powers the default provider (Gemma 4, via Google's Gemini API).
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Optional additional providers — set any subset to add them to the picker:
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
+TOGETHER_API_KEY=your_together_api_key_here
+MISTRAL_API_KEY=your_mistral_api_key_here
+```
+
 ### Running the Server
 
 ```bash
