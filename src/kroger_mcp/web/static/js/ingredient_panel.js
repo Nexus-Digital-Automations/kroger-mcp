@@ -164,7 +164,7 @@ document.addEventListener('alpine:init', () => {
           return true;
         } catch (e) {
           if (seq === this._saveSeq) {
-            this.ings = (typeof _initIngs === 'function') ? _initIngs() : this.ings;
+            this.ings = _initData.ingredients || [];
           }
           return false;
         }
