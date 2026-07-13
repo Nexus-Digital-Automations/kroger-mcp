@@ -4,7 +4,7 @@
 
 ---
 
-## Design System: "Verdant Editorial"
+## Design System: "Warm Kitchen" (`ss-*` classes, see `base.html`'s `:root`)
 
 - **Fonts**: Lora (serif, headings), DM Sans (sans-serif, body)
 - **Color Space**: OKLCH
@@ -23,15 +23,15 @@
 ## Global Layout
 
 ### Sidebar (left, fixed, 224px / w-56)
-- **Brand**: "Smart Shopper" with cart icon (amber bg)
+- **Brand**: "Smart Shopper" with cart icon (terracotta bg, `--terra`)
 - **Nav Groups**:
   - *(ungrouped)*: Dashboard
   - **Shop**: Products, List (cart), Shopping List
   - **Manage**: Pantry, Favorites, Recipes
   - **Plan**: Meal Plan, Predictions, Analytics
   - **Config**: Safety, Settings
-- **Active state**: Amber background, dark text, bold
-- **Hover state**: Lighter green-tinted background
+- **Active state**: Terracotta background (`--terra`), white text, bold
+- **Hover state**: Dark warm charcoal-green background (`--sidebar-hover-bg`)
 
 ### Header (top bar, 56px)
 - Page title (Lora serif font)
@@ -277,7 +277,7 @@
 
 ### Per Page
 - [ ] Page loads without JS errors
-- [ ] Sidebar shows correct active state (amber highlight)
+- [ ] Sidebar shows correct active state (terracotta highlight)
 - [ ] Page title displays in Lora serif font
 - [ ] Cards have consistent border-radius (0.75rem) and borders
 - [ ] Buttons use terracotta primary color (`--terra`) with white text
@@ -288,7 +288,7 @@
 ### Color Scheme Consistency
 - [ ] Cream background throughout
 - [ ] Terracotta (`--terra`) for primary actions/links; sage green (`--green`) for success/positive accents
-- [ ] Amber for active navigation only
+- [ ] Amber reserved for badges/secondary accents (active navigation is terracotta, not amber)
 - [ ] Grade badges use appropriate colors (green=A, yellow=B/C, red=D/F)
 - [ ] Status badges use semantic colors (red=critical, yellow=warning, green=ok)
 
