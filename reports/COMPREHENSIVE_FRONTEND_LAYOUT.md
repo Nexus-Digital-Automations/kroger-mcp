@@ -9,13 +9,14 @@
 - **Fonts**: Lora (serif, headings), DM Sans (sans-serif, body)
 - **Color Space**: OKLCH
 - **Primary Colors**:
-  - Cream background: `oklch(97% 0.012 80)`
-  - Surface/cards: `oklch(99.5% 0.005 80)`
-  - Border: `oklch(88% 0.018 80)`
-  - Green (primary action): `oklch(48% 0.14 148)`
-  - Amber (active nav): `oklch(72% 0.165 72)`
-  - Sidebar bg: `oklch(21% 0.065 155)` (dark green)
-- **Frameworks**: TailwindCSS (CDN), Alpine.js 3.x
+  - Cream background (`--cream`): `oklch(96.5% 0.015 75)`
+  - Surface/cards (`--surface`): `oklch(99% 0.008 75)`
+  - Border (`--border`): `oklch(89% 0.02 70)`
+  - Terracotta (primary action, `--terra`): `oklch(58% 0.14 38)`
+  - Sage green (success/positive accent, `--green`): `oklch(46% 0.1 155)`
+  - Amber (secondary action / warnings, `--amber`): `oklch(72% 0.145 75)`
+  - Sidebar bg (`--sidebar-bg`): `oklch(22% 0.04 140)` (dark green)
+- **Frameworks**: TailwindCSS (pre-built local stylesheet at `/static/css/tailwind.css`, not the Play CDN), Alpine.js 3.x
 
 ---
 
@@ -279,14 +280,14 @@
 - [ ] Sidebar shows correct active state (amber highlight)
 - [ ] Page title displays in Lora serif font
 - [ ] Cards have consistent border-radius (0.75rem) and borders
-- [ ] Buttons use green primary color with white text
+- [ ] Buttons use terracotta primary color (`--terra`) with white text
 - [ ] Text hierarchy: headings darker/larger, body text readable
 - [ ] No layout overflow or broken alignment
 - [ ] Responsive behavior (if applicable)
 
 ### Color Scheme Consistency
 - [ ] Cream background throughout
-- [ ] Green for primary actions/links
+- [ ] Terracotta (`--terra`) for primary actions/links; sage green (`--green`) for success/positive accents
 - [ ] Amber for active navigation only
 - [ ] Grade badges use appropriate colors (green=A, yellow=B/C, red=D/F)
 - [ ] Status badges use semantic colors (red=critical, yellow=warning, green=ok)
