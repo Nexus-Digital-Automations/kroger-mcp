@@ -25,7 +25,11 @@
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style="color: var(--text-3);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
         </svg>
-        <input type="text" x-model="search" placeholder="Search recipes…" class="ss-input w-full pl-9 pr-4"/>
+        {# ss-input's own shorthand `padding` (base.html) wins the cascade over
+           Tailwind's pl-9/pr-4 utilities (equal specificity, later source) —
+           silently collapsing left padding back under the icon. Inline style
+           always wins, so the icon clearance is set explicitly here. #}
+        <input type="text" x-model="search" placeholder="Search recipes…" class="ss-input w-full" style="padding-left: 2.25rem;"/>
       </div>
       <button @click="createRecipe()" :disabled="creating"
         class="ss-btn-primary"
@@ -126,8 +130,8 @@
                 :style="`background:${gradeColor(recipe.health_grade).bg}; color:${gradeColor(recipe.health_grade).text}; padding:0.1rem 0.5rem; border-radius:99px; font-weight:700; letter-spacing:0.02em; font-size:0.75rem; cursor:pointer;`"
                 x-text="recipe.health_grade"></button>
               <div x-show="pop" x-transition x-cloak
-                class="absolute top-full mt-1 left-0 z-50 w-64 bg-white rounded-xl shadow-lg border border-gray-200 p-3 text-left"
-                style="border-color: var(--border);"
+                class="absolute top-full mt-1 left-0 z-50 w-64 rounded-xl p-3 text-left"
+                style="background: var(--surface); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14); border: 1px solid var(--border);"
                 @click.stop>
                 <div class="flex items-center justify-between mb-2 pb-2" style="border-bottom:1px solid var(--border);">
                   <span class="text-xs font-bold" :style="`color:${gradeColor(recipe.health_grade).text};`">
@@ -207,15 +211,16 @@
     x-transition:leave="transition ease-in duration-150"
     x-transition:leave-start="translate-x-0"
     x-transition:leave-end="translate-x-full"
-    class="fixed inset-y-0 right-0 w-96 bg-white shadow-2xl z-50 flex flex-col">
+    class="fixed inset-y-0 right-0 w-96 shadow-2xl z-50 flex flex-col" style="background: var(--surface);">
 
     <!-- Header -->
-    <div class="p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+    <div class="p-4 flex items-center justify-between flex-shrink-0" style="border-bottom: 1px solid var(--border);">
       <div class="min-w-0">
-        <div class="text-xs text-gray-500">Adding to plan:</div>
-        <div class="font-medium text-gray-900 truncate text-sm" x-text="recipeName"></div>
+        <div style="font-size: 0.75rem; color: var(--text-3);">Adding to plan:</div>
+        <div class="truncate" style="font-weight: 500; color: var(--text-1); font-size: 0.875rem;" x-text="recipeName"></div>
       </div>
-      <button @click="open = false" class="ml-3 text-gray-400 hover:text-gray-600 flex-shrink-0">
+      <button @click="open = false" class="ml-3 flex-shrink-0" style="color: var(--text-3);"
+        onmouseenter="this.style.color='var(--text-1)'" onmouseleave="this.style.color='var(--text-3)'">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
@@ -225,8 +230,9 @@
     <!-- No plans state -->
     <div x-show="plans.length === 0" class="flex-1 flex items-center justify-center p-6 text-center">
       <div>
-        <p class="text-sm text-gray-500 mb-3">No meal plans yet.</p>
-        <a href="/meal-plan" class="text-sm text-emerald-600 hover:underline">Create a plan →</a>
+        <p style="font-size: 0.875rem; color: var(--text-3);" class="mb-3">No meal plans yet.</p>
+        <a href="/meal-plan" style="font-size: 0.875rem; color: var(--terra); text-decoration: none;"
+          onmouseenter="this.style.textDecoration='underline'" onmouseleave="this.style.textDecoration='none'">Create a plan →</a>
       </div>
     </div>
 
@@ -245,17 +251,17 @@
 
       <!-- Week nav -->
       <div class="px-4 pb-2 flex items-center gap-2 flex-shrink-0">
-        <button @click="weekOffset--; success=''; loadWeek()"
-          class="p-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors text-xs">‹</button>
-        <span class="flex-1 text-center text-xs text-gray-600" x-text="weekData?.week_label || '—'"></span>
-        <button @click="weekOffset++; success=''; loadWeek()"
-          class="p-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors text-xs">›</button>
+        <button @click="weekOffset--; success=''; loadWeek()" class="ss-btn-ghost"
+          style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">‹</button>
+        <span class="flex-1 text-center" style="font-size: 0.75rem; color: var(--text-2);" x-text="weekData?.week_label || '—'"></span>
+        <button @click="weekOffset++; success=''; loadWeek()" class="ss-btn-ghost"
+          style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">›</button>
       </div>
 
       <!-- Mini calendar grid -->
       <div class="flex-1 overflow-auto px-4 pb-4">
         <div x-show="loading" class="flex justify-center py-6">
-          <div class="animate-spin w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+          <div class="animate-spin w-5 h-5 rounded-full" style="border: 2px solid var(--green); border-top-color: transparent;"></div>
         </div>
 
         <div x-show="!loading && weekData" class="text-xs">
@@ -263,7 +269,7 @@
           <div class="grid gap-0.5 mb-1" style="grid-template-columns: 60px repeat(7, 1fr)">
             <div></div>
             <template x-for="day in (weekData?.days || [])" :key="day.date">
-              <div class="text-center text-gray-400 font-medium py-1" x-text="day.day_short"></div>
+              <div class="text-center py-1" style="color: var(--text-3); font-weight: 500;" x-text="day.day_short"></div>
             </template>
           </div>
 
@@ -272,16 +278,17 @@
             <div class="grid gap-0.5 mb-0.5" style="grid-template-columns: 60px repeat(7, 1fr)">
               <!-- Slot label -->
               <div class="flex items-center pr-1">
-                <span class="text-gray-400 capitalize text-xs truncate" x-text="slot.slice(0,3)"></span>
+                <span class="capitalize text-xs truncate" style="color: var(--text-3);" x-text="slot.slice(0,3)"></span>
               </div>
               <!-- Day cells -->
               <template x-for="day in (weekData?.days || [])" :key="day.date + slot">
                 <div>
                   <template x-if="day.slots[slot]">
                     <!-- Filled: grayed, not clickable -->
-                    <div class="rounded p-1 bg-gray-50 border border-gray-100 min-h-7 flex items-center"
+                    <div class="rounded p-1 min-h-7 flex items-center"
+                      style="background: oklch(97% 0.01 70); border: 1px solid var(--border);"
                       :title="day.slots[slot].recipe_name">
-                      <span class="text-gray-400 truncate text-xs leading-tight"
+                      <span class="truncate text-xs leading-tight" style="color: var(--text-3);"
                         x-text="(day.slots[slot].recipe_name || '').slice(0, 8) + ((day.slots[slot].recipe_name || '').length > 8 ? '…' : '')">
                       </span>
                     </div>
@@ -289,9 +296,10 @@
                   <template x-if="!day.slots[slot]">
                     <!-- Empty: clickable -->
                     <button @click="assignToSlot(day.date, slot)"
-                      class="w-full rounded p-1 min-h-7 border border-transparent
-                             hover:bg-emerald-50 hover:border-emerald-200 transition-colors
-                             flex items-center justify-center text-emerald-300 hover:text-emerald-500">
+                      class="w-full rounded p-1 min-h-7 transition-colors flex items-center justify-center"
+                      style="border: 1px solid transparent; color: var(--green);"
+                      onmouseenter="this.style.background='var(--green-light)'; this.style.borderColor='var(--green)';"
+                      onmouseleave="this.style.background=''; this.style.borderColor='transparent';">
                       <span>+</span>
                     </button>
                   </template>
@@ -301,12 +309,13 @@
           </template>
         </div>
 
-        <p x-show="!loading && !weekData" class="text-xs text-gray-400 text-center py-4">No data</p>
+        <p x-show="!loading && !weekData" class="text-xs text-center py-4" style="color: var(--text-3);">No data</p>
       </div>
 
       <!-- Success toast -->
       <div x-show="success" x-transition
-        class="mx-4 mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700 flex-shrink-0"
+        class="mx-4 mb-4 p-3 rounded-lg text-sm flex-shrink-0"
+        style="background: var(--green-light); border: 1px solid var(--green); color: var(--success);"
         x-text="success"></div>
     </div>
 

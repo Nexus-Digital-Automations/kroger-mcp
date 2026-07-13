@@ -120,16 +120,16 @@ document.addEventListener('alpine:init', () => {
   style="background: rgba(0,0,0,0.45);">
   <div @click.self="$store.recipePlanDate.close()" class="absolute inset-0"></div>
 
-  <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-sm flex flex-col">
-    <div class="flex items-center justify-between p-4 border-b border-gray-100 flex-shrink-0">
+  <div class="relative rounded-xl shadow-2xl w-full max-w-sm flex flex-col" style="background: var(--surface);">
+    <div class="flex items-center justify-between p-4 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
       <div>
         <h3 style="font-family: 'Lora', serif; font-weight: 600; font-size: 1rem; color: var(--text-1);">
           When will you make this?
         </h3>
-        <p class="text-xs text-gray-500 mt-0.5" x-text="$store.recipePlanDate.recipeName"></p>
+        <p class="text-xs mt-0.5" style="color: var(--text-3);" x-text="$store.recipePlanDate.recipeName"></p>
       </div>
       <button @click="$store.recipePlanDate.close()" :disabled="$store.recipePlanDate.submitting"
-        class="text-gray-400 hover:text-gray-600 disabled:opacity-50" aria-label="Close">
+        class="disabled:opacity-50" style="color: var(--text-3);" aria-label="Close">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
@@ -142,14 +142,14 @@ document.addEventListener('alpine:init', () => {
         style="background: oklch(96% 0.02 25); border: 1px solid var(--danger); color: var(--danger);"
         x-text="$store.recipePlanDate.error"></div>
 
-      <label class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 block">Date</label>
+      <label class="text-xs font-medium uppercase tracking-wide mb-1.5 block" style="color: var(--text-3);">Date</label>
       <input type="date"
         x-model="$store.recipePlanDate.plannedDate"
         :min="$store.recipePlanDate.minDate()"
         :disabled="$store.recipePlanDate.submitting"
         class="ss-input w-full mb-4"/>
 
-      <label class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 block">Meal</label>
+      <label class="text-xs font-medium uppercase tracking-wide mb-1.5 block" style="color: var(--text-3);">Meal</label>
       <div class="grid grid-cols-2 gap-2">
         <template x-for="slot in ['breakfast', 'lunch', 'dinner', 'snack']" :key="slot">
           <button type="button"
@@ -158,13 +158,13 @@ document.addEventListener('alpine:init', () => {
             class="capitalize text-sm rounded-lg py-2 border transition-colors disabled:opacity-50"
             :style="$store.recipePlanDate.mealSlot === slot
               ? 'background: var(--green); color: white; border-color: var(--green);'
-              : 'background: white; color: var(--text-1); border-color: var(--border);'"
+              : 'background: var(--surface); color: var(--text-1); border-color: var(--border);'"
             x-text="slot"></button>
         </template>
       </div>
     </div>
 
-    <div class="flex justify-end gap-2 p-4 border-t border-gray-100 flex-shrink-0">
+    <div class="flex justify-end gap-2 p-4 flex-shrink-0" style="border-top: 1px solid var(--border);">
       <button @click="$store.recipePlanDate.close()" :disabled="$store.recipePlanDate.submitting"
         class="ss-btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
         Not now

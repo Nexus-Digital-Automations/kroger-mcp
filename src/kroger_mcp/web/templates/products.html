@@ -324,7 +324,7 @@ function dealsSortVM() {
 
     <!-- Search input -->
     <div class="relative flex-1 max-w-xl">
-      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style="color: var(--text-3);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
       </svg>
       <input
@@ -332,7 +332,8 @@ function dealsSortVM() {
         x-model="query"
         :placeholder="mode === 'search' ? 'Search products...' : 'Filter deals...'"
         @keydown.enter="mode === 'search' ? search() : findDeals()"
-        class="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        class="ss-input w-full pr-4"
+        style="padding-left: 2.5rem;"
       />
     </div>
 
@@ -349,15 +350,15 @@ function dealsSortVM() {
     </button>
 
     <!-- Mode toggle pills -->
-    <div class="flex bg-gray-100 rounded-xl p-1 gap-1 flex-shrink-0">
+    <div class="flex rounded-xl p-1 gap-1 flex-shrink-0" style="background: oklch(94% 0.012 80);">
       <button
         @click="switchMode('search')"
-        :class="mode === 'search' ? 'bg-white shadow text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-700'"
+        :style="mode === 'search' ? 'background: var(--surface); color: var(--text-1); font-weight: 500; box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.1);' : 'color: var(--text-3);'"
         class="px-4 py-1.5 text-sm rounded-lg transition-all"
       >Search</button>
       <button
         @click="switchMode('deals')"
-        :class="mode === 'deals' ? 'bg-white shadow text-emerald-700 font-medium' : 'text-gray-500 hover:text-gray-700'"
+        :style="mode === 'deals' ? 'background: var(--surface); color: var(--success); font-weight: 500; box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.1);' : 'color: var(--text-3);'"
         class="px-4 py-1.5 text-sm rounded-lg transition-all flex items-center gap-1.5"
       >
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -374,9 +375,9 @@ function dealsSortVM() {
     <template x-for="cat in ['dairy', 'meat', 'produce', 'bakery', 'frozen', 'beverages', 'snacks', 'pantry']">
       <button
         @click="onCategoryClick(cat)"
-        :class="category === cat
-          ? 'bg-emerald-600 text-white border-emerald-600'
-          : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-400'"
+        :style="category === cat
+          ? 'background: var(--green); color: white; border-color: var(--green);'
+          : 'background: var(--surface); color: var(--text-2); border-color: var(--border);'"
         class="px-4 py-1.5 text-xs font-medium rounded-full border capitalize transition-colors"
         x-text="cat"
       ></button>
@@ -388,59 +389,61 @@ function dealsSortVM() {
 
     <!-- Search-mode sort controls (own sortRank instance) -->
     <div x-show="products.length > 0 && !loading"
-      class="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b border-gray-100">
+      class="flex flex-wrap items-center gap-2 mb-4 pb-4" style="border-bottom: 1px solid var(--border);">
       {{ sort_rank() }}
     </div>
 
     <!-- Error -->
     <div x-show="error"
-      class="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700"
+      class="mb-4 p-4 rounded-xl text-sm"
+      style="background: oklch(92% 0.05 25); border: 1px solid oklch(85% 0.06 25); color: var(--danger);"
       x-text="error"></div>
 
     <!-- Loading -->
     <div x-show="loading" class="flex flex-col items-center gap-3 py-16">
-      <div class="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+      <div class="animate-spin w-8 h-8 rounded-full" style="border: 2px solid var(--green); border-top-color: transparent;"></div>
     </div>
 
     <!-- Search results grid -->
     <div x-show="products.length > 0 && !loading" class="grid grid-cols-3 gap-4">
       <template x-for="product in sortRunner(products)" :key="product.product_id">
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col hover:shadow-md transition-shadow">
+      <div class="ss-card p-4 flex flex-col hover:shadow-md transition-shadow">
 
         <div class="flex-1">
           <div class="flex items-start justify-between mb-1">
-            <h3 class="text-sm font-semibold text-gray-900 leading-tight" x-text="product.description"></h3>
+            <h3 class="text-sm font-semibold leading-tight" style="color: var(--text-1);" x-text="product.description"></h3>
             <span
               x-show="product.on_sale"
-              class="ml-2 flex-shrink-0 text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium"
+              class="ml-2 flex-shrink-0 ss-badge ss-badge-danger"
               x-text="'-' + product.savings_percent + '%'"
             ></span>
           </div>
           <div class="flex items-center gap-2 mb-2">
-            <p class="text-xs text-gray-500" x-text="product.brand"></p>
+            <p class="text-xs" style="color: var(--text-3);" x-text="product.brand"></p>
             <div x-show="product.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
               <button @click.stop="pop = !pop"
                 :style="`background:${gradeColor(product.safety_grade).bg}; color:${gradeColor(product.safety_grade).text}; padding:0.1rem 0.45rem; border-radius:99px; font-size:0.6875rem; font-weight:700; letter-spacing:0.02em; cursor:pointer;`"
                 x-text="product.safety_grade"></button>
               <div x-show="pop" x-transition x-cloak
-                class="absolute top-full mt-1 right-0 z-50 w-64 bg-white rounded-xl shadow-lg border border-gray-200 p-3 text-left"
+                class="absolute top-full mt-1 right-0 z-50 w-64 rounded-xl p-3 text-left"
+                style="background: var(--surface); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14); border: 1px solid var(--border);"
                 @click.stop>
-                <div class="flex items-center justify-between mb-2 pb-2 border-b border-gray-100">
+                <div class="flex items-center justify-between mb-2 pb-2" style="border-bottom: 1px solid var(--border);">
                   <span class="text-xs font-bold" :style="`color:${gradeColor(product.safety_grade).text};`">
                     Health: <span x-text="product.safety_grade"></span></span>
-                  <span class="text-[10px] text-gray-400" x-text="(product.safety_score ?? '?') + '/100'"></span>
+                  <span class="text-[10px]" style="color: var(--text-3);" x-text="(product.safety_score ?? '?') + '/100'"></span>
                 </div>
                 <template x-if="product.flagged_ingredients && product.flagged_ingredients.length > 0">
                   <div class="mb-2">
                     <template x-for="flag in product.flagged_ingredients" :key="flag.ingredient + flag.severity">
-                      <div class="py-1 border-b border-gray-50 last:border-0">
+                      <div class="py-1" style="border-bottom: 1px solid oklch(95% 0.01 70);">
                         <div class="flex items-center gap-1.5">
                           <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                            :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
-                          <span class="text-[11px] font-medium text-gray-800" x-text="flag.ingredient"></span>
-                          <span class="text-[9px] text-gray-400" x-text="'(' + flag.severity + ')'"></span>
+                            :style="flag.severity === 'critical' ? 'background: var(--danger);' : flag.severity === 'warning' ? 'background: var(--warning);' : 'background: var(--info);'"></span>
+                          <span class="text-[11px] font-medium" style="color: var(--text-1);" x-text="flag.ingredient"></span>
+                          <span class="text-[9px]" style="color: var(--text-3);" x-text="'(' + flag.severity + ')'"></span>
                         </div>
-                        <p class="text-[10px] text-gray-500 ml-3 leading-tight" x-text="flag.reason"></p>
+                        <p class="text-[10px] ml-3 leading-tight" style="color: var(--text-3);" x-text="flag.reason"></p>
                       </div>
                     </template>
                   </div>
@@ -449,23 +452,23 @@ function dealsSortVM() {
                   <div>
                     <template x-for="attr in product.positive_attributes" :key="attr.attribute">
                       <div class="flex items-center gap-1 py-0.5">
-                        <span class="text-emerald-500 text-[11px] font-bold">+</span>
-                        <span class="text-[11px] text-emerald-700" x-text="attr.attribute"></span>
-                        <span class="text-[9px] text-gray-400" x-text="'(+' + attr.bonus + ')'"></span>
+                        <span class="text-[11px] font-bold" style="color: var(--success);">+</span>
+                        <span class="text-[11px]" style="color: var(--success);" x-text="attr.attribute"></span>
+                        <span class="text-[9px]" style="color: var(--text-3);" x-text="'(+' + attr.bonus + ')'"></span>
                       </div>
                     </template>
                   </div>
                 </template>
                 <p x-show="(!product.flagged_ingredients || product.flagged_ingredients.length === 0) && (!product.positive_attributes || product.positive_attributes.length === 0)"
-                  class="text-[11px] text-gray-400 italic">No flagged ingredients detected.</p>
+                  class="text-[11px] italic" style="color: var(--text-3);">No flagged ingredients detected.</p>
               </div>
             </div>
           </div>
           <div class="flex items-center gap-2 mb-3">
-            <span x-show="product.on_sale" class="text-base font-bold text-red-600"
+            <span x-show="product.on_sale" class="text-base font-bold" style="color: var(--danger);"
               x-text="'$' + (product.sale_price || 0).toFixed(2)"></span>
             <span
-              :class="product.on_sale ? 'text-xs text-gray-400 line-through' : 'text-base font-bold text-gray-900'"
+              :style="product.on_sale ? 'font-size: 0.75rem; color: var(--text-3); text-decoration: line-through;' : 'font-size: 1rem; font-weight: 700; color: var(--text-1);'"
               x-text="product.regular_price ? '$' + product.regular_price.toFixed(2) : 'Price N/A'"
             ></span>
           </div>
@@ -474,11 +477,11 @@ function dealsSortVM() {
         <div class="flex items-center justify-between gap-2 mt-auto">
           <span
             x-show="cartMsg[product.product_id] || favMsg[product.product_id]"
-            class="text-xs text-emerald-700 truncate"
+            class="text-xs truncate" style="color: var(--success);"
             x-text="cartMsg[product.product_id] || favMsg[product.product_id]"
           ></span>
           <span x-show="!cartMsg[product.product_id] && !favMsg[product.product_id] && favoriteIds.has(product.product_id)"
-                class="text-xs text-amber-600">&#9733; Saved</span>
+                class="text-xs" style="color: var(--amber-dark);">&#9733; Saved</span>
           <div class="ml-auto">
             {{ action_menu('product', item_expr='product') }}
           </div>
@@ -490,8 +493,8 @@ function dealsSortVM() {
 
     <!-- Empty state: Search -->
     <div x-show="!loading && products.length === 0 && !error"
-      class="text-center py-16 text-gray-400">
-      <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      class="text-center py-16" style="color: var(--text-3);">
+      <svg class="w-12 h-12 mx-auto mb-3" style="color: var(--border);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
       </svg>
       <p class="text-sm">Search for products or click a category above</p>
@@ -504,15 +507,15 @@ function dealsSortVM() {
   <div x-show="mode === 'deals'" x-data="dealsSortVM()">
 
     <!-- Deals controls: min savings, refresh, sort -->
-    <div class="flex flex-wrap items-center gap-4 mb-4 pb-4 border-b border-gray-100">
+    <div class="flex flex-wrap items-center gap-4 mb-4 pb-4" style="border-bottom: 1px solid var(--border);">
       <div class="flex items-center gap-2">
-        <label class="text-xs text-gray-500 whitespace-nowrap">Min savings:</label>
+        <label class="text-xs whitespace-nowrap" style="color: var(--text-3);">Min savings:</label>
         <input type="number" x-model.number="minSavings" min="0" max="100"
-          class="w-16 text-sm border border-gray-200 rounded-lg px-2 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-        <span class="text-xs text-gray-400">%</span>
+          class="ss-input w-16 text-center" style="padding: 0.375rem 0.5rem;"/>
+        <span class="text-xs" style="color: var(--text-3);">%</span>
       </div>
       <button @click="autoLoad()" :disabled="dealsLoading"
-        class="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:border-emerald-400 hover:text-emerald-700 disabled:opacity-50 transition-colors">
+        class="ss-btn-secondary" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;">
         &#8635; Refresh All
       </button>
       <div x-show="deals.length > 0" class="ml-auto">{{ sort_rank() }}</div>
@@ -520,71 +523,74 @@ function dealsSortVM() {
 
     <!-- Favorites-on-sale alert -->
     <div x-show="favoritesOnSale > 0 && deals.length > 0"
-      class="flex items-center gap-3 mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+      class="flex items-center gap-3 mb-4 px-4 py-3 rounded-xl"
+      style="background: var(--amber-light); border: 1px solid oklch(80% 0.08 75);">
       <span class="text-xl">&#9733;</span>
       <div>
-        <p class="text-sm font-semibold text-amber-800">
+        <p class="text-sm font-semibold" style="color: var(--amber-dark);">
           <span x-text="favoritesOnSale"></span> of your favorites are on sale!
         </p>
-        <p class="text-xs text-amber-600">Sort by "Favorites" to see them first.</p>
+        <p class="text-xs" style="color: var(--amber-dark);">Sort by "Favorites" to see them first.</p>
       </div>
       <button @click="sortStack = [{v:'favorites', dir:'asc'}, ...sortStack.filter(i => i.v !== 'favorites')]; _persistSortRank()"
-        class="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900 underline whitespace-nowrap">
+        class="ml-auto text-xs font-medium underline whitespace-nowrap" style="color: var(--amber-dark);">
         View first &#8594;
       </button>
     </div>
 
     <!-- Error -->
     <div x-show="dealsError"
-      class="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700"
+      class="mb-4 p-4 rounded-xl text-sm"
+      style="background: oklch(92% 0.05 25); border: 1px solid oklch(85% 0.06 25); color: var(--danger);"
       x-text="dealsError"></div>
 
     <!-- Loading -->
     <div x-show="dealsLoading" class="flex flex-col items-center gap-3 py-16">
-      <div class="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
-      <p class="text-sm text-gray-400">Scanning store for deals across all departments...</p>
+      <div class="animate-spin w-8 h-8 rounded-full" style="border: 2px solid var(--green); border-top-color: transparent;"></div>
+      <p class="text-sm" style="color: var(--text-3);">Scanning store for deals across all departments...</p>
     </div>
 
     <!-- Deals results grid -->
     <div x-show="deals.length > 0 && !dealsLoading" class="grid grid-cols-3 gap-4">
     <template x-for="deal in sortRunner(deals)" :key="deal.product_id">
-      <div class="bg-white rounded-xl shadow-sm border p-4 flex flex-col transition-shadow hover:shadow-md"
-        :class="favoriteIds.has(deal.product_id) ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100'">
+      <div class="rounded-xl p-4 flex flex-col transition-shadow hover:shadow-md"
+        :style="favoriteIds.has(deal.product_id) ? 'background: var(--amber-light); border: 1px solid oklch(80% 0.08 75);' : 'background: var(--surface); border: 1px solid var(--border);'">
 
         <div class="flex-1">
           <div class="flex items-start justify-between mb-1">
-            <h3 class="text-sm font-semibold text-gray-900 leading-tight flex-1" x-text="deal.description"></h3>
+            <h3 class="text-sm font-semibold leading-tight flex-1" style="color: var(--text-1);" x-text="deal.description"></h3>
             <div class="flex items-center gap-1 ml-2 flex-shrink-0">
-              <span x-show="favoriteIds.has(deal.product_id)" class="text-amber-400 text-sm">&#9733;</span>
-              <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium"
+              <span x-show="favoriteIds.has(deal.product_id)" class="text-sm" style="color: var(--amber);">&#9733;</span>
+              <span class="ss-badge ss-badge-danger"
                 x-text="'-' + deal.savings_percent + '%'"></span>
             </div>
           </div>
           <div class="flex items-center gap-2 mb-2">
-            <p class="text-xs text-gray-500" x-text="deal.brand"></p>
+            <p class="text-xs" style="color: var(--text-3);" x-text="deal.brand"></p>
             <div x-show="deal.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
               <button @click.stop="pop = !pop"
                 :style="`background:${gradeColor(deal.safety_grade).bg}; color:${gradeColor(deal.safety_grade).text}; padding:0.1rem 0.45rem; border-radius:99px; font-size:0.6875rem; font-weight:700; letter-spacing:0.02em; cursor:pointer;`"
                 x-text="deal.safety_grade"></button>
               <div x-show="pop" x-transition x-cloak
-                class="absolute top-full mt-1 right-0 z-50 w-64 bg-white rounded-xl shadow-lg border border-gray-200 p-3 text-left"
+                class="absolute top-full mt-1 right-0 z-50 w-64 rounded-xl p-3 text-left"
+                style="background: var(--surface); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14); border: 1px solid var(--border);"
                 @click.stop>
-                <div class="flex items-center justify-between mb-2 pb-2 border-b border-gray-100">
+                <div class="flex items-center justify-between mb-2 pb-2" style="border-bottom: 1px solid var(--border);">
                   <span class="text-xs font-bold" :style="`color:${gradeColor(deal.safety_grade).text};`">
                     Health: <span x-text="deal.safety_grade"></span></span>
-                  <span class="text-[10px] text-gray-400" x-text="(deal.safety_score ?? '?') + '/100'"></span>
+                  <span class="text-[10px]" style="color: var(--text-3);" x-text="(deal.safety_score ?? '?') + '/100'"></span>
                 </div>
                 <template x-if="deal.flagged_ingredients && deal.flagged_ingredients.length > 0">
                   <div class="mb-2">
                     <template x-for="flag in deal.flagged_ingredients" :key="flag.ingredient + flag.severity">
-                      <div class="py-1 border-b border-gray-50 last:border-0">
+                      <div class="py-1" style="border-bottom: 1px solid oklch(95% 0.01 70);">
                         <div class="flex items-center gap-1.5">
                           <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                            :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
-                          <span class="text-[11px] font-medium text-gray-800" x-text="flag.ingredient"></span>
-                          <span class="text-[9px] text-gray-400" x-text="'(' + flag.severity + ')'"></span>
+                            :style="flag.severity === 'critical' ? 'background: var(--danger);' : flag.severity === 'warning' ? 'background: var(--warning);' : 'background: var(--info);'"></span>
+                          <span class="text-[11px] font-medium" style="color: var(--text-1);" x-text="flag.ingredient"></span>
+                          <span class="text-[9px]" style="color: var(--text-3);" x-text="'(' + flag.severity + ')'"></span>
                         </div>
-                        <p class="text-[10px] text-gray-500 ml-3 leading-tight" x-text="flag.reason"></p>
+                        <p class="text-[10px] ml-3 leading-tight" style="color: var(--text-3);" x-text="flag.reason"></p>
                       </div>
                     </template>
                   </div>
@@ -593,34 +599,34 @@ function dealsSortVM() {
                   <div>
                     <template x-for="attr in deal.positive_attributes" :key="attr.attribute">
                       <div class="flex items-center gap-1 py-0.5">
-                        <span class="text-emerald-500 text-[11px] font-bold">+</span>
-                        <span class="text-[11px] text-emerald-700" x-text="attr.attribute"></span>
-                        <span class="text-[9px] text-gray-400" x-text="'(+' + attr.bonus + ')'"></span>
+                        <span class="text-[11px] font-bold" style="color: var(--success);">+</span>
+                        <span class="text-[11px]" style="color: var(--success);" x-text="attr.attribute"></span>
+                        <span class="text-[9px]" style="color: var(--text-3);" x-text="'(+' + attr.bonus + ')'"></span>
                       </div>
                     </template>
                   </div>
                 </template>
                 <p x-show="(!deal.flagged_ingredients || deal.flagged_ingredients.length === 0) && (!deal.positive_attributes || deal.positive_attributes.length === 0)"
-                  class="text-[11px] text-gray-400 italic">No flagged ingredients detected.</p>
+                  class="text-[11px] italic" style="color: var(--text-3);">No flagged ingredients detected.</p>
               </div>
             </div>
           </div>
           <div class="flex items-center gap-2 mb-1">
-            <span class="text-base font-bold text-red-600" x-text="'$' + (deal.sale_price || 0).toFixed(2)"></span>
-            <span class="text-xs text-gray-400 line-through" x-text="'$' + (deal.regular_price || 0).toFixed(2)"></span>
+            <span class="text-base font-bold" style="color: var(--danger);" x-text="'$' + (deal.sale_price || 0).toFixed(2)"></span>
+            <span class="text-xs line-through" style="color: var(--text-3);" x-text="'$' + (deal.regular_price || 0).toFixed(2)"></span>
           </div>
-          <p class="text-xs text-emerald-700 font-medium"
+          <p class="text-xs font-medium" style="color: var(--success);"
             x-text="'Save $' + ((deal.regular_price || 0) - (deal.sale_price || deal.regular_price || 0)).toFixed(2)"></p>
         </div>
 
         <div class="flex items-center justify-between gap-2 mt-3">
           <span
             x-show="cartMsg[deal.product_id] || favMsg[deal.product_id]"
-            class="text-xs text-emerald-700 truncate"
+            class="text-xs truncate" style="color: var(--success);"
             x-text="cartMsg[deal.product_id] || favMsg[deal.product_id]"
           ></span>
           <span x-show="!cartMsg[deal.product_id] && !favMsg[deal.product_id] && favoriteIds.has(deal.product_id)"
-                class="text-xs text-amber-600">&#9733; Saved</span>
+                class="text-xs" style="color: var(--amber-dark);">&#9733; Saved</span>
           <div class="ml-auto">
             {{ action_menu('product', item_expr='deal') }}
           </div>
@@ -632,8 +638,8 @@ function dealsSortVM() {
 
     <!-- Empty state: Deals -->
     <div x-show="!dealsLoading && deals.length === 0 && dealsInitialized && !dealsError"
-      class="text-center py-16 text-gray-400">
-      <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      class="text-center py-16" style="color: var(--text-3);">
+      <svg class="w-12 h-12 mx-auto mb-3" style="color: var(--border);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 012-2z"/>
       </svg>
       <p class="text-sm">No deals found. Try lowering the minimum savings % or refreshing.</p>
@@ -643,20 +649,20 @@ function dealsSortVM() {
     <div class="mt-8">
 
     <button @click="showWatchlist = !showWatchlist"
-      class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors mb-3">
+      class="flex items-center gap-2 text-sm font-medium transition-colors mb-3" style="color: var(--text-2);">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
       </svg>
       Watchlist
-      <span class="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full" x-text="watchlist.length"></span>
-      <span x-text="showWatchlist ? '\u25b2' : '\u25bc'" class="text-gray-400 text-xs"></span>
+      <span class="ss-badge ss-badge-ok" x-text="watchlist.length"></span>
+      <span x-text="showWatchlist ? '\u25b2' : '\u25bc'" class="text-xs" style="color: var(--text-3);"></span>
     </button>
 
     <div x-show="showWatchlist" x-transition>
 
       <!-- Add form -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
-        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Track New Item</h3>
+      <div class="ss-card p-4 mb-4">
+        <h3 class="text-xs font-semibold uppercase tracking-widest mb-3" style="color: var(--text-3);">Track New Item</h3>
         <div class="flex gap-2 flex-wrap">
           <input x-model="newWatch.product_id" placeholder="Product ID (UPC)"
             class="ss-input flex-1 min-w-32" />
@@ -673,35 +679,35 @@ function dealsSortVM() {
 
       <!-- Watchlist table -->
       <div class="ss-card overflow-hidden">
-        <div x-show="watchlist.length === 0" class="text-center py-10 text-gray-400">
+        <div x-show="watchlist.length === 0" class="text-center py-10" style="color: var(--text-3);">
           <p class="text-sm">No items being watched. Add an item above.</p>
         </div>
         <table x-show="watchlist.length > 0" class="w-full text-sm">
-          <thead class="bg-gray-50 border-b border-gray-100">
+          <thead>
             <tr>
-              <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Item</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Target Price</th>
-              <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Added</th>
-              <th class="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+              <th class="ss-table-th">Item</th>
+              <th class="ss-table-th">Target Price</th>
+              <th class="ss-table-th">Added</th>
+              <th class="ss-table-th" style="text-align: right;">Actions</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-50">
+          <tbody>
             <template x-for="item in watchlist" :key="item.product_id">
-              <tr class="hover:bg-gray-50">
+              <tr class="ss-table-tr">
                 <td class="px-5 py-3">
                   <div class="flex items-center gap-1.5">
-                    <span x-show="favoriteIds.has(item.product_id)" class="text-amber-400 text-xs">&#9733;</span>
-                    <span class="font-medium text-gray-800" x-text="item.description || item.product_id"></span>
+                    <span x-show="favoriteIds.has(item.product_id)" class="text-xs" style="color: var(--amber);">&#9733;</span>
+                    <span class="font-medium" style="color: var(--text-1);" x-text="item.description || item.product_id"></span>
                   </div>
-                  <span class="block text-xs text-gray-400" x-text="'#' + item.product_id"></span>
+                  <span class="block text-xs" style="color: var(--text-3);" x-text="'#' + item.product_id"></span>
                 </td>
-                <td class="px-4 py-3 text-gray-500"
+                <td class="px-4 py-3" style="color: var(--text-3);"
                   x-text="item.target_price ? '$' + parseFloat(item.target_price).toFixed(2) : '\u2014'"></td>
-                <td class="px-4 py-3 text-gray-400 text-xs"
+                <td class="px-4 py-3 text-xs" style="color: var(--text-3);"
                   x-text="item.added_at ? item.added_at.slice(0, 10) : '\u2014'"></td>
                 <td class="px-5 py-3 text-right">
                   <button @click="removeWatch(item.product_id)"
-                    class="text-xs text-red-500 hover:text-red-700 transition-colors">Remove</button>
+                    class="text-xs transition-colors" style="color: var(--danger);">Remove</button>
                 </td>
               </tr>
             </template>

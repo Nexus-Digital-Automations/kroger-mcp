@@ -470,7 +470,7 @@
 <div x-data :data-recipe-mode="$store.recipeMode.editing ? 'edit' : 'view'">
 
 <!-- Back link -->
-<a href="/recipes" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 mb-6 transition-colors">
+<a href="/recipes" class="inline-flex items-center gap-1 text-sm mb-6 transition-colors" style="color: var(--text-3);">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
   </svg>
@@ -485,10 +485,10 @@
   @action-menu:shopping-add.window="$store.recipePreview.openModal(recipeId, $store.recipeServings.value || baseServings)"
   @action-menu:meal-plan-add.window="$dispatch('open-meal-panel', {recipeId: recipeId, recipeName: recipeName})"
   @action-menu:delete.window="deleteRecipe()"
-  class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 mb-6">
+  class="ss-card p-8 mb-6">
 
   <div class="flex items-start justify-between gap-4 mb-3">
-    <h2 class="font-bold text-gray-900 ss-inline-edit recipe-h1"
+    <h2 class="font-bold ss-inline-edit recipe-h1" style="color: var(--text-1);"
       style="font-family:'Lora',serif; font-size:2rem; line-height:1.15; letter-spacing:-0.02em; flex:1; min-width:0; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; outline:none; transition:background 0.15s;"
       :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
       :contenteditable="$store.recipeMode.editing ? 'plaintext-only' : 'false'"
@@ -515,7 +515,7 @@
   <!-- Description: always rendered so an empty recipe shows a placeholder
        prompting the user to click. The :empty:before CSS hook lives in
        base styles via the ss-inline-edit class. -->
-  <p class="text-gray-600 mb-4 ss-inline-edit"
+  <p class="mb-4 ss-inline-edit" style="color: var(--text-2);"
     style="font-size:0.9375rem; line-height:1.55; max-width:62ch; border-radius:0.375rem; padding:0.125rem 0.375rem; margin-left:-0.375rem; min-height:1.55em; outline:none; transition:background 0.15s;"
     :style="$store.recipeMode.editing ? 'cursor:text;' : ''"
     data-placeholder="Add a description…"
@@ -574,22 +574,23 @@
         :style="`background:${gc(hd.grade).bg}; color:${gc(hd.grade).t};`"
         x-text="'Health ' + hd.grade + ' · ' + hd.score + '/100'"></button>
       <div x-show="pop" x-transition x-cloak
-        class="absolute top-full mt-1 left-0 z-50 w-72 bg-white rounded-xl shadow-lg border border-gray-200 p-3 text-left">
-        <div class="flex items-center justify-between mb-2 pb-2 border-b border-gray-100">
+        class="absolute top-full mt-1 left-0 z-50 w-72 rounded-xl p-3 text-left"
+        style="background: var(--surface); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14); border: 1px solid var(--border);">
+        <div class="flex items-center justify-between mb-2 pb-2" style="border-bottom: 1px solid var(--border);">
           <span class="text-xs font-bold" :style="`color:${gc(hd.grade).t};`" x-text="'Health: ' + hd.grade"></span>
-          <span class="text-[10px] text-gray-400" x-text="hd.score + '/100 (' + hd.confidence + ')'"></span>
+          <span class="text-[10px]" style="color: var(--text-3);" x-text="hd.score + '/100 (' + hd.confidence + ')'"></span>
         </div>
         <template x-if="hd.flags && hd.flags.length > 0">
           <div class="mb-2">
             <template x-for="flag in hd.flags" :key="(flag.ingredient||'') + (flag.flag||'')">
-              <div class="py-1 border-b border-gray-50 last:border-0">
+              <div class="py-1" style="border-bottom: 1px solid oklch(95% 0.01 70);">
                 <div class="flex items-center gap-1.5">
                   <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                    :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
-                  <span class="text-[11px] font-medium text-gray-800" x-text="flag.ingredient"></span>
-                  <span class="text-[9px] text-gray-400" x-text="'(' + flag.severity + ')'"></span>
+                    :style="flag.severity === 'critical' ? 'background: var(--danger);' : flag.severity === 'warning' ? 'background: var(--warning);' : 'background: var(--info);'"></span>
+                  <span class="text-[11px] font-medium" style="color: var(--text-1);" x-text="flag.ingredient"></span>
+                  <span class="text-[9px]" style="color: var(--text-3);" x-text="'(' + flag.severity + ')'"></span>
                 </div>
-                <p class="text-[10px] text-gray-500 ml-3 leading-tight" x-text="flag.reason"></p>
+                <p class="text-[10px] ml-3 leading-tight" style="color: var(--text-3);" x-text="flag.reason"></p>
               </div>
             </template>
           </div>
@@ -597,14 +598,14 @@
         <template x-if="hd.categories_detected && hd.categories_detected.length > 0">
           <div class="flex flex-wrap gap-1 mb-1">
             <template x-for="cat in hd.categories_detected" :key="cat">
-              <span class="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full"
+              <span class="ss-badge ss-badge-ok"
                 x-text="cat.replace('_', ' ')"></span>
             </template>
-            <span x-show="hd.bonus_applied > 0" class="text-[10px] text-emerald-600" x-text="'(+' + hd.bonus_applied + ' bonus)'"></span>
+            <span x-show="hd.bonus_applied > 0" class="text-[10px]" style="color: var(--success);" x-text="'(+' + hd.bonus_applied + ' bonus)'"></span>
           </div>
         </template>
         <p x-show="(!hd.flags || hd.flags.length === 0) && (!hd.categories_detected || hd.categories_detected.length === 0)"
-          class="text-[11px] text-gray-400 italic">No flagged ingredients detected.</p>
+          class="text-[11px] italic" style="color: var(--text-3);">No flagged ingredients detected.</p>
       </div>
     </div>
     {% endif %}
@@ -677,12 +678,15 @@
             @mouseleave="$el.style.background='transparent'; $el.style.color='var(--text-2)';">+</button>
         </div>
 
-        <!-- Multiplier badge + reset (only when scaled away from base) -->
-        <span x-show="ings.length > 0 && servings !== baseServings" x-cloak
-          x-transition:enter="transition ease-out duration-150"
-          x-transition:enter-start="opacity-0 scale-95"
-          x-transition:enter-end="opacity-100 scale-100"
-          style="display:inline-flex; align-items:center; gap:0.375rem; white-space:nowrap;">
+        <!-- Multiplier badge + reset (only when scaled away from base).
+             Stays in the layout at all times (opacity, not x-show/display) so
+             its appearance/disappearance never resizes the left flex group
+             and shoves the view-toggle on the right \u2014 that reflow was the
+             "page moves things around while editing" complaint: scaling
+             servings is a routine edit action, so it fired constantly. -->
+        <span x-show="ings.length > 0" x-cloak
+          :style="servings !== baseServings ? 'opacity:1; pointer-events:auto;' : 'opacity:0; pointer-events:none;'"
+          style="display:inline-flex; align-items:center; gap:0.375rem; white-space:nowrap; transition:opacity 0.15s ease-out;">
           <span style="font-size:0.6875rem; color:var(--text-3); font-style:italic;"
             x-text="'\u00d7\u2009' + (servings / baseServings % 1 === 0 ? Math.floor(servings / baseServings) : parseFloat((servings / baseServings).toFixed(2))) + ' of base'"></span>
           <button @click="servings = baseServings"
@@ -836,9 +840,10 @@
                       :title="'Safety ' + ing.safety_grade + ((ing.safety_score ?? null) !== null ? ' · ' + ing.safety_score + '/100' : '')"
                       x-text="ing.safety_grade"></button>
                     <div x-show="pop" x-transition x-cloak
-                      class="absolute bottom-full mb-1 right-0 z-50 w-56 bg-white rounded-xl shadow-lg border border-gray-200 p-2.5 text-left"
+                      class="absolute bottom-full mb-1 right-0 z-50 w-56 rounded-xl p-2.5 text-left"
+                      style="background: var(--surface); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14); border: 1px solid var(--border);"
                       @click.stop>
-                      <div class="flex items-center justify-between mb-1.5 pb-1.5 border-b border-gray-100">
+                      <div class="flex items-center justify-between mb-1.5 pb-1.5" style="border-bottom: 1px solid var(--border);">
                         <span style="font-size:0.6875rem; font-weight:700;" :style="`color:${gradeColor(ing.safety_grade).text};`" x-text="'Safety ' + ing.safety_grade"></span>
                         <span style="font-size:0.5625rem; color:var(--text-3);" x-text="(ing.safety_score ?? '?') + '/100'"></span>
                       </div>
@@ -848,7 +853,7 @@
                             <div style="padding:0.2rem 0; border-bottom:1px solid oklch(95% 0.01 80);">
                               <div class="flex items-center gap-1">
                                 <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                                  :class="flag.severity === 'critical' ? 'bg-red-500' : flag.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'"></span>
+                                  :style="flag.severity === 'critical' ? 'background: var(--danger);' : flag.severity === 'warning' ? 'background: var(--warning);' : 'background: var(--info);'"></span>
                                 <span style="font-size:0.625rem; font-weight:500; color:var(--text-1);" x-text="flag.ingredient"></span>
                               </div>
                               <p style="font-size:0.5625rem; color:var(--text-3); margin-left:0.625rem; line-height:1.3;" x-text="flag.reason"></p>
@@ -1039,15 +1044,15 @@
     x-transition:leave="transition ease-in duration-150"
     x-transition:leave-start="translate-x-0"
     x-transition:leave-end="translate-x-full"
-    class="fixed inset-y-0 right-0 w-96 bg-white shadow-2xl z-50 flex flex-col">
+    class="fixed inset-y-0 right-0 w-96 shadow-2xl z-50 flex flex-col" style="background: var(--surface);">
 
     <!-- Header -->
-    <div class="p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+    <div class="p-4 flex items-center justify-between flex-shrink-0" style="border-bottom: 1px solid var(--border);">
       <div class="min-w-0">
-        <div class="text-xs text-gray-500">Adding to plan:</div>
-        <div class="font-medium text-gray-900 truncate text-sm" x-text="recipeName"></div>
+        <div class="text-xs" style="color: var(--text-3);">Adding to plan:</div>
+        <div class="font-medium truncate text-sm" style="color: var(--text-1);" x-text="recipeName"></div>
       </div>
-      <button @click="open = false" class="ml-3 text-gray-400 hover:text-gray-600 flex-shrink-0">
+      <button @click="open = false" class="ml-3 flex-shrink-0" style="color: var(--text-3);">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
@@ -1057,8 +1062,8 @@
     <!-- No plans state -->
     <div x-show="plans.length === 0" class="flex-1 flex items-center justify-center p-6 text-center">
       <div>
-        <p class="text-sm text-gray-500 mb-3">No meal plans yet.</p>
-        <a href="/meal-plan" class="text-sm text-emerald-600 hover:underline">Create a plan →</a>
+        <p class="text-sm mb-3" style="color: var(--text-3);">No meal plans yet.</p>
+        <a href="/meal-plan" class="text-sm hover:underline" style="color: var(--success);">Create a plan →</a>
       </div>
     </div>
 
@@ -1078,16 +1083,16 @@
       <!-- Week nav -->
       <div class="px-4 pb-2 flex items-center gap-2 flex-shrink-0">
         <button @click="weekOffset--; success=''; loadWeek()"
-          class="p-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors text-xs">‹</button>
-        <span class="flex-1 text-center text-xs text-gray-600" x-text="weekData?.week_label || '—'"></span>
+          class="p-1 rounded text-xs transition-colors" style="border: 1px solid var(--border); color: var(--text-3);">‹</button>
+        <span class="flex-1 text-center text-xs" style="color: var(--text-2);" x-text="weekData?.week_label || '—'"></span>
         <button @click="weekOffset++; success=''; loadWeek()"
-          class="p-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors text-xs">›</button>
+          class="p-1 rounded text-xs transition-colors" style="border: 1px solid var(--border); color: var(--text-3);">›</button>
       </div>
 
       <!-- Mini calendar grid -->
       <div class="flex-1 overflow-auto px-4 pb-4">
         <div x-show="loading" class="flex justify-center py-6">
-          <div class="animate-spin w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+          <div class="animate-spin w-5 h-5 rounded-full" style="border: 2px solid var(--green); border-top-color: transparent;"></div>
         </div>
 
         <div x-show="!loading && weekData" class="text-xs">
@@ -1095,7 +1100,7 @@
           <div class="grid gap-0.5 mb-1" style="grid-template-columns: 60px repeat(7, 1fr)">
             <div></div>
             <template x-for="day in (weekData?.days || [])" :key="day.date">
-              <div class="text-center text-gray-400 font-medium py-1" x-text="day.day_short"></div>
+              <div class="text-center font-medium py-1" style="color: var(--text-3);" x-text="day.day_short"></div>
             </template>
           </div>
 
@@ -1103,23 +1108,25 @@
           <template x-for="slot in slots" :key="slot">
             <div class="grid gap-0.5 mb-0.5" style="grid-template-columns: 60px repeat(7, 1fr)">
               <div class="flex items-center pr-1">
-                <span class="text-gray-400 capitalize text-xs truncate" x-text="slot.slice(0,3)"></span>
+                <span class="capitalize text-xs truncate" style="color: var(--text-3);" x-text="slot.slice(0,3)"></span>
               </div>
               <template x-for="day in (weekData?.days || [])" :key="day.date + slot">
                 <div>
                   <template x-if="day.slots[slot]">
-                    <div class="rounded p-1 bg-gray-50 border border-gray-100 min-h-7 flex items-center"
+                    <div class="rounded p-1 min-h-7 flex items-center"
+                      style="background: oklch(97% 0.01 70); border: 1px solid var(--border);"
                       :title="day.slots[slot].recipe_name">
-                      <span class="text-gray-400 truncate text-xs leading-tight"
+                      <span class="truncate text-xs leading-tight" style="color: var(--text-3);"
                         x-text="(day.slots[slot].recipe_name || '').slice(0, 8) + ((day.slots[slot].recipe_name || '').length > 8 ? '…' : '')">
                       </span>
                     </div>
                   </template>
                   <template x-if="!day.slots[slot]">
                     <button @click="assignToSlot(day.date, slot)"
-                      class="w-full rounded p-1 min-h-7 border border-transparent
-                             hover:bg-emerald-50 hover:border-emerald-200 transition-colors
-                             flex items-center justify-center text-emerald-300 hover:text-emerald-500">
+                      class="w-full rounded p-1 min-h-7 transition-colors flex items-center justify-center"
+                      style="border: 1px solid transparent; color: var(--green-light);"
+                      onmouseenter="this.style.background='var(--green-light)'; this.style.borderColor='var(--green)'; this.style.color='var(--success)'"
+                      onmouseleave="this.style.background=''; this.style.borderColor='transparent'; this.style.color='var(--green-light)'">
                       <span>+</span>
                     </button>
                   </template>
@@ -1129,12 +1136,13 @@
           </template>
         </div>
 
-        <p x-show="!loading && !weekData" class="text-xs text-gray-400 text-center py-4">No data</p>
+        <p x-show="!loading && !weekData" class="text-xs text-center py-4" style="color: var(--text-3);">No data</p>
       </div>
 
       <!-- Success toast -->
       <div x-show="success" x-transition
-        class="mx-4 mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700 flex-shrink-0"
+        class="mx-4 mb-4 p-3 rounded-lg text-sm flex-shrink-0"
+        style="background: var(--green-light); border: 1px solid oklch(88% 0.04 155); color: var(--success);"
         x-text="success"></div>
     </div>
 

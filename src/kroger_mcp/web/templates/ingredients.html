@@ -87,31 +87,25 @@ function ingredientsData() {
 <div x-data="ingredientsData()">
 
   <!-- Tabs -->
-  <div class="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit">
+  <div class="flex gap-1 mb-6 rounded-xl p-1 w-fit" style="background: oklch(94% 0.012 80);">
     <button @click="tab='custom'"
-      :class="tab === 'custom' ? 'bg-white shadow text-gray-900' : 'text-gray-500'"
+      :style="tab === 'custom' ? 'background: var(--surface); color: var(--text-1); box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.1);' : 'color: var(--text-3);'"
       class="px-5 py-2 text-sm font-medium rounded-lg transition-all">
       Custom Ingredients
-      <span x-show="custom.length > 0"
-        class="ml-1.5 text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full"
-        x-text="custom.length">
-      </span>
+      <span x-show="custom.length > 0" class="ss-badge ss-badge-ok ml-1.5" x-text="custom.length"></span>
     </button>
     <button @click="tab='all'; loadAll()"
-      :class="tab === 'all' ? 'bg-white shadow text-gray-900' : 'text-gray-500'"
+      :style="tab === 'all' ? 'background: var(--surface); color: var(--text-1); box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.1);' : 'color: var(--text-3);'"
       class="px-5 py-2 text-sm font-medium rounded-lg transition-all">
       All Ingredients
-      <span x-show="allIngredients.length > 0"
-        class="ml-1.5 text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full"
-        x-text="allIngredients.length">
-      </span>
+      <span x-show="allIngredients.length > 0" class="ss-badge ss-badge-muted ml-1.5" x-text="allIngredients.length"></span>
     </button>
   </div>
 
   <!-- Custom Ingredients Tab -->
   <div x-show="tab === 'custom'">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
-      <h3 class="text-sm font-semibold text-gray-700 mb-3">Add Custom Ingredient</h3>
+    <div class="ss-card p-5 mb-6">
+      <h3 style="font-size: 0.8125rem; font-weight: 600; color: var(--text-2);" class="mb-3">Add Custom Ingredient</h3>
       <div class="grid grid-cols-2 gap-3 mb-3">
         <input x-model="newIng.name" placeholder="Ingredient name*"
           class="ss-input" />
@@ -132,46 +126,46 @@ function ingredientsData() {
           Add Ingredient
         </button>
         <span x-show="msg" class="text-sm"
-          :class="msgType === 'error' ? 'text-red-600' : 'text-emerald-600'"
+          :style="msgType === 'error' ? 'color: var(--danger);' : 'color: var(--success);'"
           x-text="msg">
         </span>
       </div>
     </div>
 
     <div class="ss-card overflow-hidden">
-      <div x-show="custom.length === 0" class="text-center py-12 text-gray-400">
+      <div x-show="custom.length === 0" class="text-center py-12" style="color: var(--text-3);">
         <p class="text-sm">No custom ingredients added yet.</p>
         <p class="text-xs mt-1">Use the form above to flag ingredients beyond the system defaults.</p>
       </div>
       <table x-show="custom.length > 0" class="w-full text-sm">
-        <thead class="bg-gray-50 border-b border-gray-100">
+        <thead>
           <tr>
-            <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
-            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Severity</th>
-            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</th>
-            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Reason</th>
-            <th class="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+            <th class="ss-table-th">Name</th>
+            <th class="ss-table-th">Severity</th>
+            <th class="ss-table-th">Category</th>
+            <th class="ss-table-th">Reason</th>
+            <th class="ss-table-th" style="text-align: right;">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-50">
+        <tbody>
           <template x-for="ing in custom" :key="ing.name">
-            <tr class="hover:bg-gray-50">
-              <td class="px-6 py-3 font-medium text-gray-800" x-text="ing.name"></td>
-              <td class="px-4 py-3">
-                <span class="text-xs px-2 py-0.5 rounded-full font-medium capitalize"
+            <tr class="ss-table-tr">
+              <td style="padding: 0.75rem 1.5rem; font-weight: 500; color: var(--text-1);" x-text="ing.name"></td>
+              <td style="padding: 0.75rem 1rem;">
+                <span class="ss-badge capitalize"
                   :class="{
-                    'bg-red-100 text-red-700': ing.severity === 'critical',
-                    'bg-amber-100 text-amber-700': ing.severity === 'warning',
-                    'bg-blue-100 text-blue-700': ing.severity === 'watch'
+                    'ss-badge-danger': ing.severity === 'critical',
+                    'ss-badge-warning': ing.severity === 'warning',
+                    'ss-badge-info': ing.severity === 'watch'
                   }"
                   x-text="ing.severity">
                 </span>
               </td>
-              <td class="px-4 py-3 text-gray-500 text-xs" x-text="(ing.category || '—').replace(/_/g, ' ')"></td>
-              <td class="px-4 py-3 text-gray-500 text-xs" x-text="ing.reason || '—'"></td>
-              <td class="px-6 py-3 text-right">
+              <td style="padding: 0.75rem 1rem; color: var(--text-3);" class="text-xs" x-text="(ing.category || '—').replace(/_/g, ' ')"></td>
+              <td style="padding: 0.75rem 1rem; color: var(--text-3);" class="text-xs" x-text="ing.reason || '—'"></td>
+              <td style="padding: 0.75rem 1.5rem; text-align: right;">
                 <button @click="removeIng(ing.name)"
-                  class="text-xs text-red-500 hover:text-red-700 font-medium">
+                  style="font-size: 0.75rem; font-weight: 500; color: var(--danger); background: none; border: none; cursor: pointer;">
                   Remove
                 </button>
               </td>
@@ -186,44 +180,44 @@ function ingredientsData() {
   <div x-show="tab === 'all'">
     <div class="mb-4">
       <input type="text" x-model="search" placeholder="Search all ingredients..."
-        class="text-sm border border-gray-200 rounded-xl px-4 py-2.5 w-full max-w-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        class="ss-input w-full max-w-sm" />
     </div>
     <div class="ss-card overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="bg-gray-50 border-b border-gray-100">
+        <thead>
           <tr>
-            <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ingredient</th>
-            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Severity</th>
-            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Source</th>
-            <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</th>
+            <th class="ss-table-th">Ingredient</th>
+            <th class="ss-table-th">Severity</th>
+            <th class="ss-table-th">Source</th>
+            <th class="ss-table-th">Category</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-50">
+        <tbody>
           <template x-for="ing in filtered" :key="ing.name">
-            <tr class="hover:bg-gray-50">
-              <td class="px-6 py-3 font-medium text-gray-800" x-text="ing.name"></td>
-              <td class="px-4 py-3">
-                <span class="text-xs px-2 py-0.5 rounded-full font-medium capitalize"
+            <tr class="ss-table-tr">
+              <td style="padding: 0.75rem 1.5rem; font-weight: 500; color: var(--text-1);" x-text="ing.name"></td>
+              <td style="padding: 0.75rem 1rem;">
+                <span class="ss-badge capitalize"
                   :class="{
-                    'bg-red-100 text-red-700': ing.severity === 'critical',
-                    'bg-amber-100 text-amber-700': ing.severity === 'warning',
-                    'bg-blue-100 text-blue-700': ing.severity === 'watch'
+                    'ss-badge-danger': ing.severity === 'critical',
+                    'ss-badge-warning': ing.severity === 'warning',
+                    'ss-badge-info': ing.severity === 'watch'
                   }"
                   x-text="ing.severity || 'watch'">
                 </span>
               </td>
-              <td class="px-4 py-3">
-                <span class="text-xs px-2 py-0.5 rounded-full font-medium"
-                  :class="ing.is_custom ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'"
+              <td style="padding: 0.75rem 1rem;">
+                <span class="ss-badge"
+                  :class="ing.is_custom ? 'ss-badge-info' : 'ss-badge-muted'"
                   x-text="ing.is_custom ? 'Custom' : 'System'">
                 </span>
               </td>
-              <td class="px-6 py-3 text-gray-500 text-xs" x-text="(ing.category || '—').replace(/_/g, ' ')"></td>
+              <td style="padding: 0.75rem 1.5rem; color: var(--text-3);" class="text-xs" x-text="(ing.category || '—').replace(/_/g, ' ')"></td>
             </tr>
           </template>
         </tbody>
       </table>
-      <div x-show="filtered.length === 0" class="text-center py-8 text-gray-400 text-sm">
+      <div x-show="filtered.length === 0" class="text-center py-8 text-sm" style="color: var(--text-3);">
         No ingredients match your search
       </div>
     </div>

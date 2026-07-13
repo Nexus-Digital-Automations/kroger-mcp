@@ -14,7 +14,11 @@
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style="color: var(--text-3);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
         </svg>
-        <input type="text" x-model="search" placeholder="Search guides…" class="ss-input w-full pl-9 pr-4"/>
+        {# ss-input's own shorthand `padding` (base.html) wins the cascade over
+           Tailwind's pl-9/pr-4 utilities (equal specificity, later source) —
+           silently collapsing left padding back under the icon. Inline style
+           always wins, so the icon clearance is set explicitly here. #}
+        <input type="text" x-model="search" placeholder="Search guides…" class="ss-input w-full" style="padding-left: 2.25rem;"/>
       </div>
       <button @click="createGuide()" :disabled="creating"
         class="ss-btn-primary"

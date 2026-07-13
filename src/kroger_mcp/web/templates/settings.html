@@ -223,18 +223,18 @@
 {% if user %}
 <!-- Account -->
 <div class="ss-card p-6">
-  <h2 class="text-sm font-semibold text-gray-700 mb-4">Account</h2>
+  <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-2);" class="mb-4">Account</h2>
   <div class="mb-3">
-    <p class="text-xs text-gray-500 mb-1">Name</p>
-    <p class="text-sm text-gray-800">{{ user.display_name }}</p>
+    <p style="font-size: 0.75rem; color: var(--text-3);" class="mb-1">Name</p>
+    <p style="font-size: 0.875rem; color: var(--text-1);">{{ user.display_name }}</p>
   </div>
   <div class="mb-4">
-    <p class="text-xs text-gray-500 mb-1">Email</p>
-    <p class="text-sm text-gray-800">{{ user.email }}</p>
+    <p style="font-size: 0.75rem; color: var(--text-3);" class="mb-1">Email</p>
+    <p style="font-size: 0.875rem; color: var(--text-1);">{{ user.email }}</p>
   </div>
   <div class="flex items-center gap-3">
     <a href="/logout" class="ss-btn-danger">Log out</a>
-    <span class="text-xs text-gray-500">Signs you out and returns to the login page.</span>
+    <span style="font-size: 0.75rem; color: var(--text-3);">Signs you out and returns to the login page.</span>
   </div>
 </div>
 {% endif %}
@@ -242,12 +242,12 @@
 <!-- Store Location -->
 <div class="ss-card p-6">
   <div class="flex items-center justify-between mb-4">
-    <h2 class="text-sm font-semibold text-gray-700">Store Location</h2>
-    <span x-show="msg.location" class="text-sm text-emerald-600" x-text="msg.location"></span>
+    <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-2);">Store Location</h2>
+    <span x-show="msg.location" style="font-size: 0.875rem; color: var(--success);" x-text="msg.location"></span>
   </div>
   <div class="mb-3">
-    <p class="text-xs text-gray-500 mb-1">Current location ID</p>
-    <p class="text-sm font-mono text-gray-700 bg-gray-50 rounded-lg px-3 py-2"
+    <p style="font-size: 0.75rem; color: var(--text-3);" class="mb-1">Current location ID</p>
+    <p style="font-size: 0.875rem; font-family: monospace; color: var(--text-2); background: oklch(97% 0.01 70); border-radius: 0.5rem; padding: 0.5rem 0.75rem;"
       x-text="locationId || 'Not set'"></p>
   </div>
   <div class="flex gap-2 mb-3">
@@ -264,17 +264,17 @@
   <div class="space-y-2" x-show="locationResults.length > 0">
     <template x-for="loc in locationResults" :key="loc.location_id">
       <button @click="setLocation(loc.location_id)"
-        :class="loc.location_id === locationId
-          ? 'border-emerald-500 bg-emerald-50'
-          : 'border-gray-200 hover:border-emerald-300'"
+        :style="loc.location_id === locationId
+          ? 'border-color: var(--green); background: var(--green-light);'
+          : 'border-color: var(--border);'"
         class="w-full text-left p-3 rounded-lg border transition-colors">
         <div class="flex items-center justify-between">
           <div>
-            <p class="text-sm font-medium text-gray-800" x-text="loc.name"></p>
-            <p class="text-xs text-gray-500" x-text="loc.address"></p>
+            <p style="font-size: 0.875rem; font-weight: 500; color: var(--text-1);" x-text="loc.name"></p>
+            <p style="font-size: 0.75rem; color: var(--text-3);" x-text="loc.address"></p>
           </div>
           <span x-show="loc.location_id === locationId"
-            class="text-xs text-emerald-600 font-medium">Active</span>
+            style="font-size: 0.75rem; font-weight: 500; color: var(--success);">Active</span>
         </div>
       </button>
     </template>
@@ -284,15 +284,15 @@
 <!-- Household Size -->
 <div class="ss-card p-6">
   <div class="flex items-center justify-between mb-4">
-    <h2 class="text-sm font-semibold text-gray-700">Household Size</h2>
-    <span x-show="msg.servings" class="text-sm text-emerald-600" x-text="msg.servings"></span>
+    <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-2);">Household Size</h2>
+    <span x-show="msg.servings" style="font-size: 0.875rem; color: var(--success);" x-text="msg.servings"></span>
   </div>
-  <p class="text-xs text-gray-500 mb-3">
+  <p style="font-size: 0.75rem; color: var(--text-3);" class="mb-3">
     Default number of servings per meal. Used when adding recipes to shopping list.
   </p>
   <div class="flex items-center gap-4">
     <input type="number" x-model.number="servings" min="1" max="20"
-      class="w-24 text-sm border border-gray-200 rounded-lg px-3 py-2 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      class="ss-input" style="width: 6rem; text-align: center;"/>
     <button @click="saveServings()"
       class="ss-btn-primary">
       Save
@@ -302,8 +302,8 @@
 
 <!-- Privacy & Data -->
 <div class="ss-card p-6">
-  <h2 class="text-sm font-semibold text-gray-700 mb-1">Privacy &amp; Data</h2>
-  <p class="text-xs text-gray-500 mb-4">
+  <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-2);" class="mb-1">Privacy &amp; Data</h2>
+  <p style="font-size: 0.75rem; color: var(--text-3);" class="mb-4">
     Choose what anonymized, aggregated trends you contribute. Never your name,
     account, or individual baskets. Everything is off unless you turn it on, and
     declining never affects how the app works for you.
@@ -314,8 +314,8 @@
       <label style="display:flex; gap:0.625rem; align-items:flex-start; padding:0.625rem 0.75rem; border:1px solid var(--border); border-radius:0.625rem; cursor:pointer;">
         <input type="checkbox" x-model="cat.enabled" style="margin-top:0.2rem;"/>
         <span>
-          <span class="text-sm font-medium text-gray-800" x-text="cat.label"></span>
-          <span class="block text-xs text-gray-500 leading-snug" x-text="cat.description"></span>
+          <span style="font-size: 0.875rem; font-weight: 500; color: var(--text-1);" x-text="cat.label"></span>
+          <span style="display: block; font-size: 0.75rem; color: var(--text-3); line-height: 1.4;" x-text="cat.description"></span>
         </span>
       </label>
     </template>
@@ -471,7 +471,7 @@
         <label style="display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-2); margin-bottom: 0.25rem;">Redirect URI</label>
         <input x-model="creds.redirect_uri" type="text" placeholder="http://localhost:8000/callback"
           class="ss-input w-full" style="font-family: monospace;"/>
-        <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.25rem;">Must use port 8080 to match this web app. Register this URI in your Kroger Developer Portal app.</p>
+        <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.25rem;">Must use port 8000 to match this web app. Register this URI in your Kroger Developer Portal app.</p>
       </div>
 
       <!-- Save button -->

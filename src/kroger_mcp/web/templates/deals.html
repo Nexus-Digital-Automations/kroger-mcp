@@ -206,24 +206,24 @@ function dealsData() {
 <div x-data="dealsData()" x-init="autoLoad(); loadFavLists()">
 
   <!-- Tabs -->
-  <div class="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit">
+  <div class="flex gap-1 mb-6 rounded-xl p-1 w-fit" style="background: oklch(94% 0.012 80);">
     <button
       @click="tab = 'find'"
-      :class="tab === 'find' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'"
+      :style="tab === 'find' ? 'background: var(--surface); color: var(--text-1); box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.1);' : 'color: var(--text-3);'"
       class="px-5 py-2 text-sm font-medium rounded-lg transition-all"
     >Find Deals</button>
     <button
       @click="tab = 'watchlist'"
-      :class="tab === 'watchlist' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'"
+      :style="tab === 'watchlist' ? 'background: var(--surface); color: var(--text-1); box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.1);' : 'color: var(--text-3);'"
       class="px-5 py-2 text-sm font-medium rounded-lg transition-all"
     >
       Watchlist
-      <span class="ml-1 text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full" x-text="watchlist.length"></span>
+      <span class="ss-badge ss-badge-ok ml-1.5" x-text="watchlist.length"></span>
     </button>
   </div>
 
   <!-- Global status message -->
-  <p x-show="msg" class="mb-4 text-sm text-emerald-600" x-text="msg"></p>
+  <p x-show="msg" class="mb-4 text-sm" style="color: var(--success);" x-text="msg"></p>
 
   <!-- ===== FIND DEALS TAB ===== -->
   <div x-show="tab === 'find'">
@@ -235,22 +235,22 @@ function dealsData() {
         x-model="query"
         placeholder="Search deals..."
         @keydown.enter="findDeals()"
-        class="flex-1 min-w-48 max-w-sm text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        class="ss-input flex-1 min-w-48 max-w-sm"
       />
       <div class="flex items-center gap-2">
-        <label class="text-xs text-gray-500 whitespace-nowrap">Min savings:</label>
+        <label class="text-xs whitespace-nowrap" style="color: var(--text-3);">Min savings:</label>
         <input
           type="number"
           x-model.number="minSavings"
           min="0" max="100"
-          class="w-16 text-sm border border-gray-200 rounded-lg px-2 py-2 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          class="ss-input w-16 text-center"
         />
-        <span class="text-xs text-gray-500">%</span>
+        <span class="text-xs" style="color: var(--text-3);">%</span>
       </div>
       <button
         @click="autoLoad()"
         :disabled="loading"
-        class="px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-700 disabled:opacity-50 transition-colors"
+        class="ss-btn-secondary"
       >
         <span x-show="!loading">&#8635; Refresh All</span>
         <span x-show="loading">Scanning...</span>
@@ -268,17 +268,21 @@ function dealsData() {
     <!-- Category dropdown -->
     <div class="mb-5 relative" x-data="{ open: false, hoveredGroup: null }" @click.away="open = false; hoveredGroup = null">
       <button @click="open = !open"
-        class="w-full flex items-center justify-between px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:border-emerald-400 transition-colors">
+        class="w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
+        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-2);"
+        onmouseenter="this.style.borderColor='var(--green)'" onmouseleave="this.style.borderColor='var(--border)'">
         <span x-text="category ? category : 'All Categories'"></span>
-        <span class="text-gray-400 ml-2" x-text="open ? '▲' : '▼'"></span>
+        <span class="ml-2" style="color: var(--text-3);" x-text="open ? '▲' : '▼'"></span>
       </button>
 
       <div x-show="open" x-transition
-        class="absolute z-20 w-52 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg">
+        class="absolute z-20 w-52 mt-1 rounded-xl overflow-hidden"
+        style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14);">
 
         <!-- Clear option -->
         <button x-show="category" @click="category = ''; open = false; hoveredGroup = null; autoLoad()"
-          class="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-red-50 border-b border-gray-100">
+          class="w-full text-left px-4 py-2 text-xs"
+          style="color: var(--danger); border-bottom: 1px solid var(--border);">
           &#10005; Clear — show all deals
         </button>
 
@@ -287,19 +291,20 @@ function dealsData() {
           <div class="relative" @mouseenter="hoveredGroup = group.label" @mouseleave="hoveredGroup = null">
 
             <!-- Group label row -->
-            <div :class="hoveredGroup === group.label ? 'bg-emerald-50 text-emerald-700' : 'text-gray-700 hover:bg-gray-50'"
+            <div :style="hoveredGroup === group.label ? 'background: var(--green-light); color: var(--success);' : 'color: var(--text-2);'"
               class="flex items-center justify-between px-4 py-2 text-sm font-medium cursor-default transition-colors">
               <span x-text="group.label"></span>
-              <span class="text-gray-400 text-xs">›</span>
+              <span class="text-xs" style="color: var(--text-3);">›</span>
             </div>
 
             <!-- Submenu flyout -->
             <div x-show="hoveredGroup === group.label"
-              class="absolute left-full top-0 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-y-auto max-h-64">
+              class="absolute left-full top-0 w-52 rounded-xl z-30 overflow-y-auto max-h-64"
+              style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14);">
               <template x-for="cat in group.items" :key="cat">
                 <button
                   @click="category = cat; open = false; hoveredGroup = null; findDeals()"
-                  :class="category === cat ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'"
+                  :style="category === cat ? 'background: var(--green-light); color: var(--success); font-weight: 600;' : 'color: var(--text-2);'"
                   class="w-full text-left px-4 py-1.5 text-xs capitalize transition-colors"
                   x-text="cat">
                 </button>
@@ -313,58 +318,60 @@ function dealsData() {
 
     <!-- Sort + stats bar -->
     <div x-show="deals.length > 0" class="flex flex-wrap items-center gap-2 mb-4">
-      <span class="text-xs text-gray-500" x-text="deals.length + ' deals found'"></span>
+      <span class="text-xs" style="color: var(--text-3);" x-text="deals.length + ' deals found'"></span>
       <div class="ml-auto">{{ sort_rank() }}</div>
     </div>
 
     <!-- Favorites-on-sale alert -->
     <div x-show="favoritesOnSale > 0 && deals.length > 0"
-      class="flex items-center gap-3 mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+      class="flex items-center gap-3 mb-4 px-4 py-3 rounded-xl"
+      style="background: var(--amber-light); border: 1px solid oklch(80% 0.08 75);">
       <span class="text-xl">&#9733;</span>
       <div>
-        <p class="text-sm font-semibold text-amber-800">
+        <p class="text-sm font-semibold" style="color: var(--amber-dark);">
           <span x-text="favoritesOnSale"></span> of your favorites are on sale right now!
         </p>
-        <p class="text-xs text-amber-600">Sort by "Favorites First" to see them at the top.</p>
+        <p class="text-xs" style="color: var(--amber-dark);">Sort by "Favorites First" to see them at the top.</p>
       </div>
       <button @click="sortStack = [{v:'favorites', dir:'asc'}, ...sortStack.filter(i => i.v !== 'favorites')]; _persistSortRank()"
-        class="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900 underline whitespace-nowrap">
+        class="ml-auto text-xs font-medium underline whitespace-nowrap"
+        style="color: var(--amber-dark);">
         View first &#8594;
       </button>
     </div>
 
     <!-- Loading spinner -->
-    <div x-show="loading" class="flex flex-col items-center gap-3 py-16 text-gray-400">
-      <div class="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+    <div x-show="loading" class="flex flex-col items-center gap-3 py-16" style="color: var(--text-3);">
+      <div class="animate-spin w-8 h-8 rounded-full" style="border: 2px solid var(--green); border-top-color: transparent;"></div>
       <p class="text-sm">Scanning store for deals across all departments...</p>
     </div>
 
     <!-- Results grid -->
     <div x-show="!loading && deals.length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       <template x-for="deal in sortedDeals" :key="deal.product_id">
-        <div class="bg-white rounded-xl shadow-sm border p-4 transition-shadow hover:shadow-md"
-          :class="favoriteIds.has(deal.product_id) ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100'">
+        <div class="rounded-xl p-4 transition-shadow hover:shadow-md"
+          :style="favoriteIds.has(deal.product_id) ? 'background: var(--amber-light); border: 1px solid oklch(80% 0.08 75);' : 'background: var(--surface); border: 1px solid var(--border);'">
 
           <!-- Header row -->
           <div class="flex items-start justify-between mb-1">
-            <h3 class="text-sm font-semibold text-gray-900 leading-tight flex-1" x-text="deal.description"></h3>
+            <h3 class="text-sm font-semibold leading-tight flex-1" style="color: var(--text-1);" x-text="deal.description"></h3>
             <div class="flex items-center gap-1 ml-2 flex-shrink-0">
               <span x-show="favoriteIds.has(deal.product_id)"
-                class="text-amber-400 text-sm" title="In your favorites">&#9733;</span>
-              <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium"
+                class="text-sm" style="color: var(--amber);" title="In your favorites">&#9733;</span>
+              <span class="ss-badge-danger ss-badge"
                 x-text="'-' + deal.savings_percent + '%'"></span>
             </div>
           </div>
 
           <!-- Brand -->
-          <p class="text-xs text-gray-500 mb-2" x-text="deal.brand"></p>
+          <p class="text-xs mb-2" style="color: var(--text-3);" x-text="deal.brand"></p>
 
           <!-- Pricing -->
           <div class="flex items-center gap-2 mb-1">
-            <span class="text-base font-bold text-red-600" x-text="'$' + (deal.sale_price || 0).toFixed(2)"></span>
-            <span class="text-xs text-gray-400 line-through" x-text="'$' + (deal.regular_price || 0).toFixed(2)"></span>
+            <span class="text-base font-bold" style="color: var(--danger);" x-text="'$' + (deal.sale_price || 0).toFixed(2)"></span>
+            <span class="text-xs line-through" style="color: var(--text-3);" x-text="'$' + (deal.regular_price || 0).toFixed(2)"></span>
           </div>
-          <p class="text-xs text-emerald-700 font-medium"
+          <p class="text-xs font-medium" style="color: var(--success);"
             x-text="'Save $' + ((deal.regular_price || 0) - (deal.sale_price || deal.regular_price || 0)).toFixed(2)"></p>
 
           <!-- Actions -->
@@ -373,26 +380,31 @@ function dealsData() {
             <!-- Favorites dropdown -->
             <div class="relative flex-1" x-data="{ favOpen: false }" @click.away="favOpen = false">
               <button @click="favOpen = !favOpen"
-                :class="favoriteIds.has(deal.product_id)
-                  ? 'text-amber-500 border-amber-300 bg-amber-50 hover:bg-amber-100'
-                  : 'text-gray-500 border-gray-200 hover:border-amber-300 hover:bg-amber-50'"
+                :style="favoriteIds.has(deal.product_id)
+                  ? 'color: var(--amber-dark); border-color: oklch(80% 0.08 75); background: var(--amber-light);'
+                  : 'color: var(--text-3); border-color: var(--border);'"
                 class="w-full py-1.5 text-xs border rounded-lg transition-colors flex items-center justify-center gap-1">
                 <span x-text="favoriteIds.has(deal.product_id) ? '★' : '☆'"></span>
                 <span x-text="favMsg[deal.product_id] || (favoriteIds.has(deal.product_id) ? 'Saved' : 'Save')"></span>
               </button>
               <div x-show="favOpen" x-transition
-                class="absolute bottom-full mb-1 left-0 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
-                <p class="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 border-b border-gray-100">
+                class="absolute bottom-full mb-1 left-0 w-48 rounded-xl z-30 overflow-hidden"
+                style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14);">
+                <p class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest"
+                  style="color: var(--text-3); background: oklch(97% 0.01 70); border-bottom: 1px solid var(--border);">
                   Save to list
                 </p>
                 <template x-for="lst in favLists" :key="lst.id">
                   <button @click="addToFavorites(deal, lst.id); favOpen = false"
-                    class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                    class="w-full text-left px-3 py-1.5 text-xs transition-colors"
+                    style="color: var(--text-2);"
+                    onmouseenter="this.style.background='var(--green-light)'; this.style.color='var(--success)'"
+                    onmouseleave="this.style.background=''; this.style.color='var(--text-2)'"
                     x-text="lst.name"></button>
                 </template>
-                <p x-show="favLists.length === 0" class="px-3 py-2 text-xs text-gray-400 italic">
+                <p x-show="favLists.length === 0" class="px-3 py-2 text-xs italic" style="color: var(--text-3);">
                   No lists yet —
-                  <a href="/favorites" class="text-emerald-600 underline">create one</a>
+                  <a href="/favorites" style="color: var(--success);" class="underline">create one</a>
                 </p>
               </div>
             </div>
@@ -400,7 +412,9 @@ function dealsData() {
             <!-- Cart button -->
             <button @click="addToCart(deal)"
               :disabled="!!cartBusy[deal.product_id]"
-              class="flex-1 py-1.5 text-xs border border-emerald-600 text-emerald-600 rounded-lg hover:bg-emerald-50 disabled:opacity-50 transition-colors">
+              class="flex-1 py-1.5 text-xs rounded-lg disabled:opacity-50 transition-colors"
+              style="border: 1px solid var(--green); color: var(--green);"
+              onmouseenter="this.style.background='var(--green-light)'" onmouseleave="this.style.background=''">
               <span x-show="!cartBusy[deal.product_id]">+ Cart</span>
               <span x-show="cartBusy[deal.product_id]" x-cloak>Adding…</span>
             </button>
@@ -411,8 +425,8 @@ function dealsData() {
     </div>
 
     <!-- Empty state -->
-    <div x-show="!loading && deals.length === 0" class="text-center py-16 text-gray-400">
-      <svg class="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div x-show="!loading && deals.length === 0" class="text-center py-16" style="color: var(--text-3);">
+      <svg class="w-12 h-12 mx-auto mb-3" style="color: var(--border);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 012-2z"/>
       </svg>
       <p class="text-sm">No deals found. Try lowering the minimum savings % or refreshing.</p>
@@ -423,8 +437,8 @@ function dealsData() {
   <!-- ===== WATCHLIST TAB ===== -->
   <div x-show="tab === 'watchlist'">
 
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
-      <h3 class="text-sm font-semibold text-gray-700 mb-3">Track New Item</h3>
+    <div class="ss-card p-5 mb-6">
+      <h3 class="text-sm font-semibold mb-3" style="color: var(--text-2);">Track New Item</h3>
       <div class="flex gap-3 flex-wrap">
         <input x-model="newProduct.product_id" placeholder="Product ID (UPC)"
           class="ss-input flex-1 min-w-32" />
@@ -440,38 +454,38 @@ function dealsData() {
     </div>
 
     <div class="ss-card overflow-hidden">
-      <div x-show="watchlist.length === 0" class="text-center py-12 text-gray-400">
-        <svg class="w-10 h-10 mx-auto mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div x-show="watchlist.length === 0" class="text-center py-12" style="color: var(--text-3);">
+        <svg class="w-10 h-10 mx-auto mb-3" style="color: var(--border);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
         </svg>
         <p class="text-sm">No items being watched. Add items from Find Deals or use the form above.</p>
       </div>
       <table x-show="watchlist.length > 0" class="w-full text-sm">
-        <thead class="bg-gray-50 border-b border-gray-100">
+        <thead>
           <tr>
-            <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Item</th>
-            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Target Price</th>
-            <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Added</th>
-            <th class="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+            <th class="ss-table-th">Item</th>
+            <th class="ss-table-th">Target Price</th>
+            <th class="ss-table-th">Added</th>
+            <th class="ss-table-th" style="text-align: right;">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-50">
+        <tbody>
           <template x-for="item in watchlist" :key="item.product_id">
-            <tr class="hover:bg-gray-50">
+            <tr class="ss-table-tr">
               <td class="px-6 py-3">
                 <div class="flex items-center gap-1.5">
-                  <span x-show="favoriteIds.has(item.product_id)" class="text-amber-400 text-xs">&#9733;</span>
-                  <span class="font-medium text-gray-800" x-text="item.description || item.product_id"></span>
+                  <span x-show="favoriteIds.has(item.product_id)" class="text-xs" style="color: var(--amber);">&#9733;</span>
+                  <span class="font-medium" style="color: var(--text-1);" x-text="item.description || item.product_id"></span>
                 </div>
-                <span class="block text-xs text-gray-400" x-text="'#' + item.product_id"></span>
+                <span class="block text-xs" style="color: var(--text-3);" x-text="'#' + item.product_id"></span>
               </td>
-              <td class="px-4 py-3 text-gray-500"
+              <td class="px-4 py-3" style="color: var(--text-3);"
                   x-text="item.target_price ? '$' + parseFloat(item.target_price).toFixed(2) : '\u2014'"></td>
-              <td class="px-4 py-3 text-gray-400 text-xs"
+              <td class="px-4 py-3 text-xs" style="color: var(--text-3);"
                   x-text="item.added_at ? item.added_at.slice(0, 10) : '\u2014'"></td>
               <td class="px-6 py-3 text-right">
                 <button @click="removeWatch(item.product_id)"
-                  class="text-xs text-red-500 hover:text-red-700 transition-colors">Remove</button>
+                  class="text-xs transition-colors" style="color: var(--danger);">Remove</button>
               </td>
             </tr>
           </template>

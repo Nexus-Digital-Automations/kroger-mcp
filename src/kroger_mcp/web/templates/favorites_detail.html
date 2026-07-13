@@ -8,7 +8,7 @@
 {% block content %}
 
 <!-- Back link -->
-<a href="/favorites" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 mb-6 transition-colors">
+<a href="/favorites" class="inline-flex items-center gap-1 text-sm mb-6 transition-colors" style="color: var(--text-3);">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
   </svg>
@@ -66,34 +66,34 @@
 
   <!-- Edit Modal -->
   <div x-show="editOpen" x-cloak
-    class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+    class="ss-modal-overlay"
     @click.self="editOpen = false">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-      <h2 class="text-base font-semibold text-gray-900 mb-4">Edit List</h2>
+    <div class="ss-modal-card w-full max-w-md p-6">
+      <h2 class="text-base font-semibold mb-4" style="color: var(--text-1);">Edit List</h2>
       <div class="space-y-4">
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Name <span class="text-red-500">*</span></label>
+          <label class="block text-xs font-medium mb-1" style="color: var(--text-2);">Name <span style="color: var(--danger);">*</span></label>
           <input x-model="editName" type="text"
             class="ss-input w-full"
             @keydown.enter="submitEdit()"/>
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
+          <label class="block text-xs font-medium mb-1" style="color: var(--text-2);">Description</label>
           <input x-model="editDescription" type="text" placeholder="Optional description"
             class="ss-input w-full"/>
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Reorder schedule (weeks)</label>
+          <label class="block text-xs font-medium mb-1" style="color: var(--text-2);">Reorder schedule (weeks)</label>
           <input x-model="editReorderWeeks" type="number" min="0" max="52"
             placeholder="0 = no schedule"
             class="ss-input w-full"/>
-          <p class="text-xs text-gray-400 mt-1">Set to 0 to disable reorder reminders.</p>
+          <p class="text-xs mt-1" style="color: var(--text-3);">Set to 0 to disable reorder reminders.</p>
         </div>
-        <p x-show="error" class="text-xs text-red-600" x-text="error"></p>
+        <p x-show="error" class="text-xs" style="color: var(--danger);" x-text="error"></p>
       </div>
       <div class="flex justify-end gap-3 mt-6">
         <button @click="editOpen = false; error = '';"
-          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors">Cancel</button>
+          class="ss-btn-ghost">Cancel</button>
         <button @click="submitEdit()" :disabled="loading"
           class="ss-btn-primary">
           <span x-show="!loading">Save Changes</span>
@@ -103,28 +103,29 @@
     </div>
   </div>
 
-  <div id="fav-detail-header" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+  <div id="fav-detail-header" class="ss-card p-6 mb-6">
   <div class="flex items-start justify-between">
     <div>
-      <h2 class="text-xl font-bold text-gray-900 mb-1">{{ lst.name }}</h2>
+      <h2 class="text-xl font-bold mb-1" style="color: var(--text-1);">{{ lst.name }}</h2>
       {% if lst.description %}
-      <p class="text-sm text-gray-500">{{ lst.description }}</p>
+      <p class="text-sm" style="color: var(--text-3);">{{ lst.description }}</p>
       {% endif %}
     </div>
     <div class="flex items-center gap-2">
       <button @click="editOpen = true"
-        class="px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+        class="ss-btn-secondary" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;">
         Edit
       </button>
       <button @click="addToList()" :disabled="addListLoading"
-        class="px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 transition-colors">
+        class="ss-btn-secondary" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;"
+        onmouseenter="this.style.borderColor='var(--green)'; this.style.color='var(--success)'"
+        onmouseleave="this.style.borderColor=''; this.style.color=''">
         <span x-show="!addListLoading">+ Add to List</span>
         <span x-show="addListLoading">Adding...</span>
       </button>
-      <span x-show="addListMsg" class="text-xs text-emerald-700" x-text="addListMsg"></span>
-      {% set color_map = {"red": "bg-red-100 text-red-700", "amber": "bg-amber-100 text-amber-700", "emerald": "bg-emerald-100 text-emerald-700", "gray": "bg-gray-100 text-gray-500"} %}
-      <span class="text-sm px-3 py-1 rounded-full font-medium
-        {{ color_map.get(badge_color, 'bg-gray-100 text-gray-500') }}">
+      <span x-show="addListMsg" class="text-xs" style="color: var(--success);" x-text="addListMsg"></span>
+      {% set color_map = {"red": "ss-badge-danger", "amber": "ss-badge-warning", "emerald": "ss-badge-ok", "gray": "ss-badge-muted"} %}
+      <span class="ss-badge {{ color_map.get(badge_color, 'ss-badge-muted') }}" style="font-size: 0.8125rem; padding: 0.25rem 0.75rem;">
         {{ badge_label }}
       </span>
     </div>
@@ -132,7 +133,7 @@
 
   <!-- Reorder info -->
   {% if reorder_status.has_schedule %}
-  <div class="mt-4 flex items-center gap-6 text-xs text-gray-500">
+  <div class="mt-4 flex items-center gap-6 text-xs" style="color: var(--text-3);">
     <span>Reorder every {{ lst.reorder_weeks }} week{{ 's' if lst.reorder_weeks != 1 else '' }}</span>
     {% if reorder_status.last_ordered_at %}
     <span>Last ordered {{ reorder_status.last_ordered_at[:10] }}</span>
@@ -185,8 +186,8 @@
   }
 }"
   @product-picker:select="productId = $event.detail.product_id; if (!description.trim()) description = $event.detail.description"
-  class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-4">
-  <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Add Item</h3>
+  class="ss-card p-5 mb-4">
+  <h3 class="text-xs font-semibold uppercase tracking-wide mb-3" style="color: var(--text-2);">Add Item</h3>
   <div class="mb-3">
     {{ product_picker(placeholder='Search Kroger by name…') }}
     <p x-show="productId" style="font-size: 0.6875rem; color: var(--success); margin-top: 0.25rem;">
@@ -207,14 +208,14 @@
     <input x-model="brand" type="text" placeholder="Brand"
       class="ss-input w-32"/>
     <input x-model.number="quantity" type="number" min="1" placeholder="Qty"
-      class="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+      class="ss-input w-20 text-center"/>
     <button @click="submit()" :disabled="loading || !productId.trim() || !description.trim()"
       class="ss-btn-primary">
       <span x-show="!loading">Add</span>
       <span x-show="loading">Adding...</span>
     </button>
   </div>
-  <p x-show="error" class="text-xs text-red-600 mt-2" x-text="error"></p>
+  <p x-show="error" class="text-xs mt-2" style="color: var(--danger);" x-text="error"></p>
 </div>
 
 <!-- Items Table -->
@@ -231,59 +232,57 @@
   <div
     x-show="msg"
     x-transition
-    class="px-4 py-2 bg-emerald-50 text-emerald-700 text-xs border-b border-emerald-100"
+    class="px-4 py-2 text-xs"
+    style="background: var(--green-light); color: var(--success); border-bottom: 1px solid oklch(88% 0.04 155);"
     x-text="msg"
   ></div>
   {% if items %}
   <table class="w-full text-sm">
-    <thead class="bg-gray-50 border-b border-gray-100">
+    <thead>
       <tr>
-        <th class="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Item</th>
-        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Brand</th>
-        <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-40">Pantry Level</th>
-        <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-        <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-40">Qty</th>
+        <th class="ss-table-th">Item</th>
+        <th class="ss-table-th">Brand</th>
+        <th class="ss-table-th w-40">Pantry Level</th>
+        <th class="ss-table-th" style="text-align: center;">Status</th>
+        <th class="ss-table-th w-40" style="text-align: center;">Qty</th>
         <th class="px-4 py-3"></th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-gray-50">
+    <tbody>
       {% for item in items %}
       {% set level = item.level_percent %}
       {% set status = item.level_status %}
-      <tr class="hover:bg-gray-50 transition-colors">
+      <tr class="ss-table-tr">
         <td class="px-6 py-4">
-          <span class="font-medium text-gray-800">{{ item.description }}</span>
+          <span class="font-medium" style="color: var(--text-1);">{{ item.description }}</span>
           {% if item.notes %}
-          <span class="block text-xs text-gray-400 mt-0.5">{{ item.notes }}</span>
+          <span class="block text-xs mt-0.5" style="color: var(--text-3);">{{ item.notes }}</span>
           {% endif %}
         </td>
-        <td class="px-4 py-4 text-gray-500">{{ item.brand or '—' }}</td>
+        <td class="px-4 py-4" style="color: var(--text-3);">{{ item.brand or '—' }}</td>
         <td class="px-4 py-4">
           {% if level is not none %}
           <div class="flex items-center gap-2">
-            <div class="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-              <div class="h-2 rounded-full transition-all
-                {% if status == 'out' %}bg-red-500
-                {% elif status == 'low' %}bg-amber-500
-                {% else %}bg-emerald-500{% endif %}"
-                style="width: {{ [level, 100] | min }}%">
+            <div class="flex-1 rounded-full h-2 overflow-hidden" style="background: oklch(93% 0.008 70);">
+              <div class="h-2 rounded-full transition-all"
+                style="width: {{ [level, 100] | min }}%; background: {% if status == 'out' %}var(--danger){% elif status == 'low' %}var(--warning){% else %}var(--success){% endif %};">
               </div>
             </div>
-            <span class="text-xs text-gray-500 w-8 text-right">{{ level }}%</span>
+            <span class="text-xs w-8 text-right" style="color: var(--text-3);">{{ level }}%</span>
           </div>
           {% else %}
-          <span class="text-xs text-gray-300">Not tracked</span>
+          <span class="text-xs" style="color: var(--text-3);">Not tracked</span>
           {% endif %}
         </td>
         <td class="px-4 py-4 text-center">
           {% if status == 'out' %}
-          <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">OUT</span>
+          <span class="ss-badge ss-badge-danger">OUT</span>
           {% elif status == 'low' %}
-          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">LOW</span>
+          <span class="ss-badge ss-badge-warning">LOW</span>
           {% elif status == 'ok' %}
-          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">OK</span>
+          <span class="ss-badge ss-badge-ok">OK</span>
           {% else %}
-          <span class="text-xs text-gray-300">—</span>
+          <span class="text-xs" style="color: var(--text-3);">—</span>
           {% endif %}
         </td>
         {# Single-quoted x-data: the tojson args emit double quotes, which would
@@ -297,12 +296,13 @@
             <div class="flex items-center gap-2">
               <input type="number" min="1" step="1" x-model.number="qty"
                 @change="save()" @blur="save()" @keydown.enter="$event.target.blur()"
-                class="w-16 text-center text-sm border border-gray-200 rounded py-1 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                class="ss-input w-16 text-center"
+                style="padding: 0.25rem;"
                 aria-label="Quantity" />
-              <span x-show="saved" x-transition class="text-xs text-emerald-600">Saved</span>
-              <span x-show="error" x-transition class="text-xs text-red-600" x-text="error"></span>
+              <span x-show="saved" x-transition class="text-xs" style="color: var(--success);">Saved</span>
+              <span x-show="error" x-transition class="text-xs" style="color: var(--danger);" x-text="error"></span>
             </div>
-            <span class="text-xs text-gray-400">ordered {{ item.times_ordered or 0 }}×</span>
+            <span class="text-xs" style="color: var(--text-3);">ordered {{ item.times_ordered or 0 }}×</span>
           </div>
         </td>
         <td class="px-4 py-4 text-right">
@@ -313,7 +313,7 @@
     </tbody>
   </table>
   {% else %}
-  <div class="text-center py-12 text-gray-400">
+  <div class="text-center py-12" style="color: var(--text-3);">
     <p class="text-sm">No items in this list yet.</p>
   </div>
   {% endif %}
