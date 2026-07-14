@@ -26,18 +26,20 @@ async def settings_page(
     oauth: str | None = Query(default=None),
     detail: str | None = Query(default=None),
 ):
-    from kroger_mcp.tools.shared import get_include_spices_by_default
+    from kroger_mcp.tools.shared import get_favorites_display_mode, get_include_spices_by_default
 
+    user_id = current_user_id(request)
     location_id = get_preferred_location_id() or ""
     servings = get_default_servings()
     include_spices_by_default = get_include_spices_by_default()
+    favorites_display_mode = get_favorites_display_mode(user_id=user_id)
 
     # Check auth status
     auth_status = "not_configured"
     try:
         from kroger_mcp.tools.shared import get_authenticated_client
 
-        get_authenticated_client(current_user_id(request))
+        get_authenticated_client(user_id)
         auth_status = "authenticated"
     except Exception as exc:
         if "Authentication required" in str(exc):
@@ -55,6 +57,7 @@ async def settings_page(
             "location_id": location_id,
             "servings": servings,
             "include_spices_by_default": include_spices_by_default,
+            "favorites_display_mode": favorites_display_mode,
             "auth_status": auth_status,
             "oauth_result": oauth or "",
             "oauth_detail": detail or "",

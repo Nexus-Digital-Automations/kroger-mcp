@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros/action_menu.html" import action_menu %}
 {% from "_macros/sort_rank.html" import sort_rank %}
+{% from "_macros/deal_card.html" import deal_card %}
 {% block title %}Products — Smart Shopper{% endblock %}
 {% block heading %}Products{% endblock %}
 {% block content %}
@@ -33,6 +34,7 @@ function productsPageData() {
     favLists: [],
     favoriteIds: new Set({{ favorite_ids | tojson }}),
     favMsg: {},
+    favoritesDisplayMode: '{{ favorites_display_mode }}',
 
     // grade color helper
     gradeColor(g) {
@@ -521,8 +523,9 @@ function dealsSortVM() {
       <div x-show="deals.length > 0" class="ml-auto">{{ sort_rank() }}</div>
     </div>
 
-    <!-- Favorites-on-sale alert -->
-    <div x-show="favoritesOnSale > 0 && deals.length > 0"
+    <!-- Favorites-on-sale alert (sort mode only — section mode's dedicated
+         section below already communicates this) -->
+    <div x-show="favoritesDisplayMode === 'sort' && favoritesOnSale > 0 && deals.length > 0"
       class="flex items-center gap-3 mb-4 px-4 py-3 rounded-xl"
       style="background: var(--amber-light); border: 1px solid oklch(80% 0.08 75);">
       <span class="text-xl">&#9733;</span>
@@ -532,11 +535,30 @@ function dealsSortVM() {
         </p>
         <p class="text-xs" style="color: var(--amber-dark);">Sort by "Favorites" to see them first.</p>
       </div>
-      <button @click="sortStack = [{v:'favorites', dir:'asc'}, ...sortStack.filter(i => i.v !== 'favorites')]; _persistSortRank()"
-        class="ml-auto text-xs font-medium underline whitespace-nowrap" style="color: var(--amber-dark);">
-        View first &#8594;
-      </button>
     </div>
+
+    <!-- Favorites-on-sale dedicated section (section mode only). x-if (not
+         x-show) so the inner x-for never renders into the DOM at all outside
+         section mode — x-show would only hide it via CSS, leaving a second,
+         invisible copy of each favorited card sitting in the page. -->
+    <template x-if="favoritesDisplayMode === 'section' && favoritesOnSale > 0 && deals.length > 0">
+    <div class="ss-card overflow-hidden mb-5" style="border-left: 3px solid var(--amber);">
+      <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);">
+        <h2 style="font-size: 0.875rem; font-weight: 600; color: var(--text-1);">
+          Your Favorites on Sale
+          <span style="color: var(--text-3); font-weight: 400; margin-left: 0.25rem;" x-text="'(' + favoritesOnSale + ')'"></span>
+        </h2>
+        <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 0.25rem;">
+          Favorited items currently on sale, pulled out of the grid below.
+        </p>
+      </div>
+      <div class="grid grid-cols-3 gap-4 p-4">
+        <template x-for="deal in sortRunner(deals.filter(d => favoriteIds.has(d.product_id)))" :key="'fav-' + deal.product_id">
+          {{ deal_card(item_expr='deal') }}
+        </template>
+      </div>
+    </div>
+    </template>
 
     <!-- Error -->
     <div x-show="dealsError"
@@ -552,87 +574,8 @@ function dealsSortVM() {
 
     <!-- Deals results grid -->
     <div x-show="deals.length > 0 && !dealsLoading" class="grid grid-cols-3 gap-4">
-    <template x-for="deal in sortRunner(deals)" :key="deal.product_id">
-      <div class="rounded-xl p-4 flex flex-col transition-shadow hover:shadow-md"
-        :style="favoriteIds.has(deal.product_id) ? 'background: var(--amber-light); border: 1px solid oklch(80% 0.08 75);' : 'background: var(--surface); border: 1px solid var(--border);'">
-
-        <div class="flex-1">
-          <div class="flex items-start justify-between mb-1">
-            <h3 class="text-sm font-semibold leading-tight flex-1" style="color: var(--text-1);" x-text="deal.description"></h3>
-            <div class="flex items-center gap-1 ml-2 flex-shrink-0">
-              <span x-show="favoriteIds.has(deal.product_id)" class="text-sm" style="color: var(--amber);">&#9733;</span>
-              <span class="ss-badge ss-badge-danger"
-                x-text="'-' + deal.savings_percent + '%'"></span>
-            </div>
-          </div>
-          <div class="flex items-center gap-2 mb-2">
-            <p class="text-xs" style="color: var(--text-3);" x-text="deal.brand"></p>
-            <div x-show="deal.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
-              <button @click.stop="pop = !pop"
-                :style="`background:${gradeColor(deal.safety_grade).bg}; color:${gradeColor(deal.safety_grade).text}; padding:0.1rem 0.45rem; border-radius:99px; font-size:0.6875rem; font-weight:700; letter-spacing:0.02em; cursor:pointer;`"
-                x-text="deal.safety_grade"></button>
-              <div x-show="pop" x-transition x-cloak
-                class="absolute top-full mt-1 right-0 z-50 w-64 rounded-xl p-3 text-left"
-                style="background: var(--surface); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14); border: 1px solid var(--border);"
-                @click.stop>
-                <div class="flex items-center justify-between mb-2 pb-2" style="border-bottom: 1px solid var(--border);">
-                  <span class="text-xs font-bold" :style="`color:${gradeColor(deal.safety_grade).text};`">
-                    Health: <span x-text="deal.safety_grade"></span></span>
-                  <span class="text-[10px]" style="color: var(--text-3);" x-text="(deal.safety_score ?? '?') + '/100'"></span>
-                </div>
-                <template x-if="deal.flagged_ingredients && deal.flagged_ingredients.length > 0">
-                  <div class="mb-2">
-                    <template x-for="flag in deal.flagged_ingredients" :key="flag.ingredient + flag.severity">
-                      <div class="py-1" style="border-bottom: 1px solid oklch(95% 0.01 70);">
-                        <div class="flex items-center gap-1.5">
-                          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                            :style="flag.severity === 'critical' ? 'background: var(--danger);' : flag.severity === 'warning' ? 'background: var(--warning);' : 'background: var(--info);'"></span>
-                          <span class="text-[11px] font-medium" style="color: var(--text-1);" x-text="flag.ingredient"></span>
-                          <span class="text-[9px]" style="color: var(--text-3);" x-text="'(' + flag.severity + ')'"></span>
-                        </div>
-                        <p class="text-[10px] ml-3 leading-tight" style="color: var(--text-3);" x-text="flag.reason"></p>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-                <template x-if="deal.positive_attributes && deal.positive_attributes.length > 0">
-                  <div>
-                    <template x-for="attr in deal.positive_attributes" :key="attr.attribute">
-                      <div class="flex items-center gap-1 py-0.5">
-                        <span class="text-[11px] font-bold" style="color: var(--success);">+</span>
-                        <span class="text-[11px]" style="color: var(--success);" x-text="attr.attribute"></span>
-                        <span class="text-[9px]" style="color: var(--text-3);" x-text="'(+' + attr.bonus + ')'"></span>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-                <p x-show="(!deal.flagged_ingredients || deal.flagged_ingredients.length === 0) && (!deal.positive_attributes || deal.positive_attributes.length === 0)"
-                  class="text-[11px] italic" style="color: var(--text-3);">No flagged ingredients detected.</p>
-              </div>
-            </div>
-          </div>
-          <div class="flex items-center gap-2 mb-1">
-            <span class="text-base font-bold" style="color: var(--danger);" x-text="'$' + (deal.sale_price || 0).toFixed(2)"></span>
-            <span class="text-xs line-through" style="color: var(--text-3);" x-text="'$' + (deal.regular_price || 0).toFixed(2)"></span>
-          </div>
-          <p class="text-xs font-medium" style="color: var(--success);"
-            x-text="'Save $' + ((deal.regular_price || 0) - (deal.sale_price || deal.regular_price || 0)).toFixed(2)"></p>
-        </div>
-
-        <div class="flex items-center justify-between gap-2 mt-3">
-          <span
-            x-show="cartMsg[deal.product_id] || favMsg[deal.product_id]"
-            class="text-xs truncate" style="color: var(--success);"
-            x-text="cartMsg[deal.product_id] || favMsg[deal.product_id]"
-          ></span>
-          <span x-show="!cartMsg[deal.product_id] && !favMsg[deal.product_id] && favoriteIds.has(deal.product_id)"
-                class="text-xs" style="color: var(--amber-dark);">&#9733; Saved</span>
-          <div class="ml-auto">
-            {{ action_menu('product', item_expr='deal') }}
-          </div>
-        </div>
-
-      </div>
+    <template x-for="deal in sortRunner(deals.filter(d => !(favoritesDisplayMode === 'section' && favoriteIds.has(d.product_id))))" :key="deal.product_id">
+      {{ deal_card(item_expr='deal') }}
     </template>
     </div>
 

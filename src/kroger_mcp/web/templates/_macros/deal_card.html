@@ -1,0 +1,91 @@
+{# deal_card.html — Single deals-grid product card (image-free), used by
+   products.html in both the main deals grid and the favorites-on-sale
+   dedicated section, so the two never drift out of sync.
+
+   Contract: the enclosing Alpine scope must expose favoriteIds, cartMsg,
+   favMsg, gradeColor(grade). `item_expr` is the JS expression (usually a
+   loop variable name like 'deal') resolving to the item object in scope.
+#}
+{% from "_macros/action_menu.html" import action_menu %}
+{% macro deal_card(item_expr) %}
+<div class="rounded-xl p-4 flex flex-col transition-shadow hover:shadow-md"
+  :style="favoriteIds.has({{ item_expr }}.product_id) ? 'background: var(--amber-light); border: 1px solid oklch(80% 0.08 75);' : 'background: var(--surface); border: 1px solid var(--border);'">
+
+  <div class="flex-1">
+    <div class="flex items-start justify-between mb-1">
+      <h3 class="text-sm font-semibold leading-tight flex-1" style="color: var(--text-1);" x-text="{{ item_expr }}.description"></h3>
+      <div class="flex items-center gap-1 ml-2 flex-shrink-0">
+        <span x-show="favoriteIds.has({{ item_expr }}.product_id)" class="text-sm" style="color: var(--amber);">&#9733;</span>
+        <span class="ss-badge ss-badge-danger"
+          x-text="'-' + {{ item_expr }}.savings_percent + '%'"></span>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 mb-2">
+      <p class="text-xs" style="color: var(--text-3);" x-text="{{ item_expr }}.brand"></p>
+      <div x-show="{{ item_expr }}.safety_grade" class="relative inline-block" x-data="{ pop: false }" @click.away="pop = false">
+        <button @click.stop="pop = !pop"
+          :style="`background:${gradeColor({{ item_expr }}.safety_grade).bg}; color:${gradeColor({{ item_expr }}.safety_grade).text}; padding:0.1rem 0.45rem; border-radius:99px; font-size:0.6875rem; font-weight:700; letter-spacing:0.02em; cursor:pointer;`"
+          x-text="{{ item_expr }}.safety_grade"></button>
+        <div x-show="pop" x-transition x-cloak
+          class="absolute top-full mt-1 right-0 z-50 w-64 rounded-xl p-3 text-left"
+          style="background: var(--surface); box-shadow: 0 8px 32px oklch(18% 0.025 80 / 0.14); border: 1px solid var(--border);"
+          @click.stop>
+          <div class="flex items-center justify-between mb-2 pb-2" style="border-bottom: 1px solid var(--border);">
+            <span class="text-xs font-bold" :style="`color:${gradeColor({{ item_expr }}.safety_grade).text};`">
+              Health: <span x-text="{{ item_expr }}.safety_grade"></span></span>
+            <span class="text-[10px]" style="color: var(--text-3);" x-text="({{ item_expr }}.safety_score ?? '?') + '/100'"></span>
+          </div>
+          <template x-if="{{ item_expr }}.flagged_ingredients && {{ item_expr }}.flagged_ingredients.length > 0">
+            <div class="mb-2">
+              <template x-for="flag in {{ item_expr }}.flagged_ingredients" :key="flag.ingredient + flag.severity">
+                <div class="py-1" style="border-bottom: 1px solid oklch(95% 0.01 70);">
+                  <div class="flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      :style="flag.severity === 'critical' ? 'background: var(--danger);' : flag.severity === 'warning' ? 'background: var(--warning);' : 'background: var(--info);'"></span>
+                    <span class="text-[11px] font-medium" style="color: var(--text-1);" x-text="flag.ingredient"></span>
+                    <span class="text-[9px]" style="color: var(--text-3);" x-text="'(' + flag.severity + ')'"></span>
+                  </div>
+                  <p class="text-[10px] ml-3 leading-tight" style="color: var(--text-3);" x-text="flag.reason"></p>
+                </div>
+              </template>
+            </div>
+          </template>
+          <template x-if="{{ item_expr }}.positive_attributes && {{ item_expr }}.positive_attributes.length > 0">
+            <div>
+              <template x-for="attr in {{ item_expr }}.positive_attributes" :key="attr.attribute">
+                <div class="flex items-center gap-1 py-0.5">
+                  <span class="text-[11px] font-bold" style="color: var(--success);">+</span>
+                  <span class="text-[11px]" style="color: var(--success);" x-text="attr.attribute"></span>
+                  <span class="text-[9px]" style="color: var(--text-3);" x-text="'(+' + attr.bonus + ')'"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+          <p x-show="(!{{ item_expr }}.flagged_ingredients || {{ item_expr }}.flagged_ingredients.length === 0) && (!{{ item_expr }}.positive_attributes || {{ item_expr }}.positive_attributes.length === 0)"
+            class="text-[11px] italic" style="color: var(--text-3);">No flagged ingredients detected.</p>
+        </div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 mb-1">
+      <span class="text-base font-bold" style="color: var(--danger);" x-text="'$' + ({{ item_expr }}.sale_price || 0).toFixed(2)"></span>
+      <span class="text-xs line-through" style="color: var(--text-3);" x-text="'$' + ({{ item_expr }}.regular_price || 0).toFixed(2)"></span>
+    </div>
+    <p class="text-xs font-medium" style="color: var(--success);"
+      x-text="'Save $' + (({{ item_expr }}.regular_price || 0) - ({{ item_expr }}.sale_price || {{ item_expr }}.regular_price || 0)).toFixed(2)"></p>
+  </div>
+
+  <div class="flex items-center justify-between gap-2 mt-3">
+    <span
+      x-show="cartMsg[{{ item_expr }}.product_id] || favMsg[{{ item_expr }}.product_id]"
+      class="text-xs truncate" style="color: var(--success);"
+      x-text="cartMsg[{{ item_expr }}.product_id] || favMsg[{{ item_expr }}.product_id]"
+    ></span>
+    <span x-show="!cartMsg[{{ item_expr }}.product_id] && !favMsg[{{ item_expr }}.product_id] && favoriteIds.has({{ item_expr }}.product_id)"
+          class="text-xs" style="color: var(--amber-dark);">&#9733; Saved</span>
+    <div class="ml-auto">
+      {{ action_menu('product', item_expr=item_expr) }}
+    </div>
+  </div>
+
+</div>
+{% endmacro %}

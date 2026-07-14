@@ -27,6 +27,10 @@ class IncludeSpicesBody(BaseModel):
     include: bool
 
 
+class FavoritesDisplayModeBody(BaseModel):
+    mode: str
+
+
 class LocationBody(BaseModel):
     location_id: str
 
@@ -49,6 +53,7 @@ async def get_settings(request: Request):
         from kroger_mcp.tools.shared import (
             get_authenticated_client,
             get_default_servings,
+            get_favorites_display_mode,
             get_include_spices_by_default,
             get_preferred_location_id,
         )
@@ -57,6 +62,7 @@ async def get_settings(request: Request):
         location_id = get_preferred_location_id(user_id=user_id) or ""
         servings = get_default_servings(user_id=user_id)
         include_spices_by_default = get_include_spices_by_default(user_id=user_id)
+        favorites_display_mode = get_favorites_display_mode(user_id=user_id)
 
         auth_status = "not_configured"
         try:
@@ -70,6 +76,7 @@ async def get_settings(request: Request):
             "location_id": location_id,
             "servings": servings,
             "include_spices_by_default": include_spices_by_default,
+            "favorites_display_mode": favorites_display_mode,
             "auth_status": auth_status,
         }
     except Exception as exc:
@@ -98,6 +105,20 @@ async def set_include_spices(body: IncludeSpicesBody, request: Request):
 
         set_include_spices_by_default(body.include, user_id=current_user_id(request))
         return {"success": True, "include_spices_by_default": body.include}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/favorites-display-mode")
+async def set_favorites_display_mode_route(body: FavoritesDisplayModeBody, request: Request):
+    """Persist this user's favorites-on-sale display mode ('sort' or 'section')."""
+    try:
+        from kroger_mcp.tools.shared import set_favorites_display_mode
+
+        set_favorites_display_mode(body.mode, user_id=current_user_id(request))
+        return {"success": True, "favorites_display_mode": body.mode}
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 

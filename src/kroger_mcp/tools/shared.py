@@ -372,6 +372,27 @@ def set_include_spices_by_default(value: bool, user_id: str | None = None) -> No
     _save_preference("include_spices_by_default", bool(value), user_id=user_id)
 
 
+def get_favorites_display_mode(user_id: str | None = None) -> str:
+    """How favorites-on-sale are surfaced on the Deals tab.
+
+    'sort' (default) — favorites-on-sale stay informational; the user opts
+    into seeing them first via the existing "Favorites" sort-rank option.
+    'section' — favorites-on-sale are pulled into their own dedicated
+    section above the main deals grid and excluded from the grid itself.
+    """
+    return str(_load_preferences(user_id=user_id).get("favorites_display_mode", "sort"))
+
+
+def set_favorites_display_mode(value: str, user_id: str | None = None) -> None:
+    """Persist this user's favorites-on-sale display mode.
+
+    Raises ValueError if value isn't 'sort' or 'section'.
+    """
+    if value not in ("sort", "section"):
+        raise ValueError("favorites_display_mode must be 'sort' or 'section'")
+    _save_preference("favorites_display_mode", value, user_id=user_id)
+
+
 def get_kroger_credentials(user_id: str | None = None) -> dict:
     """Get this user's Kroger API credentials; falls back to KROGER_* env vars."""
     import json as _json

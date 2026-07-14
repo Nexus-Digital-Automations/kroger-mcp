@@ -5,7 +5,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
-from kroger_mcp.tools.shared import get_preferred_location_id
+from kroger_mcp.auth.dependencies import current_user_id
+from kroger_mcp.tools.shared import get_favorites_display_mode, get_preferred_location_id
 from kroger_mcp.web.context import action_menu_context
 from kroger_mcp.web.templating import templates
 
@@ -15,6 +16,7 @@ router = APIRouter()
 @router.get("/products", response_class=HTMLResponse)
 async def products_page(request: Request):
     location_id = get_preferred_location_id() or "03400014"
+    favorites_display_mode = get_favorites_display_mode(user_id=current_user_id(request))
 
     ensure_initialized()
     watchlist, favorite_ids = [], []
@@ -45,6 +47,7 @@ async def products_page(request: Request):
             "watchlist": watchlist,
             "watchlist_count": len(watchlist),
             "favorite_ids": favorite_ids,
+            "favorites_display_mode": favorites_display_mode,
             **action_menu_context(),
         },
     )
