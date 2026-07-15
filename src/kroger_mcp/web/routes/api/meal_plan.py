@@ -468,6 +468,39 @@ async def mark_meal_cooked(
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@router.post("/api/meal-plan/pending/confirm-all")
+async def confirm_all_pending_meals(request: Request):
+    """Bulk-confirm every pending (past, unconfirmed) meal as cooked, deducting
+    pantry for each. Used by the notification bell's "Confirm all N as cooked"
+    action when meal_plan_pantry_deduction_mode is 'confirm'."""
+    from kroger_mcp.analytics.meal_planning import (
+        confirm_all_pending_meals as _confirm_all,
+    )
+
+    user_id = current_user_id(request)
+    try:
+        return _confirm_all(user_id=user_id)
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/meal-plan/{plan_id}/meals/{meal_date}/{meal_slot}/skip")
+async def skip_pending_meal(plan_id: str, meal_date: str, meal_slot: str, request: Request):
+    """Mark a never-cooked past meal as permanently skipped ("Didn't cook this")
+    without touching the pantry. Kept separate from the /cooked endpoint since
+    skipping a never-cooked meal has no deduction to reverse."""
+    from kroger_mcp.analytics.meal_planning import skip_pending_meal as _skip
+
+    user_id = current_user_id(request)
+    try:
+        result = _skip(plan_id=plan_id, meal_date=meal_date, meal_slot=meal_slot, user_id=user_id)
+        if not result.get("success"):
+            return JSONResponse(status_code=400, content=result)
+        return result
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @router.get("/api/meal-plan/{plan_id}/meals/{meal_date}/{meal_slot}/cook-preview")
 async def cook_preview(plan_id: str, meal_date: str, meal_slot: str, request: Request):
     """Prefill data for the cook popup of a scheduled meal: scaled ingredient

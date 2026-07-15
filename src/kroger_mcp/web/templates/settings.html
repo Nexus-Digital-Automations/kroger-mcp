@@ -8,6 +8,7 @@
   servings: {{ servings }},
   includeSpicesByDefault: {{ 'true' if include_spices_by_default else 'false' }},
   favoritesDisplayMode: '{{ favorites_display_mode }}',
+  mealPlanPantryDeductionMode: '{{ meal_plan_pantry_deduction_mode }}',
   locationSearch: '',
   locationResults: [],
   searching: false,
@@ -36,6 +37,10 @@
     this.loadConsent();
     if (this.oauthResult) {
       setTimeout(() => { this.oauthResult = ''; }, 6000);
+    }
+    if (window.location.hash === '#meal-planning') {
+      this.advancedOpen = true;
+      this.$nextTick(() => document.getElementById('meal-planning')?.scrollIntoView({ block: 'center' }));
     }
   },
 
@@ -204,6 +209,15 @@
     });
     this.msg.favMode = r.ok ? 'Saved!' : 'Error saving';
     setTimeout(() => { delete this.msg.favMode; this.msg = {...this.msg}; }, 3000);
+  },
+  async saveMealPlanPantryDeductionMode() {
+    const r = await fetch('/api/settings/meal-plan-pantry-deduction-mode', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode: this.mealPlanPantryDeductionMode})
+    });
+    this.msg.mealPlanMode = r.ok ? 'Saved!' : 'Error saving';
+    setTimeout(() => { delete this.msg.mealPlanMode; this.msg = {...this.msg}; }, 3000);
   },
   async searchLocations() {
     if (!this.locationSearch) return;
@@ -422,7 +436,7 @@
   </div>
 
   <!-- Advanced Settings toggle -->
-  <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+  <div id="meal-planning" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border);">
     <button @click="advancedOpen = !advancedOpen"
       class="flex items-center gap-1.5 ss-btn-ghost" style="padding: 0.25rem 0; font-size: 0.75rem; color: var(--text-3);">
       <svg class="w-3.5 h-3.5 transition-transform" :class="advancedOpen && 'rotate-90'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
@@ -463,6 +477,29 @@
         <p style="font-size: 0.75rem; color: var(--text-3); margin: 0.5rem 0 0;">
           Sort option: add "Favorites" from the sort menu on the Deals tab to see them first.
           Dedicated section: favorites on sale are automatically pulled into their own section above the deals grid.
+        </p>
+      </div>
+
+      <!-- Meal plan pantry deduction mode -->
+      <div>
+        <p style="font-size: 0.875rem; color: var(--text-2); font-weight: 500; margin-bottom: 0.5rem;">
+          When a meal plan's date passes
+          <span x-show="msg.mealPlanMode" style="font-size: 0.75rem; color: var(--success); margin-left: 0.5rem;" x-text="msg.mealPlanMode"></span>
+        </p>
+        <div class="flex rounded-xl p-1 gap-1" style="background: oklch(94% 0.012 80); width: fit-content;">
+          <button type="button"
+            @click="mealPlanPantryDeductionMode = 'confirm'; saveMealPlanPantryDeductionMode()"
+            :style="mealPlanPantryDeductionMode === 'confirm' ? 'background: var(--surface); color: var(--text-1); font-weight: 500; box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.1);' : 'color: var(--text-3);'"
+            class="px-4 py-1.5 text-sm rounded-lg transition-all">Confirm before deducting</button>
+          <button type="button"
+            @click="mealPlanPantryDeductionMode = 'automatic'; saveMealPlanPantryDeductionMode()"
+            :style="mealPlanPantryDeductionMode === 'automatic' ? 'background: var(--surface); color: var(--text-1); font-weight: 500; box-shadow: 0 1px 3px oklch(20% 0.02 55 / 0.1);' : 'color: var(--text-3);'"
+            class="px-4 py-1.5 text-sm rounded-lg transition-all">Automatic</button>
+        </div>
+        <p style="font-size: 0.75rem; color: var(--text-3); margin: 0.5rem 0 0;">
+          Confirm before deducting: past meals show up in the notification bell so you can confirm they were
+          cooked (or mark them skipped) before pantry levels change.
+          Automatic: pantry deducts silently the moment a meal's date passes, with no confirmation.
         </p>
       </div>
 

@@ -294,6 +294,7 @@ class AddToCartBody(BaseModel):
     modality: str = "PICKUP"
     description: str = ""
     price: float = 0.0
+    favorite_list_id: str | None = None
 
 
 @router.post("/api/products/{product_id}/add-to-cart")
@@ -332,6 +333,17 @@ async def add_product_to_cart(product_id: str, body: AddToCartBody, request: Req
             )
         except Exception:
             pass
+
+        # Clears the originating favorites list's "past due" badge (best-effort).
+        if body.favorite_list_id:
+            try:
+                from kroger_mcp.analytics.favorites import mark_list_ordered
+
+                await asyncio.to_thread(
+                    mark_list_ordered, body.favorite_list_id, user_id=current_user_id(request)
+                )
+            except Exception:
+                pass
 
         return JSONResponse(
             content={

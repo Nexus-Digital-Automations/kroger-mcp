@@ -12,6 +12,7 @@ document.addEventListener('alpine:init', () => {
   Alpine.data('notifBell', () => ({
     open: false,
     alerts: [],
+    pendingMeals: [],
     unseen: 0,
     busy: {},
 
@@ -30,6 +31,7 @@ document.addEventListener('alpine:init', () => {
         if (!res.ok) return;
         const d = await res.json();
         this.alerts = d.alerts || [];
+        this.pendingMeals = d.pending_meals || [];
         this.unseen = d.unseen || 0;
       } catch (e) {
         /* offline / transient — keep prior state */
@@ -38,6 +40,9 @@ document.addEventListener('alpine:init', () => {
 
     async toggle() {
       this.open = !this.open;
+      // Resync on open so meals confirmed/skipped elsewhere (or on a prior
+      // page, before a full reload) aren't shown stale.
+      if (this.open) await this.refresh();
       if (this.open && this.unseen > 0) {
         this.unseen = 0; // optimistic; server clears the badge state
         try {
@@ -93,10 +98,12 @@ document.addEventListener('alpine:init', () => {
 
     async addToCart(a) {
       if (this.busy[a.id]) return;
+      const qty = await Alpine.store('qtyPicker').ask(a);
+      if (qty == null) return;
       this.busy = { ...this.busy, [a.id]: true };
       try {
         await window.api.post('/api/products/' + a.product_id + '/add-to-cart', {
-          quantity: a.default_quantity || 1,
+          quantity: qty,
           modality: a.preferred_modality || 'PICKUP',
           description: a.description,
           price: a.sale_price || 0,
@@ -114,6 +121,50 @@ document.addEventListener('alpine:init', () => {
 
     view(a) {
       window.location.href = '/favorites/' + (a.list_id || '');
+    },
+
+    confirmMeal(m) {
+      // Reuses the existing cook-confirmation modal (global store, promoted
+      // to base.html) — it owns the actual /cooked POST and pantry deduction.
+      Alpine.store('cookPreview').openModal('meal', {
+        planId: m.plan_id,
+        date: m.meal_date,
+        slot: m.meal_slot,
+      });
+    },
+
+    async skipMeal(m) {
+      if (this.busy[m.id]) return;
+      this.busy = { ...this.busy, [m.id]: true };
+      try {
+        await window.api.post(
+          '/api/meal-plan/' + m.plan_id + '/meals/' + m.meal_date + '/' + m.meal_slot + '/skip'
+        );
+        window._ssToast("Marked as not cooked");
+        this.pendingMeals = this.pendingMeals.filter((x) => x.id !== m.id);
+      } catch (e) {
+        /* api-client toasted the error */
+      } finally {
+        const b = { ...this.busy };
+        delete b[m.id];
+        this.busy = b;
+      }
+    },
+
+    async confirmAllMeals() {
+      if (this.busy.__confirmAll) return;
+      this.busy = { ...this.busy, __confirmAll: true };
+      try {
+        const res = await window.api.post('/api/meal-plan/pending/confirm-all');
+        window._ssToast('Confirmed ' + (res.reconciled || 0) + ' meal(s) as cooked');
+        this.pendingMeals = [];
+      } catch (e) {
+        /* api-client toasted the error */
+      } finally {
+        const b = { ...this.busy };
+        delete b.__confirmAll;
+        this.busy = b;
+      }
     },
   }));
 });

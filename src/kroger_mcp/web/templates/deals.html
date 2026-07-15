@@ -138,6 +138,8 @@ function dealsData() {
     async addToCart(product) {
       // Double-click guard: one in-flight add per product.
       if (this.cartBusy[product.product_id]) return;
+      const qty = await Alpine.store('qtyPicker').ask(product);
+      if (qty == null) return;
       this.cartBusy = {...this.cartBusy, [product.product_id]: true};
       try {
         const r = await fetch('/api/cart', {
@@ -145,7 +147,7 @@ function dealsData() {
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             product_id: product.product_id,
-            quantity: 1,
+            quantity: qty,
             modality: 'PICKUP',
             description: product.description,
             brand: product.brand,

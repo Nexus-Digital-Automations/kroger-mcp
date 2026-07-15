@@ -1877,50 +1877,52 @@ def undo_meal_cooked(
     }
 
 
-def reconcile_past_meals(
+def list_pending_meals(
     user_id: str | None = None,
     today: str | None = None,
     plan_id: str | None = None,
-) -> dict[str, Any]:
-    """Auto-deduct any planned meal whose date has already passed.
+) -> list[dict[str, Any]]:
+    """Read-only list of past, un-cooked, un-skipped meal entries.
 
-    The pantry-deduction machinery only ran when a user manually marked each meal
-    cooked, so levels never tracked the plan. This is the lazy trigger: called on
-    meal-plan views and shopping-list generation (there is no scheduler), it finds
-    strictly-past meals that were never cooked or explicitly skipped and runs them
-    through the normal cook path.
-
-    Idempotent: the candidate query excludes already-deducted/cooked/skipped rows,
-    and mark_meal_cooked flips pantry_deducted, so a second call deducts nothing.
+    These are meals whose date has passed with no cook/skip decision recorded
+    — candidates for either automatic reconciliation or, in 'confirm' mode,
+    a pending-confirmation prompt in the notification bell.
 
     Args:
-        user_id: Owner whose meals to reconcile. None resolves to the default user.
+        user_id: Owner whose meals to list. None resolves to the default user.
         today: YYYY-MM-DD override for "now" (tests pass this); defaults to today.
-        plan_id: Limit reconciliation to one plan (the one being viewed).
+        plan_id: Limit to one plan (the one being viewed).
     """
     ensure_initialized()
     owner = _resolve_user_id(user_id)
     today = today or _format_date(datetime.now())
 
-    # Strictly past: a meal dated today may not be cooked yet, so never auto-deduct
-    # it (absorbs intraday/timezone skew and avoids fighting the user's own cook).
+    # Strictly past: a meal dated today may not be cooked yet, so it's never a
+    # pending candidate (absorbs intraday/timezone skew and avoids fighting
+    # the user's own same-day cook).
     query = (
-        "SELECT plan_id, meal_date, meal_slot FROM meal_entries "
-        "WHERE user_id = ? AND pantry_deducted = 0 AND cook_skipped = 0 "
-        "AND cooked_at IS NULL AND meal_date < ?"
+        "SELECT me.plan_id, me.meal_date, me.meal_slot, me.recipe_id, "
+        "r.name AS recipe_name "
+        "FROM meal_entries me LEFT JOIN recipes r ON r.id = me.recipe_id "
+        "WHERE me.user_id = ? AND me.pantry_deducted = 0 AND me.cook_skipped = 0 "
+        "AND me.cooked_at IS NULL AND me.meal_date < ?"
     )
     params: list[Any] = [owner, today]
     if plan_id:
-        query += " AND plan_id = ?"
+        query += " AND me.plan_id = ?"
         params.append(plan_id)
-    query += " ORDER BY meal_date, meal_slot"
+    query += " ORDER BY me.meal_date, me.meal_slot"
 
     conn = get_db_connection()
     try:
-        candidates = [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
+        return [dict(row) for row in conn.execute(query, tuple(params)).fetchall()]
     finally:
         conn.close()
 
+
+def _run_cook_loop(candidates: list[dict[str, Any]], owner: str, log_label: str) -> dict[str, Any]:
+    """Shared "mark each candidate cooked with pantry deduction" loop, used by
+    both automatic reconciliation and the bell's bulk confirm-all action."""
     reconciled: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for meal in candidates:
@@ -1931,8 +1933,8 @@ def reconcile_past_meals(
             )
         except Exception as exc:
             logger.error(
-                "reconcile_past_meals failed plan=%s date=%s slot=%s: %s",
-                meal["plan_id"], meal["meal_date"], meal["meal_slot"], exc,
+                "%s failed plan=%s date=%s slot=%s: %s",
+                log_label, meal["plan_id"], meal["meal_date"], meal["meal_slot"], exc,
             )
             skipped.append({**meal, "error": str(exc)})
             continue
@@ -1941,8 +1943,103 @@ def reconcile_past_meals(
         else:
             # e.g. recipe was deleted — leave it for a later retry, don't crash.
             skipped.append({**meal, "error": result.get("error")})
-
     return {"success": True, "reconciled": len(reconciled), "meals": reconciled, "skipped": skipped}
+
+
+def reconcile_past_meals(
+    user_id: str | None = None,
+    today: str | None = None,
+    plan_id: str | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    """Auto-deduct any planned meal whose date has already passed — but only
+    in 'automatic' mode. This is the lazy trigger: called on meal-plan views
+    and shopping-list generation (there is no scheduler).
+
+    In 'confirm' mode (the default), this makes no changes; past, un-cooked
+    meals remain "pending" until the user confirms them via the notification
+    bell (see list_pending_meals / confirm_all_pending_meals).
+
+    Idempotent in 'automatic' mode: the candidate query excludes already-
+    deducted/cooked/skipped rows, and mark_meal_cooked flips pantry_deducted,
+    so a second call deducts nothing.
+
+    Args:
+        user_id: Owner whose meals to reconcile. None resolves to the default user.
+        today: YYYY-MM-DD override for "now" (tests pass this); defaults to today.
+        plan_id: Limit reconciliation to one plan (the one being viewed).
+        mode: 'automatic' | 'confirm' override. None resolves to the user's
+            stored meal_plan_pantry_deduction_mode setting.
+    """
+    from kroger_mcp.tools.shared import get_meal_plan_pantry_deduction_mode
+
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    mode = mode or get_meal_plan_pantry_deduction_mode(user_id=owner)
+
+    if mode != "automatic":
+        pending = list_pending_meals(user_id=owner, today=today, plan_id=plan_id)
+        return {"success": True, "reconciled": 0, "meals": [], "skipped": [], "pending": len(pending)}
+
+    candidates = list_pending_meals(user_id=owner, today=today, plan_id=plan_id)
+    return _run_cook_loop(candidates, owner, "reconcile_past_meals")
+
+
+def confirm_all_pending_meals(user_id: str | None = None, today: str | None = None) -> dict[str, Any]:
+    """Bulk-confirm every pending meal as cooked, deducting pantry for each.
+
+    Used by the notification bell's "Confirm all N as cooked" action —
+    identical cook loop to reconcile_past_meals' automatic-mode path, but
+    callable on demand regardless of the stored deduction-mode setting.
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    candidates = list_pending_meals(user_id=owner, today=today)
+    return _run_cook_loop(candidates, owner, "confirm_all_pending_meals")
+
+
+def skip_pending_meal(
+    plan_id: str, meal_date: str, meal_slot: str, user_id: str | None = None
+) -> dict[str, Any]:
+    """Mark a never-cooked past meal as permanently skipped ("I didn't cook
+    this"), without ever touching the pantry.
+
+    Only valid for meals that were never marked cooked — reversing an
+    already-cooked meal is undo_meal_cooked's job, which also tombstones a
+    past meal as a side effect of its reversal.
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT id, cooked_at FROM meal_entries "
+            "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? AND user_id = ?",
+            (plan_id, meal_date, meal_slot, owner),
+        )
+        entry = cursor.fetchone()
+    finally:
+        conn.close()
+
+    if not entry:
+        return {"success": False, "error": f"No meal at {meal_slot} on {meal_date}"}
+    if entry["cooked_at"]:
+        return {"success": False, "error": "Meal is already marked cooked; use undo instead."}
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "UPDATE meal_entries SET cook_skipped = 1 WHERE id = ? AND user_id = ?",
+            (entry["id"], owner),
+        )
+
+    return {
+        "success": True,
+        "plan_id": plan_id,
+        "meal_date": meal_date,
+        "meal_slot": meal_slot,
+        "message": "Marked as not cooked — pantry unaffected.",
+    }
 
 
 def cook_recipe_adhoc(

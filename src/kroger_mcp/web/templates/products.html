@@ -121,13 +121,15 @@ function productsPageData() {
 
     async addToCart(p) {
       if (this.cartMsg[p.product_id] === 'Adding...') return; // double-click guard
+      const qty = await Alpine.store('qtyPicker').ask(p);
+      if (qty == null) return;
       this.cartMsg[p.product_id] = 'Adding...';
       try {
         const r = await fetch('/api/products/' + p.product_id + '/add-to-cart', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
-            quantity: 1,
+            quantity: qty,
             modality: 'PICKUP',
             description: p.description,
             price: p.sale_price || p.regular_price || 0

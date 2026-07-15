@@ -30,6 +30,7 @@
       if (r.ok && d.success) {
         const skipped = d.items_skipped > 0 ? `, ${d.items_skipped} skipped (pantry OK)` : '';
         this.addListMsg = `Added ${d.items_added} item${d.items_added !== 1 ? 's' : ''}${skipped}`;
+        window.refreshFavorites();
       } else {
         this.addListMsg = d.error || 'Failed';
       }

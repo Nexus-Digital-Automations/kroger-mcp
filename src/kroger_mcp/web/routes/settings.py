@@ -26,13 +26,18 @@ async def settings_page(
     oauth: str | None = Query(default=None),
     detail: str | None = Query(default=None),
 ):
-    from kroger_mcp.tools.shared import get_favorites_display_mode, get_include_spices_by_default
+    from kroger_mcp.tools.shared import (
+        get_favorites_display_mode,
+        get_include_spices_by_default,
+        get_meal_plan_pantry_deduction_mode,
+    )
 
     user_id = current_user_id(request)
     location_id = get_preferred_location_id() or ""
     servings = get_default_servings()
     include_spices_by_default = get_include_spices_by_default()
     favorites_display_mode = get_favorites_display_mode(user_id=user_id)
+    meal_plan_pantry_deduction_mode = get_meal_plan_pantry_deduction_mode(user_id=user_id)
 
     # Check auth status
     auth_status = "not_configured"
@@ -58,6 +63,7 @@ async def settings_page(
             "servings": servings,
             "include_spices_by_default": include_spices_by_default,
             "favorites_display_mode": favorites_display_mode,
+            "meal_plan_pantry_deduction_mode": meal_plan_pantry_deduction_mode,
             "auth_status": auth_status,
             "oauth_result": oauth or "",
             "oauth_detail": detail or "",

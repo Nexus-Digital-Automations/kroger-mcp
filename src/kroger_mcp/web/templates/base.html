@@ -1,5 +1,7 @@
 {% from "_macros/recipe_picker.html" import recipe_picker %}
 {% from "_macros/confirm_modal.html" import confirm_modal %}
+{% from "_macros/qty_picker_modal.html" import qty_picker_modal %}
+{% from "_macros/cook_modal.html" import cook_modal %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -518,6 +520,14 @@
 
   {# Global styled confirm/prompt dialog — Alpine.store('ssConfirm').ask(...) #}
   {{ confirm_modal() }}
+
+  {# Global add-to-cart quantity picker — Alpine.store('qtyPicker').ask(...) #}
+  {{ qty_picker_modal() }}
+
+  {# Global "mark meal cooked" modal — Alpine.store('cookPreview'), used by
+     meal_plan.html, recipe_view.html, and the notification bell's pending-meal
+     confirm action. Rendered globally since the bell is present on every page. #}
+  {{ cook_modal() }}
 
   <!-- ── Global Toast Stack ────────────────────────────────────────
        Pages dispatch CustomEvent('toast:show', { detail: { message, level?,

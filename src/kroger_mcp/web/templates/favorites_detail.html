@@ -33,6 +33,7 @@
       if (r.ok && d.success) {
         const skipped = d.items_skipped > 0 ? `, ${d.items_skipped} skipped` : '';
         this.addListMsg = `Added ${d.items_added} item${d.items_added !== 1 ? 's' : ''}${skipped}`;
+        window.refreshFavoritesDetail();
       } else {
         this.addListMsg = d.error || 'Failed';
       }
@@ -413,10 +414,12 @@ function favoriteItemsActions(currentListId) {
           quantity: item.default_quantity || 1,
           modality: 'PICKUP',
           description: item.description,
+          favorite_list_id: this.currentListId,
         }),
       });
       const d = await r.json();
       this._flash(r.ok ? 'Added to cart' : ('Error: ' + (d.error || 'Failed')));
+      if (r.ok) window.refreshFavoritesDetail();
     },
 
     async addToShoppingList(item) {

@@ -286,6 +286,11 @@ async def add_list_to_shopping_list(list_id: str, request: Request):
     data["items"] = _consolidate_items(data["items"])
     _save_shopping_list(data)
 
+    if items_added:
+        from kroger_mcp.analytics.favorites import mark_list_ordered
+
+        mark_list_ordered(list_id, user_id=current_user_id(request))
+
     return {
         "success": True,
         "list_name": list_name,

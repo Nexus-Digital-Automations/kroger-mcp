@@ -25,12 +25,16 @@ from kroger_mcp.analytics.database import (
 )
 from kroger_mcp.analytics.meal_planning import (
     assign_meal,
+    confirm_all_pending_meals,
     create_meal_plan,
     generate_meal_plan_shopping_list,
+    list_pending_meals,
     reconcile_past_meals,
+    skip_pending_meal,
     undo_meal_cooked,
 )
 from kroger_mcp.analytics.pantry import add_to_pantry, get_pantry_item
+from kroger_mcp.tools.shared import set_meal_plan_pantry_deduction_mode
 
 # Uses SQLite table resets + direct internal calls; the PG suite truncates per test.
 pytestmark = skip_on_pg
@@ -64,6 +68,9 @@ def clean_db():
         conn.commit()
     finally:
         conn.close()
+    # Legacy silent-auto-deduct behavior is now opt-in; most tests in this
+    # file predate the 'confirm' default and assume automatic reconciliation.
+    set_meal_plan_pantry_deduction_mode("automatic")
     yield
     reset_initialization()
 
@@ -115,7 +122,7 @@ def test_reconcile_deducts_past_meal_once(clean_db, monkeypatch):
     )
     plan_id = _seed_plan_with_meal("R1", _date(-1))
 
-    result = reconcile_past_meals(today=_date(0))
+    result = reconcile_past_meals(today=_date(0), mode="automatic")
 
     assert result["reconciled"] == 1
     assert get_pantry_item("RC_OIL")["level_percent"] < 100
@@ -131,9 +138,9 @@ def test_reconcile_is_idempotent(clean_db, monkeypatch):
     )
     _seed_plan_with_meal("R1", _date(-1))
 
-    reconcile_past_meals(today=_date(0))
+    reconcile_past_meals(today=_date(0), mode="automatic")
     level_after_first = get_pantry_item("RC_OIL")["level_percent"]
-    second = reconcile_past_meals(today=_date(0))
+    second = reconcile_past_meals(today=_date(0), mode="automatic")
 
     assert second["reconciled"] == 0
     assert get_pantry_item("RC_OIL")["level_percent"] == level_after_first
@@ -149,7 +156,7 @@ def test_reconcile_skips_today_and_future(clean_db, monkeypatch):
     _seed_plan_with_meal("R1", _date(0))   # today — not strictly past
     _seed_plan_with_meal("R2", _date(2), slot="lunch")
 
-    result = reconcile_past_meals(today=_date(0))
+    result = reconcile_past_meals(today=_date(0), mode="automatic")
 
     assert result["reconciled"] == 0
     assert get_pantry_item("RC_OIL")["level_percent"] == 100
@@ -164,7 +171,7 @@ def test_fuzzy_match_deducts_typed_name_ingredient(clean_db, monkeypatch):
     )
     _seed_plan_with_meal("R1", _date(-1))
 
-    reconcile_past_meals(today=_date(0))
+    reconcile_past_meals(today=_date(0), mode="automatic")
 
     assert get_pantry_item("RC_GARLIC")["level_percent"] < 100
     assert _count_deductions("RC_GARLIC") == 1
@@ -177,7 +184,7 @@ def test_unmatched_ingredient_is_skipped_not_errored(clean_db, monkeypatch):
     )
     plan_id = _seed_plan_with_meal("R1", _date(-1))
 
-    result = reconcile_past_meals(today=_date(0))
+    result = reconcile_past_meals(today=_date(0), mode="automatic")
 
     assert result["reconciled"] == 1  # meal handled, just nothing to deduct
     assert not result["skipped"]
@@ -195,7 +202,7 @@ def test_undo_past_meal_sets_tombstone_and_blocks_re_reconcile(clean_db, monkeyp
     past = _date(-1)
     plan_id = _seed_plan_with_meal("R1", past)
 
-    reconcile_past_meals(today=_date(0))
+    reconcile_past_meals(today=_date(0), mode="automatic")
     undo = undo_meal_cooked(plan_id, past, "dinner")
 
     assert undo["success"] is True
@@ -205,7 +212,7 @@ def test_undo_past_meal_sets_tombstone_and_blocks_re_reconcile(clean_db, monkeyp
     assert _count_deductions("RC_OIL") == 0  # ledger cleared
 
     # A later view must NOT silently re-deduct the meal the user undid.
-    again = reconcile_past_meals(today=_date(0))
+    again = reconcile_past_meals(today=_date(0), mode="automatic")
     assert again["reconciled"] == 0
     assert get_pantry_item("RC_OIL")["level_percent"] == 100
 
@@ -236,3 +243,64 @@ def test_shopping_list_excludes_reconciled_meals(clean_db, monkeypatch):
     names = {r["recipe_name"] for r in result["recipes_included"]}
     assert "Future Dish" in names
     assert "Past Dish" not in names  # reconciled + excluded
+
+
+# ── confirm mode (default) ────────────────────────────────────────────────────
+
+def test_reconcile_confirm_mode_does_not_deduct(clean_db, monkeypatch):
+    set_meal_plan_pantry_deduction_mode("confirm")
+    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    monkeypatch.setattr(
+        meal_planning, "get_recipe",
+        lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
+    )
+    plan_id = _seed_plan_with_meal("R1", _date(-1))
+
+    result = reconcile_past_meals(today=_date(0))
+
+    assert result["reconciled"] == 0
+    assert result["pending"] == 1
+    assert get_pantry_item("RC_OIL")["level_percent"] == 100  # untouched
+    assert _meal_row(plan_id)["pantry_deducted"] in (0, False)
+
+    pending = list_pending_meals(today=_date(0))
+    assert len(pending) == 1
+    assert pending[0]["plan_id"] == plan_id
+
+
+def test_confirm_all_pending_meals_deducts_all(clean_db, monkeypatch):
+    set_meal_plan_pantry_deduction_mode("confirm")
+    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    monkeypatch.setattr(
+        meal_planning, "get_recipe",
+        lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
+    )
+    plan_id = _seed_plan_with_meal("R1", _date(-1))
+    reconcile_past_meals(today=_date(0))  # confirm mode — leaves it pending
+
+    result = confirm_all_pending_meals(today=_date(0))
+
+    assert result["reconciled"] == 1
+    assert get_pantry_item("RC_OIL")["level_percent"] < 100
+    assert _meal_row(plan_id)["pantry_deducted"] in (1, True)
+    assert list_pending_meals(today=_date(0)) == []
+
+
+def test_skip_pending_meal_sets_tombstone_without_deduction(clean_db, monkeypatch):
+    set_meal_plan_pantry_deduction_mode("confirm")
+    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    monkeypatch.setattr(
+        meal_planning, "get_recipe",
+        lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
+    )
+    past = _date(-1)
+    plan_id = _seed_plan_with_meal("R1", past)
+
+    result = skip_pending_meal(plan_id, past, "dinner")
+
+    assert result["success"] is True
+    row = _meal_row(plan_id)
+    assert row["cook_skipped"] in (1, True)
+    assert row["pantry_deducted"] in (0, False)
+    assert get_pantry_item("RC_OIL")["level_percent"] == 100  # untouched
+    assert list_pending_meals(today=_date(0)) == []  # tombstoned, no longer pending

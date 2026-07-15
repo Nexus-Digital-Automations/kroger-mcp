@@ -82,5 +82,31 @@
         </div>
       </div>
     </template>
+
+    <template x-if="pendingMeals.length > 0">
+      <div>
+        <div class="ss-notif-head">Meals to confirm</div>
+        <template x-for="m in pendingMeals" :key="m.id">
+          <div class="ss-notif-row">
+            <div class="ss-notif-info">
+              <div class="ss-notif-name" x-text="m.recipe_name || m.recipe_id"></div>
+              <div class="ss-notif-brand" x-text="m.meal_slot + ' · ' + m.meal_date"></div>
+            </div>
+            <div class="ss-notif-actions">
+              <button class="ss-notif-btn" @click="confirmMeal(m)" :disabled="busy[m.id]">Confirm</button>
+              <button class="ss-notif-btn" @click="skipMeal(m)" :disabled="busy[m.id]">Didn't cook</button>
+            </div>
+          </div>
+        </template>
+        <div class="ss-notif-row" x-show="pendingMeals.length > 1" x-cloak style="justify-content: center;">
+          <button class="ss-notif-btn" @click="confirmAllMeals()">
+            Confirm all <span x-text="pendingMeals.length"></span> as cooked
+          </button>
+        </div>
+        <div style="padding: 0.5rem 0.875rem; text-align: right;">
+          <a href="/settings#meal-planning" style="font-size: 0.6875rem; color: var(--text-3); text-decoration: underline;">Meal plan settings</a>
+        </div>
+      </div>
+    </template>
   </div>
 </div>

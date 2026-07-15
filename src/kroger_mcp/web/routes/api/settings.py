@@ -31,6 +31,10 @@ class FavoritesDisplayModeBody(BaseModel):
     mode: str
 
 
+class MealPlanDeductionModeBody(BaseModel):
+    mode: str
+
+
 class LocationBody(BaseModel):
     location_id: str
 
@@ -55,6 +59,7 @@ async def get_settings(request: Request):
             get_default_servings,
             get_favorites_display_mode,
             get_include_spices_by_default,
+            get_meal_plan_pantry_deduction_mode,
             get_preferred_location_id,
         )
 
@@ -63,6 +68,7 @@ async def get_settings(request: Request):
         servings = get_default_servings(user_id=user_id)
         include_spices_by_default = get_include_spices_by_default(user_id=user_id)
         favorites_display_mode = get_favorites_display_mode(user_id=user_id)
+        meal_plan_pantry_deduction_mode = get_meal_plan_pantry_deduction_mode(user_id=user_id)
 
         auth_status = "not_configured"
         try:
@@ -77,6 +83,7 @@ async def get_settings(request: Request):
             "servings": servings,
             "include_spices_by_default": include_spices_by_default,
             "favorites_display_mode": favorites_display_mode,
+            "meal_plan_pantry_deduction_mode": meal_plan_pantry_deduction_mode,
             "auth_status": auth_status,
         }
     except Exception as exc:
@@ -117,6 +124,22 @@ async def set_favorites_display_mode_route(body: FavoritesDisplayModeBody, reque
 
         set_favorites_display_mode(body.mode, user_id=current_user_id(request))
         return {"success": True, "favorites_display_mode": body.mode}
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/meal-plan-pantry-deduction-mode")
+async def set_meal_plan_pantry_deduction_mode_route(
+    body: MealPlanDeductionModeBody, request: Request
+):
+    """Persist this user's meal-plan pantry deduction mode ('automatic' or 'confirm')."""
+    try:
+        from kroger_mcp.tools.shared import set_meal_plan_pantry_deduction_mode
+
+        set_meal_plan_pantry_deduction_mode(body.mode, user_id=current_user_id(request))
+        return {"success": True, "meal_plan_pantry_deduction_mode": body.mode}
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:

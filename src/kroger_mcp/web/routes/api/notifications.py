@@ -25,7 +25,11 @@ async def get_notifications(request: Request):
         user_id = current_user_id(request)
         alerts = await run_in_thread(notifications.list_alerts, user_id)
         unseen = await run_in_thread(notifications.unseen_count, user_id)
-        return JSONResponse(content={"alerts": alerts, "unseen": unseen})
+        pending_meals = await run_in_thread(notifications.list_pending_meals_for_bell, user_id)
+        unseen += len(pending_meals)
+        return JSONResponse(
+            content={"alerts": alerts, "pending_meals": pending_meals, "unseen": unseen}
+        )
     except Exception as exc:
         logger.exception("get_notifications failed")
         return JSONResponse(status_code=500, content={"error": str(exc)})

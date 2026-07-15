@@ -93,6 +93,23 @@ def unseen_count(user_id: str) -> int:
         conn.close()
 
 
+def list_pending_meals_for_bell(user_id: str) -> list[dict[str, Any]]:
+    """Past, unconfirmed meal-plan entries for the notification bell's
+    "pending meals" section. Thin wrapper over meal_planning.list_pending_meals
+    that adds a stable composite id the bell UI can key rows on.
+
+    Safe to call regardless of meal_plan_pantry_deduction_mode: in 'automatic'
+    mode these are usually already cleared by the lazy reconciler, but if a
+    user hasn't triggered that yet, surfacing them here is harmless.
+    """
+    from .meal_planning import list_pending_meals
+
+    meals = list_pending_meals(user_id=user_id)
+    for meal in meals:
+        meal["id"] = f"{meal['plan_id']}|{meal['meal_date']}|{meal['meal_slot']}"
+    return meals
+
+
 def mark_alerts_seen(user_id: str) -> int:
     """Clear the badge: mark all of a user's active alerts as seen."""
     ensure_initialized()

@@ -393,6 +393,29 @@ def set_favorites_display_mode(value: str, user_id: str | None = None) -> None:
     _save_preference("favorites_display_mode", value, user_id=user_id)
 
 
+def get_meal_plan_pantry_deduction_mode(user_id: str | None = None) -> str:
+    """Whether past meal-plan entries auto-deduct pantry or wait for confirmation.
+
+    'confirm' (default) — past, un-cooked meals surface in the notification
+    bell as "pending" and only deduct pantry once the user confirms them.
+    'automatic' — preserves the original silent behavior: past meals deduct
+    pantry the moment their date passes, no confirmation required.
+    """
+    return str(
+        _load_preferences(user_id=user_id).get("meal_plan_pantry_deduction_mode", "confirm")
+    )
+
+
+def set_meal_plan_pantry_deduction_mode(value: str, user_id: str | None = None) -> None:
+    """Persist this user's meal-plan pantry deduction mode.
+
+    Raises ValueError if value isn't 'automatic' or 'confirm'.
+    """
+    if value not in ("automatic", "confirm"):
+        raise ValueError("meal_plan_pantry_deduction_mode must be 'automatic' or 'confirm'")
+    _save_preference("meal_plan_pantry_deduction_mode", value, user_id=user_id)
+
+
 def get_kroger_credentials(user_id: str | None = None) -> dict:
     """Get this user's Kroger API credentials; falls back to KROGER_* env vars."""
     import json as _json
