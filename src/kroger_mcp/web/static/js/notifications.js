@@ -13,6 +13,8 @@ document.addEventListener('alpine:init', () => {
     open: false,
     alerts: [],
     pendingMeals: [],
+    pantryAlerts: [],
+    needsPlan: false,
     unseen: 0,
     busy: {},
 
@@ -51,6 +53,8 @@ document.addEventListener('alpine:init', () => {
         const d = await res.json();
         this.alerts = d.alerts || [];
         this.pendingMeals = d.pending_meals || [];
+        this.pantryAlerts = d.pantry_alerts || [];
+        this.needsPlan = !!d.needs_plan;
         this.unseen = d.unseen || 0;
       } catch (e) {
         /* offline / transient — keep prior state */

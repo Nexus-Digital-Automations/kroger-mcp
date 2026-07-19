@@ -180,6 +180,35 @@ def _get_overdue_favorites(lists):
     return overdue
 
 
+def _get_smart_suggestions(user_id: str, limit: int = 6):
+    """Overdue repurchase + upcoming-seasonal items, normalized to one shape
+    for the dashboard card. Both are already computed by analytics.predictions
+    (today only reachable via the MCP chat tool) -- this just surfaces them."""
+    from kroger_mcp.analytics.predictions import get_shopping_suggestions
+
+    suggestions = get_shopping_suggestions(user_id=user_id, days_ahead=14)
+
+    items = [
+        {
+            "description": p["description"] or p["product_id"],
+            "tag": f"{p['days_overdue']}d overdue" if p["days_overdue"] else "Overdue",
+            "tag_kind": "danger",
+        }
+        for p in suggestions["overdue"][:limit]
+    ]
+    remaining = limit - len(items)
+    if remaining > 0:
+        items.extend(
+            {
+                "description": s["description"] or s["product_id"],
+                "tag": s["holiday"] or "In season",
+                "tag_kind": "info",
+            }
+            for s in suggestions["seasonal_items"][:remaining]
+        )
+    return items
+
+
 def _dashboard_payload(user_id: str) -> dict:
     """All blocking work for the dashboard (JSON load + DB queries), run off
     the event loop via run_in_thread. Each helper opens/closes its own DB
@@ -193,6 +222,7 @@ def _dashboard_payload(user_id: str) -> dict:
     fav_lists = get_lists(user_id=user_id)
     overdue_favorites = _get_overdue_favorites(fav_lists)
     uncooked_past_meals = _get_uncooked_past_meals(user_id, recipe_map)
+    smart_suggestions = _get_smart_suggestions(user_id)
 
     today = datetime.now().date()
     monday = today - timedelta(days=today.weekday())
@@ -226,6 +256,7 @@ def _dashboard_payload(user_id: str) -> dict:
         "today": today,
         "overdue_favorites": overdue_favorites,
         "uncooked_past_meals": uncooked_past_meals,
+        "smart_suggestions": smart_suggestions,
     }
 
 

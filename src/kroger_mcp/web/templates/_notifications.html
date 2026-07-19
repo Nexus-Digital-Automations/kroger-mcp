@@ -108,5 +108,41 @@
         </div>
       </div>
     </template>
+
+    <template x-if="pantryAlerts.length > 0">
+      <div>
+        <div class="ss-notif-head">Pantry needs attention</div>
+        <template x-for="p in pantryAlerts" :key="p.product_id">
+          <div class="ss-notif-row">
+            <div class="ss-notif-info">
+              <div class="ss-notif-name" x-text="p.description"></div>
+            </div>
+            <div class="ss-notif-actions">
+              <span class="ss-notif-btn" x-show="p.status === 'out'" x-cloak style="color: var(--danger);">OUT</span>
+              <span class="ss-notif-btn" x-show="p.status === 'low'" x-cloak x-text="p.level_percent + '%'"></span>
+              <span class="ss-notif-btn" x-show="p.days_to_expiration !== null && p.days_to_expiration <= 7"
+                    x-cloak x-text="'Exp ' + p.days_to_expiration + 'd'"></span>
+            </div>
+          </div>
+        </template>
+        <div style="padding: 0.5rem 0.875rem; text-align: right;">
+          <a href="/pantry" style="font-size: 0.6875rem; color: var(--text-3); text-decoration: underline;">View pantry</a>
+        </div>
+      </div>
+    </template>
+
+    <template x-if="needsPlan">
+      <div>
+        <div class="ss-notif-head">Plan next week's meals</div>
+        <div class="ss-notif-row">
+          <div class="ss-notif-info">
+            <div class="ss-notif-name">You haven't planned meals for next week yet.</div>
+          </div>
+          <div class="ss-notif-actions">
+            <a class="ss-notif-btn" href="/meal-plan" style="text-decoration: none;">Plan now</a>
+          </div>
+        </div>
+      </div>
+    </template>
   </div>
 </div>

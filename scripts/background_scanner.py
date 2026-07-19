@@ -56,9 +56,9 @@ def scan_watchlist_for_deals():
         return
 
     # Get preferred location
-    location_id = os.getenv("KROGER_PREFERRED_LOCATION")
+    location_id = os.getenv("KROGER_LOCATION_ID")
     if not location_id:
-        logging.error("No KROGER_PREFERRED_LOCATION set")
+        logging.error("No KROGER_LOCATION_ID set")
         return
 
     logging.info(f"Using location: {location_id}")

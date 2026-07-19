@@ -110,6 +110,43 @@ def list_pending_meals_for_bell(user_id: str) -> list[dict[str, Any]]:
     return meals
 
 
+def list_pantry_alerts_for_bell(user_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Low-stock / expiring-within-7-days pantry items for the bell.
+
+    Reuses pantry.get_pantry_status (favorites-cadence depletion, expiration
+    recalculation) rather than duplicating its predicate, so the bell and the
+    dashboard's "Pantry Needs Attention" card never disagree on what counts
+    as an alert.
+    """
+    from .pantry import get_pantry_status
+
+    items = get_pantry_status(user_id=user_id)
+    alerts = [
+        item
+        for item in items
+        if item["status"] in ("low", "out")
+        or (item["days_to_expiration"] is not None and item["days_to_expiration"] <= 7)
+    ]
+    alerts.sort(key=lambda item: item["level_percent"])
+    return alerts[:limit]
+
+
+def next_week_needs_plan(user_id: str) -> bool:
+    """True if no meal plan covers next Monday -- surfaced as a bell reminder.
+
+    Checking a single anchor date (next Monday) rather than the whole week is
+    enough: create_meal_plan's weekly default spans Mon-Sun, so any plan
+    covering that Monday covers the whole upcoming week.
+    """
+    from datetime import timedelta
+
+    from .meal_planning import find_plan_covering_date
+
+    today = datetime.now().date()
+    next_monday = today + timedelta(days=(7 - today.weekday()))
+    return find_plan_covering_date(next_monday.isoformat(), user_id=user_id) is None
+
+
 def mark_alerts_seen(user_id: str) -> int:
     """Clear the badge: mark all of a user's active alerts as seen."""
     ensure_initialized()
