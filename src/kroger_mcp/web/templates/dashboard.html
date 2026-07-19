@@ -5,6 +5,49 @@
 
 {% block content %}
 
+<style>
+  /* "Needs your attention" priority feed — one ranked list instead of six
+     equal-weight cards. Tier accent colors reuse the app's semantic tokens;
+     .ss-badge-info fills a gap base.html never needed until now (dashboard
+     is the first page ranking a "plan ahead" / informational tier). */
+  .ss-badge-info { background: var(--info-light, oklch(93% 0.025 240)); color: var(--info); }
+
+  .attn-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.875rem; }
+  .attn-head h2 { font-family: 'Lora', serif; font-size: 1.0625rem; font-weight: 700; color: var(--text-1); letter-spacing: -0.01em; }
+  .attn-count { font-size: 0.75rem; color: var(--text-3); }
+
+  .attn-tier { margin-bottom: 1.25rem; }
+  .attn-tier:last-child { margin-bottom: 0; }
+  .attn-tier-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.5rem; }
+  .attn-tier-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex-shrink: 0; }
+  .attn-tier[data-tier="critical"] .attn-tier-dot { background: var(--danger); }
+  .attn-tier[data-tier="critical"] .attn-tier-label { color: var(--danger); }
+  .attn-tier[data-tier="week"] .attn-tier-dot { background: var(--amber-dark); }
+  .attn-tier[data-tier="week"] .attn-tier-label { color: var(--amber-dark); }
+  .attn-tier[data-tier="ahead"] .attn-tier-dot { background: var(--info); }
+  .attn-tier[data-tier="ahead"] .attn-tier-label { color: var(--info); }
+
+  .attn-row { display: flex; align-items: center; gap: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 0.55rem; padding: 0.625rem 0.875rem; margin-bottom: 0.4rem; }
+  .attn-tier[data-tier="critical"] .attn-row { border-left-color: var(--danger); }
+  .attn-tier[data-tier="week"] .attn-row { border-left-color: var(--amber-dark); }
+  .attn-tier[data-tier="ahead"] .attn-row { border-left-color: var(--info); }
+  .attn-info { flex: 1; min-width: 0; }
+  .attn-title { font-size: 0.8438rem; font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attn-sub { font-size: 0.75rem; color: var(--text-3); margin-top: 0.1rem; }
+  .attn-actions { display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; }
+  .attn-action { font-size: 0.75rem; font-weight: 600; padding: 0.3rem 0.6rem; border-radius: 0.4rem; border: 1px solid var(--border); background: var(--surface); color: var(--text-1); cursor: pointer; text-decoration: none; white-space: nowrap; }
+  .attn-action:hover { border-color: var(--terra); color: var(--terra); }
+  .attn-action:disabled { opacity: 0.5; cursor: default; }
+
+  .attn-empty { text-align: center; padding: 2rem 1rem; }
+
+  .calm-strip { margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }
+  .calm-head { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); margin-bottom: 0.625rem; }
+  .quiet-stats { display: flex; gap: 1.5rem; margin-top: 0.875rem; }
+  .quiet-stats .item { font-size: 0.75rem; color: var(--text-3); }
+  .quiet-stats .item b { color: var(--text-2); font-weight: 700; font-family: 'DM Sans', sans-serif; }
+</style>
+
 {# recipe_count is deliberately NOT in this condition: recipes live in a
    shared JSON store, so a brand-new user inherits the household's recipes.
    custom_favorites_count excludes the auto-created default list. #}
@@ -64,76 +107,134 @@
   </div>
 </div>
 
-<!-- Stat Cards -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-  {% set stats = [
-    ("Recipes", recipe_count, "--green", "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"),
-    ("Pantry Alerts", pantry_alert_count, "--warning", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"),
-    ("Meal Plans", meal_plan_count, "--info", "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"),
-    ("Favorites Lists", favorites_count, "--terra", "M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"),
-  ] %}
-  {% for label, value, color_var, icon_path in stats %}
-  <div class="ss-card p-5" style="position: relative; overflow: hidden;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
-      <p style="font-size: 0.8125rem; color: var(--text-3); font-weight: 500;">{{ label }}</p>
-      <div style="width: 2rem; height: 2rem; border-radius: 0.5rem; background: oklch(from var({{ color_var }}) l c h / 0.1); display: flex; align-items: center; justify-content: center;">
-        <svg style="width: 1rem; height: 1rem; color: var({{ color_var }});" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon_path }}"/>
-        </svg>
-      </div>
-    </div>
-    <p style="font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; color: var(--text-1); letter-spacing: -0.03em; line-height: 1;">{{ value }}</p>
+{% set priority_feed_seed = {"overdue_favorites": overdue_favorites, "smart_suggestions": smart_suggestions} %}
+<script type="application/json" id="priority-feed-seed">{{ priority_feed_seed | tojson }}</script>
+
+<!-- Needs your attention: one ranked feed instead of six equal-weight cards.
+     Sourced client-side from the same /api/notifications payload the bell
+     already polls (see priority_feed.js) plus the two dashboard-only
+     signals seeded above, so the bell and this feed never disagree. -->
+<div class="ss-card p-6 mb-6" x-data="priorityFeed" x-cloak>
+  <div class="attn-head">
+    <h2>Needs your attention</h2>
+    <span class="attn-count" x-show="!loading" x-text="totalCount + (totalCount === 1 ? ' item' : ' items')"></span>
   </div>
-  {% endfor %}
+
+  <div class="attn-empty" x-show="!loading && totalCount === 0" x-cloak>
+    <p style="font-size: 1.25rem; margin-bottom: 0.25rem;">&#127807;</p>
+    <p style="font-size: 0.8125rem; color: var(--text-3);">Nothing needs your attention right now.</p>
+  </div>
+
+  <template x-for="tier in [
+    {name: 'critical', dataTier: 'critical', label: 'Critical — already late or out', rows: critical},
+    {name: 'week', dataTier: 'week', label: 'This week — time-sensitive, not urgent yet', rows: thisWeek},
+    {name: 'ahead', dataTier: 'ahead', label: 'Plan ahead — foresight, no deadline', rows: planAhead},
+  ]" :key="tier.name">
+    <div class="attn-tier" :data-tier="tier.dataTier" x-show="tier.rows.length > 0" x-cloak>
+      <div class="attn-tier-label"><span class="attn-tier-dot"></span><span x-text="tier.label"></span></div>
+
+      <template x-for="row in tier.rows" :key="row.kind + '-' + (row.data.id || row.data.product_id || row.data.list_id || row.data.description || row.kind)">
+        <div class="attn-row">
+
+          <!-- Pantry (low/out/expiring) -->
+          <template x-if="row.kind === 'pantry'">
+            <div class="attn-info">
+              <div class="attn-title" x-text="row.data.description"></div>
+              <div class="attn-sub">Pantry</div>
+            </div>
+          </template>
+          <template x-if="row.kind === 'pantry'">
+            <div class="attn-actions">
+              <span class="ss-badge ss-badge-danger" x-show="row.data.status === 'out'">OUT</span>
+              <span class="ss-badge ss-badge-warning" x-show="row.data.status !== 'out' && row.data.days_to_expiration != null && row.data.days_to_expiration <= 7" x-text="'Exp ' + row.data.days_to_expiration + 'd'"></span>
+              <span class="ss-badge ss-badge-warning" x-show="row.data.status === 'low' && !(row.data.days_to_expiration != null && row.data.days_to_expiration <= 7)" x-text="row.data.level_percent + '%'"></span>
+              <a class="attn-action" href="/pantry">View pantry</a>
+            </div>
+          </template>
+
+          <!-- Meal awaiting cook-confirmation -->
+          <template x-if="row.kind === 'meal'">
+            <div class="attn-info">
+              <div class="attn-title" x-text="row.data.recipe_name || row.data.recipe_id"></div>
+              <div class="attn-sub" x-text="row.data.meal_slot.charAt(0).toUpperCase() + row.data.meal_slot.slice(1) + ' · ' + row.data.meal_date"></div>
+            </div>
+          </template>
+          <template x-if="row.kind === 'meal'">
+            <div class="attn-actions">
+              <span class="ss-badge" :class="_daysOverdue(row.data) >= 3 ? 'ss-badge-danger' : 'ss-badge-warning'"
+                    x-text="_daysOverdue(row.data) <= 0 ? 'Today' : (_daysOverdue(row.data) + 'd ago')"></span>
+              <button class="attn-action" @click="confirmMeal(row.data)">Confirm</button>
+              <button class="attn-action" @click="skipMeal(row.data)" :disabled="busy[row.data.id]">Didn't cook</button>
+            </div>
+          </template>
+
+          <!-- Favorites list overdue for reorder -->
+          <template x-if="row.kind === 'favorite'">
+            <div class="attn-info">
+              <div class="attn-title" x-text="row.data.name"></div>
+              <div class="attn-sub">Favorites · reorder overdue</div>
+            </div>
+          </template>
+          <template x-if="row.kind === 'favorite'">
+            <div class="attn-actions">
+              <span class="ss-badge ss-badge-danger" x-text="row.data.days_overdue > 0 ? row.data.days_overdue + 'd overdue' : 'Due now'"></span>
+              <button class="attn-action" @click="reorderFavorite(row.data)" :disabled="busy[row.data.list_id]">Reorder</button>
+            </div>
+          </template>
+
+          <!-- Favorite-on-sale alert -->
+          <template x-if="row.kind === 'sale'">
+            <div class="attn-info">
+              <div class="attn-title" x-text="row.data.description"></div>
+              <div class="attn-sub" x-text="(row.data.brand ? row.data.brand + ' · ' : '') + priceLabel(row.data)"></div>
+            </div>
+          </template>
+          <template x-if="row.kind === 'sale'">
+            <div class="attn-actions">
+              <span class="ss-badge ss-badge-ok">Sale</span>
+              <button class="attn-action" @click="addToList(row.data)" :disabled="busy[row.data.id]">List</button>
+              <button class="attn-action" @click="addToCart(row.data)" :disabled="busy[row.data.id]">Cart</button>
+              <button class="attn-action" @click="view(row.data)">View</button>
+            </div>
+          </template>
+
+          <!-- Smart suggestion (overdue repurchase or seasonal) -->
+          <template x-if="row.kind === 'suggestion'">
+            <div class="attn-info">
+              <div class="attn-title" x-text="row.data.description"></div>
+              <div class="attn-sub">Smart suggestion</div>
+            </div>
+          </template>
+          <template x-if="row.kind === 'suggestion'">
+            <div class="attn-actions">
+              <span class="ss-badge" :class="row.data.tag_kind === 'danger' ? 'ss-badge-danger' : 'ss-badge-info'" x-text="row.data.tag"></span>
+              <a class="attn-action" href="/products">View</a>
+            </div>
+          </template>
+
+          <!-- Next week has no meal plan -->
+          <template x-if="row.kind === 'plan'">
+            <div class="attn-info">
+              <div class="attn-title">Next week has no meal plan yet</div>
+              <div class="attn-sub">Meal planning</div>
+            </div>
+          </template>
+          <template x-if="row.kind === 'plan'">
+            <div class="attn-actions">
+              <a class="attn-action" href="/meal-plan">Plan now</a>
+            </div>
+          </template>
+
+        </div>
+      </template>
+    </div>
+  </template>
 </div>
 
-<!-- Two-column body -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-
-  <!-- Pantry Needs Attention -->
-  <div class="ss-card p-6">
-    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
-      <svg style="width: 1rem; height: 1rem; color: var(--warning);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-      </svg>
-      <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); letter-spacing: -0.01em;">Pantry Needs Attention</h2>
-    </div>
-    {% if pantry_alerts %}
-    <ul class="space-y-1">
-      {% for item in pantry_alerts %}
-      <li style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.25rem; border-bottom: 1px solid oklch(94% 0.01 70);">
-        <span style="font-size: 0.8125rem; color: var(--text-1); flex: 1; margin-right: 0.75rem;">{{ item.description }}</span>
-        <div style="display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0;">
-          {% if item.is_expiring %}
-          <span class="ss-badge ss-badge-warning">Exp {{ item.days_to_expiration }}d</span>
-          {% endif %}
-          {% if item.level_percent <= 0 %}
-          <span class="ss-badge ss-badge-danger">OUT</span>
-          {% elif item.is_low %}
-          <span class="ss-badge ss-badge-warning">{{ item.level_percent }}%</span>
-          {% endif %}
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <div style="text-align: center; padding: 1.5rem 1rem;">
-      <p style="font-size: 1.25rem; margin-bottom: 0.25rem;">&#127807;</p>
-      <p style="font-size: 0.8125rem; color: var(--text-3);">All pantry items are well stocked.</p>
-      <a href="/pantry" style="font-size: 0.75rem; color: var(--terra); text-decoration: none; font-weight: 500; transition: text-decoration 0.1s;"
-        onmouseenter="this.style.textDecoration='underline'" onmouseleave="this.style.textDecoration='none'">View pantry &#8594;</a>
-    </div>
-    {% endif %}
-  </div>
-
-  <!-- This Week's Meals -->
-  <div class="ss-card p-6">
-    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
-      <svg style="width: 1rem; height: 1rem; color: var(--info);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-      </svg>
-      <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); letter-spacing: -0.01em;">This Week's Meals</h2>
-    </div>
+<!-- This week at a glance: calm, informational, no action needed -->
+<div class="ss-card p-6">
+  <div class="calm-strip" style="margin-top: 0; padding-top: 0; border-top: none;">
+    <div class="calm-head">This week at a glance</div>
     <div class="grid grid-cols-7 gap-1.5">
       {% set day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
       {% for day in week_days %}
@@ -160,81 +261,15 @@
       <a href="/meal-plan" style="font-size: 0.75rem; color: var(--terra); text-decoration: none; font-weight: 500; transition: text-decoration 0.1s;"
         onmouseenter="this.style.textDecoration='underline'" onmouseleave="this.style.textDecoration='none'">View full plan &#8594;</a>
     </div>
-  </div>
 
+    <div class="quiet-stats">
+      <span class="item"><b>{{ recipe_count }}</b> recipes</span>
+      <span class="item"><b>{{ meal_plan_count }}</b> meal plans</span>
+      <span class="item"><b>{{ favorites_count }}</b> favorites lists</span>
+    </div>
+  </div>
 </div>
 
-<!-- Overdue Favorites -->
-{% if overdue_favorites %}
-<div class="ss-card p-6">
-  <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
-    <svg style="width: 1rem; height: 1rem; color: var(--danger);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
-    </svg>
-    <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); letter-spacing: -0.01em;">Favorites Overdue for Reorder</h2>
-  </div>
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-    {% for fav in overdue_favorites %}
-    <a href="/favorites/{{ fav.list_id }}"
-       class="ss-card ss-card-interactive"
-       style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: oklch(97% 0.015 25); border-color: oklch(90% 0.04 25); text-decoration: none;">
-      <span style="font-size: 0.8125rem; font-weight: 500; color: var(--text-1);">{{ fav.name }}</span>
-      <span style="font-size: 0.6875rem; color: var(--danger); font-weight: 600; flex-shrink: 0; margin-left: 0.5rem;">
-        {% if fav.days_overdue > 0 %}{{ fav.days_overdue }}d overdue{% else %}Due now{% endif %}
-      </span>
-    </a>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
-
-<!-- Uncooked Scheduled Meals -->
-{% if uncooked_past_meals %}
-<div class="ss-card p-6">
-  <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
-    <svg style="width: 1rem; height: 1rem; color: var(--amber);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-    </svg>
-    <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); letter-spacing: -0.01em;">Uncooked Scheduled Meals</h2>
-  </div>
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-    {% for meal in uncooked_past_meals %}
-    <a href="/meal-plan"
-       class="ss-card ss-card-interactive"
-       style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: oklch(98% 0.02 75); border-color: oklch(90% 0.05 75); text-decoration: none;">
-      <span style="min-width: 0;">
-        <span style="font-size: 0.8125rem; font-weight: 500; color: var(--text-1); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ meal.recipe_name }}</span>
-        <span style="font-size: 0.6875rem; color: var(--text-3);">{{ meal.meal_slot.title() }} · {{ meal.meal_date }}</span>
-      </span>
-      <span style="font-size: 0.6875rem; color: var(--amber); font-weight: 600; flex-shrink: 0; margin-left: 0.5rem;">
-        {% if meal.days_overdue == 1 %}1d ago{% else %}{{ meal.days_overdue }}d ago{% endif %}
-      </span>
-    </a>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
-
-<!-- Smart Suggestions -->
-{% if smart_suggestions %}
-<div class="ss-card p-6">
-  <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
-    <svg style="width: 1rem; height: 1rem; color: var(--info);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-    </svg>
-    <h2 style="font-family: 'Lora', serif; font-size: 0.9375rem; font-weight: 600; color: var(--text-1); letter-spacing: -0.01em;">Smart Suggestions</h2>
-  </div>
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-    {% for item in smart_suggestions %}
-    <a href="/products"
-       class="ss-card ss-card-interactive"
-       style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; text-decoration: none;">
-      <span style="font-size: 0.8125rem; font-weight: 500; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 0.5rem;">{{ item.description }}</span>
-      <span class="ss-badge ss-badge-{{ item.tag_kind }}" style="flex-shrink: 0;">{{ item.tag }}</span>
-    </a>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
+<script src="/static/js/priority_feed.js"></script>
 
 {% endblock %}

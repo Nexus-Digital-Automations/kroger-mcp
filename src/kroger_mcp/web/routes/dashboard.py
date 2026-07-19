@@ -21,57 +21,6 @@ from kroger_mcp.web.templating import templates
 router = APIRouter()
 
 
-_PANTRY_ALERT_PREDICATE = """
-    user_id = ?
-    AND (level_percent <= COALESCE(low_threshold, 20)
-         OR (days_to_expiration IS NOT NULL AND days_to_expiration <= 7))
-"""
-
-
-def _get_pantry_alerts(user_id: str, limit: int = 10):
-    """Return (items, total) for pantry items that are low or expiring within
-    7 days. Filtering happens in SQL so only the displayed rows are fetched;
-    total preserves the full alert count for the stat card."""
-    ensure_initialized()
-    conn = get_db_connection()
-    try:
-        cursor = conn.execute(
-            f"""
-            SELECT product_id, description, level_percent, low_threshold,
-                   days_to_expiration
-            FROM pantry_items
-            WHERE {_PANTRY_ALERT_PREDICATE}
-            ORDER BY level_percent ASC
-            LIMIT {int(limit)}
-        """,
-            (user_id,),
-        )
-        items = []
-        for row in cursor.fetchall():
-            item = dict(row)
-            level = item["level_percent"]
-            threshold = item["low_threshold"] or 20
-            days_to_exp = item.get("days_to_expiration")
-            items.append(
-                {
-                    "description": item["description"] or item["product_id"],
-                    "level_percent": round(level),
-                    "is_low": level <= threshold,
-                    "is_expiring": days_to_exp is not None and days_to_exp <= 7,
-                    "days_to_expiration": days_to_exp,
-                }
-            )
-        cursor = conn.execute(
-            f"SELECT COUNT(*) AS cnt FROM pantry_items WHERE {_PANTRY_ALERT_PREDICATE}",
-            (user_id,),
-        )
-        row = cursor.fetchone()
-        total = row["cnt"] if row else len(items)
-        return items, total
-    finally:
-        conn.close()
-
-
 def _get_this_week_meals(user_id: str, recipe_map: dict[str, str]):
     """Return this user's meal entries for the current Mon–Sun week."""
     ensure_initialized()
@@ -103,44 +52,6 @@ def _get_this_week_meals(user_id: str, recipe_map: dict[str, str]):
                     "date": row["meal_date"],
                     "slot": row["meal_slot"],
                     "recipe_name": recipe_map.get(row["recipe_id"], row["recipe_id"]),
-                }
-            )
-        return meals
-    finally:
-        conn.close()
-
-
-def _get_uncooked_past_meals(user_id: str, recipe_map: dict[str, str]):
-    """Return this user's scheduled meals whose date has passed but were never
-    marked cooked — surfaced as a dashboard reminder to log what they ate."""
-    ensure_initialized()
-    conn = get_db_connection()
-    try:
-        today = datetime.now().date()
-        cursor = conn.execute(
-            """
-            SELECT me.meal_date, me.meal_slot, me.recipe_id, mp.name as plan_name
-            FROM meal_entries me
-            JOIN meal_plans mp ON me.plan_id = mp.id
-            WHERE me.user_id = ?
-              AND me.meal_date < ?
-              AND me.cooked_at IS NULL
-            ORDER BY me.meal_date DESC
-        """,
-            (user_id, today.isoformat()),
-        )
-        rows = cursor.fetchall()
-
-        meals = []
-        for row in rows:
-            days_overdue = (today - datetime.fromisoformat(row["meal_date"]).date()).days
-            meals.append(
-                {
-                    "meal_date": row["meal_date"],
-                    "meal_slot": row["meal_slot"],
-                    "recipe_name": recipe_map.get(row["recipe_id"], row["recipe_id"]),
-                    "plan_name": row["plan_name"],
-                    "days_overdue": days_overdue,
                 }
             )
         return meals
@@ -212,16 +123,21 @@ def _get_smart_suggestions(user_id: str, limit: int = 6):
 def _dashboard_payload(user_id: str) -> dict:
     """All blocking work for the dashboard (JSON load + DB queries), run off
     the event loop via run_in_thread. Each helper opens/closes its own DB
-    connection, so the whole payload is safe inside one worker thread."""
+    connection, so the whole payload is safe inside one worker thread.
+
+    Pantry alerts, meals awaiting cook-confirmation, favorite-on-sale alerts,
+    and the "plan next week" reminder are NOT computed here -- the
+    `priorityFeed` Alpine component fetches those from GET /api/notifications
+    (the same endpoint the bell polls) so the two never disagree. Only the
+    two dashboard-only signals (overdue favorites, smart suggestions) are
+    server-rendered, as JSON for that component's init args."""
     recipe_data = _load_recipes()
     recipes = recipe_data.get("recipes", [])
     recipe_map = {r["id"]: r["name"] for r in recipes}
-    pantry_alerts, pantry_alert_count = _get_pantry_alerts(user_id)
     this_week_meals = _get_this_week_meals(user_id, recipe_map)
     meal_plan_count = _get_meal_plan_count(user_id)
     fav_lists = get_lists(user_id=user_id)
     overdue_favorites = _get_overdue_favorites(fav_lists)
-    uncooked_past_meals = _get_uncooked_past_meals(user_id, recipe_map)
     smart_suggestions = _get_smart_suggestions(user_id)
 
     today = datetime.now().date()
@@ -238,7 +154,6 @@ def _dashboard_payload(user_id: str) -> dict:
     return {
         "active_page": "dashboard",
         "recipe_count": len(recipes),
-        "pantry_alert_count": pantry_alert_count,
         "meal_plan_count": meal_plan_count,
         "favorites_count": len(fav_lists),
         # First-run signal for the onboarding banner: every account auto-gets
@@ -250,12 +165,10 @@ def _dashboard_payload(user_id: str) -> dict:
             for lst in fav_lists
             if not lst.get("is_default") and lst.get("list_type") != "snacks"
         ),
-        "pantry_alerts": pantry_alerts,
         "week_days": week_days,
         "meals_by_date": meals_by_date,
         "today": today,
         "overdue_favorites": overdue_favorites,
-        "uncooked_past_meals": uncooked_past_meals,
         "smart_suggestions": smart_suggestions,
     }
 
