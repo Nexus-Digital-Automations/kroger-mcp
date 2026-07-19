@@ -39,8 +39,18 @@ def _test_user_id() -> str:
 
 
 @pytest.fixture
-def clean_db():
-    """Reset database before each test."""
+def clean_db(tmp_path, monkeypatch):
+    """Point analytics DB access at a throwaway file, then reset it.
+
+    Was previously operating on the real database.DB_FILE with no
+    monkeypatch — a full test-suite run would wipe pantry_items/
+    purchase_events/product_statistics/products in whatever DB happened to
+    be configured. Isolated the same way test_consent.py's isolated_db is.
+    """
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "pantry_expiration_test.db"))
     reset_initialization()
     ensure_initialized()
 

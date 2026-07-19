@@ -38,7 +38,17 @@ pytestmark = skip_on_pg
 
 
 @pytest.fixture
-def clean_db():
+def clean_db(tmp_path, monkeypatch):
+    """Point analytics DB access at a throwaway file, then reset it.
+
+    Was previously operating on the real database.DB_FILE with no
+    monkeypatch — see test_pantry_expiration.py's clean_db for the incident
+    this caused. Isolated the same way.
+    """
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "pantry_partial_test.db"))
     reset_initialization()
     ensure_initialized()
 

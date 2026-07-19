@@ -988,6 +988,43 @@ def run_schema_migrations() -> None:
             if col_name not in existing_columns:
                 conn.execute(f"ALTER TABLE product_statistics ADD COLUMN {col_name} {col_def}")
 
+        # favorite_lists has the same gap as pantry_items above: no user_id in
+        # the base CREATE TABLE, only added by the one-time
+        # scripts/migrate_to_multi_tenant.py against the real dev/prod DB.
+        # get_favorite_depletion_rates() (favorite_depletion.py) joins on
+        # fl.user_id, so a fresh install needs this too. The base schema's
+        # `name TEXT NOT NULL UNIQUE` also has to become non-unique — two
+        # different users must each be able to have a "Weekly Staples" list —
+        # matching migrate_to_multi_tenant.py's TABLES_TO_RECREATE shape.
+        # backfill=False: the only pre-existing row at this point is the
+        # generic 'default' seed row (INSERT OR IGNORE above), not real user
+        # data — same "no reliable attribution" reasoning as purchase_events/
+        # orders above. Backfilling it to the resolved default owner instead
+        # would attribute a global seed row to a specific user_id that may not
+        # even exist in the users table yet (real installs already carry a
+        # migrated user_id here from migrate_to_multi_tenant.py; this path
+        # only fires for fresh/test DBs that never ran it).
+        cursor = conn.execute("PRAGMA table_info(favorite_lists)")
+        if "user_id" not in {row[1] for row in cursor.fetchall()}:
+            _rebuild_table_add_user_id(
+                conn,
+                "favorite_lists",
+                """
+                CREATE TABLE favorite_lists (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    list_type TEXT DEFAULT 'custom',
+                    reorder_weeks INTEGER DEFAULT NULL,
+                    last_ordered_at TEXT DEFAULT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    user_id TEXT
+                )
+                """,
+                backfill=False,
+            )
+
         # Migrate favorite_lists table - add reorder schedule columns
         cursor = conn.execute("PRAGMA table_info(favorite_lists)")
         favorite_lists_columns = {row[1] for row in cursor.fetchall()}
@@ -1000,6 +1037,39 @@ def run_schema_migrations() -> None:
         for col_name, col_def in favorite_lists_new_columns:
             if col_name not in favorite_lists_columns:
                 conn.execute(f"ALTER TABLE favorite_lists ADD COLUMN {col_name} {col_def}")
+
+        # pantry_items was never given user_id in the base CREATE TABLE (only
+        # scripts/migrate_to_multi_tenant.py added it, one-time, against the
+        # real dev/prod DB) — a fresh install's pantry_items has no user_id at
+        # all, which every user-scoped pantry function (add_to_pantry,
+        # get_pantry_status, get_favorite_depletion_rates, ...) assumes exists.
+        # Rebuild it here too, matching that script's target shape exactly, so
+        # fresh installs match already-migrated ones. Must run BEFORE the
+        # column-addition pass below, or a fresh install's rebuild (which
+        # doesn't know about expiration_date/quantity_on_hand/etc. yet) would
+        # silently drop those columns on an already-migrated DB.
+        cursor = conn.execute("PRAGMA table_info(pantry_items)")
+        if "user_id" not in {row[1] for row in cursor.fetchall()}:
+            _rebuild_table_add_user_id(
+                conn,
+                "pantry_items",
+                """
+                CREATE TABLE pantry_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product_id TEXT NOT NULL,
+                    description TEXT,
+                    level_percent INTEGER DEFAULT 100,
+                    last_restocked_at TEXT,
+                    last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    auto_deplete INTEGER DEFAULT 1,
+                    daily_depletion_rate REAL DEFAULT 0,
+                    low_threshold INTEGER DEFAULT 20,
+                    user_id TEXT,
+                    UNIQUE(user_id, product_id)
+                )
+                """,
+                backfill=False,
+            )
 
         # Migrate pantry_items table - add expiration tracking
         cursor = conn.execute("PRAGMA table_info(pantry_items)")
