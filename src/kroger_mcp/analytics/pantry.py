@@ -13,6 +13,7 @@ from typing import Any
 
 from ._user_scope import resolve_user_id as _resolve_user_id
 from .database import ensure_initialized, get_db_connection, insert_returning_id
+from .favorite_depletion import get_favorite_depletion_rates
 
 # Shelf life in days for common categories
 CATEGORY_SHELF_LIFE = {
@@ -482,7 +483,6 @@ def _record_depletion_event(
 
             # Update depletion rate based on new stats
             new_rate = calculate_depletion_rate(product_id, user_id=owner)
-            conn = get_db_connection()
             conn.execute(
                 """
                 UPDATE pantry_items
@@ -657,6 +657,9 @@ def get_pantry_status(
     """
     ensure_initialized()
     owner = _resolve_user_id(user_id)
+    # Favorites-cadence items (e.g. weekly lists) drain at the favorite's
+    # implied rate and count as auto-depleting even without the flag set.
+    favorite_rates = get_favorite_depletion_rates(owner) if apply_depletion else {}
 
     conn = get_db_connection()
     try:
@@ -680,23 +683,23 @@ def get_pantry_status(
         for row in cursor.fetchall():
             item = dict(row)
             level = item["level_percent"]
+            favorite_rate = favorite_rates.get(item["product_id"])
+            rate = favorite_rate if favorite_rate is not None else item["daily_depletion_rate"]
+            auto_deplete = bool(item["auto_deplete"]) or favorite_rate is not None
 
             # Apply depletion if enabled
-            if apply_depletion and item["auto_deplete"] and item["daily_depletion_rate"]:
+            if apply_depletion and auto_deplete and rate:
                 last_updated = item["last_updated_at"]
                 if last_updated:
                     try:
                         last_dt = datetime.fromisoformat(last_updated)
                         days_elapsed = (now - last_dt).total_seconds() / 86400
-                        depletion = days_elapsed * item["daily_depletion_rate"]
-                        level = max(0, level - depletion)
+                        level = max(0, level - days_elapsed * rate)
                     except (ValueError, TypeError):
                         pass
 
             # Calculate days until empty
-            days_until_empty = None
-            if item["daily_depletion_rate"] and item["daily_depletion_rate"] > 0:
-                days_until_empty = round(level / item["daily_depletion_rate"], 1)
+            days_until_empty = round(level / rate, 1) if rate and rate > 0 else None
 
             # Determine inventory status
             if level <= 0:
@@ -720,12 +723,8 @@ def get_pantry_status(
                     "days_until_empty": days_until_empty,
                     "last_restocked": item["last_restocked_at"],
                     "low_threshold": item["low_threshold"],
-                    "auto_deplete": bool(item["auto_deplete"]),
-                    "daily_depletion_rate": (
-                        round(item["daily_depletion_rate"], 2)
-                        if item["daily_depletion_rate"]
-                        else 0
-                    ),
+                    "auto_deplete": auto_deplete,
+                    "daily_depletion_rate": round(rate, 2) if rate else 0,
                     "expiration_date": exp_date,
                     "days_to_expiration": days_to_exp,
                     "expiration_status": exp_status,
@@ -764,72 +763,6 @@ def get_low_inventory_items(
             low_items.append(item)
 
     return low_items
-
-
-def apply_daily_depletion(user_id: str | None = None) -> dict[str, Any]:
-    """
-    Apply depletion to all pantry items owned by `user_id` based on their rates.
-
-    This updates the stored level_percent values in the database.
-    Can be called periodically or on-demand.
-
-    Args:
-        user_id: Owner. None resolves to the migration-installed default user.
-
-    Returns:
-        Summary of updates applied
-    """
-    ensure_initialized()
-    owner = _resolve_user_id(user_id)
-
-    conn = get_db_connection()
-    try:
-        now = datetime.now()
-        now_str = now.isoformat()
-
-        cursor = conn.execute(
-            """
-            SELECT product_id, level_percent, last_updated_at,
-                   daily_depletion_rate
-            FROM pantry_items
-            WHERE user_id = ? AND auto_deplete = 1 AND daily_depletion_rate > 0
-        """,
-            (owner,),
-        )
-
-        updated_count = 0
-        for row in cursor.fetchall():
-            last_updated = row["last_updated_at"]
-            if not last_updated:
-                continue
-
-            try:
-                last_dt = datetime.fromisoformat(last_updated)
-                days_elapsed = (now - last_dt).total_seconds() / 86400
-
-                if days_elapsed < 0.01:  # Skip if < ~15 minutes
-                    continue
-
-                depletion = days_elapsed * row["daily_depletion_rate"]
-                new_level = max(0, row["level_percent"] - depletion)
-
-                conn.execute(
-                    """
-                    UPDATE pantry_items
-                    SET level_percent = ?, last_updated_at = ?
-                    WHERE product_id = ? AND user_id = ?
-                """,
-                    (round(new_level), now_str, row["product_id"], owner),
-                )
-                updated_count += 1
-            except (ValueError, TypeError):
-                continue
-
-        conn.commit()
-
-        return {"success": True, "items_updated": updated_count, "updated_at": now_str}
-    finally:
-        conn.close()
 
 
 def get_pantry_item(product_id: str, user_id: str | None = None) -> dict[str, Any] | None:

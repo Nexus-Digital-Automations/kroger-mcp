@@ -32,7 +32,23 @@ window._ssLinkerPopoverMixin = () => ({
   _anchorEl: null,
   _onAcReposition: null,
   _onAcOutside: null,
-  get acPopoverStyle() {
+  // The ingredient row the popover is currently open for, or null. Drives the
+  // "Linked: X — Unlink" bar so relinking a Kroger-linked ingredient can also
+  // clear the link without leaving the popover.
+  // Plain method, not a getter: this mixin is merged into the component via
+  // object spread, which reads (and freezes) accessor properties at spread
+  // time — a getter here would silently stop being reactive.
+  acCurrentIng() {
+    const idx = this.acState.idx;
+    return (idx === null || idx === undefined) ? null : (this.ings[idx] || null);
+  },
+  acUnlinkCurrent() {
+    const idx = this.acState.idx;
+    if (idx === null || idx === undefined) return;
+    this.acClose();
+    this.unlinkProduct(idx);
+  },
+  acPopoverStyle() {
     const p = this.acState.anchorPos || { left: 0, top: 0 };
     return `left:${p.left}px; top:${p.top}px;`;
   },

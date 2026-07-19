@@ -396,13 +396,13 @@ def set_favorites_display_mode(value: str, user_id: str | None = None) -> None:
 def get_meal_plan_pantry_deduction_mode(user_id: str | None = None) -> str:
     """Whether past meal-plan entries auto-deduct pantry or wait for confirmation.
 
-    'confirm' (default) — past, un-cooked meals surface in the notification
-    bell as "pending" and only deduct pantry once the user confirms them.
-    'automatic' — preserves the original silent behavior: past meals deduct
-    pantry the moment their date passes, no confirmation required.
+    'automatic' (default) — past meals deduct pantry the moment their date
+    passes, no confirmation required.
+    'confirm' — past, un-cooked meals surface in the notification bell as
+    "pending" and only deduct pantry once the user confirms them.
     """
     return str(
-        _load_preferences(user_id=user_id).get("meal_plan_pantry_deduction_mode", "confirm")
+        _load_preferences(user_id=user_id).get("meal_plan_pantry_deduction_mode", "automatic")
     )
 
 
@@ -414,6 +414,25 @@ def set_meal_plan_pantry_deduction_mode(value: str, user_id: str | None = None) 
     if value not in ("automatic", "confirm"):
         raise ValueError("meal_plan_pantry_deduction_mode must be 'automatic' or 'confirm'")
     _save_preference("meal_plan_pantry_deduction_mode", value, user_id=user_id)
+
+
+def should_show_deduction_default_notice(user_id: str | None = None) -> bool:
+    """Whether to show the one-time "pantry now auto-deducts by default" toast.
+
+    True only for users relying on the (now-'automatic') default — i.e. who
+    never explicitly chose a mode — and who haven't dismissed the notice yet.
+    Users who explicitly picked 'confirm' or 'automatic' see nothing; their
+    choice already reflects a deliberate decision.
+    """
+    prefs = _load_preferences(user_id=user_id)
+    has_explicit_mode = "meal_plan_pantry_deduction_mode" in prefs
+    notice_seen = bool(prefs.get("meal_plan_deduction_notice_seen", False))
+    return not has_explicit_mode and not notice_seen
+
+
+def mark_deduction_default_notice_seen(user_id: str | None = None) -> None:
+    """Persist that this user has dismissed the deduction-default notice."""
+    _save_preference("meal_plan_deduction_notice_seen", True, user_id=user_id)
 
 
 def get_kroger_credentials(user_id: str | None = None) -> dict:

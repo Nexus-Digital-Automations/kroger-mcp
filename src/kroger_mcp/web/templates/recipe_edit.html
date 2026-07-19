@@ -190,6 +190,21 @@
   }
   .ss-autocomplete-footer:hover { background: oklch(95% 0.012 80); color: var(--text-1); }
 
+  /* ─── Currently-linked bar (reopening the popover on an already-linked
+     ingredient) ─── */
+  .ss-popover-current-link {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.4rem 0.75rem; font-size: 0.6875rem; color: oklch(38% 0.10 145);
+    background: oklch(96% 0.03 145); border-bottom: 1px solid var(--border);
+  }
+  .ss-popover-current-link-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ss-popover-unlink-btn {
+    padding: 0.15rem 0.5rem; font-size: 0.625rem; font-weight: 700;
+    color: oklch(38% 0.10 145); background: transparent; border: 1px solid oklch(60% 0.1 145);
+    border-radius: 99px; cursor: pointer;
+  }
+  .ss-popover-unlink-btn:hover { background: oklch(90% 0.06 145); }
+
   /* ─── Smart linking: "your usuals", best-match, standardize chip ─── */
   .ss-standardize-chip {
     display: flex; align-items: center; gap: 0.4rem;
@@ -648,7 +663,7 @@
   {# ingredientPanel (Alpine component for this card + the linking popover)
      is shared verbatim with the other recipe template — extracted to
      static/js/ingredient_panel.js; server data flows via #recipe-init-data. #}
-  <script src="/static/js/linker_popover.min.js?v=20260614"></script>
+  <script src="/static/js/linker_popover.min.js?v=20260719"></script>
   <script src="/static/js/ingredient_panel.min.js?v=20260713"></script>
   <div id="ingredients-card" class="ss-card p-6" x-data="ingredientPanel()" style="position:relative;">
 
@@ -813,11 +828,11 @@
                     title="Manual — click to link a Kroger product"
                     aria-label="Manual ingredient"></button>
                   <button x-show="!ing.override && ing.product_id"
-                    @click="if ($store.recipeMode.editing && confirm('Unlink Kroger product? Ingredient will become manual.')) unlinkProduct(ing._idx);"
+                    @click="acOpenFor(ing._idx, ing.name, $el.closest('.ing-name-cell')?.querySelector('.ing-name'))"
                     :disabled="!$store.recipeMode.editing"
                     class="src-dot src-kroger"
-                    title="Linked to a Kroger product — click to unlink"
-                    aria-label="Kroger-linked ingredient"></button>
+                    title="Linked to a Kroger product — click to change or unlink"
+                    aria-label="Kroger-linked ingredient — click to change or unlink"></button>
                   <span x-show="!ing.override && !ing.product_id"
                     class="src-dot src-empty"
                     title="Unlinked — open the ingredient name to search Kroger"

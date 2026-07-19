@@ -10,3 +10,5 @@ src/kroger_mcp/web/routes/api/meal_plan.py
 src/kroger_mcp/web/routes/api/recipes.py
 src/kroger_mcp/web/routes/api/shopping_list.py
 src/kroger_mcp/web/chat_engine.py
+src/kroger_mcp/analytics/pantry.py
+src/kroger_mcp/analytics/favorites.py

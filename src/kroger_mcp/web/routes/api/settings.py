@@ -61,6 +61,7 @@ async def get_settings(request: Request):
             get_include_spices_by_default,
             get_meal_plan_pantry_deduction_mode,
             get_preferred_location_id,
+            should_show_deduction_default_notice,
         )
 
         user_id = current_user_id(request)
@@ -69,6 +70,7 @@ async def get_settings(request: Request):
         include_spices_by_default = get_include_spices_by_default(user_id=user_id)
         favorites_display_mode = get_favorites_display_mode(user_id=user_id)
         meal_plan_pantry_deduction_mode = get_meal_plan_pantry_deduction_mode(user_id=user_id)
+        show_meal_plan_deduction_notice = should_show_deduction_default_notice(user_id=user_id)
 
         auth_status = "not_configured"
         try:
@@ -84,6 +86,7 @@ async def get_settings(request: Request):
             "include_spices_by_default": include_spices_by_default,
             "favorites_display_mode": favorites_display_mode,
             "meal_plan_pantry_deduction_mode": meal_plan_pantry_deduction_mode,
+            "show_meal_plan_deduction_notice": show_meal_plan_deduction_notice,
             "auth_status": auth_status,
         }
     except Exception as exc:
@@ -142,6 +145,18 @@ async def set_meal_plan_pantry_deduction_mode_route(
         return {"success": True, "meal_plan_pantry_deduction_mode": body.mode}
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/meal-plan-deduction-notice-seen")
+async def dismiss_meal_plan_deduction_notice(request: Request):
+    """Mark the one-time "pantry now auto-deducts by default" toast as seen."""
+    try:
+        from kroger_mcp.tools.shared import mark_deduction_default_notice_seen
+
+        mark_deduction_default_notice_seen(user_id=current_user_id(request))
+        return {"success": True}
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 

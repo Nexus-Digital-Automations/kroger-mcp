@@ -11,8 +11,20 @@
    Region 1+2 are empty on cold start, so the popover degrades to plain search. #}
 <div x-show="acState.idx !== null && (acState.results.length > 0 || acState.loading || acState.query.length >= 2 || acSuggest.items.length > 0 || acSuggest.canonical)"
      x-cloak class="ss-autocomplete-popover"
-     :style="acPopoverStyle"
+     :style="acPopoverStyle()"
      @mousedown.prevent>
+
+  {# 0a ─ Currently-linked bar: only shown when reopening the popover for an
+     ingredient that already has a Kroger product linked (the green dot).
+     Search below still lets the user pick a replacement; this button is the
+     equivalent of the old confirm()+unlink affordance, now inline. #}
+  <div x-show="acCurrentIng() && acCurrentIng().product_id && !acCurrentIng().override" x-cloak
+       class="ss-popover-current-link" @mousedown.stop>
+    <span class="ss-popover-current-link-text">
+      Linked: <span x-text="acCurrentIng() && acCurrentIng().name"></span>
+    </span>
+    <button type="button" class="ss-popover-unlink-btn" @click="acUnlinkCurrent()">Unlink</button>
+  </div>
 
   {# 0 ─ Dedicated Kroger search box. Seeded with the ingredient name (the
      auto-search has already run by the time this is visible); typing here

@@ -18,8 +18,27 @@ document.addEventListener('alpine:init', () => {
 
     init() {
       this.refresh();
+      this._checkDeductionDefaultNotice();
       // First polling loop in the app; 60s is ample for once-a-day sale scans.
       setInterval(() => this.refresh(), 60000);
+    },
+
+    // One-time toast for accounts relying on the (now-automatic) meal-plan
+    // pantry deduction default — server tracks dismissal so this fires once.
+    async _checkDeductionDefaultNotice() {
+      try {
+        const res = await fetch('/api/settings', { headers: { Accept: 'application/json' } });
+        if (!res.ok) return;
+        const d = await res.json();
+        if (!d.show_meal_plan_deduction_notice) return;
+        window._ssToast(
+          'Pantry items now auto-deduct when you cook a planned meal — change this in Settings.',
+          { action: { label: 'Settings', onClick: () => { window.location.href = '/settings#meal-planning'; } } }
+        );
+        await window.api.post('/api/settings/meal-plan-deduction-notice-seen');
+      } catch (e) {
+        /* best-effort — worst case the toast reappears next load */
+      }
     },
 
     async refresh() {

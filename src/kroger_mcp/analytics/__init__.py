@@ -34,7 +34,6 @@ from .migration import (
 )
 from .pantry import (
     add_to_pantry,
-    apply_daily_depletion,
     calculate_depletion_rate,
     consume_from_pantry,
     get_low_inventory_items,
@@ -122,7 +121,6 @@ __all__ = [
     "get_pantry_status",
     "get_low_inventory_items",
     "get_pantry_item",
-    "apply_daily_depletion",
     "calculate_depletion_rate",
     "consume_from_pantry",
     # Config
