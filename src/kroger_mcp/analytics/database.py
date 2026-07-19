@@ -956,6 +956,31 @@ def _rebuild_table_add_user_id(
     executor.execute(f"DROP TABLE {table}")
     executor.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
 
+    # Caller runs this with foreign_keys=OFF (see run_schema_migrations) so
+    # the DROP TABLE above doesn't cascade-delete rows in dependent tables
+    # (e.g. favorite_list_items on favorite_lists) via SQLite's implicit
+    # pre-DROP DELETE FROM. Verify that held: check only tables whose DDL
+    # actually references `table` — NOT a whole-database foreign_key_check,
+    # which would also trip on unrelated pre-existing FK debt elsewhere in
+    # a real, long-lived dev/prod DB that has nothing to do with this
+    # rebuild.
+    dependents = [
+        row[0]
+        for row in executor.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        if row[1] and f"REFERENCES{table.upper()}(" in row[1].upper().replace(" ", "")
+    ]
+    for dep in dependents:
+        bad = [
+            v for v in executor.execute(f"PRAGMA foreign_key_check({dep})").fetchall()
+            if v[2] == table
+        ]
+        if bad:
+            raise RuntimeError(
+                f"rebuilding {table} left {len(bad)} dangling reference(s) in {dep}"
+            )
+
 
 def run_schema_migrations() -> None:
     """
@@ -965,6 +990,18 @@ def run_schema_migrations() -> None:
     """
     conn = get_db_connection()
     try:
+        # _rebuild_table_add_user_id (below) does CREATE-new/copy/DROP-old/
+        # RENAME on this same connection. get_db_connection() enables
+        # foreign_keys=ON, and SQLite's DROP TABLE performs an implicit
+        # DELETE FROM the dropped table first when FK enforcement is on —
+        # which fires ON DELETE CASCADE against dependents (e.g.
+        # favorite_list_items on favorite_lists), silently wiping their rows
+        # even though only the parent's shape is meant to change. Foreign-key
+        # enforcement can only be toggled outside a transaction, so this must
+        # happen before BEGIN. Mirrors scripts/migrate_to_multi_tenant.py's
+        # _recreate_table_without_unique, which already does this for exactly
+        # the same reason.
+        conn.execute("PRAGMA foreign_keys = OFF")
         conn.execute("BEGIN")
 
         # Per-user key/value preferences (location, servings, consent flags, …).
@@ -1431,7 +1468,14 @@ def run_schema_migrations() -> None:
                 backfill=False,
             )
 
+        # _rebuild_table_add_user_id (above) already verifies its own
+        # dependents are intact before returning; nothing further to check
+        # here. (Not a whole-DB PRAGMA foreign_key_check: a real long-lived
+        # dev/prod DB can carry unrelated pre-existing FK debt in tables
+        # this migration never touches, which would fail this step for
+        # reasons that have nothing to do with the migration.)
         conn.commit()
+        conn.execute("PRAGMA foreign_keys = ON")
     except Exception:
         conn.rollback()
         raise
