@@ -82,22 +82,22 @@ only today).
 
 ## Tasks
 
-- [ ] Rename `KROGER_PREFERRED_LOCATION` → `KROGER_LOCATION_ID` in
+- [x] Rename `KROGER_PREFERRED_LOCATION` → `KROGER_LOCATION_ID` in
       `scripts/background_scanner.py`; add a small regression test.
-- [ ] Add `analytics/notifications.list_pantry_alerts_for_bell(user_id)`
+- [x] Add `analytics/notifications.list_pantry_alerts_for_bell(user_id)`
       wrapping `get_pantry_status`; wire into `/api/notifications`.
-- [ ] Add `analytics/notifications.next_week_needs_plan(user_id)` using
+- [x] Add `analytics/notifications.next_week_needs_plan(user_id)` using
       `find_plan_covering_date`; wire into `/api/notifications`.
-- [ ] Update `notifications.js` (`refresh()`) + `_notifications.html` to
+- [x] Update `notifications.js` (`refresh()`) + `_notifications.html` to
       render the two new sections.
-- [ ] Add a "Smart Suggestions" card to `dashboard.py`/`dashboard.html`
+- [x] Add a "Smart Suggestions" card to `dashboard.py`/`dashboard.html`
       sourced from `get_shopping_suggestions()`.
-- [ ] Write regression tests for the two new bell sections and the env var
+- [x] Write regression tests for the two new bell sections and the env var
       fix.
-- [ ] Deploy (git push → auto-deploy hook) so the code fix reaches the mini.
-- [ ] SSH to the mini: add `DATABASE_URL` to the scanner's `.env` (copied
+- [x] Deploy (git push → auto-deploy hook) so the code fix reaches the mini.
+- [x] SSH to the mini: add `DATABASE_URL` to the scanner's `.env` (copied
       from the web app's own plist value, never printed locally), migrate
       the 23 SQLite alert rows into Postgres, manually trigger one scan run,
       verify Postgres row counts increased and SQLite is now considered
       historical/orphaned.
-- [ ] Report final state back to the user.
+- [x] Report final state back to the user.
