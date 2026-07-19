@@ -60,6 +60,7 @@ _PG_BOOL_COLS = (
     "on_sale",
     "purchased",
     "is_hidden",
+    "cook_skipped",
 )
 _BOOL_EQ_RE = re.compile(r"\b(" + "|".join(_PG_BOOL_COLS) + r")\s*=\s*([01])\b")
 
