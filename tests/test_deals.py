@@ -20,8 +20,17 @@ from kroger_mcp.analytics.deals import (
 
 
 @pytest.fixture(scope="function")
-def clean_db():
-    """Ensure clean database state for each test."""
+def clean_db(tmp_path, monkeypatch):
+    """Point analytics DB access at a throwaway file, then reset it.
+
+    Previously ran raw DELETEs against whatever database.DB_FILE currently
+    pointed at (the real dev DB by default) — see test_pantry_expiration.py's
+    clean_db for the incident this class of bug caused. Isolated the same way.
+    """
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "deals_test.db"))
     reset_initialization()
     ensure_initialized()
 

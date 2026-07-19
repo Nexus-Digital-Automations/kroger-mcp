@@ -20,15 +20,19 @@ from kroger_mcp.analytics.database import ensure_initialized, get_db_connection
 
 
 @pytest.fixture
-def two_users():
+def two_users(tmp_path, monkeypatch):
     """Two throwaway account ids; teardown purges their rows.
 
-    Random UUIDs keep these isolated from real data, so the live analytics DB
-    is safe to use without a separate fixture database. On Postgres,
-    ingredient_links.user_id has an FK to users(id) (the multi-tenant schema;
-    SQLite is single-user and has no users table), so seed real users rows for
-    the throwaway ids and clean them up afterward.
+    Random UUIDs keep these isolated from real data, but on Postgres
+    ingredient_links.user_id has an FK to users(id), so an isolated SQLite
+    DB is still needed to avoid touching the real schema. Was previously
+    unisolated — see test_pantry_expiration.py's clean_db.
     """
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    if not RUNNING_ON_PG:
+        monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "ingredient_links_test.db"))
     ensure_initialized()
     a_id = str(uuid.uuid4())
     b_id = str(uuid.uuid4())

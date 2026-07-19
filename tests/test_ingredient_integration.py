@@ -30,8 +30,15 @@ pytestmark = skip_on_pg
 
 
 @pytest.fixture
-def clean_db():
-    """Initialize database and clean ingredient tables"""
+def clean_db(tmp_path, monkeypatch):
+    """Initialize an isolated database and clean ingredient tables.
+
+    Was previously unisolated — see test_pantry_expiration.py's clean_db.
+    """
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "ingredient_integration_test.db"))
     initialize_database()
     conn = get_db_connection()
     try:

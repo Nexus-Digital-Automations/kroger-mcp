@@ -61,7 +61,12 @@ def _stored_gap() -> int:
 
 
 @pytest.fixture(scope="function")
-def clean_db():
+def clean_db(tmp_path, monkeypatch):
+    """Was previously unisolated — see test_pantry_expiration.py's clean_db."""
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "snacks_gap_edit_test.db"))
     reset_initialization()
     ensure_initialized()
     _cleanup()

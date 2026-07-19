@@ -13,7 +13,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from _pg_support import skip_on_pg
 
-from kroger_mcp.analytics.database import get_db_connection, initialize_database
+from kroger_mcp.analytics.database import (
+    get_db_connection,
+    initialize_database,
+    run_schema_migrations,
+)
 from kroger_mcp.analytics.ingredients import (
     check_product_safety,
     get_active_ingredients,
@@ -25,9 +29,17 @@ pytestmark = skip_on_pg
 
 
 @pytest.fixture
-def clean_db():
-    """Initialize database and clean ingredient tables"""
+def clean_db(tmp_path, monkeypatch):
+    """Initialize an isolated database and clean ingredient tables.
+
+    Was previously unisolated — see test_pantry_expiration.py's clean_db.
+    """
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "ingredient_management_test.db"))
     initialize_database()
+    run_schema_migrations()
     conn = get_db_connection()
     try:
         conn.execute("DELETE FROM custom_ingredients")

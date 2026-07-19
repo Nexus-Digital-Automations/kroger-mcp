@@ -48,6 +48,14 @@ def _not_on_sale_lookup(product_id, location_id):
 
 def _seed_favorite():
     with get_db_cursor() as cursor:
+        # price_history.product_id has an FK to products(product_id). Previously
+        # unenforced in practice because this ran against the shared dev DB,
+        # where a prior run's PID row usually already existed — a properly
+        # isolated DB has neither, so it must be seeded explicitly.
+        cursor.execute(
+            "INSERT OR IGNORE INTO products (product_id, description) VALUES (?, ?)",
+            (PID, "Test Favorite Beans"),
+        )
         cursor.execute(
             "INSERT OR IGNORE INTO favorite_lists (id, name, user_id) VALUES (?, ?, ?)",
             (LIST_ID, "Test Alerts List", USER),
@@ -69,8 +77,8 @@ def _cleanup():
 
 
 @pytest.fixture(scope="function")
-def clean_db(monkeypatch):
-    """Rebind to the live modules before touching the shared DB.
+def clean_db(tmp_path, monkeypatch):
+    """Rebind to the live modules, then point them at an isolated DB.
 
     ``test_cart_mark_placed_restock`` deletes every ``kroger_mcp`` module from
     ``sys.modules`` mid-suite. That orphans this file's import-time
@@ -79,8 +87,12 @@ def clean_db(monkeypatch):
     go through another — a cross-file flake. Re-import ``database`` from the live
     ``sys.modules``, reload ``notifications`` so its ``from .database import``
     rebinds to that live module, and rebind this module's globals so seeding,
-    scanning, and listing all run through one module set on the (fully migrated)
-    shared DB.
+    scanning, and listing all run through one, consistent module set.
+
+    That module set previously pointed at the real default DB_FILE (this
+    fixture's own DELETEs are prefix/id-scoped, but still touched whatever DB
+    happened to be configured) — isolated to a tmp_path file like every other
+    clean_db fixture, independent of the module-rebinding concern above.
     """
     db = importlib.import_module("kroger_mcp.analytics.database")
     notif = importlib.import_module("kroger_mcp.analytics.notifications")
@@ -88,6 +100,7 @@ def clean_db(monkeypatch):
     this = sys.modules[__name__]
     monkeypatch.setattr(this, "notifications", notif)
     monkeypatch.setattr(this, "get_db_cursor", db.get_db_cursor)
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "favorite_sale_alerts_test.db"))
 
     db.reset_initialization()
     db.ensure_initialized()

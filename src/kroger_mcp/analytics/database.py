@@ -917,7 +917,15 @@ def _rebuild_table_add_user_id(
 
     Used to migrate a formerly-global table in place — SQLite cannot drop a
     column-level UNIQUE or change the PRIMARY KEY via ALTER, so we
-    rename → create-fresh → copy the intersection of columns → drop the old table.
+    create-fresh (as ``{table}_new``) → copy the intersection of columns →
+    drop the ORIGINAL table → rename ``{table}_new`` into its place.
+
+    Deliberately never renames the original table away first: SQLite
+    rewrites OTHER tables' stored FK clause text to follow a rename (e.g.
+    ``favorite_list_items.list_id REFERENCES favorite_lists(id)`` would
+    become ``REFERENCES favorite_lists_old(id)``), leaving a dangling
+    reference once the ``_old`` table is dropped — matches the sequence
+    scripts/migrate_to_multi_tenant.py already uses for exactly this reason.
 
     When ``backfill`` is True (the default), existing rows are attributed to
     the default owner (resolved via ``mcp_user_id()`` — KROGER_MCP_USER_ID,
@@ -928,9 +936,9 @@ def _rebuild_table_add_user_id(
     the caller's surrounding transaction keeps this atomic.
     """
     old_cols = [r[1] for r in executor.execute(f"PRAGMA table_info({table})").fetchall()]
-    executor.execute(f"ALTER TABLE {table} RENAME TO {table}_old")
-    executor.execute(new_ddl)
-    new_cols = [r[1] for r in executor.execute(f"PRAGMA table_info({table})").fetchall()]
+    new_table_ddl = new_ddl.replace(f"CREATE TABLE {table}", f"CREATE TABLE {table}_new", 1)
+    executor.execute(new_table_ddl)
+    new_cols = [r[1] for r in executor.execute(f"PRAGMA table_info({table}_new)").fetchall()]
     # Copy only columns present in both shapes; user_id is set explicitly.
     carried = [c for c in new_cols if c in old_cols and c != "user_id"]
     col_list = ", ".join(carried)
@@ -939,13 +947,14 @@ def _rebuild_table_add_user_id(
 
         owner = mcp_user_id()
         executor.execute(
-            f"INSERT INTO {table} (user_id, {col_list}) "
-            f"SELECT ?, {col_list} FROM {table}_old",
+            f"INSERT INTO {table}_new (user_id, {col_list}) "
+            f"SELECT ?, {col_list} FROM {table}",
             (owner,),
         )
     else:
-        executor.execute(f"INSERT INTO {table} ({col_list}) SELECT {col_list} FROM {table}_old")
-    executor.execute(f"DROP TABLE {table}_old")
+        executor.execute(f"INSERT INTO {table}_new ({col_list}) SELECT {col_list} FROM {table}")
+    executor.execute(f"DROP TABLE {table}")
+    executor.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
 
 
 def run_schema_migrations() -> None:
@@ -973,6 +982,61 @@ def run_schema_migrations() -> None:
             """
         )
 
+        # user_carts / user_shopping_lists / user_notion_sync: same gap as
+        # user_settings above — these JSON-state-replacing tables only ever
+        # existed via scripts/migrate_to_multi_tenant.py's
+        # _create_user_scoped_tables(), never in the app's own baseline
+        # schema. A fresh install or isolated test DB has no cart/shopping-
+        # list/Notion-sync tables at all. Created here too, matching that
+        # script's shape exactly, so fresh installs work without the full
+        # one-time migration.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_carts (
+                user_id TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                description TEXT,
+                quantity INTEGER DEFAULT 1,
+                modality TEXT DEFAULT 'PICKUP',
+                added_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, product_id)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_user_carts_user_id ON user_carts(user_id)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_shopping_lists (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                product_id TEXT,
+                name TEXT NOT NULL,
+                quantity REAL DEFAULT 1.0,
+                unit TEXT DEFAULT '',
+                category TEXT,
+                purchased INTEGER DEFAULT 0,
+                recipe_source TEXT,
+                added_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_user_shopping_lists_user_id "
+            "ON user_shopping_lists(user_id)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_notion_sync (
+                user_id TEXT PRIMARY KEY,
+                notion_database_id TEXT,
+                last_sync_at TEXT,
+                config_json TEXT
+            )
+            """
+        )
+
         # Get existing columns in product_statistics
         cursor = conn.execute("PRAGMA table_info(product_statistics)")
         existing_columns = {row[1] for row in cursor.fetchall()}
@@ -988,6 +1052,23 @@ def run_schema_migrations() -> None:
         for col_name, col_def in new_columns:
             if col_name not in existing_columns:
                 conn.execute(f"ALTER TABLE product_statistics ADD COLUMN {col_name} {col_def}")
+
+        # meal_plans / meal_entries have the same gap as the tables below: no
+        # user_id in the base CREATE TABLE, only added by the one-time
+        # scripts/migrate_to_multi_tenant.py. Unlike favorite_lists/
+        # pantry_items/custom_ingredients, neither needs its UNIQUE
+        # constraint to change (migrate_to_multi_tenant.py handles both via
+        # the simple ALTER TABLE ADD COLUMN path, not TABLES_TO_RECREATE), so
+        # a plain ADD COLUMN suffices here — no _rebuild_table_add_user_id
+        # rename dance needed. No backfill: same "no reliable attribution for
+        # pre-existing rows" reasoning as the rebuilt tables.
+        for table in ("meal_plans", "meal_entries"):
+            cursor = conn.execute(f"PRAGMA table_info({table})")
+            if "user_id" not in {row[1] for row in cursor.fetchall()}:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT")
+                conn.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_{table}_user_id ON {table}(user_id)"
+                )
 
         # favorite_lists has the same gap as pantry_items above: no user_id in
         # the base CREATE TABLE, only added by the one-time
@@ -1038,6 +1119,52 @@ def run_schema_migrations() -> None:
         for col_name, col_def in favorite_lists_new_columns:
             if col_name not in favorite_lists_columns:
                 conn.execute(f"ALTER TABLE favorite_lists ADD COLUMN {col_name} {col_def}")
+
+        # custom_ingredients has the same gap as favorite_lists above: no
+        # user_id in the base CREATE TABLE, only added (plus the UNIQUE
+        # constraint becoming composite UNIQUE(user_id, ingredient_name)) by
+        # the one-time scripts/migrate_to_multi_tenant.py against the real
+        # dev/prod DB. The app doesn't yet filter custom_ingredients by
+        # user_id (ingredients.py treats it as global), but the schema shape
+        # must still match already-migrated installs for a fresh/test DB to
+        # behave the same way. backfill=False: no reliable attribution for
+        # any pre-existing rows, same reasoning as favorite_lists.
+        cursor = conn.execute("PRAGMA table_info(custom_ingredients)")
+        if "user_id" not in {row[1] for row in cursor.fetchall()}:
+            _rebuild_table_add_user_id(
+                conn,
+                "custom_ingredients",
+                """
+                CREATE TABLE custom_ingredients (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ingredient_name TEXT NOT NULL COLLATE NOCASE,
+                    severity TEXT NOT NULL CHECK(severity IN ('critical', 'warning', 'watch')),
+                    category TEXT,
+                    reason TEXT,
+                    aliases TEXT,
+                    source TEXT DEFAULT 'user' CHECK(source IN ('user', 'imported', 'system')),
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    modified_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    is_active INTEGER DEFAULT 1 CHECK(is_active IN (0, 1)),
+                    notes TEXT,
+                    user_id TEXT,
+                    UNIQUE(user_id, ingredient_name)
+                )
+                """,
+                backfill=False,
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_custom_ingredients_name "
+                "ON custom_ingredients(ingredient_name COLLATE NOCASE)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_custom_ingredients_severity "
+                "ON custom_ingredients(severity)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_custom_ingredients_active "
+                "ON custom_ingredients(is_active)"
+            )
 
         # pantry_items was never given user_id in the base CREATE TABLE (only
         # scripts/migrate_to_multi_tenant.py added it, one-time, against the

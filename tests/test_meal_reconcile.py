@@ -49,7 +49,12 @@ def _date(offset_days: int) -> str:
 
 
 @pytest.fixture
-def clean_db():
+def clean_db(tmp_path, monkeypatch):
+    """Was previously unisolated — see test_pantry_expiration.py's clean_db."""
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "meal_reconcile_test.db"))
     reset_initialization()
     ensure_initialized()
     conn = get_db_connection()

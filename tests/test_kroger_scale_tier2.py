@@ -82,7 +82,12 @@ def _price_row_count() -> int:
 
 
 @pytest.fixture(scope="function")
-def clean_db(monkeypatch):
+def clean_db(tmp_path, monkeypatch):
+    """Was previously unisolated — see test_pantry_expiration.py's clean_db."""
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "kroger_scale_tier2_test.db"))
     reset_initialization()
     ensure_initialized()
     with get_db_cursor() as cursor:

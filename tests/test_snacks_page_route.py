@@ -67,7 +67,12 @@ def _cleanup():
 
 
 @pytest.fixture(scope="function")
-def snacks_db():
+def snacks_db(tmp_path, monkeypatch):
+    """Was previously unisolated — see test_pantry_expiration.py's clean_db."""
+    import importlib
+
+    db = importlib.import_module("kroger_mcp.analytics.database")
+    monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "snacks_page_route_test.db"))
     reset_initialization()
     ensure_initialized()
     _cleanup()
