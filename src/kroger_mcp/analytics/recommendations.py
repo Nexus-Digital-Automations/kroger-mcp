@@ -244,7 +244,7 @@ def get_comprehensive_recommendations(
     min_score: int = 20,
     max_results: int = 50,
     location_id: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """Cached wrapper around the (expensive) recommendation computation.
 
@@ -294,7 +294,7 @@ def _compute_comprehensive_recommendations(
     min_score: int = 20,
     max_results: int = 50,
     location_id: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """
     Generate comprehensive shopping recommendations.
@@ -327,7 +327,7 @@ def _compute_comprehensive_recommendations(
     owner = resolve_user_id(user_id)
 
     # Get favorite product IDs for fast lookup
-    favorite_ids = get_all_favorite_product_ids()
+    favorite_ids = get_all_favorite_product_ids(user_id=owner)
 
     conn = get_db_connection()
     try:

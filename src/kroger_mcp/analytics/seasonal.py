@@ -266,7 +266,7 @@ def detect_holiday_association(product_id: str, description: str | None = None) 
         conn.close()
 
 
-def update_seasonal_patterns(product_id: str, user_id: str | None = None) -> dict[str, Any]:
+def update_seasonal_patterns(product_id: str, user_id: str) -> dict[str, Any]:
     """Update seasonal pattern data for a product, scoped to one user.
 
     The purchase_events read below stays global (events are not user-scoped yet —
@@ -369,7 +369,7 @@ def update_seasonal_patterns(product_id: str, user_id: str | None = None) -> dic
 
 
 def get_upcoming_seasonal_items(
-    days_ahead: int = 30, user_id: str | None = None
+    days_ahead: int = 30, *, user_id: str
 ) -> list[dict[str, Any]]:
     """Get items associated with upcoming holidays/seasons, scoped to one user.
 

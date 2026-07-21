@@ -211,15 +211,22 @@ def _ensure_product_exists(
 
 
 def _update_migrated_stats(product_ids: list) -> None:
-    """Update statistics for migrated products."""
+    """Update statistics for migrated products.
+
+    Legacy pre-multi-tenancy JSON data has no per-user owner, so migrated
+    stats are attributed to the migration-installed default user.
+    """
+    from kroger_mcp.auth.dependencies import default_user_id
+
     from .categories import auto_categorize_all
     from .seasonal import update_seasonal_patterns
     from .statistics import update_product_stats
 
+    owner = default_user_id()
     for product_id in product_ids:
         try:
-            update_product_stats(product_id)
-            update_seasonal_patterns(product_id)
+            update_product_stats(product_id, user_id=owner)
+            update_seasonal_patterns(product_id, user_id=owner)
         except Exception as e:
             logger.warning("Could not update stats for %s: %s", product_id, e)
 

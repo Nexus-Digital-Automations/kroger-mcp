@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def record_shareable_event(
-    category: str, payload: dict[str, Any], user_id: str | None = None
+    category: str, payload: dict[str, Any], user_id: str
 ) -> bool:
     """Capture one shareable signal iff the user opted the category in.
 

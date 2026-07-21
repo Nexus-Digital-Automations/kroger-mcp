@@ -9,7 +9,6 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from kroger_mcp.auth.dependencies import mcp_user_id
 from kroger_mcp.cache import cache_read_through
 
 from .database import ensure_initialized, get_db_cursor
@@ -22,15 +21,13 @@ SNACK_DEFAULT_GAP_DAYS = 21
 SNACK_PANTRY_LOW_PERCENT = 30
 
 
-def _resolve_user_id(user_id: str | None) -> str:
-    """Resolve user_id for user-scoped queries.
-
-    HTTP route handlers always pass user_id from the session. MCP/script
-    callers may pass None; we fall back to `mcp_user_id()` which honors
-    KROGER_MCP_USER_ID per Claude Desktop profile, then
-    KROGER_MCP_DEFAULT_USER_ID.
+def _resolve_user_id(user_id: str) -> str:
+    """Identity passthrough, kept so this module's ~20 call sites don't need a
+    mechanical rename. Every public function here now requires `user_id: str`
+    (its caller resolves it at the MCP/web boundary) — there's no None case
+    left to resolve.
     """
-    return user_id if user_id is not None else mcp_user_id()
+    return user_id
 
 
 # ========== Helper Functions ==========
@@ -106,16 +103,19 @@ def _calculate_reorder_status(
     }
 
 
-def get_all_favorite_product_ids() -> set:
+def get_all_favorite_product_ids(*, user_id: str) -> set:
     """
-    Get all product IDs across all favorite lists.
+    Get all product IDs across this user's favorite lists.
 
     Returns a set of product_ids for fast O(1) lookup when checking
-    if a product is in any favorites list.
+    if a product is in any of this user's favorites lists.
 
     Called once per product search to annotate results. Cached in Redis for a
     short window (60s) so repeated searches skip the table scan; staleness is
     cosmetic (a heart icon lagging at most 60s) and self-heals on TTL.
+
+    Args:
+        user_id: Owner whose favorite lists to check.
 
     Returns:
         Set of product_id strings
@@ -124,10 +124,18 @@ def get_all_favorite_product_ids() -> set:
 
     def _load() -> list[str]:
         with get_db_cursor() as cursor:
-            cursor.execute("SELECT DISTINCT product_id FROM favorite_list_items")
+            cursor.execute(
+                """
+                SELECT DISTINCT fli.product_id
+                FROM favorite_list_items fli
+                JOIN favorite_lists fl ON fli.list_id = fl.id
+                WHERE fl.user_id = ?
+                """,
+                (user_id,),
+            )
             return [row["product_id"] for row in cursor.fetchall()]
 
-    return set(cache_read_through("fav:all_product_ids", 60, _load))
+    return set(cache_read_through(f"fav:all_product_ids:{user_id}", 60, _load))
 
 
 # ========== List Management ==========
@@ -138,7 +146,7 @@ def create_list(
     description: str | None = None,
     list_type: str = "custom",
     reorder_weeks: int | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """
     Create a new favorite list owned by `user_id`.
@@ -186,7 +194,7 @@ def create_list(
         return {"success": False, "error": str(e)}
 
 
-def get_lists(user_id: str | None = None) -> list[dict[str, Any]]:
+def get_lists(user_id: str) -> list[dict[str, Any]]:
     """Get all favorite lists owned by `user_id` with item counts and reorder status."""
     ensure_initialized()
     owner = _resolve_user_id(user_id)
@@ -283,7 +291,7 @@ def _ensure_snacks_list_for_user(user_id: str) -> str:
         return new_id
 
 
-def get_list(list_id: str, user_id: str | None = None) -> dict[str, Any] | None:
+def get_list(list_id: str, user_id: str) -> dict[str, Any] | None:
     """Get a single list by ID, only if it belongs to `user_id`.
 
     Returns None when the list doesn't exist OR belongs to a different user
@@ -344,7 +352,7 @@ def rename_list(
     list_id: str,
     new_name: str | None = None,
     new_description: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """Rename a list or update its description, only if it belongs to `user_id`."""
     ensure_initialized()
@@ -392,7 +400,7 @@ def rename_list(
         return {"success": False, "error": str(e)}
 
 
-def delete_list(list_id: str, user_id: str | None = None) -> dict[str, Any]:
+def delete_list(list_id: str, user_id: str) -> dict[str, Any]:
     """Delete a list and its items, only if it belongs to `user_id`."""
     ensure_initialized()
     owner = _resolve_user_id(user_id)
@@ -429,7 +437,7 @@ def add_to_list(
     min_stock_quantity: int | None = None,
     current_stock_quantity: int | None = None,
     typical_gap_days: int | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """Add a product to a favorite list, only if the list belongs to `user_id`."""
     ensure_initialized()
@@ -488,7 +496,7 @@ def add_to_list(
 def bulk_add_to_list(
     list_id: str,
     items: list[dict[str, Any]],
-    user_id: str | None = None,
+    user_id: str,
 ) -> dict[str, Any]:
     """Add multiple products in one operation, only if the list belongs to `user_id`."""
     ensure_initialized()
@@ -566,7 +574,7 @@ def bulk_add_to_list(
 def remove_from_list(
     list_id: str,
     product_id: str,
-    user_id: str | None = None,
+    user_id: str,
 ) -> dict[str, Any]:
     """Remove a product from a list, only if the list belongs to `user_id`."""
     ensure_initialized()
@@ -600,7 +608,7 @@ def get_list_items(
     list_id: str,
     include_pantry_status: bool = True,
     sort_by: str = "description",
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """Get items in a favorite list, only if it belongs to `user_id`.
 
@@ -795,7 +803,7 @@ def get_list_items(
 def update_list_item(
     list_id: str,
     product_id: str,
-    user_id: str | None = None,
+    user_id: str,
     **kwargs,
 ) -> dict[str, Any]:
     """Update an item in a favorite list, only if the list belongs to `user_id`."""
@@ -850,7 +858,7 @@ def update_list_item(
 def increment_times_ordered(
     list_id: str,
     product_ids: list[str],
-    user_id: str | None = None,
+    user_id: str,
 ) -> None:
     """Increment times_ordered for products, only if the list belongs to `user_id`."""
     ensure_initialized()
@@ -878,7 +886,7 @@ def increment_times_ordered(
 # ========== Smart Features ==========
 
 
-def get_snacks_list_ids(user_id: str | None = None) -> list[str]:
+def get_snacks_list_ids(user_id: str) -> list[str]:
     """Return the ids of the user's snack-type lists, ensuring one exists."""
     ensure_initialized()
     owner = _resolve_user_id(user_id)
@@ -905,7 +913,7 @@ def _days_since(iso_timestamp: str | None) -> int | None:
 
 
 def check_snacks(
-    user_id: str | None = None,
+    user_id: str,
     pantry_low_percent: int = SNACK_PANTRY_LOW_PERCENT,
 ) -> dict[str, Any]:
     """Build the pre-cart snack replenishment checklist.
@@ -1000,7 +1008,7 @@ def check_snacks(
     }
 
 
-def mark_snacks_ordered(product_ids: list[str], user_id: str | None = None) -> int:
+def mark_snacks_ordered(product_ids: list[str], user_id: str) -> int:
     """Stamp last_ordered_at + bump times_ordered for snacks just sent to cart.
 
     Scoped to the user's snack-type lists so a product that also lives in a
@@ -1032,7 +1040,7 @@ def mark_snacks_ordered(product_ids: list[str], user_id: str | None = None) -> i
 def get_items_needing_reorder(
     list_id: str = "default",
     pantry_threshold: int = 30,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """Get items needing reorder, only if the list belongs to `user_id`."""
     ensure_initialized()
@@ -1185,7 +1193,7 @@ def suggest_for_list(
 def update_list_schedule(
     list_id: str,
     reorder_weeks: int | None,
-    user_id: str | None = None,
+    user_id: str,
 ) -> dict[str, Any]:
     """Update the reorder schedule, only if the list belongs to `user_id`."""
     ensure_initialized()
@@ -1235,7 +1243,7 @@ def update_list_schedule(
 
 def get_low_stock_items(
     list_id: str,
-    user_id: str | None = None,
+    user_id: str,
 ) -> dict[str, Any]:
     """Return low-stock items, only if the list belongs to `user_id`."""
     ensure_initialized()
@@ -1314,7 +1322,7 @@ def get_low_stock_items(
 
 def mark_list_ordered(
     list_id: str,
-    user_id: str | None = None,
+    user_id: str,
 ) -> dict[str, Any]:
     """Mark a list as ordered, only if it belongs to `user_id`."""
     ensure_initialized()

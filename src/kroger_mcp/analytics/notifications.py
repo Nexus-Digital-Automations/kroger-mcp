@@ -230,10 +230,11 @@ def _previous_on_sale(product_id: str, location_id: str) -> bool:
 
 def _default_price_lookup(product_id: str, location_id: str) -> dict[str, Any] | None:
     """Fetch a product's current price via the app-level Kroger client."""
+    from kroger_mcp.auth.dependencies import mcp_user_id
     from kroger_mcp.tools.shared import get_client_credentials_client
     from kroger_mcp.web.routes.api._product_extract import _extract_product
 
-    client = get_client_credentials_client(None)
+    client = get_client_credentials_client(mcp_user_id())
     raw = client.product.get_product(product_id=product_id, location_id=location_id)
     record = raw.get("data") if isinstance(raw, dict) else getattr(raw, "data", None)
     return _extract_product(record) if record else None

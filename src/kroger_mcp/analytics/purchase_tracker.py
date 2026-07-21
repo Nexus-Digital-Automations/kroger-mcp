@@ -84,7 +84,7 @@ def record_cart_add(
     modality: str,
     product_details: dict[str, Any] | None = None,
     price: float | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> int:
     """
     Record a cart addition event.
@@ -137,7 +137,7 @@ def record_cart_add(
 def record_order(
     cart_items: list[dict[str, Any]],
     order_notes: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> int:
     """
     Record a completed order and link cart items to it.
@@ -216,7 +216,7 @@ def record_order(
         conn.close()
 
 
-def _restock_pantry_items(cart_items: list[dict[str, Any]], user_id: str | None = None) -> None:
+def _restock_pantry_items(cart_items: list[dict[str, Any]], user_id: str) -> None:
     """
     Restock pantry items for products in the order.
 
@@ -253,7 +253,7 @@ def get_purchase_events(
     product_id: str,
     event_type: str | None = None,
     limit: int = 100,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> list[dict[str, Any]]:
     """
     Get purchase events for a product.
@@ -291,7 +291,7 @@ def get_purchase_events(
         conn.close()
 
 
-def get_order_history(limit: int = 50, user_id: str | None = None) -> list[dict[str, Any]]:
+def get_order_history(limit: int = 50, *, user_id: str) -> list[dict[str, Any]]:
     """
     Get order history.
 

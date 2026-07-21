@@ -8,7 +8,7 @@ from ._common import _ensure_default_safety_settings_for_user, _resolve_user_id
 from .models import BlockMode
 
 
-def get_safety_settings(user_id: str | None = None) -> dict[str, Any]:
+def get_safety_settings(user_id: str) -> dict[str, Any]:
     """Get current safety filter settings for a user.
 
     First-read for a user with no rows seeds per-user defaults so subsequent
@@ -41,7 +41,7 @@ def get_safety_settings(user_id: str | None = None) -> dict[str, Any]:
 def update_safety_settings(
     filtering_enabled: bool | None = None,
     block_mode: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """Update safety filter settings for a user."""
     ensure_initialized()
@@ -76,13 +76,13 @@ def update_safety_settings(
     return get_safety_settings(user_id=resolved)
 
 
-def is_filtering_enabled(user_id: str | None = None) -> bool:
+def is_filtering_enabled(user_id: str) -> bool:
     """Check if ingredient filtering is enabled for this user."""
     settings = get_safety_settings(user_id=user_id)
     return settings.get("filtering_enabled", True)
 
 
-def get_block_mode(user_id: str | None = None) -> BlockMode:
+def get_block_mode(user_id: str) -> BlockMode:
     """Get the current block mode for this user."""
     settings = get_safety_settings(user_id=user_id)
     mode_str = settings.get("block_mode", "soft")

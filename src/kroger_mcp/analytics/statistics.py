@@ -146,7 +146,7 @@ def _parse_date(date_str: str) -> datetime | None:
         return None
 
 
-def update_product_stats(product_id: str, user_id: str | None = None) -> dict[str, Any]:
+def update_product_stats(product_id: str, user_id: str) -> dict[str, Any]:
     """
     Update statistics for a single product.
 
@@ -285,7 +285,7 @@ def update_product_stats(product_id: str, user_id: str | None = None) -> dict[st
 
 
 def update_all_product_stats(
-    product_ids: list[str], user_id: str | None = None
+    product_ids: list[str], user_id: str
 ) -> dict[str, Any]:
     """
     Update statistics for multiple products.
@@ -305,7 +305,7 @@ def update_all_product_stats(
     return {"updated_count": len(results), "products": results}
 
 
-def get_product_statistics(product_id: str, user_id: str | None = None) -> dict[str, Any] | None:
+def get_product_statistics(product_id: str, user_id: str) -> dict[str, Any] | None:
     """
     Get cached statistics for a product.
 
@@ -336,7 +336,7 @@ def get_product_statistics(product_id: str, user_id: str | None = None) -> dict[
         conn.close()
 
 
-def get_all_product_statistics(user_id: str | None = None) -> list[dict[str, Any]]:
+def get_all_product_statistics(user_id: str) -> list[dict[str, Any]]:
     """
     Get statistics for all tracked products.
 
@@ -370,7 +370,7 @@ def get_recent_purchases(
     days: int = 30,
     limit: int = 100,
     event_type: str = "order_placed",
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> list[dict[str, Any]]:
     """
     Get recent product purchases within specified time window.

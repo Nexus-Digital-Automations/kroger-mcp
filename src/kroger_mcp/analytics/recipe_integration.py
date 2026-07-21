@@ -14,7 +14,7 @@ from .pantry import get_pantry_item, get_pantry_status
 def match_ingredient_to_pantry(
     ingredient_name: str,
     product_id: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any] | None:
     """
     Find pantry item matching a recipe ingredient.
@@ -70,7 +70,7 @@ def match_ingredient_to_pantry(
 
 
 def check_recipe_pantry(
-    recipe_id: str, scale: float = 1.0, low_threshold: int = 30
+    recipe_id: str, scale: float = 1.0, low_threshold: int = 30, *, user_id: str
 ) -> dict[str, Any]:
     """
     Check pantry for recipe ingredients and categorize by availability.
@@ -79,6 +79,7 @@ def check_recipe_pantry(
         recipe_id: Recipe identifier
         scale: Multiplier for recipe quantities
         low_threshold: Consider "have enough" if pantry level above this
+        user_id: Owner whose pantry to check.
 
     Returns:
         Dict with categorized ingredients:
@@ -120,7 +121,7 @@ def check_recipe_pantry(
         is_optional = ing.get("is_optional", False)
 
         # Try to find in pantry
-        pantry_item = match_ingredient_to_pantry(ing_name, product_id)
+        pantry_item = match_ingredient_to_pantry(ing_name, product_id, user_id=user_id)
 
         item_info = {
             "ingredient": ing_name,
@@ -164,6 +165,8 @@ def generate_shopping_list(
     skip_in_pantry: bool = True,
     pantry_threshold: int = 30,
     scale: float = 1.0,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Generate optimized shopping list for multiple recipes.
@@ -174,6 +177,7 @@ def generate_shopping_list(
         skip_in_pantry: Skip items already in pantry above threshold
         pantry_threshold: Minimum pantry level to skip
         scale: Recipe quantity multiplier
+        user_id: Owner whose pantry to check.
 
     Returns:
         Shopping list with items to buy and optional items
@@ -218,7 +222,7 @@ def generate_shopping_list(
 
         # Check pantry if skip_in_pantry is enabled
         if skip_in_pantry:
-            pantry_item = match_ingredient_to_pantry(ing_name, product_id)
+            pantry_item = match_ingredient_to_pantry(ing_name, product_id, user_id=user_id)
             if pantry_item and pantry_item.get("level_percent", 0) >= pantry_threshold:
                 skipped_items.append(
                     {
@@ -265,9 +269,12 @@ def generate_shopping_list(
     }
 
 
-def get_recipes_for_pantry() -> dict[str, Any]:
+def get_recipes_for_pantry(*, user_id: str) -> dict[str, Any]:
     """
     Find recipes that can be made with current pantry inventory.
+
+    Args:
+        user_id: Owner whose pantry to check.
 
     Returns:
         Dict with recipes sorted by feasibility
@@ -285,7 +292,7 @@ def get_recipes_for_pantry() -> dict[str, Any]:
         recipe_id = recipe.get("id")
         if not recipe_id:
             continue
-        check = check_recipe_pantry(recipe_id)
+        check = check_recipe_pantry(recipe_id, user_id=user_id)
         if check.get("summary"):
             summary = check["summary"]
             feasibility = summary["have_enough_count"] / max(1, summary["total_ingredients"])

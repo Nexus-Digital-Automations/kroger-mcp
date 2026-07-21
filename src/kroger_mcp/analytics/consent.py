@@ -88,7 +88,7 @@ def _utc_now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-def get_consent(user_id: str | None = None) -> dict[str, Any]:
+def get_consent(user_id: str) -> dict[str, Any]:
     """Return this user's consent state; every category defaults to disabled.
 
     Shape::
@@ -117,7 +117,7 @@ def get_consent(user_id: str | None = None) -> dict[str, Any]:
     }
 
 
-def set_consent(updates: dict[str, bool], user_id: str | None = None) -> dict[str, Any]:
+def set_consent(updates: dict[str, bool], user_id: str) -> dict[str, Any]:
     """Apply per-category opt-in choices and mark consent as decided.
 
     ``updates`` maps category keys to booleans; omitted categories keep their
@@ -158,12 +158,12 @@ def set_consent(updates: dict[str, bool], user_id: str | None = None) -> dict[st
     return state
 
 
-def withdraw_consent(user_id: str | None = None) -> dict[str, Any]:
+def withdraw_consent(user_id: str) -> dict[str, Any]:
     """Disable every category while keeping the decision on record."""
     return set_consent({category["key"]: False for category in CATEGORIES}, user_id=user_id)
 
 
-def consent_allows(category: str, user_id: str | None = None) -> bool:
+def consent_allows(category: str, user_id: str) -> bool:
     """The gate: ``True`` only if the user has opted this category in.
 
     Unknown categories are denied (fail-closed) and logged, so a mistyped
@@ -187,7 +187,7 @@ def consent_allows(category: str, user_id: str | None = None) -> bool:
     return allowed
 
 
-def delete_shared_data(user_id: str | None = None) -> dict[str, Any]:
+def delete_shared_data(user_id: str) -> dict[str, Any]:
     """Withdraw consent and purge any shared-derived rows for this user.
 
     Phase 1: the aggregation pipeline does not exist yet, so there are no shared

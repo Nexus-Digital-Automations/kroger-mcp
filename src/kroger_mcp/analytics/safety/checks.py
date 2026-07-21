@@ -31,7 +31,7 @@ def get_product_safety_status(
     description: str,
     brand: str | None = None,
     categories: list[str] | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> ProductSafetyStatus:
     """
     Get the complete safety status for a product, scoped to a user.
@@ -97,7 +97,7 @@ def get_product_safety_status(
 
 def check_products_safety_batch(
     products: list[dict[str, Any]],
-    user_id: str | None = None,
+    user_id: str,
 ) -> list[ProductSafetyStatus]:
     """
     Check safety status for multiple products efficiently, scoped to a user.
@@ -189,7 +189,7 @@ def check_products_safety_batch(
 
 async def check_products_safety_batch_async(
     products: list[dict[str, Any]],
-    user_id: str | None = None,
+    user_id: str,
 ) -> list[ProductSafetyStatus]:
     """Async wrapper for check_products_safety_batch() — runs in thread pool."""
     return await asyncio.to_thread(check_products_safety_batch, products, user_id=user_id)
@@ -200,7 +200,7 @@ async def get_product_safety_status_async(
     description: str,
     brand: str | None = None,
     categories: list[str] | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> ProductSafetyStatus:
     """Async wrapper for get_product_safety_status() — runs in thread pool."""
     return await asyncio.to_thread(

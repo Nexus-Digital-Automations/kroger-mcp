@@ -6,7 +6,7 @@ from ..database import ensure_initialized, get_db_cursor
 from ._common import _resolve_user_id
 
 
-def is_product_safe_listed(product_id: str, user_id: str | None = None) -> bool:
+def is_product_safe_listed(product_id: str, user_id: str) -> bool:
     """Check if a product is on the safe list for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)
@@ -19,7 +19,7 @@ def is_product_safe_listed(product_id: str, user_id: str | None = None) -> bool:
         return cursor.fetchone() is not None
 
 
-def get_all_safe_product_ids(user_id: str | None = None) -> set[str]:
+def get_all_safe_product_ids(user_id: str) -> set[str]:
     """Get all safe-listed product IDs for fast lookup."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)
@@ -34,7 +34,7 @@ def add_to_safe_list(
     description: str | None = None,
     brand: str | None = None,
     reason: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """Add a product to the safe list for this user."""
     ensure_initialized()
@@ -67,7 +67,7 @@ def add_to_safe_list(
     }
 
 
-def remove_from_safe_list(product_id: str, user_id: str | None = None) -> dict[str, Any]:
+def remove_from_safe_list(product_id: str, user_id: str) -> dict[str, Any]:
     """Remove a product from the safe list for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)
@@ -92,7 +92,7 @@ def remove_from_safe_list(product_id: str, user_id: str | None = None) -> dict[s
     }
 
 
-def get_safe_products(user_id: str | None = None) -> list[dict[str, Any]]:
+def get_safe_products(user_id: str) -> list[dict[str, Any]]:
     """Get all products on the safe list for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)

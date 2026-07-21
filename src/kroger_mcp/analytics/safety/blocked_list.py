@@ -6,7 +6,7 @@ from ..database import ensure_initialized, get_db_cursor
 from ._common import _resolve_user_id
 
 
-def is_product_blocked(product_id: str, user_id: str | None = None) -> tuple[bool, str | None]:
+def is_product_blocked(product_id: str, user_id: str) -> tuple[bool, str | None]:
     """Check if a product is on the blocked list for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)
@@ -22,7 +22,7 @@ def is_product_blocked(product_id: str, user_id: str | None = None) -> tuple[boo
         return False, None
 
 
-def get_all_blocked_product_ids(user_id: str | None = None) -> set[str]:
+def get_all_blocked_product_ids(user_id: str) -> set[str]:
     """Get all blocked product IDs for fast lookup."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)
@@ -37,7 +37,7 @@ def add_to_blocked_list(
     description: str | None = None,
     reason: str | None = None,
     auto_blocked: bool = False,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """Add a product to the blocked list for this user."""
     ensure_initialized()
@@ -78,7 +78,7 @@ def add_to_blocked_list(
     }
 
 
-def remove_from_blocked_list(product_id: str, user_id: str | None = None) -> dict[str, Any]:
+def remove_from_blocked_list(product_id: str, user_id: str) -> dict[str, Any]:
     """Remove a product from the blocked list for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)
@@ -103,7 +103,7 @@ def remove_from_blocked_list(product_id: str, user_id: str | None = None) -> dic
     }
 
 
-def get_blocked_products(user_id: str | None = None) -> list[dict[str, Any]]:
+def get_blocked_products(user_id: str) -> list[dict[str, Any]]:
     """Get all products on the blocked list for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)

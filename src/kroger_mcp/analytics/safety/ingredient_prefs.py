@@ -6,7 +6,7 @@ from ..database import ensure_initialized, get_db_cursor
 from ._common import _resolve_user_id
 
 
-def get_disabled_ingredients(user_id: str | None = None) -> set[str]:
+def get_disabled_ingredients(user_id: str) -> set[str]:
     """Get set of ingredient keys that this user has disabled."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)
@@ -20,7 +20,7 @@ def get_disabled_ingredients(user_id: str | None = None) -> set[str]:
 
 
 def toggle_ingredient(
-    ingredient_key: str, enabled: bool, user_id: str | None = None
+    ingredient_key: str, enabled: bool, user_id: str
 ) -> dict[str, Any]:
     """Enable or disable checking for a specific ingredient for this user."""
     ensure_initialized()
@@ -46,7 +46,7 @@ def toggle_ingredient(
     }
 
 
-def get_ingredient_preferences(user_id: str | None = None) -> list[dict[str, Any]]:
+def get_ingredient_preferences(user_id: str) -> list[dict[str, Any]]:
     """Get all ingredient preferences for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)
@@ -64,7 +64,7 @@ def get_ingredient_preferences(user_id: str | None = None) -> list[dict[str, Any
         return [dict(row) for row in cursor.fetchall()]
 
 
-def reset_ingredient_preferences(user_id: str | None = None) -> dict[str, Any]:
+def reset_ingredient_preferences(user_id: str) -> dict[str, Any]:
     """Reset all ingredient preferences to defaults (all enabled) for this user."""
     ensure_initialized()
     resolved = _resolve_user_id(user_id)

@@ -63,7 +63,7 @@ def get_urgency_label(urgency: float, is_overdue: bool = False) -> str:
 def predict_repurchase_date(
     product_id: str,
     stats: dict[str, Any] | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> RepurchasePrediction:
     """
     Predict when a product will need to be repurchased.
@@ -222,7 +222,7 @@ def get_predictions_for_period(
     category_filter: str | None = None,
     min_confidence: float = 0.0,
     include_overdue: bool = True,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> list[RepurchasePrediction]:
     """Get predictions for items needing repurchase within a period.
 
@@ -249,7 +249,7 @@ def get_predictions_for_period(
         return list(cached[1])
 
     result = _compute_predictions_for_period(
-        days_ahead, category_filter, min_confidence, include_overdue, owner
+        days_ahead, category_filter, min_confidence, include_overdue, user_id=owner
     )
     _predictions_memo[memo_key] = (now + _PREDICTIONS_MEMO_TTL_SECONDS, result)
     return list(result)
@@ -260,7 +260,7 @@ def _compute_predictions_for_period(
     category_filter: str | None = None,
     min_confidence: float = 0.0,
     include_overdue: bool = True,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> list[RepurchasePrediction]:
     """Uncached body of get_predictions_for_period (one DB scan + scoring)."""
     ensure_initialized()
@@ -313,7 +313,7 @@ def _compute_predictions_for_period(
 
 
 def get_overdue_items(
-    category_filter: str | None = None, user_id: str | None = None
+    category_filter: str | None = None, *, user_id: str
 ) -> list[RepurchasePrediction]:
     """
     Get items that are overdue for repurchase.
@@ -338,7 +338,7 @@ def get_shopping_suggestions(
     include_seasonal: bool = True,
     days_ahead: int = 7,
     min_confidence: float = 0.5,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """
     Generate smart shopping suggestions.

@@ -12,7 +12,7 @@ from .database import ensure_initialized, get_db_connection
 
 
 def generate_spending_report(
-    days_back: int = 30, group_by: str = "category", user_id: str | None = None
+    days_back: int = 30, group_by: str = "category", *, user_id: str
 ) -> dict[str, Any]:
     """
     Generate spending/purchase analytics report.
@@ -114,7 +114,7 @@ def generate_spending_report(
         conn.close()
 
 
-def generate_prediction_accuracy_report(user_id: str | None = None) -> dict[str, Any]:
+def generate_prediction_accuracy_report(user_id: str) -> dict[str, Any]:
     """
     Analyze how accurate purchase predictions have been.
 
@@ -227,7 +227,7 @@ def generate_prediction_accuracy_report(user_id: str | None = None) -> dict[str,
         conn.close()
 
 
-def generate_patterns_report(days_back: int = 90, user_id: str | None = None) -> dict[str, Any]:
+def generate_patterns_report(days_back: int = 90, *, user_id: str) -> dict[str, Any]:
     """
     Generate shopping behavior patterns report.
 
@@ -308,7 +308,7 @@ def generate_patterns_report(days_back: int = 90, user_id: str | None = None) ->
         conn.close()
 
 
-def generate_pantry_report(user_id: str | None = None) -> dict[str, Any]:
+def generate_pantry_report(user_id: str) -> dict[str, Any]:
     """
     Generate pantry inventory status report.
 
@@ -399,7 +399,7 @@ def export_all_data(
     include_products: bool = True,
     include_pantry: bool = True,
     include_recipes: bool = True,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """
     Export all analytics data for backup or external analysis.

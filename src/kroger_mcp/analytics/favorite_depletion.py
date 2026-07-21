@@ -11,7 +11,7 @@ from ._user_scope import resolve_user_id as _resolve_user_id
 from .database import ensure_initialized, get_db_cursor
 
 
-def get_favorite_depletion_rates(user_id: str | None = None) -> dict[str, float]:
+def get_favorite_depletion_rates(user_id: str) -> dict[str, float]:
     """Derive an implied daily pantry depletion rate (percent/day) per product
     from the cadence of the favorite list(s) it belongs to.
 

@@ -92,7 +92,7 @@ DEFAULT_SHELF_LIFE = {
 }
 
 
-def calculate_depletion_rate(product_id: str, user_id: str | None = None) -> float:
+def calculate_depletion_rate(product_id: str, user_id: str) -> float:
     """
     Calculate daily depletion percentage from consumption rate analytics.
 
@@ -246,7 +246,7 @@ def restock_item(
     product_id: str,
     level: int = 100,
     description: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
     quantity: float | None = None,
     unit: str | None = None,
 ) -> dict[str, Any]:
@@ -367,7 +367,7 @@ def restock_item(
         conn.close()
 
 
-def update_pantry_level(product_id: str, level: int, user_id: str | None = None) -> dict[str, Any]:
+def update_pantry_level(product_id: str, level: int, user_id: str) -> dict[str, Any]:
     """
     Manually set pantry level for an item owned by `user_id`.
 
@@ -444,7 +444,7 @@ def _record_depletion_event(
     product_id: str,
     last_restocked_at: str,
     depleted_at: str,
-    user_id: str | None = None,
+    user_id: str,
 ) -> bool:
     """
     Record a pantry depletion event for consumption analytics.
@@ -479,7 +479,7 @@ def _record_depletion_event(
             # Trigger stats recalculation to incorporate the new data point
             from .statistics import update_product_stats
 
-            update_product_stats(product_id)
+            update_product_stats(product_id, user_id=owner)
 
             # Update depletion rate based on new stats
             new_rate = calculate_depletion_rate(product_id, user_id=owner)
@@ -506,7 +506,7 @@ def add_to_pantry(
     level: int = 100,
     low_threshold: int = 20,
     auto_deplete: bool = True,
-    user_id: str | None = None,
+    *, user_id: str,
     quantity: float | None = None,
     unit: str | None = None,
 ) -> dict[str, Any]:
@@ -604,7 +604,7 @@ def add_to_pantry(
         conn.close()
 
 
-def remove_from_pantry(product_id: str, user_id: str | None = None) -> dict[str, Any]:
+def remove_from_pantry(product_id: str, user_id: str) -> dict[str, Any]:
     """
     Remove an item from `user_id`'s pantry tracking.
 
@@ -635,7 +635,7 @@ def remove_from_pantry(product_id: str, user_id: str | None = None) -> dict[str,
 
 
 def get_pantry_status(
-    apply_depletion: bool = True, user_id: str | None = None
+    apply_depletion: bool = True, *, user_id: str
 ) -> list[dict[str, Any]]:
     """
     Get all pantry items owned by `user_id` with current estimated levels
@@ -741,7 +741,7 @@ def get_pantry_status(
 
 
 def get_low_inventory_items(
-    threshold: int | None = None, user_id: str | None = None
+    threshold: int | None = None, *, user_id: str
 ) -> list[dict[str, Any]]:
     """
     Get items below their low threshold for `user_id`'s pantry.
@@ -765,7 +765,7 @@ def get_low_inventory_items(
     return low_items
 
 
-def get_pantry_item(product_id: str, user_id: str | None = None) -> dict[str, Any] | None:
+def get_pantry_item(product_id: str, user_id: str) -> dict[str, Any] | None:
     """
     Get a single pantry item by product ID from `user_id`'s pantry.
 
@@ -792,7 +792,7 @@ def consume_from_pantry(
     source_type: str = "",
     source_id: str = "",
     source_description: str = "",
-    user_id: str | None = None,
+    *, user_id: str,
     recipe_id: str | None = None,
     event_type: str = "recipe_consumed",
 ) -> dict[str, Any]:
@@ -930,7 +930,7 @@ def consume_from_pantry(
 def get_usage_history(
     product_id: str,
     days: int = 30,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> list[dict[str, Any]]:
     """
     Return recent purchase_events for one pantry product, newest first.
@@ -972,7 +972,7 @@ def create_pending_gap(
     recipe_id: str | None = None,
     recipe_name: str | None = None,
     product_description: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> int:
     """
     Record that a placed order under-fulfilled a recipe requirement.
@@ -1013,7 +1013,7 @@ def create_pending_gap(
         conn.close()
 
 
-def list_pending_gaps(user_id: str | None = None) -> list[dict[str, Any]]:
+def list_pending_gaps(user_id: str) -> list[dict[str, Any]]:
     """Return unresolved gaps for the gap-reconciliation inbox, newest first."""
     ensure_initialized()
     owner = _resolve_user_id(user_id)
@@ -1037,7 +1037,7 @@ def list_pending_gaps(user_id: str | None = None) -> list[dict[str, Any]]:
 def resolve_gap(
     gap_id: int,
     resolution: str,
-    user_id: str | None = None,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Close a pending gap. If `resolution` is "pantry_covered" the shortfall
