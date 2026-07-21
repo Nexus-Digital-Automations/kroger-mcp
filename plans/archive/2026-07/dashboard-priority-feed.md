@@ -139,3 +139,5 @@ functions the bell already uses, rather than duplicating query logic.
       feed renders and at least one action fires against its real
       endpoint).
 - [x] Commit.
+
+<!-- last-verified: 2026-07-19 -->
