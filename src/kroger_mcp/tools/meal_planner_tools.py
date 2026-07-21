@@ -537,7 +537,7 @@ def register_tools(mcp):
                     ctx.info(f"Adding {len(items_to_add)} items to cart...")
 
                 try:
-                    client = get_authenticated_client()
+                    client = get_authenticated_client(user_id)
 
                     api_items = [
                         {
@@ -565,7 +565,7 @@ def register_tools(mcp):
                             _add_item_to_local_cart(
                                 item["product_id"],
                                 max(1, int(round(item.get("quantity", 1)))),
-                                mod,
+                                mod, user_id=user_id,
                             )
 
                     if plan_id:

@@ -75,6 +75,9 @@ def register_tools(mcp):
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Reporting and analytics operations."""
+        from ..auth.dependencies import mcp_user_id
+
+        user_id = mcp_user_id()
         return await asyncio.to_thread(
             _reports_impl,
             action,
@@ -91,6 +94,7 @@ def register_tools(mcp):
             pantry_threshold,
             combine_duplicates,
             ctx,
+            user_id,
         )
 
     def _reports_impl(
@@ -108,6 +112,7 @@ def register_tools(mcp):
         pantry_threshold,
         combine_duplicates,
         ctx,
+        user_id,
     ):
         match action:
             case "get_analytics":
@@ -115,21 +120,25 @@ def register_tools(mcp):
                     if report_type == "spending":
                         from ..analytics.reporting import generate_spending_report
 
-                        report = generate_spending_report(days_back=days_back or 30)
+                        report = generate_spending_report(
+                            days_back=days_back or 30, user_id=user_id
+                        )
                     elif report_type == "predictions":
                         from ..analytics.reporting import (
                             generate_prediction_accuracy_report,
                         )
 
-                        report = generate_prediction_accuracy_report()
+                        report = generate_prediction_accuracy_report(user_id=user_id)
                     elif report_type == "patterns":
                         from ..analytics.reporting import generate_patterns_report
 
-                        report = generate_patterns_report(days_back=days_back or 30)
+                        report = generate_patterns_report(
+                            days_back=days_back or 30, user_id=user_id
+                        )
                     elif report_type == "pantry":
                         from ..analytics.reporting import generate_pantry_report
 
-                        report = generate_pantry_report()
+                        report = generate_pantry_report(user_id=user_id)
                     else:
                         return {
                             "success": False,
@@ -161,6 +170,7 @@ def register_tools(mcp):
                             include_pantry_data if include_pantry_data is not None else True
                         ),
                         include_recipes=include_recipes if include_recipes is not None else True,
+                        user_id=user_id,
                     )
                     return {"success": True, "export": export}
                 except Exception as e:
@@ -175,7 +185,7 @@ def register_tools(mcp):
                 try:
                     from ..analytics.recipe_integration import check_recipe_pantry
 
-                    result = check_recipe_pantry(recipe_id, scale=scale or 1.0)
+                    result = check_recipe_pantry(recipe_id, scale=scale or 1.0, user_id=user_id)
                     return result
                 except Exception as e:
                     return {
@@ -197,6 +207,7 @@ def register_tools(mcp):
                         skip_in_pantry=skip_in_pantry if skip_in_pantry is not None else True,
                         pantry_threshold=pantry_threshold if pantry_threshold is not None else 30,
                         scale=scale or 1.0,
+                        user_id=user_id,
                     )
                     return result
                 except Exception as e:
@@ -209,7 +220,7 @@ def register_tools(mcp):
                 try:
                     from ..analytics.recipe_integration import get_recipes_for_pantry
 
-                    result = get_recipes_for_pantry()
+                    result = get_recipes_for_pantry(user_id=user_id)
                     return {"success": True, **result}
                 except Exception as e:
                     return {

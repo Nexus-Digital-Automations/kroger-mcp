@@ -454,9 +454,10 @@ def register_tools(mcp):
                     try:
                         from ..analytics.recipe_cost import estimate_recipe_cost
                         from ..analytics.recipe_scoring import calculate_health_score
+                        from ..auth.dependencies import mcp_user_id
                         from .shared import get_preferred_location_id
 
-                        loc_id = get_preferred_location_id()
+                        loc_id = get_preferred_location_id(mcp_user_id())
                         recipe["health_score"] = calculate_health_score(recipe)
                         recipe["cost_estimate"] = estimate_recipe_cost(
                             recipe,
@@ -645,11 +646,12 @@ def register_tools(mcp):
                     cost_estimate = None
                     try:
                         from ..analytics.recipe_cost import estimate_recipe_cost
+                        from ..auth.dependencies import mcp_user_id
                         from .shared import get_preferred_location_id
 
                         cost_estimate = estimate_recipe_cost(
                             recipe,
-                            location_id=get_preferred_location_id(),
+                            location_id=get_preferred_location_id(mcp_user_id()),
                             include_spices=bool(include_spices),
                         )
                     except Exception:
@@ -800,6 +802,9 @@ def register_tools(mcp):
                 if not recipe_id:
                     return {"success": False, "error": "recipe_id is required"}
                 try:
+                    from ..auth.dependencies import mcp_user_id
+
+                    user_id = mcp_user_id()
                     recipe = _find_recipe(recipe_id)
                     if not recipe:
                         return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
@@ -813,7 +818,7 @@ def register_tools(mcp):
                     try:
                         from ..analytics.pantry import get_pantry_status
 
-                        pantry_items = get_pantry_status(apply_depletion=True)
+                        pantry_items = get_pantry_status(apply_depletion=True, user_id=user_id)
                         for item in pantry_items:
                             pantry_context[item["product_id"]] = {
                                 "level_percent": item.get("level_percent", 0),
@@ -1019,6 +1024,7 @@ def register_tools(mcp):
                             {"product_id": item["product_id"], "description": item.get("name", "")}
                             for item in items_to_add
                         ],
+                        user_id=user_id,
                         confirm_unsafe=bool(confirm_unsafe),
                     )
                     if safety_response is not None:
@@ -1027,7 +1033,7 @@ def register_tools(mcp):
                     if ctx:
                         ctx.info(f"Adding {len(items_to_add)} items to cart...")
 
-                    client = get_authenticated_client()
+                    client = get_authenticated_client(user_id)
                     api_items = [
                         {
                             "upc": item["product_id"],
@@ -1042,7 +1048,10 @@ def register_tools(mcp):
 
                     for item in items_to_add:
                         _add_item_to_local_cart(
-                            item["product_id"], item["quantity"], item["modality"]
+                            item["product_id"],
+                            item["quantity"],
+                            item["modality"],
+                            user_id=user_id,
                         )
 
                     # Partial fulfillment leaves an implicit pantry draw —
@@ -1070,6 +1079,7 @@ def register_tools(mcp):
                                 recipe_id=recipe_id,
                                 recipe_name=recipe.get("name"),
                                 product_description=partial["name"],
+                                user_id=user_id,
                             )
                     except Exception:
                         # Never let gap bookkeeping block the cart write.
@@ -1136,15 +1146,17 @@ def register_tools(mcp):
                         estimate_recipe_cost_with_api,
                     )
                     from ..analytics.recipe_scoring import calculate_health_score
+                    from ..auth.dependencies import mcp_user_id
                     from .shared import get_client_credentials_client, get_preferred_location_id
 
-                    loc_id = get_preferred_location_id()
+                    user_id = mcp_user_id()
+                    loc_id = get_preferred_location_id(user_id)
                     health = calculate_health_score(recipe)
 
                     # Try API-backed cost, fall back to DB-only
                     api_fallback_note = None
                     try:
-                        client = get_client_credentials_client()
+                        client = get_client_credentials_client(user_id)
                         cost = estimate_recipe_cost_with_api(
                             recipe,
                             loc_id,

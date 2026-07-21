@@ -418,7 +418,7 @@ def register_tools(mcp):
                 from .cart_tools import _load_cart_data
 
                 try:
-                    cart_data = _load_cart_data()
+                    cart_data = _load_cart_data(user_id=user_id)
                     cart_items = cart_data.get("current_cart", [])
                 except Exception:
                     cart_items = []

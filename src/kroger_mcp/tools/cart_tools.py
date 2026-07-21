@@ -5,7 +5,6 @@ Cart tracking and management functionality
 import asyncio
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Literal
 
 from fastmcp import Context
@@ -13,18 +12,9 @@ from pydantic import Field
 
 from ..analytics.deals import calculate_cart_savings, record_price_observation
 from ._cart_safety import check_cart_items_safety
-from ._storage import JsonStore
 from .shared import get_authenticated_client, get_preferred_location_id
 
 logger = logging.getLogger(__name__)
-
-_BASE_DIR = Path(__file__).parent.parent.parent.parent  # → kroger-mcp/
-ORDER_HISTORY_FILE = str(_BASE_DIR / "kroger_order_history.json")
-
-# Order history is still file-backed pending the orders+purchase_events DB
-# rewrite. It returns an empty list when the file is missing (relocated by
-# the multi-tenant migration). Cart state itself is now per-user DB-backed.
-_order_history_store: JsonStore = JsonStore(ORDER_HISTORY_FILE, default=list)
 
 
 def _get_session_id(ctx) -> str:
@@ -46,7 +36,7 @@ def _resolve_cart_user_id(user_id: str | None) -> str:
     return user_id if user_id is not None else mcp_user_id()
 
 
-def _load_cart_data(user_id: str | None = None) -> dict[str, Any]:
+def _load_cart_data(user_id: str) -> dict[str, Any]:
     """Return this user's cart in the legacy `{current_cart, last_updated}` shape."""
     from kroger_mcp.analytics.database import get_db_connection
 
@@ -82,7 +72,7 @@ def _load_cart_data(user_id: str | None = None) -> dict[str, Any]:
         conn.close()
 
 
-def _save_cart_data(cart_data: dict[str, Any], user_id: str | None = None) -> None:
+def _save_cart_data(cart_data: dict[str, Any], user_id: str) -> None:
     """Replace this user's cart with the items in `cart_data["current_cart"]`."""
     from kroger_mcp.analytics.database import get_db_connection
 
@@ -120,26 +110,15 @@ def _save_cart_data(cart_data: dict[str, Any], user_id: str | None = None) -> No
         conn.close()
 
 
-def _load_order_history() -> list[dict[str, Any]]:
-    return _order_history_store.load()
-
-
-def _save_order_history(history: list[dict[str, Any]]) -> None:
-    try:
-        _order_history_store.save(history)
-    except OSError as exc:
-        logger.warning("Could not save order history: %s", exc)
-
-
 def _add_item_to_local_cart(
     product_id: str,
     quantity: int,
     modality: str,
     product_details: dict[str, Any] | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> None:
     """Add an item to the local cart tracking and analytics database"""
-    cart_data = _load_cart_data()
+    cart_data = _load_cart_data(user_id=user_id)
     current_cart = cart_data.get("current_cart", [])
 
     existing_item = None
@@ -165,7 +144,7 @@ def _add_item_to_local_cart(
 
     cart_data["current_cart"] = current_cart
     cart_data["last_updated"] = datetime.now().isoformat()
-    _save_cart_data(cart_data)
+    _save_cart_data(cart_data, user_id=user_id)
 
     try:
         from ..analytics.purchase_tracker import record_cart_add
@@ -177,7 +156,7 @@ def _add_item_to_local_cart(
     if product_details:
         try:
             pricing = product_details.get("pricing", {})
-            location_id = get_preferred_location_id()
+            location_id = get_preferred_location_id(user_id=user_id)
             if pricing and location_id:
                 record_price_observation(
                     product_id=product_id,
@@ -272,10 +251,14 @@ def register_tools(mcp):
         TO ORDER A FAVORITES LIST: Use favorites(action='order', list_id='...') instead
         of manually compiling items — it handles pantry skipping automatically.
         """
+        from kroger_mcp.auth.dependencies import mcp_user_id
+
+        user_id = mcp_user_id()
+
         match action:
             case "view":
                 try:
-                    cart_data = _load_cart_data()
+                    cart_data = _load_cart_data(user_id=user_id)
                     current_cart = cart_data.get("current_cart", [])
 
                     total_quantity = sum(item.get("quantity", 0) for item in current_cart)
@@ -345,7 +328,7 @@ def register_tools(mcp):
                             from ..analytics.pantry import get_pantry_item
 
                             for pid in pids:
-                                pantry_item = get_pantry_item(pid)
+                                pantry_item = get_pantry_item(pid, user_id=user_id)
                                 if pantry_item:
                                     pantry_context[pid] = {
                                         "level_percent": pantry_item.get("level_percent", 0),
@@ -391,7 +374,7 @@ def register_tools(mcp):
                         }
 
                     safety_response = check_cart_items_safety(
-                        formatted_items, confirm_unsafe=bool(confirm_unsafe)
+                        formatted_items, user_id=user_id, confirm_unsafe=bool(confirm_unsafe)
                     )
                     if safety_response is not None:
                         return safety_response
@@ -399,7 +382,7 @@ def register_tools(mcp):
                     if ctx:
                         await ctx.info(f"Adding {len(formatted_items)} item(s) to cart")
 
-                    client = await asyncio.to_thread(get_authenticated_client)
+                    client = await asyncio.to_thread(get_authenticated_client, user_id)
                     cart_items = [
                         {
                             "upc": item["product_id"],
@@ -468,6 +451,7 @@ def register_tools(mcp):
                             item["quantity"],
                             item["modality"],
                             product_details={"description": item.get("description")},
+                            user_id=user_id,
                         )
 
                     if ctx:
@@ -544,7 +528,7 @@ def register_tools(mcp):
                 if not ids_to_remove:
                     return {"success": False, "error": "product_id or product_ids is required"}
                 try:
-                    cart_data = _load_cart_data()
+                    cart_data = _load_cart_data(user_id=user_id)
                     current_cart = cart_data.get("current_cart", [])
                     original_count = len(current_cart)
                     ids_set = set(ids_to_remove)
@@ -566,7 +550,7 @@ def register_tools(mcp):
                     items_removed = original_count - len(cart_data["current_cart"])
                     if items_removed > 0:
                         cart_data["last_updated"] = datetime.now().isoformat()
-                        _save_cart_data(cart_data)
+                        _save_cart_data(cart_data, user_id=user_id)
 
                     if len(ids_to_remove) == 1:
                         return {
@@ -588,11 +572,11 @@ def register_tools(mcp):
 
             case "clear":
                 try:
-                    cart_data = _load_cart_data()
+                    cart_data = _load_cart_data(user_id=user_id)
                     items_count = len(cart_data.get("current_cart", []))
                     cart_data["current_cart"] = []
                     cart_data["last_updated"] = datetime.now().isoformat()
-                    _save_cart_data(cart_data)
+                    _save_cart_data(cart_data, user_id=user_id)
                     return {
                         "success": True,
                         "message": f"Cleared {items_count} items from local cart tracking",
@@ -603,7 +587,7 @@ def register_tools(mcp):
 
             case "mark_placed":
                 try:
-                    cart_data = _load_cart_data()
+                    cart_data = _load_cart_data(user_id=user_id)
                     current_cart = cart_data.get("current_cart", [])
 
                     if not current_cart:
@@ -612,26 +596,20 @@ def register_tools(mcp):
                             "error": "No items in current cart to mark as placed",
                         }
 
-                    order_record = {
-                        "items": current_cart.copy(),
-                        "placed_at": datetime.now().isoformat(),
-                        "item_count": len(current_cart),
-                        "total_quantity": sum(item.get("quantity", 0) for item in current_cart),
-                        "notes": order_notes,
-                    }
-
-                    order_history = _load_order_history()
-                    order_history.append(order_record)
-                    _save_order_history(order_history)
+                    item_count = len(current_cart)
+                    total_quantity = sum(item.get("quantity", 0) for item in current_cart)
+                    placed_at = datetime.now().isoformat()
 
                     analytics_order_id = None
                     try:
                         from ..analytics.purchase_tracker import record_order
                         from ..analytics.statistics import update_all_product_stats
 
-                        analytics_order_id = record_order(current_cart, order_notes)
+                        analytics_order_id = record_order(
+                            current_cart, order_notes, user_id=user_id
+                        )
                         pids_in_order = [item.get("product_id") for item in current_cart]
-                        update_all_product_stats(pids_in_order)
+                        update_all_product_stats(pids_in_order, user_id=user_id)
                     except Exception as e:
                         logger.warning("Could not record analytics: %s", e)
 
@@ -644,7 +622,7 @@ def register_tools(mcp):
                             pid = item.get("product_id")
                             if pid:
                                 try:
-                                    restock_item(product_id=pid, level=100)
+                                    restock_item(product_id=pid, level=100, user_id=user_id)
                                     pantry_restocked += 1
                                 except Exception as pe:
                                     logger.warning("Could not restock pantry for %s: %s", pid, pe)
@@ -653,16 +631,16 @@ def register_tools(mcp):
 
                     cart_data["current_cart"] = []
                     cart_data["last_updated"] = datetime.now().isoformat()
-                    _save_cart_data(cart_data)
+                    _save_cart_data(cart_data, user_id=user_id)
 
                     return {
                         "success": True,
-                        "message": f"Marked order with {order_record['item_count']} items as placed",
-                        "order_id": len(order_history),
+                        "message": f"Marked order with {item_count} items as placed",
+                        "order_id": analytics_order_id,
                         "analytics_order_id": analytics_order_id,
-                        "items_placed": order_record["item_count"],
-                        "total_quantity": order_record["total_quantity"],
-                        "placed_at": order_record["placed_at"],
+                        "items_placed": item_count,
+                        "total_quantity": total_quantity,
+                        "placed_at": placed_at,
                         "pantry_restocked": pantry_restocked,
                     }
                 except Exception as e:
@@ -673,27 +651,24 @@ def register_tools(mcp):
 
             case "view_history":
                 try:
-                    hist_limit = max(1, min(50, limit or 10))
-                    order_history = _load_order_history()
-                    sorted_orders = sorted(
-                        order_history,
-                        key=lambda x: x.get("placed_at", ""),
-                        reverse=True,
-                    )
-                    limited_orders = sorted_orders[:hist_limit]
+                    from ..analytics.purchase_tracker import get_order_history
 
-                    total_orders = len(order_history)
+                    hist_limit = max(1, min(50, limit or 10))
+                    all_orders = get_order_history(limit=10_000, user_id=user_id)
+                    orders = all_orders[:hist_limit]
+
+                    total_orders = len(all_orders)
                     total_items_all_time = sum(
-                        order.get("item_count", 0) for order in order_history
+                        order.get("item_count", 0) for order in all_orders
                     )
                     total_quantity_all_time = sum(
-                        order.get("total_quantity", 0) for order in order_history
+                        order.get("total_quantity", 0) for order in all_orders
                     )
 
                     return {
                         "success": True,
-                        "orders": limited_orders,
-                        "showing": len(limited_orders),
+                        "orders": orders,
+                        "showing": len(orders),
                         "summary": {
                             "total_orders": total_orders,
                             "total_items_all_time": total_items_all_time,
@@ -722,7 +697,7 @@ def register_tools(mcp):
                         "summary": {},
                     }
 
-                    all_pantry = get_pantry_status(apply_depletion=True)
+                    all_pantry = get_pantry_status(apply_depletion=True, user_id=user_id)
 
                     if product_ids:
                         product_id_set = set(product_ids)
@@ -756,10 +731,12 @@ def register_tools(mcp):
                                 }
                             )
 
-                    all_lists = get_lists()
+                    all_lists = get_lists(user_id=user_id)
                     for fav_list in all_lists:
                         list_id = fav_list["id"]
-                        list_items_result = get_list_items(list_id, include_pantry_status=False)
+                        list_items_result = get_list_items(
+                            list_id, include_pantry_status=False, user_id=user_id
+                        )
                         if list_items_result.get("success") and list_items_result.get("items"):
                             list_pids = {item["product_id"] for item in list_items_result["items"]}
                             if product_ids:

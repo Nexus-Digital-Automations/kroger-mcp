@@ -11,6 +11,7 @@ from pydantic import Field
 
 from kroger_mcp.cache import cache_read_through
 
+from ..auth.dependencies import mcp_user_id
 from .shared import get_client_credentials_client, kroger_cache_key
 
 # Chains and departments are effectively static reference data — cache 24h.
@@ -60,6 +61,7 @@ def register_tools(mcp):
         Preferences: set_servings (household size, affects recipe scaling), get_servings, get_preferences.
         Utility: get_datetime.
         """
+        user_id = mcp_user_id()
         return await asyncio.to_thread(
             _info_impl,
             action,
@@ -67,15 +69,16 @@ def register_tools(mcp):
             department_id,
             servings,
             ctx,
+            user_id,
         )
 
-    def _info_impl(action, chain_name, department_id, servings, ctx):
+    def _info_impl(action, chain_name, department_id, servings, ctx, user_id):
         match action:
             case "list_chains":
                 if ctx:
                     ctx.info("Getting list of Kroger chains")
 
-                client = get_client_credentials_client()
+                client = get_client_credentials_client(user_id)
 
                 try:
                     chains = cache_read_through(
@@ -116,7 +119,7 @@ def register_tools(mcp):
                 if ctx:
                     ctx.info(f"Getting details for chain: {chain_name}")
 
-                client = get_client_credentials_client()
+                client = get_client_credentials_client(user_id)
 
                 try:
                     chain_details = client.location.get_chain(chain_name)
@@ -144,7 +147,7 @@ def register_tools(mcp):
                 if ctx:
                     ctx.info(f"Checking if chain '{chain_name}' exists")
 
-                client = get_client_credentials_client()
+                client = get_client_credentials_client(user_id)
 
                 try:
                     exists = client.location.chain_exists(chain_name)
@@ -165,7 +168,7 @@ def register_tools(mcp):
                 if ctx:
                     ctx.info("Getting list of departments")
 
-                client = get_client_credentials_client()
+                client = get_client_credentials_client(user_id)
 
                 try:
                     departments = cache_read_through(
@@ -206,7 +209,7 @@ def register_tools(mcp):
                 if ctx:
                     ctx.info(f"Getting details for department: {department_id}")
 
-                client = get_client_credentials_client()
+                client = get_client_credentials_client(user_id)
 
                 try:
                     dept_details = client.location.get_department(department_id)
@@ -237,7 +240,7 @@ def register_tools(mcp):
                 if ctx:
                     ctx.info(f"Checking if department '{department_id}' exists")
 
-                client = get_client_credentials_client()
+                client = get_client_credentials_client(user_id)
 
                 try:
                     exists = client.location.department_exists(department_id)
@@ -273,7 +276,7 @@ def register_tools(mcp):
                 try:
                     from .shared import get_default_servings as _get_default_servings
 
-                    svc = _get_default_servings()
+                    svc = _get_default_servings(user_id)
                     return {
                         "success": True,
                         "default_servings": svc,
@@ -301,8 +304,8 @@ def register_tools(mcp):
                         set_default_servings as _set_default_servings,
                     )
 
-                    old = _get_default_servings()
-                    _set_default_servings(servings)
+                    old = _get_default_servings(user_id)
+                    _set_default_servings(servings, user_id)
                     return {
                         "success": True,
                         "default_servings": servings,
@@ -324,8 +327,8 @@ def register_tools(mcp):
                     return {
                         "success": True,
                         "profile": {
-                            "preferred_location_id": get_preferred_location_id(),
-                            "default_servings_per_meal": _get_default_servings(),
+                            "preferred_location_id": get_preferred_location_id(user_id),
+                            "default_servings_per_meal": _get_default_servings(user_id),
                         },
                     }
                 except Exception as e:

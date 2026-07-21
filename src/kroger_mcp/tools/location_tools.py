@@ -11,6 +11,7 @@ from pydantic import Field
 
 from kroger_mcp.cache import cache_read_through
 
+from ..auth.dependencies import mcp_user_id
 from .shared import (
     get_client_credentials_client,
     get_default_zip_code,
@@ -61,6 +62,7 @@ def register_tools(mcp):
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Store location management operations."""
+        user_id = mcp_user_id()
         match action:
             case "search":
                 if ctx:
@@ -71,7 +73,7 @@ def register_tools(mcp):
                 if not zip_code:
                     zip_code = get_default_zip_code()
 
-                client = await asyncio.to_thread(get_client_credentials_client)
+                client = await asyncio.to_thread(get_client_credentials_client, user_id)
 
                 try:
                     cache_key = kroger_cache_key(
@@ -168,7 +170,7 @@ def register_tools(mcp):
                 if ctx:
                     await ctx.info(f"Getting details for location {location_id}")
 
-                client = await asyncio.to_thread(get_client_credentials_client)
+                client = await asyncio.to_thread(get_client_credentials_client, user_id)
 
                 try:
                     location_details = await asyncio.to_thread(
@@ -228,7 +230,7 @@ def register_tools(mcp):
                 if ctx:
                     await ctx.info(f"Setting preferred location to {location_id}")
 
-                client = await asyncio.to_thread(get_client_credentials_client)
+                client = await asyncio.to_thread(get_client_credentials_client, user_id)
 
                 try:
                     exists = await asyncio.to_thread(client.location.location_exists, location_id)
@@ -243,7 +245,7 @@ def register_tools(mcp):
                     )
                     loc_data = location_details.get("data", {})
 
-                    set_preferred_location_id(location_id)
+                    set_preferred_location_id(location_id, user_id)
 
                     if ctx:
                         await ctx.info(
@@ -263,7 +265,7 @@ def register_tools(mcp):
                     return {"success": False, "error": str(e)}
 
             case "get_preferred":
-                preferred_location_id = get_preferred_location_id()
+                preferred_location_id = get_preferred_location_id(user_id)
 
                 if not preferred_location_id:
                     return {
@@ -276,7 +278,7 @@ def register_tools(mcp):
                         f"Getting preferred location details for {preferred_location_id}"
                     )
 
-                client = await asyncio.to_thread(get_client_credentials_client)
+                client = await asyncio.to_thread(get_client_credentials_client, user_id)
 
                 try:
                     location_details = await asyncio.to_thread(
@@ -310,7 +312,7 @@ def register_tools(mcp):
                 if ctx:
                     await ctx.info(f"Checking if location {location_id} exists")
 
-                client = await asyncio.to_thread(get_client_credentials_client)
+                client = await asyncio.to_thread(get_client_credentials_client, user_id)
 
                 try:
                     exists = await asyncio.to_thread(client.location.location_exists, location_id)

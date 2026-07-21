@@ -272,6 +272,7 @@ def register_tools(mcp):
                     list_id=list_id,
                     new_name=new_name,
                     new_description=new_description,
+                    user_id=user_id,
                 )
 
             case "delete_list":
@@ -285,7 +286,9 @@ def register_tools(mcp):
                 from ..analytics.favorites import add_to_list, bulk_add_to_list
 
                 if items is not None:
-                    return bulk_add_to_list(list_id=list_id or "default", items=items)
+                    return bulk_add_to_list(
+                        list_id=list_id or "default", items=items, user_id=user_id
+                    )
 
                 if not product_id or not description:
                     return {
@@ -308,6 +311,7 @@ def register_tools(mcp):
                     min_stock_quantity=min_stock_quantity,
                     current_stock_quantity=current_stock_quantity,
                     typical_gap_days=typical_gap_days,
+                    user_id=user_id,
                 )
 
             case "remove_item":
@@ -318,10 +322,14 @@ def register_tools(mcp):
                     return {"success": False, "error": "product_id or product_ids is required"}
 
                 if len(ids) == 1:
-                    return remove_from_list(list_id=list_id or "default", product_id=ids[0])
+                    return remove_from_list(
+                        list_id=list_id or "default", product_id=ids[0], user_id=user_id
+                    )
 
                 results = {
-                    pid: remove_from_list(list_id=list_id or "default", product_id=pid)
+                    pid: remove_from_list(
+                        list_id=list_id or "default", product_id=pid, user_id=user_id
+                    )
                     for pid in ids
                 }
                 removed = sum(1 for r in results.values() if r.get("success"))
@@ -341,6 +349,7 @@ def register_tools(mcp):
                         include_pantry_status if include_pantry_status is not None else True
                     ),
                     sort_by=sort_by or "description",
+                    user_id=user_id,
                 )
 
             case "order":
@@ -352,11 +361,11 @@ def register_tools(mcp):
                 )
 
                 lid = list_id or "default"
-                list_info = get_list(lid)
+                list_info = get_list(lid, user_id=user_id)
                 if not list_info:
                     return {"success": False, "error": f"List '{lid}' not found"}
 
-                result = get_list_items(lid, include_pantry_status=True)
+                result = get_list_items(lid, include_pantry_status=True, user_id=user_id)
                 if not result.get("success"):
                     return result
 
@@ -460,6 +469,7 @@ def register_tools(mcp):
                         {"product_id": item["product_id"], "description": item.get("description", "")}
                         for item in items_to_order
                     ],
+                    user_id=user_id,
                     confirm_unsafe=bool(confirm_unsafe),
                 )
                 if safety_response is not None:
@@ -469,7 +479,7 @@ def register_tools(mcp):
                     from .cart_tools import _add_item_to_local_cart
                     from .shared import get_authenticated_client
 
-                    client = get_authenticated_client()
+                    client = get_authenticated_client(user_id=user_id)
 
                     cart_items = [
                         {
@@ -488,12 +498,13 @@ def register_tools(mcp):
                             item["quantity"],
                             item["modality"],
                             {"description": item.get("description")},
+                            user_id=user_id,
                         )
 
                     ordered_ids = [i["product_id"] for i in items_to_order]
-                    increment_times_ordered(lid, ordered_ids)
+                    increment_times_ordered(lid, ordered_ids, user_id=user_id)
 
-                    order_result = mark_list_ordered(lid)
+                    order_result = mark_list_ordered(lid, user_id=user_id)
 
                     response = {
                         "success": True,
@@ -565,6 +576,7 @@ def register_tools(mcp):
                 return update_list_schedule(
                     list_id=list_id,
                     reorder_weeks=reorder_weeks,
+                    user_id=user_id,
                 )
 
             case "set_stock_level":
@@ -579,6 +591,7 @@ def register_tools(mcp):
                     min_stock_quantity=min_stock_quantity,
                     current_stock_quantity=current_stock_quantity,
                     typical_gap_days=typical_gap_days,
+                    user_id=user_id,
                 )
 
             case "update_quantity":
@@ -592,6 +605,7 @@ def register_tools(mcp):
                     list_id=list_id,
                     product_id=product_id,
                     current_stock_quantity=current_stock_quantity,
+                    user_id=user_id,
                 )
 
             case "get_low_stock":
@@ -599,7 +613,7 @@ def register_tools(mcp):
                     return {"success": False, "error": "list_id is required"}
                 from ..analytics.favorites import get_low_stock_items
 
-                return get_low_stock_items(list_id=list_id)
+                return get_low_stock_items(list_id=list_id, user_id=user_id)
 
             case "check_snacks":
                 from ..analytics.favorites import check_snacks

@@ -17,6 +17,7 @@ from kroger_api import KrogerAPI
 from kroger_api.utils import generate_pkce_parameters
 from pydantic import Field
 
+from ..auth.dependencies import mcp_user_id
 from .shared import get_authenticated_client, invalidate_authenticated_client
 
 # Load environment variables
@@ -83,6 +84,7 @@ def register_tools(mcp):
         """
         global _pkce_params, _auth_state
 
+        user_id = mcp_user_id()
         match action:
             case "start":
                 # Generate PKCE parameters
@@ -227,10 +229,9 @@ def register_tools(mcp):
                     # get_authenticated_client() reads. Without this the
                     # MCP-authenticated token would only live in the legacy
                     # shared file and never reach the DB.
-                    from kroger_mcp.auth.dependencies import mcp_user_id
                     from kroger_mcp.auth.kroger_tokens import save_kroger_token
 
-                    save_kroger_token(mcp_user_id(), token_info)
+                    save_kroger_token(user_id, token_info)
 
                     # Clear PKCE parameters and state after successful exchange
                     _pkce_params = None
@@ -270,7 +271,7 @@ def register_tools(mcp):
                     await ctx.info("Getting user profile information")
 
                 try:
-                    client = await asyncio.to_thread(get_authenticated_client)
+                    client = await asyncio.to_thread(get_authenticated_client, user_id)
                     profile = await asyncio.to_thread(client.identity.get_profile)
 
                     if profile and "data" in profile:
@@ -301,7 +302,7 @@ def register_tools(mcp):
                     await ctx.info("Testing authentication token validity")
 
                 try:
-                    client = await asyncio.to_thread(get_authenticated_client)
+                    client = await asyncio.to_thread(get_authenticated_client, user_id)
                     is_valid = await asyncio.to_thread(client.test_current_token)
 
                     if ctx:
@@ -345,7 +346,7 @@ def register_tools(mcp):
                     await ctx.info("Getting authentication information")
 
                 try:
-                    client = await asyncio.to_thread(get_authenticated_client)
+                    client = await asyncio.to_thread(get_authenticated_client, user_id)
 
                     result = {
                         "success": True,
@@ -394,7 +395,7 @@ def register_tools(mcp):
                     await ctx.info("Forcing re-authentication by clearing current token")
 
                 try:
-                    invalidate_authenticated_client()
+                    invalidate_authenticated_client(user_id)
 
                     if ctx:
                         await ctx.info(

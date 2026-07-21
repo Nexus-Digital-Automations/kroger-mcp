@@ -16,6 +16,8 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ..auth.dependencies import mcp_user_id
+
 
 def _get_session_id(ctx) -> str:
     """Extract session ID from MCP context."""
@@ -24,7 +26,7 @@ def _get_session_id(ctx) -> str:
     return "default"
 
 
-def _build_recommendation_context(product_id: str) -> dict[str, Any] | None:
+def _build_recommendation_context(product_id: str, *, user_id: str) -> dict[str, Any] | None:
     """Assemble the product_data dict that calculate_recommendation_score expects.
 
     Mirrors the join performed inside get_comprehensive_recommendations so
@@ -64,7 +66,7 @@ def _build_recommendation_context(product_id: str) -> dict[str, Any] | None:
         if row is None:
             return None
 
-        favorite_ids = get_all_favorite_product_ids()
+        favorite_ids = get_all_favorite_product_ids(user_id=user_id)
         product_data: dict[str, Any] = {
             "product_id": product_id,
             "description": row["description"],
@@ -97,6 +99,7 @@ def _build_recommendation_context(product_id: str) -> dict[str, Any] | None:
                 "last_purchase_date": row["last_purchase_date"],
                 "category_type": row["detected_category"],
             },
+            user_id=user_id,
         )
         product_data["predicted_date"] = (
             prediction.predicted_date.isoformat() if prediction.predicted_date else None
@@ -229,12 +232,13 @@ def register_tools(mcp):
         resolution,
         ctx,
     ):
+        user_id = mcp_user_id()
         match action:
             case "get":
                 try:
                     from ..analytics.pantry import get_pantry_status
 
-                    items = get_pantry_status(apply_depletion=True)
+                    items = get_pantry_status(apply_depletion=True, user_id=user_id)
                     return {
                         "success": True,
                         "items": items,
@@ -270,6 +274,7 @@ def register_tools(mcp):
                                 level=_level,
                                 low_threshold=_low_threshold,
                                 auto_deplete=True,
+                                user_id=user_id,
                                 quantity=quantity,
                                 unit=unit,
                             )
@@ -314,7 +319,7 @@ def register_tools(mcp):
                     results = {}
                     for pid in ids:
                         try:
-                            results[pid] = update_pantry_level(pid, level)
+                            results[pid] = update_pantry_level(pid, level, user_id)
                         except Exception as e:
                             results[pid] = {
                                 "success": False,
@@ -354,7 +359,9 @@ def register_tools(mcp):
                     results = {}
                     for pid in ids:
                         try:
-                            results[pid] = restock_item(pid, _level, quantity=quantity, unit=unit)
+                            results[pid] = restock_item(
+                                pid, _level, user_id=user_id, quantity=quantity, unit=unit
+                            )
                         except Exception as e:
                             results[pid] = {
                                 "success": False,
@@ -382,7 +389,7 @@ def register_tools(mcp):
                 try:
                     from ..analytics.pantry import get_low_inventory_items
 
-                    items = get_low_inventory_items(_threshold)
+                    items = get_low_inventory_items(_threshold, user_id=user_id)
                     return {
                         "success": True,
                         "threshold": _threshold,
@@ -408,7 +415,7 @@ def register_tools(mcp):
                     results = {}
                     for pid in ids:
                         try:
-                            results[pid] = _remove_from_pantry(pid)
+                            results[pid] = _remove_from_pantry(pid, user_id)
                         except Exception as e:
                             results[pid] = {
                                 "success": False,
@@ -438,9 +445,9 @@ def register_tools(mcp):
                     from ..config.session_state import get_session_manager
 
                     session_id = _get_session_id(ctx)
-                    pantry_items = get_pantry_status(apply_depletion=True)
+                    pantry_items = get_pantry_status(apply_depletion=True, user_id=user_id)
                     overdue_predictions = get_predictions_for_period(
-                        days_ahead=0, min_confidence=0.5, include_overdue=True
+                        days_ahead=0, min_confidence=0.5, include_overdue=True, user_id=user_id
                     )
                     overdue_ids = {
                         p.product_id: p
@@ -563,7 +570,7 @@ def register_tools(mcp):
                 try:
                     from ..analytics.pantry import list_pending_gaps
 
-                    gaps = list_pending_gaps()
+                    gaps = list_pending_gaps(user_id)
                     return {
                         "success": True,
                         "gaps": gaps,
@@ -586,7 +593,7 @@ def register_tools(mcp):
                 try:
                     from ..analytics.pantry import resolve_gap as _resolve_gap
 
-                    return _resolve_gap(gap_id=gap_id, resolution=resolution)
+                    return _resolve_gap(gap_id=gap_id, resolution=resolution, user_id=user_id)
                 except ValueError as e:
                     return {"success": False, "error": str(e)}
                 except Exception as e:
@@ -790,6 +797,7 @@ def register_tools(mcp):
         regular_max_days,
         ctx,
     ):
+        user_id = mcp_user_id()
         match action:
             case "get_predictions":
                 try:
@@ -803,6 +811,7 @@ def register_tools(mcp):
                         category_filter=category,
                         min_confidence=_conf,
                         include_overdue=True,
+                        user_id=user_id,
                     )
                     return {
                         "success": True,
@@ -848,14 +857,14 @@ def register_tools(mcp):
                     from ..analytics.statistics import get_product_statistics
 
                     def get_stats_for(pid: str) -> dict[str, Any]:
-                        stats = get_product_statistics(pid)
+                        stats = get_product_statistics(pid, user_id)
                         if not stats:
                             return {
                                 "success": False,
                                 "error": f"No statistics found for product {pid}",
                             }
-                        prediction = predict_repurchase_date(pid, stats)
-                        events = get_purchase_events(pid, "order_placed", limit=10)
+                        prediction = predict_repurchase_date(pid, stats, user_id=user_id)
+                        events = get_purchase_events(pid, "order_placed", limit=10, user_id=user_id)
                         return {
                             "success": True,
                             "product_id": pid,
@@ -1032,7 +1041,7 @@ def register_tools(mcp):
                     from ..analytics.purchase_tracker import get_purchase_events
 
                     events = get_purchase_events(
-                        product_id, event_type="order_placed", limit=_limit
+                        product_id, event_type="order_placed", limit=_limit, user_id=user_id
                     )
                     return {
                         "success": True,
@@ -1067,6 +1076,7 @@ def register_tools(mcp):
                         include_seasonal=_seasonal,
                         days_ahead=_days,
                         min_confidence=0.5,
+                        user_id=user_id,
                     )
                     return {"success": True, **suggestions, "timestamp": datetime.now().isoformat()}
                 except Exception as e:
@@ -1107,6 +1117,7 @@ def register_tools(mcp):
                         min_score=_min_score,
                         max_results=_max_res,
                         location_id=location_id,
+                        user_id=user_id,
                     )
                 except Exception as e:
                     return {
@@ -1130,7 +1141,7 @@ def register_tools(mcp):
                     else:
                         from ..analytics.seasonal import get_upcoming_seasonal_items
 
-                        sea_items = get_upcoming_seasonal_items(_days)
+                        sea_items = get_upcoming_seasonal_items(_days, user_id=user_id)
                         return {
                             "success": True,
                             "days_ahead": _days,
@@ -1168,7 +1179,7 @@ def register_tools(mcp):
                         get_priority_tier,
                     )
 
-                    product_data = _build_recommendation_context(product_id)
+                    product_data = _build_recommendation_context(product_id, user_id=user_id)
                     if product_data is None:
                         return {
                             "success": False,

@@ -24,6 +24,7 @@ from ..analytics.safety import (
     get_disabled_ingredients,
     is_filtering_enabled,
 )
+from ..auth.dependencies import mcp_user_id
 from ..cache import cache_read_through
 from .product_catalog import product_detail_read_through
 from .shared import (
@@ -35,8 +36,7 @@ from .shared import (
     set_preferred_location_id,
 )
 
-# Public-read cache TTLs (seconds), matching the web routes: prices drift slowly,
-# so a 1h shared-cache window spares the rate bucket without showing stale data.
+# Public-read cache TTLs (s): 1h shared-cache window, matching the web routes.
 _PRODUCT_SEARCH_TTL = 3600
 _PRODUCT_DETAIL_TTL = 3600
 
@@ -248,22 +248,22 @@ def register_tools(mcp):
         in results when prioritize_favorites=True (default).
         """
 
-        # ---- Shared helpers ----
+        user_id = mcp_user_id()
 
         def _get_location(loc_id):
             if not loc_id:
-                loc_id = get_preferred_location_id()
+                loc_id = get_preferred_location_id(user_id)
             if not loc_id:
                 # Auto-detect: search near default zip and cache the first result
                 zip_code = get_default_zip_code()
                 try:
-                    client = get_client_credentials_client()
+                    client = get_client_credentials_client(user_id)
                     results = client.locations.search(
                         zip_code=zip_code, radius_in_miles=10, limit=1
                     )
                     if results:
                         loc_id = results[0]["locationId"]
-                        set_preferred_location_id(loc_id)
+                        set_preferred_location_id(loc_id, user_id)
                 except Exception:
                     pass
             if not loc_id:
@@ -279,17 +279,17 @@ def register_tools(mcp):
             return loc_id, None
 
         def _get_safety_data():
-            filtering = is_filtering_enabled()
+            filtering = is_filtering_enabled(user_id)
             safe_ids = set()
             blocked_ids = set()
             disabled = set()
             bmode = BlockMode.SOFT
             if filtering:
                 try:
-                    safe_ids = get_all_safe_product_ids()
-                    blocked_ids = get_all_blocked_product_ids()
-                    disabled = get_disabled_ingredients()
-                    bmode = get_block_mode()
+                    safe_ids = get_all_safe_product_ids(user_id)
+                    blocked_ids = get_all_blocked_product_ids(user_id)
+                    disabled = get_disabled_ingredients(user_id)
+                    bmode = get_block_mode(user_id)
                 except Exception:
                     pass
             return filtering, safe_ids, blocked_ids, disabled, bmode
@@ -322,13 +322,13 @@ def register_tools(mcp):
                     else:
                         await ctx.info(f"Searching for '{terms[0]}' at location {loc_id}")
 
-                client = await asyncio.to_thread(get_client_credentials_client)
+                client = await asyncio.to_thread(get_client_credentials_client, user_id)
                 _prio_favs = prioritize_favorites if prioritize_favorites is not None else True
 
                 favorite_ids = set()
                 if _prio_favs:
                     try:
-                        favorite_ids = get_all_favorite_product_ids()
+                        favorite_ids = get_all_favorite_product_ids(user_id=user_id)
                     except Exception:
                         pass
 
@@ -659,7 +659,7 @@ def register_tools(mcp):
                     else:
                         await ctx.info(f"Getting details for product {ids[0]}")
 
-                client = await asyncio.to_thread(get_client_credentials_client)
+                client = await asyncio.to_thread(get_client_credentials_client, user_id)
 
                 def format_details(product: dict) -> dict:
                     result = {
@@ -780,7 +780,7 @@ def register_tools(mcp):
                 if ctx:
                     await ctx.info(f"Fetching images for product {product_id} at location {loc_id}")
 
-                client = await asyncio.to_thread(get_client_credentials_client)
+                client = await asyncio.to_thread(get_client_credentials_client, user_id)
 
                 try:
                     # Images live on the full Kroger record (which the local
@@ -898,7 +898,7 @@ def register_tools(mcp):
                         f"Looking up {len(ids)} product ID(s) at location {loc_id}"
                     )
 
-                client = await asyncio.to_thread(get_client_credentials_client)
+                client = await asyncio.to_thread(get_client_credentials_client, user_id)
                 filtering, safe_ids, blocked_ids, disabled, bmode = _get_safety_data()
 
                 try:
@@ -1007,7 +1007,7 @@ def register_tools(mcp):
                     favorite_ids = set()
                     if _prio_favs:
                         try:
-                            favorite_ids = get_all_favorite_product_ids()
+                            favorite_ids = get_all_favorite_product_ids(user_id=user_id)
                         except Exception:
                             pass
 
@@ -1093,10 +1093,10 @@ def register_tools(mcp):
 
                 prod_desc = description
                 if not prod_desc:
-                    loc_id = get_preferred_location_id()
+                    loc_id = get_preferred_location_id(user_id)
                     if loc_id:
                         try:
-                            client = await asyncio.to_thread(get_client_credentials_client)
+                            client = await asyncio.to_thread(get_client_credentials_client, user_id)
                             product_data = await asyncio.to_thread(
                                 functools.partial(
                                     client.get_product,
@@ -1114,7 +1114,7 @@ def register_tools(mcp):
                 _verify = verify_safety if verify_safety is not None else True
 
                 if _verify and prod_desc:
-                    disabled = get_disabled_ingredients()
+                    disabled = get_disabled_ingredients(user_id)
                     eligibility_result = is_whole_food_eligible(
                         description=prod_desc, disabled_ingredients=disabled
                     )
@@ -1223,7 +1223,7 @@ def register_tools(mcp):
                     await ctx.info(f"Scanning for whole foods in category: {category}")
 
                 try:
-                    client = await asyncio.to_thread(get_client_credentials_client)
+                    client = await asyncio.to_thread(get_client_credentials_client, user_id)
                     search_result = await asyncio.to_thread(
                         functools.partial(
                             client.search_products,
@@ -1238,7 +1238,7 @@ def register_tools(mcp):
                 except Exception as e:
                     return {"success": False, "error": f"Search failed: {str(e)}"}
 
-                disabled = get_disabled_ingredients()
+                disabled = get_disabled_ingredients(user_id)
                 qualifying_products = []
                 rejected_products = []
 

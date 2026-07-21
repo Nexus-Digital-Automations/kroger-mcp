@@ -1,3 +1,4 @@
+src/kroger_mcp/tools/prediction_tools.py
 src/kroger_mcp/tools/recipe_tools.py
 src/kroger_mcp/tools/shopping_list_tools.py
 src/kroger_mcp/tools/favorites_tools.py

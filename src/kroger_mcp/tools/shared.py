@@ -76,7 +76,7 @@ def _cc_token_file(client_id: str) -> str:
     return f".kroger_token_cc_{digest}.json"  # nosec B105
 
 
-def get_client_credentials_client(user_id: str | None = None) -> KrogerAPI:
+def get_client_credentials_client(user_id: str) -> KrogerAPI:
     """Get/create a client-credentials client for public data, scoped to the caller's app.
 
     Resolves the caller's Kroger ``client_id``/``client_secret`` (per-user
@@ -116,7 +116,7 @@ def get_client_credentials_client(user_id: str | None = None) -> KrogerAPI:
             raise Exception(f"Failed to get client credentials: {str(e)}") from e
 
 
-def get_authenticated_client(user_id: str | None = None) -> KrogerAPI:
+def get_authenticated_client(user_id: str) -> KrogerAPI:
     """Get a user-authenticated Kroger client for cart/account operations.
 
     Loads the caller's per-user token from the encrypted ``kroger_tokens`` table
@@ -200,7 +200,7 @@ def get_authenticated_client(user_id: str | None = None) -> KrogerAPI:
         raise Exception(f"Authentication failed: {str(e)}") from e
 
 
-def invalidate_authenticated_client(user_id: str | None = None) -> None:
+def invalidate_authenticated_client(user_id: str) -> None:
     """Force re-authentication for a user by deleting their stored token.
 
     Best-effort: any failure to delete is swallowed (the next auth attempt
@@ -220,7 +220,7 @@ def invalidate_authenticated_client(user_id: str | None = None) -> None:
         )
 
 
-def invalidate_client_credentials_client(user_id: str | None = None) -> None:
+def invalidate_client_credentials_client(user_id: str) -> None:
     """Drop cached client-credentials client(s) to force a fresh token.
 
     With ``user_id`` (or its resolved default), only that caller's app client
@@ -253,7 +253,7 @@ def _resolve_pref_user_id(user_id: str | None) -> str:
     return user_id if user_id is not None else mcp_user_id()
 
 
-def _load_preferences(user_id: str | None = None) -> dict:
+def _load_preferences(user_id: str) -> dict:
     """Load this user's preferences from the user_settings table."""
     from kroger_mcp.analytics.database import get_db_connection
 
@@ -280,7 +280,7 @@ def _load_preferences(user_id: str | None = None) -> dict:
         conn.close()
 
 
-def _save_preference(key: str, value, user_id: str | None = None) -> None:
+def _save_preference(key: str, value, user_id: str) -> None:
     """Upsert one preference key/value for the given user."""
     from kroger_mcp.analytics.database import get_db_connection
 
@@ -303,13 +303,13 @@ def _save_preference(key: str, value, user_id: str | None = None) -> None:
         conn.close()
 
 
-def get_preferred_location_id(user_id: str | None = None) -> str | None:
+def get_preferred_location_id(user_id: str) -> str | None:
     """Per-user preferred location ID; falls back to KROGER_LOCATION_ID env."""
     preferences = _load_preferences(user_id=user_id)
     return preferences.get("preferred_location_id") or os.environ.get("KROGER_LOCATION_ID")
 
 
-def set_preferred_location_id(location_id: str, user_id: str | None = None) -> None:
+def set_preferred_location_id(location_id: str, user_id: str) -> None:
     """Persist this user's preferred location ID."""
     _save_preference("preferred_location_id", location_id, user_id=user_id)
 
@@ -326,29 +326,13 @@ def get_default_zip_code() -> str:
     return get_zip_code(default="10001")
 
 
-def get_default_servings(user_id: str | None = None) -> int:
+def get_default_servings(user_id: str) -> int:
     """This user's default servings per meal (household size). Defaults to 4."""
     preferences = _load_preferences(user_id=user_id)
     return preferences.get("default_servings_per_meal", 4)
 
 
-# ==================== ASYNC WRAPPERS ====================
-# The Kroger API client uses synchronous HTTP (requests library). Calling it
-# directly from an async tool handler blocks the event loop for the duration of
-# the network round-trip. Use these wrappers from async handlers instead.
-
-
-async def async_get_client_credentials_client() -> KrogerAPI:
-    """Async wrapper for get_client_credentials_client() — runs in thread pool."""
-    return await asyncio.to_thread(get_client_credentials_client)
-
-
-async def async_get_authenticated_client(user_id: str | None = None) -> KrogerAPI:
-    """Async wrapper for get_authenticated_client() — runs in thread pool."""
-    return await asyncio.to_thread(get_authenticated_client, user_id)
-
-
-def set_default_servings(servings: int, user_id: str | None = None) -> None:
+def set_default_servings(servings: int, user_id: str) -> None:
     """Persist this user's default servings per meal (household size).
 
     Raises ValueError if servings is outside 1..20.
@@ -358,7 +342,7 @@ def set_default_servings(servings: int, user_id: str | None = None) -> None:
     _save_preference("default_servings_per_meal", servings, user_id=user_id)
 
 
-def get_include_spices_by_default(user_id: str | None = None) -> bool:
+def get_include_spices_by_default(user_id: str) -> bool:
     """Whether the Send-to-Kroger-Cart preview should pre-check spice items.
 
     Defaults to False — spices appear in the preview but stay unchecked until
@@ -367,12 +351,12 @@ def get_include_spices_by_default(user_id: str | None = None) -> bool:
     return bool(_load_preferences(user_id=user_id).get("include_spices_by_default", False))
 
 
-def set_include_spices_by_default(value: bool, user_id: str | None = None) -> None:
+def set_include_spices_by_default(value: bool, user_id: str) -> None:
     """Persist this user's 'include spices by default' Advanced-Settings toggle."""
     _save_preference("include_spices_by_default", bool(value), user_id=user_id)
 
 
-def get_favorites_display_mode(user_id: str | None = None) -> str:
+def get_favorites_display_mode(user_id: str) -> str:
     """How favorites-on-sale are surfaced on the Deals tab.
 
     'sort' (default) — favorites-on-sale stay informational; the user opts
@@ -383,7 +367,7 @@ def get_favorites_display_mode(user_id: str | None = None) -> str:
     return str(_load_preferences(user_id=user_id).get("favorites_display_mode", "sort"))
 
 
-def set_favorites_display_mode(value: str, user_id: str | None = None) -> None:
+def set_favorites_display_mode(value: str, user_id: str) -> None:
     """Persist this user's favorites-on-sale display mode.
 
     Raises ValueError if value isn't 'sort' or 'section'.
@@ -393,7 +377,7 @@ def set_favorites_display_mode(value: str, user_id: str | None = None) -> None:
     _save_preference("favorites_display_mode", value, user_id=user_id)
 
 
-def get_meal_plan_pantry_deduction_mode(user_id: str | None = None) -> str:
+def get_meal_plan_pantry_deduction_mode(user_id: str) -> str:
     """Whether past meal-plan entries auto-deduct pantry or wait for confirmation.
 
     'automatic' (default) — past meals deduct pantry the moment their date
@@ -406,7 +390,7 @@ def get_meal_plan_pantry_deduction_mode(user_id: str | None = None) -> str:
     )
 
 
-def set_meal_plan_pantry_deduction_mode(value: str, user_id: str | None = None) -> None:
+def set_meal_plan_pantry_deduction_mode(value: str, user_id: str) -> None:
     """Persist this user's meal-plan pantry deduction mode.
 
     Raises ValueError if value isn't 'automatic' or 'confirm'.
@@ -416,7 +400,7 @@ def set_meal_plan_pantry_deduction_mode(value: str, user_id: str | None = None) 
     _save_preference("meal_plan_pantry_deduction_mode", value, user_id=user_id)
 
 
-def should_show_deduction_default_notice(user_id: str | None = None) -> bool:
+def should_show_deduction_default_notice(user_id: str) -> bool:
     """Whether to show the one-time "pantry now auto-deducts by default" toast.
 
     True only for users relying on the (now-'automatic') default — i.e. who
@@ -430,12 +414,12 @@ def should_show_deduction_default_notice(user_id: str | None = None) -> bool:
     return not has_explicit_mode and not notice_seen
 
 
-def mark_deduction_default_notice_seen(user_id: str | None = None) -> None:
+def mark_deduction_default_notice_seen(user_id: str) -> None:
     """Persist that this user has dismissed the deduction-default notice."""
     _save_preference("meal_plan_deduction_notice_seen", True, user_id=user_id)
 
 
-def get_kroger_credentials(user_id: str | None = None) -> dict:
+def get_kroger_credentials(user_id: str) -> dict:
     """Get this user's Kroger API credentials; falls back to KROGER_* env vars."""
     import json as _json
 
@@ -453,7 +437,7 @@ def set_kroger_credentials(
     client_id: str | None = None,
     client_secret: str | None = None,
     redirect_uri: str | None = None,
-    user_id: str | None = None,
+    *, user_id: str,
 ) -> None:
     """Save Kroger API credentials per-user."""
     import json as _json
@@ -470,35 +454,7 @@ def set_kroger_credentials(
     _save_preference("kroger_credentials", _json.dumps(existing), user_id=user_id)
 
 
-def get_token_info() -> dict | None:
-    """Load the user token file and return its contents, or None if missing.
-
-    Raises no exceptions — file-not-found and parse errors are logged and
-    return None so callers can treat a missing/corrupt token as "not authenticated".
-    """
-    try:
-        return load_token(".kroger_token_user.json")
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Could not load user token file: %s", exc)
-        return None
-    except Exception as exc:
-        logger.error("Unexpected error loading user token file: %s", exc)
-        return None
-
-
-def delete_user_token() -> None:
-    """Delete the user token file and invalidate the cached client.
-
-    Raises:
-        OSError: If the token file exists but cannot be deleted (permissions).
-    """
-    from kroger_api.token_storage import clear_token
-
-    clear_token(".kroger_token_user.json")
-    invalidate_authenticated_client()
-
-
-def get_product_sort_preferences(user_id: str | None = None) -> dict:
+def get_product_sort_preferences(user_id: str) -> dict:
     """Get this user's saved product page sort preferences."""
     import json as _json
 
@@ -517,7 +473,7 @@ def get_product_sort_preferences(user_id: str | None = None) -> dict:
 def set_product_sort_preferences(
     search_sort_stack: list,
     deals_sort_stack: list,
-    user_id: str | None = None,
+    user_id: str,
 ) -> None:
     """Save this user's product page sort preferences."""
     import json as _json

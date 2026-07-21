@@ -178,15 +178,15 @@ def register_tools(mcp):
     ):
         match action:
             case "find":
+                owner = mcp_user_id()
                 if not location_id:
-                    location_id = get_preferred_location_id()
+                    location_id = get_preferred_location_id(owner)
                     if not location_id:
                         return {
                             "success": False,
                             "error": "No location_id provided and no preferred location set. "
                             "Use location(action='set_preferred') first.",
                         }
-
                 search_queries = []
                 if search_term:
                     search_queries = [search_term]
@@ -203,13 +203,13 @@ def register_tools(mcp):
 
                 favorite_ids = set()
                 try:
-                    favorite_ids = get_all_favorite_product_ids()
+                    favorite_ids = get_all_favorite_product_ids(user_id=owner)
                 except Exception:
                     pass
 
                 pantry_items = {}
                 try:
-                    low_items = get_low_inventory_items(threshold=50)
+                    low_items = get_low_inventory_items(threshold=50, user_id=owner)
                     pantry_items = {item["product_id"]: item for item in low_items}
                 except Exception:
                     pass
@@ -219,7 +219,7 @@ def register_tools(mcp):
 
                 for query in search_queries:
                     try:
-                        client = get_client_credentials_client()
+                        client = get_client_credentials_client(owner)
                         search_response = cache_read_through(
                             kroger_cache_key(
                                 client, "product_search", term=query,
@@ -355,10 +355,10 @@ def register_tools(mcp):
                         "error": "Maximum 30 products per batch request",
                     }
 
-                loc_id = location_id or get_preferred_location_id()
+                owner = mcp_user_id()
+                loc_id = location_id or get_preferred_location_id(owner)
                 priority_labels = {1: "low", 2: "medium", 3: "high"}
                 pri = priority or 1
-                owner = mcp_user_id()
 
                 try:
                     results = {}
@@ -370,7 +370,7 @@ def register_tools(mcp):
 
                             if loc_id:
                                 try:
-                                    client = get_client_credentials_client()
+                                    client = get_client_credentials_client(owner)
                                     product_response = cache_read_through(
                                         kroger_cache_key(
                                             client, "product_detail", pid=pid, location=loc_id
@@ -454,8 +454,8 @@ def register_tools(mcp):
             case "get_price_history":
                 if not product_id:
                     return {"success": False, "error": "product_id is required"}
-
-                loc_id = location_id or get_preferred_location_id()
+                owner = mcp_user_id()
+                loc_id = location_id or get_preferred_location_id(owner)
                 days_val = days or 30
 
                 stats = get_price_statistics(product_id, days=days_val, location_id=loc_id)
@@ -510,7 +510,7 @@ def register_tools(mcp):
                 prod_description = None
                 try:
                     if loc_id:
-                        client = get_client_credentials_client()
+                        client = get_client_credentials_client(owner)
                         product_response = cache_read_through(
                             kroger_cache_key(
                                 client, "product_detail", pid=product_id, location=loc_id
@@ -550,10 +550,10 @@ def register_tools(mcp):
             case "score_quality":
                 if not product_id:
                     return {"success": False, "error": "product_id is required"}
-
-                loc_id = location_id or get_preferred_location_id()
+                owner = mcp_user_id()
+                loc_id = location_id or get_preferred_location_id(owner)
                 try:
-                    client = get_client_credentials_client()
+                    client = get_client_credentials_client(owner)
                     product_response = cache_read_through(
                         kroger_cache_key(
                             client, "product_detail", pid=product_id, location=loc_id
@@ -620,7 +620,8 @@ def register_tools(mcp):
                 }
 
             case "scan_watchlist":
-                loc_id = location_id or get_preferred_location_id()
+                owner = mcp_user_id()
+                loc_id = location_id or get_preferred_location_id(owner)
                 if not loc_id:
                     return {
                         "success": False,
@@ -631,8 +632,6 @@ def register_tools(mcp):
                     ctx.info("Building watchlist from your tracked items...")
 
                 watchlist = []
-
-                owner = mcp_user_id()
                 conn = get_db_connection()
                 try:
                     cursor = conn.execute(
@@ -659,7 +658,7 @@ def register_tools(mcp):
 
                 if include_favorites if include_favorites is not None else True:
                     try:
-                        favorite_ids = get_all_favorite_product_ids()
+                        favorite_ids = get_all_favorite_product_ids(user_id=owner)
                         for fav_id in favorite_ids:
                             if not any(w["product_id"] == fav_id for w in watchlist):
                                 watchlist.append(
@@ -674,7 +673,7 @@ def register_tools(mcp):
 
                 if include_pantry if include_pantry is not None else True:
                     try:
-                        low_items = get_low_inventory_items(threshold=25)
+                        low_items = get_low_inventory_items(threshold=25, user_id=owner)
                         for item in low_items:
                             pid = item["product_id"]
                             if not any(w["product_id"] == pid for w in watchlist):
@@ -691,7 +690,7 @@ def register_tools(mcp):
 
                 if include_recent_purchases if include_recent_purchases is not None else True:
                     try:
-                        recent = get_recent_purchases(days=30, limit=20)
+                        recent = get_recent_purchases(days=30, limit=20, user_id=owner)
                         for purchase in recent:
                             pid = purchase["product_id"]
                             if not any(w["product_id"] == pid for w in watchlist):
@@ -718,7 +717,7 @@ def register_tools(mcp):
                 deal_items = []
                 for item in watchlist:
                     try:
-                        client = get_client_credentials_client()
+                        client = get_client_credentials_client(owner)
                         _wpid = item["product_id"]
                         product_response = cache_read_through(
                             kroger_cache_key(

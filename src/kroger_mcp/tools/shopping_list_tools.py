@@ -29,7 +29,7 @@ def _resolve_shopping_user_id(user_id: str | None) -> str:
     return user_id if user_id is not None else mcp_user_id()
 
 
-def _load_shopping_list(user_id: str | None = None) -> dict[str, Any]:
+def _load_shopping_list(user_id: str) -> dict[str, Any]:
     """Return this user's shopping list in the legacy `{items, last_updated}` shape."""
     from kroger_mcp.analytics.database import get_db_connection
 
@@ -65,7 +65,7 @@ def _load_shopping_list(user_id: str | None = None) -> dict[str, Any]:
         conn.close()
 
 
-def _save_shopping_list(data: dict[str, Any], user_id: str | None = None) -> None:
+def _save_shopping_list(data: dict[str, Any], user_id: str) -> None:
     """Replace this user's shopping list with data['items']."""
     from kroger_mcp.analytics.database import get_db_connection
 
@@ -237,6 +237,9 @@ def register_tools(mcp):
         add_to_cart — confirm=False to preview, confirm=True to execute.
         Supports skip_items to exclude specific ingredients.
         """
+        from ..auth.dependencies import mcp_user_id
+
+        user_id = mcp_user_id()
         return await asyncio.to_thread(
             _shopping_list_impl,
             action,
@@ -252,6 +255,7 @@ def register_tools(mcp):
             confirm,
             confirm_unsafe,
             ctx,
+            user_id,
         )
 
     def _shopping_list_impl(
@@ -268,6 +272,7 @@ def register_tools(mcp):
         confirm,
         confirm_unsafe,
         ctx,
+        user_id,
     ):
         match action:
             case "add_recipe":
@@ -286,7 +291,7 @@ def register_tools(mcp):
                         return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
 
                     # Determine servings to use
-                    household_default = get_default_servings()
+                    household_default = get_default_servings(user_id=user_id)
                     if servings is None:
                         servings = household_default
                         using_default = True
@@ -301,7 +306,7 @@ def register_tools(mcp):
                     try:
                         from ..analytics.pantry import get_pantry_status
 
-                        pantry_items = get_pantry_status(apply_depletion=True)
+                        pantry_items = get_pantry_status(apply_depletion=True, user_id=user_id)
                         for item in pantry_items:
                             pantry_context[item["product_id"]] = {
                                 "level_percent": item.get("level_percent", 0),
@@ -311,7 +316,7 @@ def register_tools(mcp):
                         pass
 
                     # Load current shopping list
-                    data = _load_shopping_list()
+                    data = _load_shopping_list(user_id=user_id)
                     items_added = 0
                     items_skipped = 0
                     skip_reasons = {"pantry_threshold": [], "user_specified": []}
@@ -401,7 +406,7 @@ def register_tools(mcp):
 
                     # Consolidate items
                     data["items"] = _consolidate_items(data["items"])
-                    _save_shopping_list(data)
+                    _save_shopping_list(data, user_id=user_id)
 
                     if ctx:
                         ctx.info(
@@ -443,7 +448,7 @@ def register_tools(mcp):
                 try:
                     from .shared import get_default_servings
 
-                    data = _load_shopping_list()
+                    data = _load_shopping_list(user_id=user_id)
                     items = data.get("items", [])
 
                     # Extract recipes included
@@ -467,7 +472,7 @@ def register_tools(mcp):
                         "total_items": len(items),
                         "recipes_included": recipes_included,
                         "servings_summary": {
-                            "household_default": get_default_servings(),
+                            "household_default": get_default_servings(user_id=user_id),
                             "total_servings_planned": total_servings,
                             "total_meals": len(recipes_included),
                         },
@@ -478,12 +483,12 @@ def register_tools(mcp):
 
             case "remove":
                 try:
-                    data = _load_shopping_list()
+                    data = _load_shopping_list(user_id=user_id)
 
                     if clear_all:
                         item_count = len(data["items"])
                         data["items"] = []
-                        _save_shopping_list(data)
+                        _save_shopping_list(data, user_id=user_id)
                         return {
                             "success": True,
                             "message": f"Cleared {item_count} items from shopping list",
@@ -506,7 +511,7 @@ def register_tools(mcp):
                     ]
                     removed_count = original_count - len(data["items"])
 
-                    _save_shopping_list(data)
+                    _save_shopping_list(data, user_id=user_id)
 
                     return {
                         "success": True,
@@ -523,7 +528,7 @@ def register_tools(mcp):
 
             case "update_item":
                 try:
-                    data = _load_shopping_list()
+                    data = _load_shopping_list(user_id=user_id)
                     found = False
 
                     for item in data["items"]:
@@ -542,7 +547,7 @@ def register_tools(mcp):
                             "error": f"Item '{item_id}' not found in shopping list",
                         }
 
-                    _save_shopping_list(data)
+                    _save_shopping_list(data, user_id=user_id)
 
                     return {
                         "success": True,
@@ -566,7 +571,7 @@ def register_tools(mcp):
                     from .cart_tools import _add_item_to_local_cart
                     from .shared import get_authenticated_client
 
-                    data = _load_shopping_list()
+                    data = _load_shopping_list(user_id=user_id)
                     items = data.get("items", [])
 
                     if not items:
@@ -581,7 +586,7 @@ def register_tools(mcp):
                     try:
                         from ..analytics.pantry import get_pantry_status
 
-                        pantry_items = get_pantry_status(apply_depletion=True)
+                        pantry_items = get_pantry_status(apply_depletion=True, user_id=user_id)
                         for item in pantry_items:
                             pantry_context[item["product_id"]] = {
                                 "level_percent": item.get("level_percent", 0)
@@ -688,6 +693,7 @@ def register_tools(mcp):
                             }
                             for item in items_to_add
                         ],
+                        user_id=user_id,
                         confirm_unsafe=bool(confirm_unsafe),
                     )
                     if safety_response is not None:
@@ -697,7 +703,7 @@ def register_tools(mcp):
                         ctx.info(f"Adding {len(items_to_add)} items from shopping list to cart...")
 
                     try:
-                        client = get_authenticated_client()
+                        client = get_authenticated_client(user_id=user_id)
 
                         # Format for Kroger API
                         api_items = [
@@ -713,11 +719,13 @@ def register_tools(mcp):
 
                         # Track in local cart
                         for item in items_to_add:
-                            _add_item_to_local_cart(item["product_id"], item["quantity"], _modality)
+                            _add_item_to_local_cart(
+                                item["product_id"], item["quantity"], _modality, user_id=user_id
+                            )
 
                         # Clear shopping list
                         data["items"] = []
-                        _save_shopping_list(data)
+                        _save_shopping_list(data, user_id=user_id)
 
                         return {
                             "success": True,

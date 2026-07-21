@@ -20,6 +20,8 @@ from ..analytics.safety import (
 
 def check_cart_items_safety(
     items: list[dict[str, Any]],
+    *,
+    user_id: str,
     confirm_unsafe: bool = False,
 ) -> dict[str, Any] | None:
     """Check a batch of cart items against the safety filter.
@@ -29,12 +31,12 @@ def check_cart_items_safety(
     to add (or confirm_unsafe=True), else a `requires_confirmation` response
     dict the caller should return as-is.
     """
-    if confirm_unsafe or not is_filtering_enabled():
+    if confirm_unsafe or not is_filtering_enabled(user_id=user_id):
         return None
 
-    safe_ids = get_all_safe_product_ids()
-    blocked_ids_set = get_all_blocked_product_ids()
-    disabled_ingredients = get_disabled_ingredients()
+    safe_ids = get_all_safe_product_ids(user_id=user_id)
+    blocked_ids_set = get_all_blocked_product_ids(user_id=user_id)
+    disabled_ingredients = get_disabled_ingredients(user_id=user_id)
 
     safety_warnings = []
     blocked_items = []
