@@ -36,7 +36,7 @@ def cleanup_shopping_list():
 
 def test_load_empty_shopping_list():
     """Spec: load returns empty items + None last_updated when nothing stored."""
-    data = _load_shopping_list()
+    data = _load_shopping_list(user_id=default_user_id())
     assert data == {"items": [], "last_updated": None}
 
 
@@ -53,9 +53,9 @@ def test_save_and_load_shopping_list():
         ]
     }
 
-    _save_shopping_list(data)
+    _save_shopping_list(data, user_id=default_user_id())
 
-    loaded = _load_shopping_list()
+    loaded = _load_shopping_list(user_id=default_user_id())
     assert len(loaded["items"]) == 1
     assert loaded["items"][0]["name"] == "Eggs"
     assert "last_updated" in loaded

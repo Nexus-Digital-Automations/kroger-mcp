@@ -130,12 +130,11 @@ def test_default_user_id_returns_env_value(monkeypatch):
     assert default_user_id() == "test-owner-uuid"
 
 
-def test_resolve_user_id_falls_back_to_default(monkeypatch):
-    """Spec: when None is passed to analytics, default_user_id() supplies the owner."""
-    monkeypatch.setenv("KROGER_MCP_DEFAULT_USER_ID", "fallback-owner")
+def test_resolve_user_id_is_identity_passthrough():
+    """Spec: analytics._resolve_user_id no longer resolves a None fallback — every
+    caller in scope now supplies a real user_id, so it's just a passthrough."""
     from kroger_mcp.analytics.favorites import _resolve_user_id
 
-    assert _resolve_user_id(None) == "fallback-owner"
     assert _resolve_user_id("explicit-id") == "explicit-id"
 
 

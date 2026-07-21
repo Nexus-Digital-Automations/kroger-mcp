@@ -1,7 +1,6 @@
 """Test that cart mark_placed restocks pantry items via the web route."""
 import asyncio
 import json
-import os
 import sqlite3
 import sys
 from types import SimpleNamespace
@@ -24,24 +23,6 @@ def _fake_request(user_id: str = "test-user"):
     the app), so we supply the request.state.user the middleware would set.
     """
     return SimpleNamespace(state=SimpleNamespace(user={"id": user_id}))
-
-
-def _purge_test_orders_from_history(test_product_ids: list, order_history_file: str) -> None:
-    """Remove orders containing test product IDs from kroger_order_history.json."""
-    if not os.path.exists(order_history_file):
-        return
-    with open(order_history_file, 'r') as f:
-        history = json.load(f)
-    test_ids = set(test_product_ids)
-    cleaned = [
-        order for order in history
-        if not any(
-            item.get('product_id') in test_ids
-            for item in order.get('items', [])
-        )
-    ]
-    with open(order_history_file, 'w') as f:
-        json.dump(cleaned, f)
 
 
 def _clear_kroger_modules():
@@ -82,11 +63,12 @@ class TestMarkPlacedRestockWebRoute:
         import kroger_mcp.tools.cart_tools as ct
 
         product_id = 'PYTEST_RESTOCK_HAPPY_001'
-        backup = ct._load_cart_data()
+        backup = ct._load_cart_data(user_id='test-user')
 
         try:
             ct._save_cart_data(
                 {'current_cart': [{'product_id': product_id, 'name': 'TestItem', 'quantity': 1}]},
+                user_id='test-user',
             )
             pantry_mod.ensure_initialized()
             conn = sqlite3.connect(db_mod.DB_FILE)
@@ -121,8 +103,7 @@ class TestMarkPlacedRestockWebRoute:
             conn.execute('DELETE FROM products WHERE product_id=?', (product_id,))
             conn.commit()
             conn.close()
-            ct._save_cart_data(backup)
-            _purge_test_orders_from_history([product_id], ct.ORDER_HISTORY_FILE)
+            ct._save_cart_data(backup, user_id='test-user')
 
     def test_item_without_product_id_skipped_silently(self):
         """Items missing product_id are skipped; items with product_id are restocked."""
@@ -135,7 +116,7 @@ class TestMarkPlacedRestockWebRoute:
         import kroger_mcp.tools.cart_tools as ct
 
         product_id = 'PYTEST_RESTOCK_ERR_002'
-        backup = ct._load_cart_data()
+        backup = ct._load_cart_data(user_id='test-user')
 
         try:
             ct._save_cart_data(
@@ -143,6 +124,7 @@ class TestMarkPlacedRestockWebRoute:
                     {'name': 'NoIDItem', 'quantity': 1},
                     {'product_id': product_id, 'name': 'RealItem', 'quantity': 1},
                 ]},
+                user_id='test-user',
             )
             pantry_mod.ensure_initialized()
             cr.record_order = lambda *a, **kw: 'test-ord'
@@ -168,5 +150,4 @@ class TestMarkPlacedRestockWebRoute:
             conn.execute('DELETE FROM products WHERE product_id=?', (product_id,))
             conn.commit()
             conn.close()
-            ct._save_cart_data(backup)
-            _purge_test_orders_from_history([product_id], ct.ORDER_HISTORY_FILE)
+            ct._save_cart_data(backup, user_id='test-user')

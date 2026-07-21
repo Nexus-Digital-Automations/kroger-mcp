@@ -2,6 +2,8 @@
 Tests for the comprehensive recommendation engine.
 """
 
+import os
+
 import pytest
 
 from kroger_mcp.analytics.recommendations import (
@@ -293,7 +295,8 @@ class TestComprehensiveRecommendations:
         """Verify recommendations return expected structure."""
         result = get_comprehensive_recommendations(
             days_ahead=14,
-            max_results=10
+            max_results=10,
+            user_id=os.environ["KROGER_MCP_DEFAULT_USER_ID"],
         )
 
         assert result['success']
@@ -306,7 +309,9 @@ class TestComprehensiveRecommendations:
     @pytest.mark.integration
     def test_recommendations_summary_stats(self):
         """Verify summary statistics are calculated."""
-        result = get_comprehensive_recommendations()
+        result = get_comprehensive_recommendations(
+            user_id=os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+        )
 
         summary = result['summary']
         assert 'total_recommendations' in summary
@@ -321,7 +326,10 @@ class TestComprehensiveRecommendations:
     @pytest.mark.integration
     def test_recommendations_min_score_filter(self):
         """Should filter items below min_score."""
-        result = get_comprehensive_recommendations(min_score=60)
+        result = get_comprehensive_recommendations(
+            min_score=60,
+            user_id=os.environ["KROGER_MCP_DEFAULT_USER_ID"],
+        )
 
         # All returned items should have score >= 60
         for tier in ['urgent_needs', 'high_value_deals', 'good_timing']:
@@ -331,7 +339,10 @@ class TestComprehensiveRecommendations:
     @pytest.mark.integration
     def test_recommendations_max_results_limit(self):
         """Should limit total results to max_results."""
-        result = get_comprehensive_recommendations(max_results=20)
+        result = get_comprehensive_recommendations(
+            max_results=20,
+            user_id=os.environ["KROGER_MCP_DEFAULT_USER_ID"],
+        )
 
         total = (
             len(result['urgent_needs']) +
@@ -346,7 +357,8 @@ class TestComprehensiveRecommendations:
         """Should only return items in favorite lists."""
         result = get_comprehensive_recommendations(
             include_favorites_only=True,
-            max_results=10
+            max_results=10,
+            user_id=os.environ["KROGER_MCP_DEFAULT_USER_ID"],
         )
 
         # All returned items should be in favorites

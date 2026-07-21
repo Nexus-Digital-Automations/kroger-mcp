@@ -7,6 +7,8 @@ hot reads memoize and that distinct inputs don't collide.
 
 from __future__ import annotations
 
+import os
+
 import kroger_mcp.analytics.purchase_tracker as purchase_tracker
 import kroger_mcp.analytics.recipe_cost as recipe_cost
 import kroger_mcp.analytics.recipe_scoring as recipe_scoring
@@ -59,7 +61,8 @@ def test_order_history_fetches_all_items_in_one_query(monkeypatch):
     monkeypatch.setattr(purchase_tracker, "ensure_initialized", lambda: None)
     monkeypatch.setattr(purchase_tracker, "get_db_connection", lambda: conn)
 
-    result = purchase_tracker.get_order_history(limit=10)
+    test_user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    result = purchase_tracker.get_order_history(limit=10, user_id=test_user_id)
 
     # 1 query for orders + 1 for ALL items — never 1 + N.
     assert len(conn.queries) == 2
@@ -90,7 +93,8 @@ def test_order_history_empty_returns_without_items_query(monkeypatch):
     monkeypatch.setattr(purchase_tracker, "ensure_initialized", lambda: None)
     monkeypatch.setattr(purchase_tracker, "get_db_connection", lambda: conn)
 
-    assert purchase_tracker.get_order_history() == []
+    test_user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    assert purchase_tracker.get_order_history(user_id=test_user_id) == []
     assert len(conn.queries) == 1  # only the orders query ran
 
 
@@ -110,12 +114,19 @@ def test_recommendations_cached_per_param_set(monkeypatch):
         recommendations, "_compute_comprehensive_recommendations", _fake_compute
     )
 
-    a = recommendations.get_comprehensive_recommendations(max_results=5)
-    b = recommendations.get_comprehensive_recommendations(max_results=5)
+    test_user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    a = recommendations.get_comprehensive_recommendations(
+        max_results=5, user_id=test_user_id
+    )
+    b = recommendations.get_comprehensive_recommendations(
+        max_results=5, user_id=test_user_id
+    )
     assert a == b
     assert calls["n"] == 1  # second call served from cache
 
-    recommendations.get_comprehensive_recommendations(max_results=10)
+    recommendations.get_comprehensive_recommendations(
+        max_results=10, user_id=test_user_id
+    )
     assert calls["n"] == 2  # different params → distinct key → recompute
 
 
@@ -147,8 +158,8 @@ def test_favorite_ids_cached_and_returned_as_set(monkeypatch):
 
     monkeypatch.setattr(favorites, "get_db_cursor", lambda: _CursorCtx())
 
-    first = favorites.get_all_favorite_product_ids()
-    second = favorites.get_all_favorite_product_ids()
+    first = favorites.get_all_favorite_product_ids(user_id="test-user")
+    second = favorites.get_all_favorite_product_ids(user_id="test-user")
     assert first == second == {"p1", "p2"}  # returned as a set
     assert db_calls["n"] == 1  # second call served from Redis, no DB hit
 
@@ -349,17 +360,20 @@ def test_predictions_for_period_memoized(monkeypatch):
 
     monkeypatch.setattr(predictions, "_compute_predictions_for_period", _fake_compute)
 
-    a = predictions.get_predictions_for_period(days_ahead=14)
-    b = predictions.get_predictions_for_period(days_ahead=14)
+    test_user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    a = predictions.get_predictions_for_period(days_ahead=14, user_id=test_user_id)
+    b = predictions.get_predictions_for_period(days_ahead=14, user_id=test_user_id)
     assert a == b
     assert calls["n"] == 1  # second call served from memo
 
     # Returned list is a fresh copy — mutating it must not poison the memo.
     a.append("x")
-    c = predictions.get_predictions_for_period(days_ahead=14)
+    c = predictions.get_predictions_for_period(days_ahead=14, user_id=test_user_id)
     assert len(c) == 1
 
-    predictions.get_predictions_for_period(days_ahead=30)  # distinct params recompute
+    predictions.get_predictions_for_period(
+        days_ahead=30, user_id=test_user_id
+    )  # distinct params recompute
     assert calls["n"] == 2
 
     predictions._predictions_memo.clear()

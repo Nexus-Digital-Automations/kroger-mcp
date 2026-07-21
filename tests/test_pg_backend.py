@@ -163,16 +163,17 @@ def test_pantry_round_trip(pg_backend: str):
         auto_deplete=True,
         quantity=2.0,
         unit="bottle",
+        user_id=pg_backend,
     )
     assert res["success"] is True
 
-    status = get_pantry_status(apply_depletion=False)
+    status = get_pantry_status(apply_depletion=False, user_id=pg_backend)
     item = next(i for i in status if i["product_id"] == "PROD-PANTRY")
     assert item["level_percent"] == 80
 
-    upd = update_pantry_level("PROD-PANTRY", 30)
+    upd = update_pantry_level("PROD-PANTRY", 30, user_id=pg_backend)
     assert upd["success"] is True
-    status2 = get_pantry_status(apply_depletion=False)
+    status2 = get_pantry_status(apply_depletion=False, user_id=pg_backend)
     item2 = next(i for i in status2 if i["product_id"] == "PROD-PANTRY")
     assert item2["level_percent"] == 30
 
@@ -211,7 +212,9 @@ def test_purchase_event_lastrowid(pg_backend: str):
     from kroger_mcp.analytics.purchase_tracker import record_cart_add
 
     _seed_product("PROD-EVENT", "Brown Rice")
-    event_id = record_cart_add("PROD-EVENT", quantity=2, modality="PICKUP")
+    event_id = record_cart_add(
+        "PROD-EVENT", quantity=2, modality="PICKUP", user_id=pg_backend
+    )
     assert isinstance(event_id, int)
     assert event_id > 0
 
@@ -231,6 +234,7 @@ def test_meal_plan_create_assign_get(pg_backend: str):
         start_date="2026-06-15",
         plan_type="weekly",
         is_template=False,
+        user_id=pg_backend,
     )
     assert created["success"] is True, created
     plan_id = created["plan_id"]
@@ -245,6 +249,7 @@ def test_meal_plan_create_assign_get(pg_backend: str):
             recipe_id="recipe-xyz",
             meal_date="2026-06-16",
             meal_slot="dinner",
+            user_id=pg_backend,
         )
         assert assigned["success"] is True, assigned
 
@@ -254,12 +259,13 @@ def test_meal_plan_create_assign_get(pg_backend: str):
             recipe_id="recipe-abc",
             meal_date="2026-06-16",
             meal_slot="dinner",
+            user_id=pg_backend,
         )
         assert reassigned["success"] is True, reassigned
     finally:
         meal_planning.get_recipe = real_get_recipe
 
-    plan = get_meal_plan(plan_id, include_recipe_details=False)
+    plan = get_meal_plan(plan_id, include_recipe_details=False, user_id=pg_backend)
     # The upsert replaced the slot rather than duplicating it: exactly one entry,
     # carrying the second recipe_id. Proves ON CONFLICT DO UPDATE works on PG.
     assert plan.get("meal_count") == 1, plan
@@ -278,7 +284,7 @@ def test_favorites_create_and_add(pg_backend: str):
     )
 
     _seed_product("PROD-FAV", "Quinoa")
-    created = create_list(name="PG Favorites", list_type="custom")
+    created = create_list(name="PG Favorites", list_type="custom", user_id=pg_backend)
     assert created["success"] is True, created
     list_id = created["list_id"]
 
@@ -288,10 +294,13 @@ def test_favorites_create_and_add(pg_backend: str):
         description="Quinoa",
         brand="TestBrand",
         default_quantity=2,
+        user_id=pg_backend,
     )
     assert added["success"] is True, added
 
-    items = get_list_items(list_id=list_id, include_pantry_status=False)
+    items = get_list_items(
+        list_id=list_id, include_pantry_status=False, user_id=pg_backend
+    )
     product_ids = {i["product_id"] for i in items.get("items", [])}
     assert "PROD-FAV" in product_ids
 
@@ -310,13 +319,21 @@ def test_safety_approve_and_block(pg_backend: str):
     _seed_product("PROD-SAFE", "Plain Yogurt")
     _seed_product("PROD-BLOCK", "Soda")
 
-    sres = add_to_safe_list("PROD-SAFE", description="Plain Yogurt", reason="clean")
+    sres = add_to_safe_list(
+        "PROD-SAFE", description="Plain Yogurt", reason="clean", user_id=pg_backend
+    )
     assert sres["success"] is True
-    assert "PROD-SAFE" in get_all_safe_product_ids()
+    assert "PROD-SAFE" in get_all_safe_product_ids(user_id=pg_backend)
 
-    bres = add_to_blocked_list("PROD-BLOCK", description="Soda", reason="HFCS", auto_blocked=True)
+    bres = add_to_blocked_list(
+        "PROD-BLOCK",
+        description="Soda",
+        reason="HFCS",
+        auto_blocked=True,
+        user_id=pg_backend,
+    )
     assert bres["success"] is True
-    assert "PROD-BLOCK" in get_all_blocked_product_ids()
+    assert "PROD-BLOCK" in get_all_blocked_product_ids(user_id=pg_backend)
 
 
 # ---------------------------------------------------------------------------
@@ -325,11 +342,11 @@ def test_safety_approve_and_block(pg_backend: str):
 def test_consent_set_and_get(pg_backend: str):
     from kroger_mcp.analytics.consent import get_consent, set_consent
 
-    state = set_consent({"price_observations": True})
+    state = set_consent({"price_observations": True}, user_id=pg_backend)
     assert state["decided"] is True
     assert state["categories"]["price_observations"]["enabled"] is True
 
-    fetched = get_consent()
+    fetched = get_consent(user_id=pg_backend)
     assert fetched["decided"] is True
     assert fetched["categories"]["price_observations"]["enabled"] is True
     # An untouched category stays opt-out.
@@ -349,11 +366,12 @@ def test_pending_gap_lastrowid(pg_backend: str):
         ordered_quantity=1.0,
         unit="can",
         recipe_name="Marinara",
+        user_id=pg_backend,
     )
     assert isinstance(gap_id, int)
     assert gap_id > 0
 
-    gaps = list_pending_gaps()
+    gaps = list_pending_gaps(user_id=pg_backend)
     assert any(g.get("id") == gap_id for g in gaps)
 
 
@@ -373,9 +391,10 @@ def test_cart_save_and_load(pg_backend: str):
                     "modality": "PICKUP",
                 }
             ]
-        }
+        },
+        user_id=pg_backend,
     )
-    loaded = _load_cart_data()
+    loaded = _load_cart_data(user_id=pg_backend)
     pids = {i["product_id"] for i in loaded["current_cart"]}
     assert "PROD-CART" in pids
 
@@ -396,9 +415,10 @@ def test_shopping_list_save_and_load(pg_backend: str):
                     "unit": "bunch",
                 }
             ]
-        }
+        },
+        user_id=pg_backend,
     )
-    loaded = _load_shopping_list()
+    loaded = _load_shopping_list(user_id=pg_backend)
     names = {i["name"] for i in loaded["items"]}
     assert "Spinach" in names
 

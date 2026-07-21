@@ -75,7 +75,9 @@ def clean_db(tmp_path, monkeypatch):
         conn.close()
     # Legacy silent-auto-deduct behavior is now opt-in; most tests in this
     # file predate the 'confirm' default and assume automatic reconciliation.
-    set_meal_plan_pantry_deduction_mode("automatic")
+    set_meal_plan_pantry_deduction_mode(
+        "automatic", user_id=os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    )
     yield
     reset_initialization()
 
@@ -86,9 +88,12 @@ def _fake_recipe(ingredients, name="Test Dish", servings=4):
 
 def _seed_plan_with_meal(recipe_id, meal_date, slot="dinner"):
     """A plan spanning ±5 days with one meal assigned at `meal_date`."""
-    plan = create_meal_plan("Recon Plan", _date(-5), _date(5), plan_type="custom")
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    plan = create_meal_plan(
+        "Recon Plan", _date(-5), _date(5), plan_type="custom", user_id=user_id
+    )
     plan_id = plan["plan_id"] if "plan_id" in plan else plan.get("plan", {}).get("id")
-    assign_meal(plan_id, recipe_id, meal_date, slot, servings_override=4)
+    assign_meal(plan_id, recipe_id, meal_date, slot, servings_override=4, user_id=user_id)
     return plan_id
 
 
@@ -120,40 +125,43 @@ def _meal_row(plan_id):
 # ── reconcile ────────────────────────────────────────────────────────────────
 
 def test_reconcile_deducts_past_meal_once(clean_db, monkeypatch):
-    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    add_to_pantry("RC_OIL", "Olive Oil", level=100, user_id=user_id)
     monkeypatch.setattr(
         meal_planning, "get_recipe",
         lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
     )
     plan_id = _seed_plan_with_meal("R1", _date(-1))
 
-    result = reconcile_past_meals(today=_date(0), mode="automatic")
+    result = reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
 
     assert result["reconciled"] == 1
-    assert get_pantry_item("RC_OIL")["level_percent"] < 100
+    assert get_pantry_item("RC_OIL", user_id)["level_percent"] < 100
     assert _count_deductions("RC_OIL") == 1
     assert _meal_row(plan_id)["pantry_deducted"] in (1, True)
 
 
 def test_reconcile_is_idempotent(clean_db, monkeypatch):
-    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    add_to_pantry("RC_OIL", "Olive Oil", level=100, user_id=user_id)
     monkeypatch.setattr(
         meal_planning, "get_recipe",
         lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
     )
     _seed_plan_with_meal("R1", _date(-1))
 
-    reconcile_past_meals(today=_date(0), mode="automatic")
-    level_after_first = get_pantry_item("RC_OIL")["level_percent"]
-    second = reconcile_past_meals(today=_date(0), mode="automatic")
+    reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
+    level_after_first = get_pantry_item("RC_OIL", user_id)["level_percent"]
+    second = reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
 
     assert second["reconciled"] == 0
-    assert get_pantry_item("RC_OIL")["level_percent"] == level_after_first
+    assert get_pantry_item("RC_OIL", user_id)["level_percent"] == level_after_first
     assert _count_deductions("RC_OIL") == 1  # no double deduct
 
 
 def test_reconcile_skips_today_and_future(clean_db, monkeypatch):
-    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    add_to_pantry("RC_OIL", "Olive Oil", level=100, user_id=user_id)
     monkeypatch.setattr(
         meal_planning, "get_recipe",
         lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
@@ -161,35 +169,37 @@ def test_reconcile_skips_today_and_future(clean_db, monkeypatch):
     _seed_plan_with_meal("R1", _date(0))   # today — not strictly past
     _seed_plan_with_meal("R2", _date(2), slot="lunch")
 
-    result = reconcile_past_meals(today=_date(0), mode="automatic")
+    result = reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
 
     assert result["reconciled"] == 0
-    assert get_pantry_item("RC_OIL")["level_percent"] == 100
+    assert get_pantry_item("RC_OIL", user_id)["level_percent"] == 100
 
 
 def test_fuzzy_match_deducts_typed_name_ingredient(clean_db, monkeypatch):
     # Ingredient has no product_id; pantry item is "Fresh Garlic" → resolved by name.
-    add_to_pantry("RC_GARLIC", "Fresh Garlic", level=100)
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    add_to_pantry("RC_GARLIC", "Fresh Garlic", level=100, user_id=user_id)
     monkeypatch.setattr(
         meal_planning, "get_recipe",
         lambda rid: _fake_recipe([{"name": "garlic", "product_id": None, "quantity": 2}]),
     )
     _seed_plan_with_meal("R1", _date(-1))
 
-    reconcile_past_meals(today=_date(0), mode="automatic")
+    reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
 
-    assert get_pantry_item("RC_GARLIC")["level_percent"] < 100
+    assert get_pantry_item("RC_GARLIC", user_id)["level_percent"] < 100
     assert _count_deductions("RC_GARLIC") == 1
 
 
 def test_unmatched_ingredient_is_skipped_not_errored(clean_db, monkeypatch):
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
     monkeypatch.setattr(
         meal_planning, "get_recipe",
         lambda rid: _fake_recipe([{"name": "unobtanium spice", "product_id": None, "quantity": 1}]),
     )
     plan_id = _seed_plan_with_meal("R1", _date(-1))
 
-    result = reconcile_past_meals(today=_date(0), mode="automatic")
+    result = reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
 
     assert result["reconciled"] == 1  # meal handled, just nothing to deduct
     assert not result["skipped"]
@@ -199,7 +209,8 @@ def test_unmatched_ingredient_is_skipped_not_errored(clean_db, monkeypatch):
 # ── undo respects the tombstone ──────────────────────────────────────────────
 
 def test_undo_past_meal_sets_tombstone_and_blocks_re_reconcile(clean_db, monkeypatch):
-    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    add_to_pantry("RC_OIL", "Olive Oil", level=100, user_id=user_id)
     monkeypatch.setattr(
         meal_planning, "get_recipe",
         lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
@@ -207,25 +218,26 @@ def test_undo_past_meal_sets_tombstone_and_blocks_re_reconcile(clean_db, monkeyp
     past = _date(-1)
     plan_id = _seed_plan_with_meal("R1", past)
 
-    reconcile_past_meals(today=_date(0), mode="automatic")
-    undo = undo_meal_cooked(plan_id, past, "dinner")
+    reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
+    undo = undo_meal_cooked(plan_id, past, "dinner", user_id=user_id)
 
     assert undo["success"] is True
-    assert get_pantry_item("RC_OIL")["level_percent"] == 100  # restored
+    assert get_pantry_item("RC_OIL", user_id)["level_percent"] == 100  # restored
     row = _meal_row(plan_id)
     assert row["cook_skipped"] in (1, True)
     assert _count_deductions("RC_OIL") == 0  # ledger cleared
 
     # A later view must NOT silently re-deduct the meal the user undid.
-    again = reconcile_past_meals(today=_date(0), mode="automatic")
+    again = reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
     assert again["reconciled"] == 0
-    assert get_pantry_item("RC_OIL")["level_percent"] == 100
+    assert get_pantry_item("RC_OIL", user_id)["level_percent"] == 100
 
 
 # ── shopping list excludes cooked meals ──────────────────────────────────────
 
 def test_shopping_list_excludes_reconciled_meals(clean_db, monkeypatch):
-    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    add_to_pantry("RC_OIL", "Olive Oil", level=100, user_id=user_id)
 
     def _recipe(rid):
         if rid == "PAST":
@@ -238,12 +250,14 @@ def test_shopping_list_excludes_reconciled_meals(clean_db, monkeypatch):
 
     monkeypatch.setattr(meal_planning, "get_recipe", _recipe)
 
-    plan = create_meal_plan("List Plan", _date(-3), _date(3), plan_type="custom")
+    plan = create_meal_plan(
+        "List Plan", _date(-3), _date(3), plan_type="custom", user_id=user_id
+    )
     plan_id = plan["plan_id"]
-    assign_meal(plan_id, "PAST", _date(-1), "dinner", servings_override=4)
-    assign_meal(plan_id, "FUTURE", _date(1), "dinner", servings_override=4)
+    assign_meal(plan_id, "PAST", _date(-1), "dinner", servings_override=4, user_id=user_id)
+    assign_meal(plan_id, "FUTURE", _date(1), "dinner", servings_override=4, user_id=user_id)
 
-    result = generate_meal_plan_shopping_list(plan_id=plan_id)
+    result = generate_meal_plan_shopping_list(plan_id=plan_id, user_id=user_id)
 
     names = {r["recipe_name"] for r in result["recipes_included"]}
     assert "Future Dish" in names
@@ -253,47 +267,50 @@ def test_shopping_list_excludes_reconciled_meals(clean_db, monkeypatch):
 # ── confirm mode (default) ────────────────────────────────────────────────────
 
 def test_reconcile_confirm_mode_does_not_deduct(clean_db, monkeypatch):
-    set_meal_plan_pantry_deduction_mode("confirm")
-    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    set_meal_plan_pantry_deduction_mode("confirm", user_id=user_id)
+    add_to_pantry("RC_OIL", "Olive Oil", level=100, user_id=user_id)
     monkeypatch.setattr(
         meal_planning, "get_recipe",
         lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
     )
     plan_id = _seed_plan_with_meal("R1", _date(-1))
 
-    result = reconcile_past_meals(today=_date(0))
+    result = reconcile_past_meals(today=_date(0), user_id=user_id)
 
     assert result["reconciled"] == 0
     assert result["pending"] == 1
-    assert get_pantry_item("RC_OIL")["level_percent"] == 100  # untouched
+    assert get_pantry_item("RC_OIL", user_id)["level_percent"] == 100  # untouched
     assert _meal_row(plan_id)["pantry_deducted"] in (0, False)
 
-    pending = list_pending_meals(today=_date(0))
+    pending = list_pending_meals(today=_date(0), user_id=user_id)
     assert len(pending) == 1
     assert pending[0]["plan_id"] == plan_id
 
 
 def test_confirm_all_pending_meals_deducts_all(clean_db, monkeypatch):
-    set_meal_plan_pantry_deduction_mode("confirm")
-    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    set_meal_plan_pantry_deduction_mode("confirm", user_id=user_id)
+    add_to_pantry("RC_OIL", "Olive Oil", level=100, user_id=user_id)
     monkeypatch.setattr(
         meal_planning, "get_recipe",
         lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
     )
     plan_id = _seed_plan_with_meal("R1", _date(-1))
-    reconcile_past_meals(today=_date(0))  # confirm mode — leaves it pending
+    reconcile_past_meals(today=_date(0), user_id=user_id)  # confirm mode — leaves it pending
 
-    result = confirm_all_pending_meals(today=_date(0))
+    result = confirm_all_pending_meals(today=_date(0), user_id=user_id)
 
     assert result["reconciled"] == 1
-    assert get_pantry_item("RC_OIL")["level_percent"] < 100
+    assert get_pantry_item("RC_OIL", user_id)["level_percent"] < 100
     assert _meal_row(plan_id)["pantry_deducted"] in (1, True)
-    assert list_pending_meals(today=_date(0)) == []
+    assert list_pending_meals(today=_date(0), user_id=user_id) == []
 
 
 def test_skip_pending_meal_sets_tombstone_without_deduction(clean_db, monkeypatch):
-    set_meal_plan_pantry_deduction_mode("confirm")
-    add_to_pantry("RC_OIL", "Olive Oil", level=100)
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    set_meal_plan_pantry_deduction_mode("confirm", user_id=user_id)
+    add_to_pantry("RC_OIL", "Olive Oil", level=100, user_id=user_id)
     monkeypatch.setattr(
         meal_planning, "get_recipe",
         lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
@@ -301,11 +318,11 @@ def test_skip_pending_meal_sets_tombstone_without_deduction(clean_db, monkeypatc
     past = _date(-1)
     plan_id = _seed_plan_with_meal("R1", past)
 
-    result = skip_pending_meal(plan_id, past, "dinner")
+    result = skip_pending_meal(plan_id, past, "dinner", user_id=user_id)
 
     assert result["success"] is True
     row = _meal_row(plan_id)
     assert row["cook_skipped"] in (1, True)
     assert row["pantry_deducted"] in (0, False)
-    assert get_pantry_item("RC_OIL")["level_percent"] == 100  # untouched
-    assert list_pending_meals(today=_date(0)) == []  # tombstoned, no longer pending
+    assert get_pantry_item("RC_OIL", user_id=user_id)["level_percent"] == 100  # untouched
+    assert list_pending_meals(today=_date(0), user_id=user_id) == []  # tombstoned, no longer pending

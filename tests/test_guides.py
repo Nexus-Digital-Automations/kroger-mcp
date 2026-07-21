@@ -76,7 +76,9 @@ def test_guides_payload_shape(tmp_guides):
         }
     )
 
-    payload = _guides_payload()
+    from kroger_mcp.auth.dependencies import default_user_id
+
+    payload = _guides_payload(default_user_id())
     assert payload["active_page"] == "guides"
     assert payload["guide_count"] == 1
     # guides_data is a Python list (template serializes it with the script-safe

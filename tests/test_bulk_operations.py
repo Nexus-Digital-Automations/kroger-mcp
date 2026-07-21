@@ -145,7 +145,7 @@ class TestUpdatePantryItemBulk:
         """Verify batch mode updates multiple items."""
         from kroger_mcp.tools.prediction_tools import register_tools
 
-        mock_update.side_effect = lambda pid, level: {
+        mock_update.side_effect = lambda pid, level, *args, **kwargs: {
             "success": True,
             "product_id": pid,
             "level": level
@@ -158,6 +158,7 @@ class TestUpdatePantryItemBulk:
 
         assert result["success"] is True
         assert len(result["results"]) == 2
+        assert result["summary"]["successful"] == 2
         assert result["summary"]["level_set"] == 50
 
 
@@ -169,7 +170,7 @@ class TestRemoveFromPantryBulk:
         """Verify batch mode removes multiple items."""
         from kroger_mcp.tools.prediction_tools import register_tools
 
-        mock_remove.side_effect = lambda pid: {
+        mock_remove.side_effect = lambda pid, *args, **kwargs: {
             "success": True,
             "product_id": pid,
             "message": f"Removed {pid}"

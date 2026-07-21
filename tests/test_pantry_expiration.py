@@ -292,7 +292,9 @@ class TestRestockWithExpiration:
         conn.close()
 
         # Restock the item
-        result = restock_item('MILK001', description='Whole Milk Gallon')
+        result = restock_item(
+            'MILK001', description='Whole Milk Gallon', user_id=_test_user_id()
+        )
 
         # Should auto-calculate expiration
         assert result['success'] is True
@@ -314,7 +316,9 @@ class TestRestockWithExpiration:
         conn.commit()
         conn.close()
 
-        result = restock_item('EGGS001', description='Large Eggs Dozen')
+        result = restock_item(
+            'EGGS001', description='Large Eggs Dozen', user_id=_test_user_id()
+        )
 
         assert result['expiration_date'] is not None
         assert result['days_to_expiration'] == 21
@@ -334,7 +338,9 @@ class TestRestockWithExpiration:
         conn.commit()
         conn.close()
 
-        result = restock_item('CHICKEN001', description='Frozen Chicken Breast')
+        result = restock_item(
+            'CHICKEN001', description='Frozen Chicken Breast', user_id=_test_user_id()
+        )
 
         assert result['expiration_date'] is not None
         assert result['days_to_expiration'] == 180
@@ -354,7 +360,9 @@ class TestRestockWithExpiration:
         conn.commit()
         conn.close()
 
-        result = restock_item('CANDY001', description='Halloween Candy')
+        result = restock_item(
+            'CANDY001', description='Halloween Candy', user_id=_test_user_id()
+        )
 
         assert result['expiration_date'] is None
         assert result['days_to_expiration'] is None
@@ -375,11 +383,15 @@ class TestRestockWithExpiration:
         conn.commit()
         conn.close()
 
-        result1 = restock_item('MILK002', description='Milk')
+        result1 = restock_item(
+            'MILK002', description='Milk', user_id=_test_user_id()
+        )
         exp1 = result1['expiration_date']
 
         # Restock again (simulating new purchase)
-        result2 = restock_item('MILK002', description='Milk')
+        result2 = restock_item(
+            'MILK002', description='Milk', user_id=_test_user_id()
+        )
         exp2 = result2['expiration_date']
 
         # Should have new expiration date
@@ -409,10 +421,10 @@ class TestPantryStatusWithExpiration:
         conn.commit()
         conn.close()
 
-        restock_item('MILK003', description='Milk')
+        restock_item('MILK003', description='Milk', user_id=_test_user_id())
 
         # Get pantry status
-        items = get_pantry_status()
+        items = get_pantry_status(user_id=_test_user_id())
 
         assert len(items) == 1
         item = items[0]
@@ -442,14 +454,14 @@ class TestPantryStatusWithExpiration:
         conn.commit()
         conn.close()
 
-        restock_item('MILK004', description='Milk')
+        restock_item('MILK004', description='Milk', user_id=_test_user_id())
 
         # First call
-        items1 = get_pantry_status()
+        items1 = get_pantry_status(user_id=_test_user_id())
         days1 = items1[0]['days_to_expiration']
 
         # Second call should recalculate (not use stored value)
-        items2 = get_pantry_status()
+        items2 = get_pantry_status(user_id=_test_user_id())
         days2 = items2[0]['days_to_expiration']
 
         # Should be same (called immediately after)
@@ -471,9 +483,9 @@ class TestPantryStatusWithExpiration:
         conn.commit()
         conn.close()
 
-        restock_item('CANDY002', description='Candy')
+        restock_item('CANDY002', description='Candy', user_id=_test_user_id())
 
-        items = get_pantry_status()
+        items = get_pantry_status(user_id=_test_user_id())
         assert len(items) == 1
 
         item = items[0]
@@ -490,7 +502,9 @@ class TestManualExpirationOverride:
     def test_manual_set_expiration(self, clean_db):
         """Should allow manual override of expiration date."""
         # Setup pantry item
-        add_to_pantry('MILK005', description='Milk', level=100)
+        add_to_pantry(
+            'MILK005', description='Milk', level=100, user_id=_test_user_id()
+        )
 
         # Manually set expiration
         future_date = (datetime.now() + timedelta(days=3)).date().isoformat()
@@ -508,7 +522,7 @@ class TestManualExpirationOverride:
         conn.close()
 
         # Verify
-        items = get_pantry_status()
+        items = get_pantry_status(user_id=_test_user_id())
         item = items[0]
 
         assert item['expiration_date'] == future_date
@@ -530,7 +544,7 @@ class TestManualExpirationOverride:
         conn.commit()
         conn.close()
 
-        restock_item('MILK006', description='Milk')
+        restock_item('MILK006', description='Milk', user_id=_test_user_id())
 
         # Clear expiration
         conn = get_db_connection()
@@ -543,7 +557,7 @@ class TestManualExpirationOverride:
         conn.close()
 
         # Verify
-        items = get_pantry_status()
+        items = get_pantry_status(user_id=_test_user_id())
         item = items[0]
 
         assert item['expiration_date'] is None

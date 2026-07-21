@@ -4,7 +4,6 @@ Direct test of auto-pantry integration using internal functions.
 Tests the _add_item_to_local_cart function that contains the auto-pantry logic.
 """
 
-import json
 import os
 import sqlite3
 import sys
@@ -14,13 +13,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from kroger_mcp.analytics.database import ensure_initialized
 from kroger_mcp.analytics.pantry import get_pantry_status
-from kroger_mcp.tools.cart_tools import ORDER_HISTORY_FILE, _add_item_to_local_cart
+from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
 
 _TEST_PRODUCT_IDS = ["TEST_PRODUCT_AUTO_001", "TEST_PRODUCT_DUPLICATE"]
 
 
 def _purge_test_data():
-    """Remove test items from user_carts (DB) + kroger_order_history.json."""
+    """Remove test items from user_carts (DB)."""
     from kroger_mcp.analytics.database import get_db_connection
 
     conn = get_db_connection()
@@ -33,20 +32,6 @@ def _purge_test_data():
         conn.commit()
     finally:
         conn.close()
-
-    if os.path.exists(ORDER_HISTORY_FILE):
-        with open(ORDER_HISTORY_FILE, 'r') as f:
-            history = json.load(f)
-        test_ids = set(_TEST_PRODUCT_IDS)
-        cleaned = [
-            order for order in history
-            if not any(
-                item.get('product_id') in test_ids
-                for item in order.get('items', [])
-            )
-        ]
-        with open(ORDER_HISTORY_FILE, 'w') as f:
-            json.dump(cleaned, f)
 
 
 def setup_test_environment():
@@ -90,9 +75,10 @@ def test_add_item_to_cart_adds_to_pantry():
     print("=" * 60)
 
     product_id = "TEST_PRODUCT_AUTO_001"
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
 
     # Get pantry state before
-    pantry_before = get_pantry_status(apply_depletion=False)
+    pantry_before = get_pantry_status(apply_depletion=False, user_id=user_id)
     items_before = [item["product_id"] for item in pantry_before]
     print(f"Pantry before: {len(items_before)} items")
 
@@ -111,7 +97,8 @@ def test_add_item_to_cart_adds_to_pantry():
                 "images": [],
                 "aisle": None,
                 "pricing": None
-            }
+            },
+            user_id=user_id
         )
         print("✓ Cart add successful")
     except Exception as e:
@@ -119,7 +106,7 @@ def test_add_item_to_cart_adds_to_pantry():
         return False
 
     # Get pantry state after
-    pantry_after = get_pantry_status(apply_depletion=False)
+    pantry_after = get_pantry_status(apply_depletion=False, user_id=user_id)
     items_after = [item["product_id"] for item in pantry_after]
     print(f"\nPantry after: {len(items_after)} items")
 
@@ -167,6 +154,7 @@ def test_duplicate_protection():
     print("=" * 60)
 
     product_id = "TEST_PRODUCT_DUPLICATE"
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
 
     # Add first time
     print(f"Adding {product_id} to cart (first time)...")
@@ -182,14 +170,15 @@ def test_duplicate_protection():
                 "images": [],
                 "aisle": None,
                 "pricing": None
-            }
+            },
+            user_id=user_id
         )
     except Exception as e:
         print(f"✗ First add failed: {e}")
         return False
 
     # Get pantry count after first add
-    pantry = get_pantry_status(apply_depletion=False)
+    pantry = get_pantry_status(apply_depletion=False, user_id=user_id)
     count_after_first = sum(1 for item in pantry
                            if item["product_id"] == product_id)
 
@@ -209,14 +198,15 @@ def test_duplicate_protection():
                 "images": [],
                 "aisle": None,
                 "pricing": None
-            }
+            },
+            user_id=user_id
         )
     except Exception as e:
         print(f"✗ Second add failed: {e}")
         return False
 
     # Check for duplicates
-    pantry = get_pantry_status(apply_depletion=False)
+    pantry = get_pantry_status(apply_depletion=False, user_id=user_id)
     count_after_second = sum(1 for item in pantry
                             if item["product_id"] == product_id)
 
