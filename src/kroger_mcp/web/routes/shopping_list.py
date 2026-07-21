@@ -20,7 +20,7 @@ async def cart_redirect():
     return RedirectResponse(url="/shopping-list", status_code=301)
 
 
-def _shopping_list_payload(user_id: str | None) -> dict:
+def _shopping_list_payload(user_id: str) -> dict:
     """All blocking work for the shopping-list page, run off the event loop
     via run_in_thread. user_id MUST be the authed user: the bare
     _load_shopping_list() resolves to the migration-default user, which showed
@@ -29,14 +29,14 @@ def _shopping_list_payload(user_id: str | None) -> dict:
     recipe_data = _load_recipes()
     recipes = recipe_data.get("recipes", [])
     items = sl_data.get("items", [])
-    servings = get_default_servings()
+    servings = get_default_servings(user_id=user_id)
     return {
         "active_page": "shopping_list",
         "items": items,
         "recipes": recipes,
         "default_servings": servings,
         "item_count": len(items),
-        **action_menu_context(),
+        **action_menu_context(user_id),
     }
 
 

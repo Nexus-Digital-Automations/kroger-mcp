@@ -584,6 +584,7 @@ async def add_plan_to_cart(plan_id: str, body: AddToCartBody, request: Request):
                 for item in items_to_add
                 if item.get("product_id")
             ],
+            user_id=user_id,
             confirm_unsafe=body.confirm_unsafe,
         )
         if safety_response is not None:

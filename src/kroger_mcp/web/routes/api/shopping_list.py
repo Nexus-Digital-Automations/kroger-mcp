@@ -27,14 +27,14 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 
-def _pantry_levels() -> dict[str, int]:
+def _pantry_levels(user_id: str) -> dict[str, int]:
     """Best-effort `{product_id: level_percent}` map. Empty on failure."""
     try:
         from kroger_mcp.analytics.pantry import get_pantry_status
 
         return {
             row["product_id"]: row.get("level_percent", 0)
-            for row in get_pantry_status(apply_depletion=True)
+            for row in get_pantry_status(apply_depletion=True, user_id=user_id)
         }
     except Exception as exc:
         logger.debug("pantry context unavailable: %s", exc)
@@ -197,7 +197,9 @@ class AddRecipeBody(BaseModel):
     selections: list[SelectedIngredient] | None = None
 
 
-def _resolve_recipe_and_servings(body: AddRecipeBody) -> tuple[dict, int] | JSONResponse:
+def _resolve_recipe_and_servings(
+    body: AddRecipeBody, user_id: str
+) -> tuple[dict, int] | JSONResponse:
     from kroger_mcp.tools.recipe_tools import _find_recipe
     from kroger_mcp.tools.shared import get_default_servings
 
@@ -207,7 +209,7 @@ def _resolve_recipe_and_servings(body: AddRecipeBody) -> tuple[dict, int] | JSON
             status_code=404,
             content={"error": f"Recipe '{body.recipe_id}' not found"},
         )
-    servings = body.servings_override or get_default_servings()
+    servings = body.servings_override or get_default_servings(user_id=user_id)
     return recipe, servings
 
 
@@ -216,9 +218,10 @@ def _commit_recipe_items(
     recipe: dict,
     recipe_id: str,
     servings: int,
+    user_id: str,
 ) -> int:
     """Write user-selected ingredient rows to the shopping list."""
-    listing = _load_shopping_list()
+    listing = _load_shopping_list(user_id=user_id)
     now_iso = datetime.now().isoformat()
     for sel in selections:
         listing["items"].append(
@@ -245,12 +248,12 @@ def _commit_recipe_items(
             }
         )
     listing["items"] = _consolidate_items(listing["items"])
-    _save_shopping_list(listing)
+    _save_shopping_list(listing, user_id=user_id)
     return len(listing["items"])
 
 
 @router.post("/api/shopping-list/add-recipe")
-async def add_recipe_to_list(body: AddRecipeBody):
+async def add_recipe_to_list(body: AddRecipeBody, request: Request):
     """
     Three modes:
       - confirm=False                  → return preview (no writes).
@@ -261,12 +264,13 @@ async def add_recipe_to_list(body: AddRecipeBody):
     web UI surfaces pantry levels directly in the preview instead.
     """
     try:
-        resolved = _resolve_recipe_and_servings(body)
+        user_id = current_user_id(request)
+        resolved = _resolve_recipe_and_servings(body, user_id)
         if isinstance(resolved, JSONResponse):
             return resolved
         recipe, servings = resolved
 
-        preview = _build_recipe_preview(recipe, servings, _pantry_levels())
+        preview = _build_recipe_preview(recipe, servings, _pantry_levels(user_id))
 
         if not body.confirm:
             return JSONResponse(
@@ -310,7 +314,7 @@ async def add_recipe_to_list(body: AddRecipeBody):
             ]
             items_skipped = 0
 
-        total = _commit_recipe_items(chosen, recipe, body.recipe_id, servings)
+        total = _commit_recipe_items(chosen, recipe, body.recipe_id, servings, user_id)
         return JSONResponse(
             content={
                 "success": True,
@@ -541,7 +545,8 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
         from kroger_mcp.analytics.ingredients import classify_spice
         from kroger_mcp.tools.shared import get_include_spices_by_default
 
-        data = _load_shopping_list()
+        user_id = current_user_id(request)
+        data = _load_shopping_list(user_id=user_id)
         items = data.get("items", [])
 
         if not items:
@@ -553,10 +558,10 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
                 }
             )
 
-        pantry_context = _pantry_levels()
+        pantry_context = _pantry_levels(user_id)
         category_by_pid = _category_types([it.get("product_id") for it in items])
 
-        spice_default_included = get_include_spices_by_default()
+        spice_default_included = get_include_spices_by_default(user_id=user_id)
 
         items_to_add = []
         items_to_skip = []
@@ -673,12 +678,13 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
                 {"product_id": it["product_id"], "description": it.get("name", "")}
                 for it in items_to_add
             ],
+            user_id=user_id,
             confirm_unsafe=body.confirm_unsafe,
         )
         if safety_response is not None:
             return safety_response
 
-        client = await asyncio.to_thread(get_authenticated_client, current_user_id(request))
+        client = await asyncio.to_thread(get_authenticated_client, user_id)
         api_items = [
             {"upc": it["product_id"], "quantity": it["quantity"], "modality": body.modality}
             for it in items_to_add
@@ -714,7 +720,7 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
         try:
             from kroger_mcp.analytics.favorites import mark_snacks_ordered
 
-            mark_snacks_ordered(list(added_ids), current_user_id(request))
+            mark_snacks_ordered(list(added_ids), user_id=user_id)
         except Exception:
             logger.warning("mark_snacks_ordered failed; staleness signal not updated")
 
@@ -725,7 +731,7 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
                     quantity=it["quantity"],
                     modality=body.modality,
                     product_details={"description": it.get("name")},
-                    user_id=current_user_id(request),
+                    user_id=user_id,
                 )
             except Exception:
                 pass
@@ -738,7 +744,7 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
             or not item.get("product_id")
             or item.get("product_id") not in added_ids
         ]
-        _save_shopping_list(data)
+        _save_shopping_list(data, user_id=user_id)
 
         result = {
             "success": True,

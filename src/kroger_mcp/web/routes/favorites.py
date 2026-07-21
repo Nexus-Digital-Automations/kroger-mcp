@@ -91,7 +91,7 @@ def _favorites_detail_payload(list_id: str, user_id: str) -> dict:
         "badge_label": badge_label,
         "badge_color": badge_color,
         "reorder_status": reorder_status,
-        **action_menu_context(),
+        **action_menu_context(user_id),
     }
 
 

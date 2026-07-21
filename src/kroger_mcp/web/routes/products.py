@@ -15,8 +15,9 @@ router = APIRouter()
 
 @router.get("/products", response_class=HTMLResponse)
 async def products_page(request: Request):
-    location_id = get_preferred_location_id() or "03400014"
-    favorites_display_mode = get_favorites_display_mode(user_id=current_user_id(request))
+    user_id = current_user_id(request)
+    location_id = get_preferred_location_id(user_id=user_id) or "03400014"
+    favorites_display_mode = get_favorites_display_mode(user_id=user_id)
 
     ensure_initialized()
     watchlist, favorite_ids = [], []
@@ -25,13 +26,20 @@ async def products_page(request: Request):
         watchlist = [
             dict(row)
             for row in conn.execute(
-                "SELECT * FROM deal_watchlist ORDER BY added_at DESC"
+                "SELECT * FROM deal_watchlist WHERE user_id = ? ORDER BY added_at DESC",
+                (user_id,),
             ).fetchall()
         ]
         favorite_ids = [
             row[0]
             for row in conn.execute(
-                "SELECT DISTINCT product_id FROM favorite_list_items"
+                """
+                SELECT DISTINCT fli.product_id
+                FROM favorite_list_items fli
+                JOIN favorite_lists fl ON fli.list_id = fl.id
+                WHERE fl.user_id = ?
+                """,
+                (user_id,),
             ).fetchall()
         ]
         conn.close()
@@ -48,6 +56,6 @@ async def products_page(request: Request):
             "watchlist_count": len(watchlist),
             "favorite_ids": favorite_ids,
             "favorites_display_mode": favorites_display_mode,
-            **action_menu_context(),
+            **action_menu_context(user_id),
         },
     )

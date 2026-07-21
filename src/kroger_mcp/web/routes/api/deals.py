@@ -178,7 +178,7 @@ async def auto_deals(request: Request, min_savings: float = 5):
     try:
         from kroger_mcp.analytics.safety import check_products_safety_batch
 
-        statuses = check_products_safety_batch(deals)
+        statuses = check_products_safety_batch(deals, user_id=user_id)
         for deal, status in zip(deals, statuses, strict=False):
             d = status.to_dict()
             deal["safety_score"] = d.get("safety_score")
@@ -276,7 +276,7 @@ async def find_deals(
     try:
         from kroger_mcp.analytics.safety import check_products_safety_batch
 
-        statuses = check_products_safety_batch(deals)
+        statuses = check_products_safety_batch(deals, user_id=user_id)
         for deal, status in zip(deals, statuses, strict=False):
             d = status.to_dict()
             deal["safety_score"] = d.get("safety_score")
@@ -393,13 +393,13 @@ async def remove_from_watchlist(product_id: str, request: Request):
 
 
 @router.get("/api/deals/price-history/{product_id}")
-async def get_price_history(product_id: str, days: int = 30):
+async def get_price_history(request: Request, product_id: str, days: int = 30):
     """Return price statistics and history for a given product."""
     try:
         ensure_initialized()
         from kroger_mcp.analytics.deals import get_price_statistics
 
-        location_id = get_preferred_location_id() or "03400014"
+        location_id = get_preferred_location_id(user_id=current_user_id(request)) or "03400014"
         stats = get_price_statistics(
             product_id=product_id,
             days=days,

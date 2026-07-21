@@ -33,9 +33,9 @@ async def settings_page(
     )
 
     user_id = current_user_id(request)
-    location_id = get_preferred_location_id() or ""
-    servings = get_default_servings()
-    include_spices_by_default = get_include_spices_by_default()
+    location_id = get_preferred_location_id(user_id=user_id) or ""
+    servings = get_default_servings(user_id=user_id)
+    include_spices_by_default = get_include_spices_by_default(user_id=user_id)
     favorites_display_mode = get_favorites_display_mode(user_id=user_id)
     meal_plan_pantry_deduction_mode = get_meal_plan_pantry_deduction_mode(user_id=user_id)
 

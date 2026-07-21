@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from kroger_mcp.analytics.database import run_in_thread
 from kroger_mcp.analytics.recipe_cost import estimate_recipe_cost
 from kroger_mcp.analytics.recipe_scoring import calculate_health_score
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.recipe_tools import _find_recipe, _load_recipes
 from kroger_mcp.tools.step_times import annotate_steps, recipe_time_summary
 from kroger_mcp.web.context import action_menu_context
@@ -93,7 +94,7 @@ def _collect_all_tags(recipes: list[dict]) -> list[str]:
     return sorted(tags)
 
 
-def _recipes_payload() -> dict:
+def _recipes_payload(user_id: str) -> dict:
     """All blocking work for the recipes list (JSON load + per-recipe scoring),
     run off the event loop via run_in_thread."""
     data = _load_recipes()
@@ -167,13 +168,13 @@ def _recipes_payload() -> dict:
         "all_tags": all_tags,
         "recipe_count": len(recipes),
         "recipes_json": recipes_json,
-        **action_menu_context(),
+        **action_menu_context(user_id),
     }
 
 
 @router.get("/recipes", response_class=HTMLResponse)
 async def recipes_list(request: Request):
-    context = await run_in_thread(_recipes_payload)
+    context = await run_in_thread(_recipes_payload, current_user_id(request))
     return templates.TemplateResponse(request, "recipes.html", context)
 
 
@@ -268,7 +269,6 @@ def _infer_categories_from_safety(ingredients: list[dict]) -> None:
 def _annotate_pantry(request: Request, ingredients: list[dict]) -> None:
     try:
         from kroger_mcp.analytics.pantry import get_pantry_status
-        from kroger_mcp.auth.dependencies import current_user_id
 
         pantry_lookup = {
             item["product_id"]: item
@@ -349,7 +349,7 @@ def _build_recipe_context(request: Request, recipe_id: str, include_spices: bool
         "health_data": health_data,
         "cost_data": cost_data,
         "include_spices": include_spices,
-        **action_menu_context(),
+        **action_menu_context(current_user_id(request)),
     }
 
 

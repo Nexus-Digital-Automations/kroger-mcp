@@ -29,7 +29,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def action_menu_context() -> dict[str, dict[str, list[dict[str, Any]]]]:
+def action_menu_context(user_id: str) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """
     Build the target-entity bundle for action-menu submenus.
 
@@ -58,14 +58,14 @@ def action_menu_context() -> dict[str, dict[str, list[dict[str, Any]]]]:
     """
     return {
         "action_menu_data": {
-            "favoritesLists": _load_favorites_lists(),
+            "favoritesLists": _load_favorites_lists(user_id),
             "recipes": _load_recipe_choices(),
-            "mealPlans": _load_meal_plan_choices(),
+            "mealPlans": _load_meal_plan_choices(user_id),
         }
     }
 
 
-def _load_favorites_lists() -> list[dict[str, Any]]:
+def _load_favorites_lists(user_id: str) -> list[dict[str, Any]]:
     # Counterpart: see routes/api/favorites.py::get_favorites_lists —
     # identical filter (exclude is_default) so the menu choices match the
     # dedicated API endpoint the host Alpine components refetch after
@@ -75,7 +75,7 @@ def _load_favorites_lists() -> list[dict[str, Any]]:
 
         return [
             {"id": lst["id"], "name": lst["name"]}
-            for lst in get_lists()
+            for lst in get_lists(user_id=user_id)
             if not lst.get("is_default")
         ]
     except Exception as exc:
@@ -97,11 +97,11 @@ def _load_recipe_choices() -> list[dict[str, Any]]:
         return []
 
 
-def _load_meal_plan_choices() -> list[dict[str, Any]]:
+def _load_meal_plan_choices(user_id: str) -> list[dict[str, Any]]:
     try:
         from kroger_mcp.analytics.meal_planning import list_plans_for_api
 
-        outcome = list_plans_for_api(include_templates=False, limit=50)
+        outcome = list_plans_for_api(include_templates=False, limit=50, user_id=user_id)
         plans = outcome.get("plans", []) if outcome.get("success") else []
         return [
             {

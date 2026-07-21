@@ -224,13 +224,15 @@ async def set_location(body: LocationBody, request: Request):
 
 
 @router.get("/api/settings/location/search")
-async def search_locations(zip: str = Query(..., description="ZIP code to search near")):
+async def search_locations(
+    request: Request, zip: str = Query(..., description="ZIP code to search near")
+):
     """Search for nearby Kroger stores by ZIP code."""
     try:
         from kroger_mcp.cache import cache_read_through
         from kroger_mcp.tools.shared import get_client_credentials_client, kroger_cache_key
 
-        client = get_client_credentials_client()
+        client = get_client_credentials_client(current_user_id(request))
         # Store locations are stable; share a 6h cache across users (keyed by
         # client_id + zip) so repeat ZIP lookups don't each hit Kroger.
         raw = cache_read_through(
@@ -283,7 +285,7 @@ async def get_auth_status(request: Request):
         get_kroger_credentials,
     )
 
-    creds = get_kroger_credentials()
+    creds = get_kroger_credentials(user_id=current_user_id(request))
     configured = bool(creds["client_id"] and creds["client_secret"])
 
     result = {
@@ -375,12 +377,12 @@ async def start_oauth(request: Request):
 
 
 @router.post("/api/settings/auth/disconnect")
-async def disconnect_kroger():
-    """Clear Kroger token and disconnect."""
-    from kroger_mcp.tools.shared import delete_user_token
+async def disconnect_kroger(request: Request):
+    """Clear this user's Kroger token and disconnect."""
+    from kroger_mcp.tools.shared import invalidate_authenticated_client
 
     try:
-        delete_user_token()
+        invalidate_authenticated_client(user_id=current_user_id(request))
         return {"success": True}
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})

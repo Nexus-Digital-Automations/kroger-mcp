@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from kroger_mcp.analytics.database import run_in_thread
+from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.guide_tools import _find_guide, _load_guides
 from kroger_mcp.web.context import action_menu_context
 from kroger_mcp.web.templating import templates
@@ -29,7 +30,7 @@ def _collect_all_tags(guides: list[dict]) -> list[str]:
     return sorted(tags)
 
 
-def _guides_payload() -> dict:
+def _guides_payload(user_id: str) -> dict:
     """Blocking work for the guides list (JSON load only) — run off the loop."""
     data = _load_guides()
     guides = data.get("guides", [])
@@ -61,17 +62,17 @@ def _guides_payload() -> dict:
         "all_tags": all_tags,
         "guide_count": len(guides),
         "guides_data": guides_data,
-        **action_menu_context(),
+        **action_menu_context(user_id),
     }
 
 
 @router.get("/guides", response_class=HTMLResponse)
 async def guides_list(request: Request):
-    context = await run_in_thread(_guides_payload)
+    context = await run_in_thread(_guides_payload, current_user_id(request))
     return templates.TemplateResponse(request, "guides.html", context)
 
 
-def _build_guide_context(guide_id: str) -> dict:
+def _build_guide_context(guide_id: str, user_id: str) -> dict:
     """Load + shape the guide context shared by the view and edit routes.
 
     Failure modes: HTTPException(404) when the guide id is unknown.
@@ -88,13 +89,13 @@ def _build_guide_context(guide_id: str) -> dict:
         "active_page": "guides",
         "guide": guide,
         "steps": guide.get("steps", []),
-        **action_menu_context(),
+        **action_menu_context(user_id),
     }
 
 
 @router.get("/guides/{guide_id}", response_class=HTMLResponse)
 async def guide_detail(request: Request, guide_id: str):
-    context = await run_in_thread(_build_guide_context, guide_id)
+    context = await run_in_thread(_build_guide_context, guide_id, current_user_id(request))
     context["initial_editing"] = False
     return templates.TemplateResponse(request, "guide_view.html", context)
 

@@ -244,19 +244,20 @@ async def add_list_to_shopping_list(list_id: str, request: Request):
 
     list_name = result.get("list", {}).get("name", list_id)
     items = result.get("items", [])
+    user_id = current_user_id(request)
 
     # Load pantry levels for skip logic
     pantry_levels: dict = {}
     try:
         from kroger_mcp.analytics.pantry import get_pantry_status
 
-        pantry_items = get_pantry_status(apply_depletion=True)
+        pantry_items = get_pantry_status(apply_depletion=True, user_id=user_id)
         pantry_levels = {p["product_id"]: p.get("level_percent", 0) for p in pantry_items}
     except Exception:
         pass  # No pantry data — skip nothing
 
     # Build new shopping list entries
-    data = _load_shopping_list()
+    data = _load_shopping_list(user_id=user_id)
     items_added = 0
     items_skipped = 0
     now = datetime.now().isoformat()
@@ -284,7 +285,7 @@ async def add_list_to_shopping_list(list_id: str, request: Request):
         items_added += 1
 
     data["items"] = _consolidate_items(data["items"])
-    _save_shopping_list(data)
+    _save_shopping_list(data, user_id=user_id)
 
     if items_added:
         from kroger_mcp.analytics.favorites import mark_list_ordered

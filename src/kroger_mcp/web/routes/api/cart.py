@@ -9,14 +9,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from kroger_mcp.analytics.purchase_tracker import record_order
+from kroger_mcp.analytics.purchase_tracker import get_order_history, record_order
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.cart_tools import (
     _add_item_to_local_cart,
     _load_cart_data,
-    _load_order_history,
     _save_cart_data,
-    _save_order_history,
 )
 from kroger_mcp.tools.shared import get_authenticated_client
 
@@ -61,10 +59,10 @@ async def add_to_cart(body: CartAddBody, request: Request):
 
 
 @router.get("/api/cart")
-async def get_cart():
+async def get_cart(request: Request):
     """Return the current cart contents."""
     try:
-        cart_data = _load_cart_data()
+        cart_data = _load_cart_data(user_id=current_user_id(request))
         return JSONResponse(content=cart_data)
     except Exception as e:
         return JSONResponse(
@@ -74,10 +72,11 @@ async def get_cart():
 
 
 @router.delete("/api/cart/{product_id}")
-async def remove_cart_item(product_id: str):
+async def remove_cart_item(product_id: str, request: Request):
     """Remove a single item from the cart by product_id."""
     try:
-        cart_data = _load_cart_data()
+        user_id = current_user_id(request)
+        cart_data = _load_cart_data(user_id=user_id)
         current_cart = cart_data.get("current_cart", [])
 
         original_len = len(current_cart)
@@ -92,7 +91,7 @@ async def remove_cart_item(product_id: str):
             )
 
         cart_data["last_updated"] = datetime.now().isoformat()
-        _save_cart_data(cart_data)
+        _save_cart_data(cart_data, user_id=user_id)
         return JSONResponse(content={"success": True, "removed": product_id})
     except Exception as e:
         return JSONResponse(
@@ -102,13 +101,14 @@ async def remove_cart_item(product_id: str):
 
 
 @router.delete("/api/cart")
-async def clear_cart():
+async def clear_cart(request: Request):
     """Clear all items from the current cart."""
     try:
-        cart_data = _load_cart_data()
+        user_id = current_user_id(request)
+        cart_data = _load_cart_data(user_id=user_id)
         cart_data["current_cart"] = []
         cart_data["last_updated"] = datetime.now().isoformat()
-        _save_cart_data(cart_data)
+        _save_cart_data(cart_data, user_id=user_id)
         return JSONResponse(content={"success": True, "message": "Cart cleared"})
     except Exception as e:
         return JSONResponse(
@@ -121,7 +121,8 @@ async def clear_cart():
 async def mark_order_placed(request: Request):
     """Push cart to Kroger API, record the order locally, and clear the cart."""
     try:
-        cart_data = _load_cart_data()
+        user_id = current_user_id(request)
+        cart_data = _load_cart_data(user_id=user_id)
         current_cart = cart_data.get("current_cart", [])
 
         if not current_cart:
@@ -135,7 +136,7 @@ async def mark_order_placed(request: Request):
         kroger_warning = None
         kroger_failed_items: list = []
         try:
-            client = await asyncio.to_thread(get_authenticated_client, current_user_id(request))
+            client = await asyncio.to_thread(get_authenticated_client, user_id)
             kroger_items = [
                 {
                     "upc": item["product_id"],
@@ -173,26 +174,12 @@ async def mark_order_placed(request: Request):
             kroger_warning = str(kroger_err)
             logger.warning("Could not push to Kroger cart API: %s", kroger_err)
 
-        # Record the order in purchase analytics
+        # Record the order in purchase analytics (orders/purchase_events tables —
+        # the source of truth for order history, see get_cart_history below)
         try:
-            record_order(current_cart, user_id=current_user_id(request))
+            record_order(current_cart, user_id=user_id)
         except Exception as record_err:
             logger.warning("Could not record order analytics: %s", record_err)
-
-        # Save to local order history
-        try:
-            history = _load_order_history()
-            history.append(
-                {
-                    "items": current_cart,
-                    "placed_at": datetime.now().isoformat(),
-                    "item_count": len(current_cart),
-                    "kroger_cart_updated": kroger_cart_updated,
-                }
-            )
-            _save_order_history(history)
-        except Exception as hist_err:
-            logger.warning("Could not save order history: %s", hist_err)
 
         # Restock pantry
         try:
@@ -202,7 +189,7 @@ async def mark_order_placed(request: Request):
                 pid = item.get("product_id")
                 if pid:
                     try:
-                        restock_item(product_id=pid, level=100)
+                        restock_item(product_id=pid, level=100, user_id=user_id)
                     except Exception:
                         pass
         except Exception:
@@ -211,7 +198,7 @@ async def mark_order_placed(request: Request):
         # Clear the local cart
         cart_data["current_cart"] = []
         cart_data["last_updated"] = datetime.now().isoformat()
-        _save_cart_data(cart_data)
+        _save_cart_data(cart_data, user_id=user_id)
 
         items_sent = len(current_cart) - len(kroger_failed_items)
         result = {
@@ -241,11 +228,11 @@ async def mark_order_placed(request: Request):
 
 
 @router.get("/api/cart/history")
-async def get_cart_history():
+async def get_cart_history(request: Request):
     """Return the last 20 order history entries."""
     try:
-        history = _load_order_history()
-        return JSONResponse(content={"history": history[-20:] if history else []})
+        history = get_order_history(limit=20, user_id=current_user_id(request))
+        return JSONResponse(content={"history": history})
     except Exception as e:
         return JSONResponse(
             status_code=500,

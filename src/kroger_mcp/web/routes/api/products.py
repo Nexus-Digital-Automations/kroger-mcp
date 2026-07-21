@@ -99,7 +99,7 @@ async def search_products(
 
 
 def _search_products_payload(
-    user_id: str | None, search_term: str, capped_limit: int
+    user_id: str, search_term: str, capped_limit: int
 ) -> tuple[list[dict], list[dict]]:
     """Sync body of /api/products/search, run via run_in_thread."""
     client = get_client_credentials_client(user_id)
@@ -153,7 +153,7 @@ def _search_products_payload(
     try:
         from kroger_mcp.analytics.safety import check_products_safety_batch
 
-        statuses = check_products_safety_batch(products)
+        statuses = check_products_safety_batch(products, user_id)
         for product, status in zip(products, statuses, strict=False):
             d = status.to_dict()
             product["safety_score"] = d.get("safety_score")
@@ -244,7 +244,7 @@ async def get_product_detail(request: Request, product_id: str):
         )
 
 
-def _product_detail_payload(user_id: str | None, pid: str) -> dict | None:
+def _product_detail_payload(user_id: str, pid: str) -> dict | None:
     """Sync body of /api/products/{id}, run via run_in_thread. None = 404.
 
     Served from the local catalog read-through (Kroger only on miss/stale price),
@@ -274,7 +274,7 @@ def _product_detail_payload(user_id: str | None, pid: str) -> dict | None:
     try:
         from kroger_mcp.analytics.safety import check_products_safety_batch
 
-        statuses = check_products_safety_batch([product])
+        statuses = check_products_safety_batch([product], user_id)
         if statuses:
             d = statuses[0].to_dict()
             product["safety_score"] = d.get("safety_score")
@@ -330,6 +330,7 @@ async def add_product_to_cart(product_id: str, body: AddToCartBody, request: Req
                     "description": body.description,
                     "price": body.price,
                 },
+                user_id=current_user_id(request),
             )
         except Exception:
             pass
