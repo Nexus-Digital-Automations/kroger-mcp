@@ -278,7 +278,7 @@ def register_tools(mcp):
                                 "error": f"Failed to add {name}: {str(e)}",
                             }
 
-                    get_compiled_patterns(force_refresh=True)
+                    get_compiled_patterns(user_id=user_id, force_refresh=True)
 
                     if is_batch:
                         success_count = sum(1 for r in results.values() if r.get("success"))
@@ -357,7 +357,7 @@ def register_tools(mcp):
                     )
                     conn.commit()
 
-                    get_compiled_patterns(force_refresh=True)
+                    get_compiled_patterns(user_id=user_id, force_refresh=True)
 
                     return {
                         "success": True,
@@ -415,7 +415,7 @@ def register_tools(mcp):
                         message = f"Deactivated custom ingredient: {ingredient_name} (can be restored later)"
 
                     conn.commit()
-                    get_compiled_patterns(force_refresh=True)
+                    get_compiled_patterns(user_id=user_id, force_refresh=True)
 
                     return {
                         "success": True,
@@ -585,7 +585,7 @@ def register_tools(mcp):
                         )
 
                     conn.commit()
-                    get_compiled_patterns(force_refresh=True)
+                    get_compiled_patterns(user_id=user_id, force_refresh=True)
 
                     return {
                         "success": True,
@@ -629,7 +629,7 @@ def register_tools(mcp):
                         }
 
                     conn.commit()
-                    get_compiled_patterns(force_refresh=True)
+                    get_compiled_patterns(user_id=user_id, force_refresh=True)
 
                     return {
                         "success": True,
@@ -862,7 +862,7 @@ def register_tools(mcp):
                                 )
 
                     conn.commit()
-                    get_compiled_patterns(force_refresh=True)
+                    get_compiled_patterns(user_id=user_id, force_refresh=True)
 
                     return {
                         "success": True,

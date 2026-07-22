@@ -17,6 +17,11 @@ document.addEventListener('alpine:init', () => {
     needsPlan: false,
     unseen: 0,
     busy: {},
+    // Bumped by both refresh() and the dismiss step in toggle(); a refresh()
+    // in flight when the user dismisses the badge captures the pre-dismiss
+    // seq, so its response is stale by the time it lands and must not
+    // resurrect `unseen` with the server's pre-mark-seen count.
+    _seq: 0,
 
     init() {
       this.refresh();
@@ -45,12 +50,17 @@ document.addEventListener('alpine:init', () => {
 
     async refresh() {
       // Plain fetch + silent failure: a background poll must not spam toasts.
+      const seq = ++this._seq;
       try {
         const res = await fetch('/api/notifications', {
           headers: { Accept: 'application/json' },
         });
         if (!res.ok) return;
         const d = await res.json();
+        // A dismiss (see toggle()) bumps _seq while this call was in flight —
+        // applying this response now would resurrect the badge with the
+        // server's stale pre-mark-seen count.
+        if (seq !== this._seq) return;
         this.alerts = d.alerts || [];
         this.pendingMeals = d.pending_meals || [];
         this.pantryAlerts = d.pantry_alerts || [];
@@ -67,6 +77,7 @@ document.addEventListener('alpine:init', () => {
       // page, before a full reload) aren't shown stale.
       if (this.open) await this.refresh();
       if (this.open && this.unseen > 0) {
+        this._seq++; // invalidate any still-in-flight refresh() from resurrecting the badge
         this.unseen = 0; // optimistic; server clears the badge state
         try {
           await window.api.post('/api/notifications/mark-seen');

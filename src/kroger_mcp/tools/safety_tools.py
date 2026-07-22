@@ -182,11 +182,11 @@ def register_tools(mcp):
                 inc_overrides = include_overrides if include_overrides is not None else True
 
                 if inc_custom and inc_overrides:
-                    ing_list = get_active_ingredients(include_custom=True)
+                    ing_list = get_active_ingredients(user_id=user_id, include_custom=True)
                 elif inc_overrides:
-                    ing_list = get_active_ingredients(include_custom=False)
+                    ing_list = get_active_ingredients(user_id=user_id, include_custom=False)
                 elif inc_custom:
-                    ing_list = get_active_ingredients(include_custom=True)
+                    ing_list = get_active_ingredients(user_id=user_id, include_custom=True)
                 else:
                     ing_list = get_all_ingredients()
 

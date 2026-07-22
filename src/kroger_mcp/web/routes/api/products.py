@@ -6,7 +6,7 @@ import re
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from kroger_mcp.analytics.database import run_in_thread
 from kroger_mcp.analytics.ingredient_links import (
@@ -290,10 +290,11 @@ def _product_detail_payload(user_id: str, pid: str) -> dict | None:
 
 
 class AddToCartBody(BaseModel):
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1, le=99)
     modality: str = "PICKUP"
     description: str = ""
     price: float = 0.0
+    regular_price: float | None = None
     favorite_list_id: str | None = None
 
 
@@ -317,7 +318,12 @@ async def add_product_to_cart(product_id: str, body: AddToCartBody, request: Req
             ],
         )
 
-        # Mirror in local cart tracking (best-effort)
+        # Mirror in local cart tracking. The real Kroger order above already
+        # succeeded — a local-tracking failure must never flip this response
+        # to success=False, or a caller retrying on "failure" would place a
+        # duplicate real order — but it must be logged and surfaced, not
+        # silently swallowed.
+        local_tracking_warning = None
         try:
             from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
 
@@ -329,11 +335,17 @@ async def add_product_to_cart(product_id: str, body: AddToCartBody, request: Req
                 product_details={
                     "description": body.description,
                     "price": body.price,
+                    "regular_price": body.regular_price,
                 },
                 user_id=current_user_id(request),
             )
-        except Exception:
-            pass
+        except Exception as tracking_err:
+            logger.error(
+                "Local cart tracking failed for %s after a successful Kroger order: %s",
+                product_id,
+                tracking_err,
+            )
+            local_tracking_warning = str(tracking_err)
 
         # Clears the originating favorites list's "past due" badge (best-effort).
         if body.favorite_list_id:
@@ -346,14 +358,17 @@ async def add_product_to_cart(product_id: str, body: AddToCartBody, request: Req
             except Exception:
                 pass
 
-        return JSONResponse(
-            content={
-                "success": True,
-                "product_id": product_id,
-                "quantity": body.quantity,
-                "modality": body.modality,
-            }
-        )
+        result = {
+            "success": True,
+            "product_id": product_id,
+            "quantity": body.quantity,
+            "modality": body.modality,
+        }
+        if local_tracking_warning:
+            result["local_tracking_warning"] = (
+                f"Kroger order succeeded, but local cart tracking failed: {local_tracking_warning}"
+            )
+        return JSONResponse(content=result)
 
     except Exception as e:
         err = str(e)

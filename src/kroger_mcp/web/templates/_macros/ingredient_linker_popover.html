@@ -119,7 +119,7 @@
                 x-text="'-' + p.savings_percent + '%'"></span>
           <span class="ss-autocomplete-price-main"
                 :style="p.on_sale ? 'color:oklch(40% 0.18 25);' : ''"
-                x-text="(p.sale_price || p.regular_price) ? '$' + (p.sale_price || p.regular_price).toFixed(2) : ''"></span>
+                x-text="p.sale_price != null ? '$' + p.sale_price.toFixed(2) : (p.regular_price != null ? '$' + p.regular_price.toFixed(2) : '')"></span>
         </div>
         <span x-show="p.on_sale && p.regular_price" class="ss-autocomplete-price-strike"
               x-text="'$' + (p.regular_price || 0).toFixed(2)"></span>

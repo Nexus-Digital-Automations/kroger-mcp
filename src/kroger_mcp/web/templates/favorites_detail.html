@@ -371,6 +371,10 @@ function favoriteItemsActions(currentListId) {
   return {
     currentListId,
     msg: '',
+    // Double-submit guard keyed by product_id, matching the cartMsg/cartBusy
+    // pattern already used on products.html/deals.html — these actions fire
+    // straight from the action-menu dropdown with no other rate-limiting.
+    busy: {},
 
     _flash(text) {
       this.msg = text;
@@ -380,49 +384,63 @@ function favoriteItemsActions(currentListId) {
 
     async moveToList(item, targetListId, targetListName) {
       if (targetListId === this.currentListId) return;
-      // Add to target first; only remove from current if the add succeeded
-      // so a failed move leaves the item in place instead of losing it.
-      const addRes = await fetch('/api/favorites/lists/' + targetListId + '/items', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          product_id: item.product_id,
-          description: item.description,
-          brand: item.brand || '',
-          quantity: item.default_quantity || 1,
-          notes: item.notes || null,
-        }),
-      });
-      const addData = await addRes.json();
-      if (!addRes.ok || !addData.success) {
-        this._flash('Move failed: ' + (addData.error || 'target list rejected item'));
-        return;
+      if (this.busy[item.product_id]) return;
+      this.busy = {...this.busy, [item.product_id]: true};
+      try {
+        // Add to target first; only remove from current if the add succeeded
+        // so a failed move leaves the item in place instead of losing it.
+        const addRes = await fetch('/api/favorites/lists/' + targetListId + '/items', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            product_id: item.product_id,
+            description: item.description,
+            brand: item.brand || '',
+            quantity: item.default_quantity || 1,
+            notes: item.notes || null,
+          }),
+        });
+        const addData = await addRes.json();
+        if (!addRes.ok || !addData.success) {
+          this._flash('Move failed: ' + (addData.error || 'target list rejected item'));
+          return;
+        }
+        await fetch(
+          '/api/favorites/lists/' + this.currentListId + '/items/' + item.product_id,
+          {method: 'DELETE'},
+        );
+        window._ssToast('Moved to ' + targetListName);
+        window.refreshFavoritesDetail();
+      } finally {
+        const b = {...this.busy}; delete b[item.product_id]; this.busy = b;
       }
-      await fetch(
-        '/api/favorites/lists/' + this.currentListId + '/items/' + item.product_id,
-        {method: 'DELETE'},
-      );
-      window._ssToast('Moved to ' + targetListName);
-      window.refreshFavoritesDetail();
     },
 
     async addToCart(item) {
-      const r = await fetch('/api/products/' + item.product_id + '/add-to-cart', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          quantity: item.default_quantity || 1,
-          modality: 'PICKUP',
-          description: item.description,
-          favorite_list_id: this.currentListId,
-        }),
-      });
-      const d = await r.json();
-      this._flash(r.ok ? 'Added to cart' : ('Error: ' + (d.error || 'Failed')));
-      if (r.ok) window.refreshFavoritesDetail();
+      if (this.busy[item.product_id]) return;
+      this.busy = {...this.busy, [item.product_id]: true};
+      try {
+        const r = await fetch('/api/products/' + item.product_id + '/add-to-cart', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            quantity: item.default_quantity || 1,
+            modality: 'PICKUP',
+            description: item.description,
+            favorite_list_id: this.currentListId,
+          }),
+        });
+        const d = await r.json();
+        this._flash(r.ok ? 'Added to cart' : ('Error: ' + (d.error || 'Failed')));
+        if (r.ok) window.refreshFavoritesDetail();
+      } finally {
+        const b = {...this.busy}; delete b[item.product_id]; this.busy = b;
+      }
     },
 
     async addToShoppingList(item) {
+      if (this.busy[item.product_id]) return;
+      this.busy = {...this.busy, [item.product_id]: true};
       try {
         const r = await fetch('/api/shopping-list/items', {
           method: 'POST',
@@ -438,21 +456,29 @@ function favoriteItemsActions(currentListId) {
         this._flash(r.ok ? 'Added to list' : ('Error: ' + (d.error || 'Failed')));
       } catch (e) {
         this._flash('Network error');
+      } finally {
+        const b = {...this.busy}; delete b[item.product_id]; this.busy = b;
       }
     },
 
     async addToRecipe(item, recipeId, recipeName) {
-      const r = await fetch('/api/recipes/' + recipeId + '/ingredients', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          product_id: item.product_id,
-          description: item.description,
-          brand: item.brand || null,
-        }),
-      });
-      const d = await r.json();
-      this._flash((r.ok && d.success) ? ('Added to ' + recipeName) : ('Error: ' + (d.error || 'Failed')));
+      if (this.busy[item.product_id]) return;
+      this.busy = {...this.busy, [item.product_id]: true};
+      try {
+        const r = await fetch('/api/recipes/' + recipeId + '/ingredients', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            product_id: item.product_id,
+            description: item.description,
+            brand: item.brand || null,
+          }),
+        });
+        const d = await r.json();
+        this._flash((r.ok && d.success) ? ('Added to ' + recipeName) : ('Error: ' + (d.error || 'Failed')));
+      } finally {
+        const b = {...this.busy}; delete b[item.product_id]; this.busy = b;
+      }
     },
 
     async removeItem(item) {

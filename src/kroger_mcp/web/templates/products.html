@@ -19,11 +19,13 @@ function productsPageData() {
     products: [],
     loading: false,
     error: '',
+    _searchSeq: 0,
 
     // deals state
     deals: [],
     dealsLoading: false,
     dealsError: '',
+    _dealsSeq: 0,
     minSavings: 5,
     showWatchlist: false,
     watchlist: {{ watchlist | tojson }},
@@ -76,8 +78,13 @@ function productsPageData() {
       }
     },
 
+    // Each async loader captures a sequence number before awaiting its fetch;
+    // if a newer call for the same results bucket has started by the time it
+    // resolves, its response is stale and must not overwrite fresher data
+    // (mirrors the idx-guard in linker_popover.js's _acFetchSuggestions).
     async search() {
       if (!this.query.trim() && !this.category) return;
+      const seq = ++this._searchSeq;
       this.loading = true; this.error = ''; this.products = [];
       try {
         const params = new URLSearchParams();
@@ -85,13 +92,15 @@ function productsPageData() {
         if (this.category) params.set('category', this.category);
         const r = await fetch('/api/products/search?' + params);
         const data = await r.json();
+        if (seq !== this._searchSeq) return;
         if (r.ok) this.products = data;
         else this.error = data.error || 'Search failed';
-      } catch(e) { this.error = 'Search failed'; }
-      this.loading = false;
+      } catch(e) { if (seq === this._searchSeq) this.error = 'Search failed'; }
+      if (seq === this._searchSeq) this.loading = false;
     },
 
     async findDeals() {
+      const seq = ++this._dealsSeq;
       this.dealsLoading = true; this.dealsError = ''; this.deals = [];
       const params = new URLSearchParams();
       if (this.query) params.set('q', this.query);
@@ -100,23 +109,26 @@ function productsPageData() {
       try {
         const r = await fetch('/api/deals/find?' + params);
         const data = await r.json();
+        if (seq !== this._dealsSeq) return;
         if (r.ok) this.deals = data;
         else this.dealsError = data.error || 'Search failed';
-      } catch(e) { this.dealsError = 'Search failed'; }
-      this.dealsLoading = false;
+      } catch(e) { if (seq === this._dealsSeq) this.dealsError = 'Search failed'; }
+      if (seq === this._dealsSeq) this.dealsLoading = false;
     },
 
     async autoLoad() {
+      const seq = ++this._dealsSeq;
       this.dealsLoading = true; this.dealsError = ''; this.deals = [];
       try {
         const params = new URLSearchParams();
         params.set('min_savings', this.minSavings);
         const r = await fetch('/api/deals/auto?' + params);
         const data = await r.json();
+        if (seq !== this._dealsSeq) return;
         if (r.ok) this.deals = data;
         else this.dealsError = data.error || 'Failed to load deals';
-      } catch(e) { this.dealsError = 'Failed to load deals'; }
-      this.dealsLoading = false;
+      } catch(e) { if (seq === this._dealsSeq) this.dealsError = 'Failed to load deals'; }
+      if (seq === this._dealsSeq) this.dealsLoading = false;
     },
 
     async addToCart(p) {
@@ -132,7 +144,7 @@ function productsPageData() {
             quantity: qty,
             modality: 'PICKUP',
             description: p.description,
-            price: p.sale_price || p.regular_price || 0
+            price: p.sale_price != null ? p.sale_price : (p.regular_price || 0)
           })
         });
         const data = await r.json();
@@ -266,12 +278,14 @@ function productsPageData() {
 const productCmp = {
   percent: (a, b) => (a.savings_percent || 0) - (b.savings_percent || 0),
   dollar: (a, b) => {
-    const sa = (a.regular_price || 0) - (a.sale_price || a.regular_price || 0);
-    const sb = (b.regular_price || 0) - (b.sale_price || b.regular_price || 0);
+    const sa = (a.regular_price || 0) - (a.sale_price != null ? a.sale_price : (a.regular_price || 0));
+    const sb = (b.regular_price || 0) - (b.sale_price != null ? b.sale_price : (b.regular_price || 0));
     return sa - sb;
   },
   health: (a, b) => (a.safety_score || 0) - (b.safety_score || 0),
-  price: (a, b) => (a.sale_price || a.regular_price || 0) - (b.sale_price || b.regular_price || 0),
+  price: (a, b) =>
+    (a.sale_price != null ? a.sale_price : (a.regular_price || 0)) -
+    (b.sale_price != null ? b.sale_price : (b.regular_price || 0)),
   favorites: (a, b, ctx) => {
     const fids = ctx.$root.favoriteIds;
     return (fids.has(a.product_id) ? 0 : 1) - (fids.has(b.product_id) ? 0 : 1);

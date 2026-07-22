@@ -265,6 +265,32 @@ def _ensure_default_list_for_user(user_id: str) -> None:
         )
 
 
+def resolve_default_list_id(user_id: str) -> str:
+    """Resolve the 'default' list_id sentinel to this user's real list id.
+
+    Real default lists are created as ``default-<uuid>`` per user (see
+    _ensure_default_list_for_user) -- the literal string "default" is only a
+    tool-parameter sentinel and never matches a real per-user row. Callers
+    must resolve it to a real list id before querying/writing
+    favorite_list_items, or a list-scoped operation silently does nothing (or,
+    for aggregate queries, is tempted to skip user scoping entirely).
+    """
+    owner = _resolve_user_id(user_id)
+    _ensure_default_list_for_user(owner)
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id FROM favorite_lists WHERE user_id = ?
+            ORDER BY CASE WHEN name = 'My Favorites' THEN 0 ELSE 1 END, name
+            LIMIT 1
+            """,
+            (owner,),
+        )
+        row = cursor.fetchone()
+    # _ensure_default_list_for_user guarantees at least one row exists.
+    return row["id"]
+
+
 def _ensure_snacks_list_for_user(user_id: str) -> str:
     """Lazily create the built-in 'Snacks' list for a user; return its id.
 
@@ -330,7 +356,14 @@ def get_list(list_id: str, user_id: str) -> dict[str, Any] | None:
     item_count = row["item_count"]
     if row["id"] == "default":
         with get_db_cursor() as cursor:
-            cursor.execute("SELECT COUNT(DISTINCT product_id) FROM favorite_list_items")
+            cursor.execute(
+                """
+                SELECT COUNT(DISTINCT fli.product_id) FROM favorite_list_items fli
+                JOIN favorite_lists fl ON fl.id = fli.list_id
+                WHERE fl.user_id = ?
+                """,
+                (owner,),
+            )
             item_count = cursor.fetchone()[0]
 
     return {
@@ -640,7 +673,10 @@ def get_list_items(
 
     with get_db_cursor() as cursor:
         if IS_DEFAULT:
-            # Aggregate all items across all lists — live union view, deduped by product_id
+            # Aggregate items across all of THIS OWNER'S lists — live union
+            # view, deduped by product_id. Must join favorite_lists and scope
+            # by owner, or this silently merges every tenant's favorites and
+            # pantry status together.
             if include_pantry_status:
                 cursor.execute(
                     f"""
@@ -662,10 +698,13 @@ def get_list_items(
                         pi.daily_depletion_rate,
                         pi.low_threshold
                     FROM favorite_list_items fli
+                    JOIN favorite_lists fl ON fl.id = fli.list_id
                     LEFT JOIN pantry_items pi ON fli.product_id = pi.product_id
+                    WHERE fl.user_id = ?
                     GROUP BY fli.product_id
                     ORDER BY {agg_sort_column}
-                    """
+                    """,
+                    (owner,),
                 )
             else:
                 cursor.execute(
@@ -685,9 +724,12 @@ def get_list_items(
                         MAX(fli.last_ordered_at) as last_ordered_at,
                         MAX(fli.typical_gap_days) as typical_gap_days
                     FROM favorite_list_items fli
+                    JOIN favorite_lists fl ON fl.id = fli.list_id
+                    WHERE fl.user_id = ?
                     GROUP BY fli.product_id
                     ORDER BY {agg_sort_column}
-                    """
+                    """,
+                    (owner,),
                 )
         elif include_pantry_status:
             cursor.execute(
@@ -1106,37 +1148,50 @@ def suggest_for_list(
     min_purchases: int = 3,
     min_frequency_score: float = 0.5,
     limit: int = 10,
+    *, user_id: str,
 ) -> dict[str, Any]:
     """
     Suggest products to add to favorites based on purchase history.
 
     Args:
-        list_id: If provided, excludes items already in that list
+        list_id: If provided, excludes items already in that list (must
+            belong to `user_id` -- lists are scoped to their owner).
         min_purchases: Minimum number of purchases to be suggested
         min_frequency_score: Minimum frequency score
         limit: Max suggestions to return
+        user_id: Owner whose favorite lists and purchase statistics to use.
 
     Returns:
         List of suggested products
     """
     ensure_initialized()
+    owner = _resolve_user_id(user_id)
 
     with get_db_cursor() as cursor:
-        # Get products already in any list
+        # Get products already in any of THIS user's lists.
         if list_id:
             cursor.execute(
                 """
-                SELECT DISTINCT product_id FROM favorite_list_items
-                WHERE list_id = ?
+                SELECT DISTINCT fli.product_id FROM favorite_list_items fli
+                JOIN favorite_lists fl ON fl.id = fli.list_id
+                WHERE fli.list_id = ? AND fl.user_id = ?
                 """,
-                (list_id,),
+                (list_id, owner),
             )
         else:
-            cursor.execute("SELECT DISTINCT product_id FROM favorite_list_items")
+            cursor.execute(
+                """
+                SELECT DISTINCT fli.product_id FROM favorite_list_items fli
+                JOIN favorite_lists fl ON fl.id = fli.list_id
+                WHERE fl.user_id = ?
+                """,
+                (owner,),
+            )
 
         existing_products = {row["product_id"] for row in cursor.fetchall()}
 
-        # Get frequently purchased products not in favorites
+        # Get frequently purchased products (this user's own statistics only)
+        # not in favorites.
         cursor.execute(
             """
             SELECT
@@ -1149,12 +1204,13 @@ def suggest_for_list(
                 ps.last_purchase_date
             FROM products p
             JOIN product_statistics ps ON p.product_id = ps.product_id
-            WHERE ps.total_purchases >= ?
+            WHERE ps.user_id = ?
+              AND ps.total_purchases >= ?
               AND ps.purchase_frequency_score >= ?
             ORDER BY ps.purchase_frequency_score DESC, ps.total_purchases DESC
             LIMIT ?
             """,
-            (min_purchases, min_frequency_score, limit * 3),  # Get extra to filter
+            (owner, min_purchases, min_frequency_score, limit * 3),  # Get extra to filter
         )
         rows = cursor.fetchall()
 

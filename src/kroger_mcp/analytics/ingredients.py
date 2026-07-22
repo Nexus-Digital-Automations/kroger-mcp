@@ -1406,21 +1406,14 @@ def check_product_safety(
     categories: list[str] | None = None,
     disabled_ingredients: set | None = None,
     force_refresh_patterns: bool = False,
+    *,
+    user_id: str,
 ) -> SafetyResult:
     """
     Check a product for bad ingredients based on its description.
 
-    Now uses get_compiled_patterns() which includes custom ingredients.
-
-    Args:
-        description: Product description/name to scan
-        brand: Brand name (not scanned to avoid false positives)
-        categories: Product categories (for context, not currently used)
-        disabled_ingredients: Set of ingredient keys to skip
-        force_refresh_patterns: Force pattern cache refresh (used after ingredient changes)
-
-    Returns:
-        SafetyResult with all matched ingredients
+    Now uses get_compiled_patterns() which includes the caller's own custom
+    ingredients (scoped by user_id -- see get_active_ingredients).
     """
     if not description:
         return SafetyResult(
@@ -1436,8 +1429,8 @@ def check_product_safety(
     matches: list[IngredientMatch] = []
     disabled = disabled_ingredients or set()
 
-    # Get patterns (cached, includes custom ingredients)
-    pattern_data = get_compiled_patterns(force_refresh=force_refresh_patterns)
+    # Get patterns (cached per-user, includes the caller's own custom ingredients)
+    pattern_data = get_compiled_patterns(user_id=user_id, force_refresh=force_refresh_patterns)
     patterns = pattern_data["patterns"]
 
     # Check for exclusions from hardcoded ingredients
@@ -1573,21 +1566,26 @@ def get_categories() -> list[str]:
 # via a cross-worker Redis VERSION key ("ingredients:version"). When Redis is
 # unavailable we fall back to the original time-based TTL so behaviour never
 # regresses.
-_pattern_cache: dict[str, Any] | None = None
-_pattern_cache_timestamp = None
-_pattern_cache_version: int | None = None
+# Keyed by user_id: each tenant's custom ingredients produce a different
+# compiled pattern set (see get_active_ingredients's user_id scoping below).
+_pattern_cache: dict[str, dict[str, Any]] = {}
+_pattern_cache_timestamp: dict[str, Any] = {}
+_pattern_cache_version: dict[str, int | None] = {}
 _CACHE_TTL = 300  # 5 minutes (fallback when Redis version key is unavailable)
 _INGREDIENTS_VERSION_KEY = "ingredients:version"
 
 
-def get_active_ingredients(include_custom: bool = True) -> list[dict[str, Any]]:
+def get_active_ingredients(user_id: str, include_custom: bool = True) -> list[dict[str, Any]]:
     """
-    Get all active ingredients from hardcoded + custom + overrides.
+    Get all active ingredients from hardcoded + overrides + this user's custom ones.
 
     Algorithm:
     1. Start with BAD_INGREDIENTS (system defaults)
-    2. Apply ingredient_overrides (severity changes, hiding)
-    3. Add custom_ingredients where is_active=1
+    2. Apply ingredient_overrides (severity changes, hiding -- global admin-style
+       curation, not per-user; see analytics/safety/ingredient_prefs.py for the
+       separate per-user "disable this check for me" preference)
+    3. Add custom_ingredients where is_active=1 AND (user_id matches OR the row
+       predates per-user scoping, i.e. user_id IS NULL)
     4. Filter out hidden ingredients
     5. Merge duplicate entries (custom can override system)
 
@@ -1647,14 +1645,17 @@ def get_active_ingredients(include_custom: bool = True) -> list[dict[str, Any]]:
 
         ingredients = filtered_ingredients
 
-        # Add custom ingredients if requested
+        # Add custom ingredients if requested -- this user's own rows plus
+        # legacy/system rows with no owner (user_id IS NULL), never every
+        # other tenant's personal additions.
         if include_custom:
             cursor = conn.execute(
                 """
                 SELECT ingredient_name, severity, category, reason, aliases
                 FROM custom_ingredients
-                WHERE is_active = 1
-            """
+                WHERE is_active = 1 AND (user_id = ? OR user_id IS NULL)
+            """,
+                (user_id,),
             )
 
             for row in cursor.fetchall():
@@ -1683,13 +1684,17 @@ def get_active_ingredients(include_custom: bool = True) -> list[dict[str, Any]]:
     return ingredients
 
 
-def get_compiled_patterns(force_refresh: bool = False) -> dict[str, Any]:
+def get_compiled_patterns(user_id: str, force_refresh: bool = False) -> dict[str, Any]:
     """
-    Get compiled regex patterns with caching.
+    Get compiled regex patterns with caching, scoped to a user's own custom
+    ingredients (see get_active_ingredients).
 
-    The per-worker compiled set is immutable until the active ingredient set
-    changes. Invalidation is driven by a cross-worker Redis VERSION key so that
-    a write in one worker triggers a rebuild in every worker on its next call:
+    The per-worker compiled set is immutable per user until the active
+    ingredient set changes. Invalidation is driven by a single cross-worker
+    Redis VERSION key (shared by all users -- a write from any one user just
+    means every user's cache rebuilds on next access, which is correct if
+    occasionally redundant) so that a write in one worker triggers a rebuild
+    in every worker on its next call:
 
     - ``force_refresh=True`` is used by the ingredient write paths after a
       successful add/edit/remove/override. It bumps the Redis version (so other
@@ -1711,26 +1716,26 @@ def get_compiled_patterns(force_refresh: bool = False) -> dict[str, Any]:
 
     ver = get_version(_INGREDIENTS_VERSION_KEY)
 
-    if not force_refresh and _pattern_cache is not None:
+    cached = _pattern_cache.get(user_id)
+    if not force_refresh and cached is not None:
         if ver is not None:
             # Redis-backed invalidation: reuse while versions agree.
-            if _pattern_cache_version == ver:
-                return _pattern_cache
+            if _pattern_cache_version.get(user_id) == ver:
+                return cached
         else:
             # Redis down: preserve the original time-based TTL fallback.
             from datetime import datetime
 
-            if _pattern_cache_timestamp:
-                cache_age = (
-                    datetime.now() - _pattern_cache_timestamp
-                ).total_seconds()
+            cached_at = _pattern_cache_timestamp.get(user_id)
+            if cached_at:
+                cache_age = (datetime.now() - cached_at).total_seconds()
                 if cache_age < _CACHE_TTL:
-                    return _pattern_cache
+                    return cached
 
     # Rebuild patterns
     from datetime import datetime
 
-    ingredients = get_active_ingredients()
+    ingredients = get_active_ingredients(user_id=user_id)
     patterns = []
 
     for ing in ingredients:
@@ -1749,18 +1754,19 @@ def get_compiled_patterns(force_refresh: bool = False) -> dict[str, Any]:
                 }
             )
 
-    _pattern_cache = {
+    built = {
         "patterns": patterns,
         "timestamp": datetime.now().isoformat(),
         "ingredient_count": len(ingredients),
     }
-    _pattern_cache_timestamp = datetime.now()
+    _pattern_cache[user_id] = built
+    _pattern_cache_timestamp[user_id] = datetime.now()
     # Record the version this build corresponds to. After force_refresh we just
     # bumped the key, so re-read it to capture the post-bump value; otherwise
     # this is the version the build was based on. (None when Redis is down.)
-    _pattern_cache_version = get_version(_INGREDIENTS_VERSION_KEY)
+    _pattern_cache_version[user_id] = get_version(_INGREDIENTS_VERSION_KEY)
 
-    return _pattern_cache
+    return built
 
 
 # ==================== ASYNC WRAPPERS ====================
@@ -1769,11 +1775,13 @@ def get_compiled_patterns(force_refresh: bool = False) -> dict[str, Any]:
 # the sync versions.
 
 
-async def get_active_ingredients_async(include_custom: bool = True) -> list[dict[str, Any]]:
+async def get_active_ingredients_async(
+    user_id: str, include_custom: bool = True
+) -> list[dict[str, Any]]:
     """Async wrapper for get_active_ingredients() — runs in thread pool."""
-    return await asyncio.to_thread(get_active_ingredients, include_custom)
+    return await asyncio.to_thread(get_active_ingredients, user_id, include_custom)
 
 
-async def get_compiled_patterns_async(force_refresh: bool = False) -> dict[str, Any]:
+async def get_compiled_patterns_async(user_id: str, force_refresh: bool = False) -> dict[str, Any]:
     """Async wrapper for get_compiled_patterns() — runs in thread pool."""
-    return await asyncio.to_thread(get_compiled_patterns, force_refresh)
+    return await asyncio.to_thread(get_compiled_patterns, user_id, force_refresh)

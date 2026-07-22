@@ -295,7 +295,7 @@ class AddIngredientBody(BaseModel):
 
 
 @router.post("/api/recipes/{recipe_id}/ingredients")
-async def add_ingredient_to_recipe(recipe_id: str, body: AddIngredientBody):
+async def add_ingredient_to_recipe(recipe_id: str, body: AddIngredientBody, request: Request):
     """
     Append a Kroger product as an ingredient on an existing recipe.
 
@@ -333,6 +333,18 @@ async def add_ingredient_to_recipe(recipe_id: str, body: AddIngredientBody):
         )
         recipe["updated_at"] = datetime.now().isoformat()
         _save_recipes(data)
+
+        # This is always a brand-new (product_id, name) pairing on the recipe
+        # -- unlike the bulk-replace path there's no prior state to diff --
+        # so teach the account's link memory unconditionally (best-effort,
+        # matches _teach_link_memory's own contract).
+        try:
+            from kroger_mcp.analytics.ingredient_links import record_link
+
+            record_link(current_user_id(request), body.description, body.product_id, body.description)
+        except Exception:
+            logger.warning("ingredient_link.teach_skipped", exc_info=True)
+
         return {
             "success": True,
             "recipe_id": recipe_id,

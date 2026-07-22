@@ -122,8 +122,12 @@ async def lifespan(app: FastAPI):
     )
     try:
         from kroger_mcp.analytics.ingredients import get_compiled_patterns
+        from kroger_mcp.auth.dependencies import default_user_id
 
-        get_compiled_patterns()
+        # Patterns are cached per-user now; this only warms the migration
+        # default owner's entry (best-effort -- every other tenant's first
+        # request still pays the one-time compile, same as a cold cache miss).
+        get_compiled_patterns(user_id=default_user_id())
     except Exception:
         logger.warning("ingredient pattern cache warm failed", exc_info=True)
 

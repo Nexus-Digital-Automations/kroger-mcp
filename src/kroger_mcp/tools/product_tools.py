@@ -98,6 +98,8 @@ def is_whole_food_eligible(
     description: str,
     brand: str | None = None,
     disabled_ingredients: set | None = None,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Check if product qualifies as whole food.
@@ -111,6 +113,7 @@ def is_whole_food_eligible(
         description=description,
         brand=brand,
         disabled_ingredients=disabled_ingredients,
+        user_id=user_id,
     )
 
     if safety_result.highest_severity in ["critical", "warning"]:
@@ -410,6 +413,7 @@ def register_tools(mcp):
                                 description=desc,
                                 brand=fp.get("brand"),
                                 disabled_ingredients=disabled,
+                                user_id=user_id,
                             )
                             fp["safety_status"] = score_to_status(safety_result.score)
                             fp["safety_score"] = safety_result.score
@@ -972,7 +976,10 @@ def register_tools(mcp):
                                 fp["is_safe_listed"] = False
                                 fp["is_blocked"] = False
                                 safety_result = check_product_safety(
-                                    description=desc, brand=prd_brand, disabled_ingredients=disabled
+                                    description=desc,
+                                    brand=prd_brand,
+                                    disabled_ingredients=disabled,
+                                    user_id=user_id,
                                 )
                                 fp["safety_status"] = score_to_status(safety_result.score)
                                 fp["safety_score"] = safety_result.score
@@ -1116,7 +1123,7 @@ def register_tools(mcp):
                 if _verify and prod_desc:
                     disabled = get_disabled_ingredients(user_id)
                     eligibility_result = is_whole_food_eligible(
-                        description=prod_desc, disabled_ingredients=disabled
+                        description=prod_desc, disabled_ingredients=disabled, user_id=user_id
                     )
                     if not eligibility_result["eligible"]:
                         return {
@@ -1251,7 +1258,10 @@ def register_tools(mcp):
                         continue
 
                     eligibility = is_whole_food_eligible(
-                        description=prod_desc, brand=prod_brand, disabled_ingredients=disabled
+                        description=prod_desc,
+                        brand=prod_brand,
+                        disabled_ingredients=disabled,
+                        user_id=user_id,
                     )
 
                     result = {

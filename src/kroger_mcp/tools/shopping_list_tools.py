@@ -118,10 +118,13 @@ def _generate_list_item_id() -> str:
 
 def _consolidate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Consolidate shopping list items by product_id.
+    Consolidate shopping list items by (product_id, unit).
 
-    Items with the same product_id have their quantities summed
-    and sources combined.
+    Items with the same product_id AND the same unit have their quantities
+    summed and sources combined. Same product_id but a DIFFERENT unit (e.g.
+    one recipe calls for "2 cups" and another for "1 lb" of the same product)
+    is kept as a separate line item instead of being silently summed into a
+    nonsensical quantity+unit pairing.
     """
     consolidated = {}
 
@@ -133,9 +136,12 @@ def _consolidate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             consolidated[item_id] = item
             continue
 
-        if product_id in consolidated:
+        unit_key = (item.get("unit") or "").strip().lower()
+        key = (product_id, unit_key)
+
+        if key in consolidated:
             # Consolidate quantities
-            existing = consolidated[product_id]
+            existing = consolidated[key]
             existing["quantity"] = existing.get("quantity", 0) + item.get("quantity", 0)
 
             # Merge sources
@@ -146,8 +152,8 @@ def _consolidate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             # Update timestamp
             existing["last_updated"] = datetime.now().isoformat()
         else:
-            # First occurrence of this product
-            consolidated[product_id] = item.copy()
+            # First occurrence of this (product, unit) pairing
+            consolidated[key] = item.copy()
 
     return list(consolidated.values())
 
@@ -381,11 +387,19 @@ def register_tools(mcp):
                             )
                             continue
 
-                        # Add to shopping list
+                        # Add to shopping list. name/recipe_name are the
+                        # fields _save_shopping_list/_load_shopping_list
+                        # actually persist and round-trip through the DB
+                        # (ingredient_name/sources only exist on the in-memory
+                        # item before the next reload) -- mirrors
+                        # _commit_recipe_items (web/routes/api/shopping_list.py)
+                        # so recipe-added items keep their name and
+                        # attribution after a reload.
                         list_item = {
                             "id": _generate_list_item_id(),
                             "product_id": product_id,
                             "ingredient_name": name,
+                            "name": name,
                             "quantity": scaled_quantity,
                             "unit": unit,
                             "sources": [
@@ -399,6 +413,7 @@ def register_tools(mcp):
                             ],
                             "added_at": datetime.now().isoformat(),
                             "notes": None,
+                            "recipe_name": recipe.get("name"),
                         }
 
                         data["items"].append(list_item)

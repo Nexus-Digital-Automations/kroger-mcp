@@ -18,15 +18,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from _pg_support import skip_on_pg
 
-from kroger_mcp.analytics.database import get_db_connection, initialize_database
+from kroger_mcp.analytics.database import (
+    get_db_connection,
+    initialize_database,
+    run_schema_migrations,
+)
 from kroger_mcp.analytics.ingredients import (
     check_product_safety,
     get_active_ingredients,
     get_compiled_patterns,
 )
+from kroger_mcp.auth.dependencies import default_user_id
 
 # SQLite-specific: relies on SQLite-only schema/DDL (AUTOINCREMENT, etc.).
 pytestmark = skip_on_pg
+
+
+def _test_user_id() -> str:
+    """Resolve the migration-installed default user for test inserts."""
+    return default_user_id()
 
 
 @pytest.fixture
@@ -40,6 +50,7 @@ def clean_db(tmp_path, monkeypatch):
     db = importlib.import_module("kroger_mcp.analytics.database")
     monkeypatch.setattr(db, "DB_FILE", str(tmp_path / "ingredient_integration_test.db"))
     initialize_database()
+    run_schema_migrations()
     conn = get_db_connection()
     try:
         conn.execute("DELETE FROM custom_ingredients")
@@ -47,7 +58,7 @@ def clean_db(tmp_path, monkeypatch):
         conn.commit()
 
         # Force pattern cache refresh
-        get_compiled_patterns(force_refresh=True)
+        get_compiled_patterns(user_id=_test_user_id(), force_refresh=True)
     finally:
         conn.close()
     yield
@@ -60,10 +71,12 @@ class TestIngredientWorkflows:
         """
         Workflow: Add custom ingredient → scan product → verify flagged
         """
+        uid = _test_user_id()
         # Step 1: Product doesn't flag initially
         result1 = check_product_safety(
             description="Sugar-free gum with sorbitol",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=uid,
         )
         assert not result1.has_concerns or not any(
             m.ingredient_name == "sorbitol" for m in result1.matches
@@ -89,7 +102,8 @@ class TestIngredientWorkflows:
         # Step 3: Scan same product again - should now flag
         result2 = check_product_safety(
             description="Sugar-free gum with sorbitol",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=uid,
         )
 
         assert result2.has_concerns
@@ -105,10 +119,12 @@ class TestIngredientWorkflows:
         """
         Workflow: Product flagged as CRITICAL → override to WATCH → verify reduced severity
         """
+        uid = _test_user_id()
         # Step 1: Product with aspartame flags as CRITICAL
         result1 = check_product_safety(
             description="Diet soda with aspartame",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=uid,
         )
 
         assert result1.has_concerns
@@ -132,7 +148,8 @@ class TestIngredientWorkflows:
         # Step 3: Scan same product - should now be WATCH
         result2 = check_product_safety(
             description="Diet soda with aspartame",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=uid,
         )
 
         assert result2.has_concerns
@@ -148,10 +165,12 @@ class TestIngredientWorkflows:
         """
         Workflow: Product flagged → hide ingredient → verify no longer flagged
         """
+        uid = _test_user_id()
         # Step 1: Product with red 40 flags
         result1 = check_product_safety(
             description="Candy with red 40 dye",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=uid,
         )
 
         assert result1.has_concerns
@@ -179,7 +198,8 @@ class TestIngredientWorkflows:
         # Step 3: Scan same product - Red 40 should not flag
         result2 = check_product_safety(
             description="Candy with red 40 dye",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=uid,
         )
 
         # Red 40 should not be in matches
@@ -250,7 +270,7 @@ class TestIngredientWorkflows:
             conn.close()
 
         # Verify deleted
-        ingredients = get_active_ingredients(include_custom=True)
+        ingredients = get_active_ingredients(_test_user_id(), include_custom=True)
         custom_count = len([i for i in ingredients if i["source"] == "custom"])
         assert custom_count == 0
 
@@ -272,7 +292,7 @@ class TestIngredientWorkflows:
             conn.close()
 
         # Step 5: Verify restored
-        ingredients = get_active_ingredients(include_custom=True)
+        ingredients = get_active_ingredients(_test_user_id(), include_custom=True)
         custom_ings = [i for i in ingredients if i["source"] == "custom"]
         assert len(custom_ings) == 2
 
@@ -303,7 +323,8 @@ class TestIngredientWorkflows:
         # Product with both
         result = check_product_safety(
             description="Sugar-free candy with maltitol and sorbitol",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=_test_user_id(),
         )
 
         assert result.has_concerns
@@ -337,7 +358,8 @@ class TestIngredientWorkflows:
         # Product uses E-number
         result = check_product_safety(
             description="Sugar-free gum with E965",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=_test_user_id(),
         )
 
         assert result.has_concerns
@@ -351,7 +373,7 @@ class TestIngredientWorkflows:
 
 def test_system_ingredient_count_unchanged(clean_db):
     """Verify system still has 62 default ingredients"""
-    ingredients = get_active_ingredients(include_custom=False)
+    ingredients = get_active_ingredients(_test_user_id(), include_custom=False)
     system_count = len([i for i in ingredients if i["source"] == "system"])
     assert system_count == 62
 
@@ -359,7 +381,8 @@ def test_system_ingredient_count_unchanged(clean_db):
 def test_pattern_cache_invalidates_correctly(clean_db):
     """Verify pattern cache is refreshed when ingredients change"""
     # Get initial cache
-    cache1 = get_compiled_patterns(force_refresh=True)
+    uid = _test_user_id()
+    cache1 = get_compiled_patterns(user_id=uid, force_refresh=True)
     count1 = cache1["ingredient_count"]
     timestamp1 = cache1["timestamp"]
 
@@ -375,7 +398,7 @@ def test_pattern_cache_invalidates_correctly(clean_db):
         conn.close()
 
     # Force refresh
-    cache2 = get_compiled_patterns(force_refresh=True)
+    cache2 = get_compiled_patterns(user_id=uid, force_refresh=True)
     count2 = cache2["ingredient_count"]
     timestamp2 = cache2["timestamp"]
 

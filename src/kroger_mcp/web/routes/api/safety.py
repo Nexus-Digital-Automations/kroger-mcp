@@ -89,12 +89,12 @@ async def update_settings(request: Request, body: SettingsRequest):
 
 
 @router.get("/api/safety/ingredients")
-async def list_ingredients():
-    """Get all flagged ingredients (system + custom)."""
+async def list_ingredients(request: Request):
+    """Get all flagged ingredients (system + this user's own custom ones)."""
     try:
         ensure_initialized()
         # get_active_ingredients returns system + custom merged
-        ingredients = get_active_ingredients(include_custom=True)
+        ingredients = get_active_ingredients(user_id=current_user_id(request), include_custom=True)
         # Normalize to consistent shape for the UI
         result = [
             {

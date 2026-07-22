@@ -724,6 +724,11 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
         except Exception:
             logger.warning("mark_snacks_ordered failed; staleness signal not updated")
 
+        # The real Kroger order above already succeeded — a local-tracking
+        # failure must never flip this response to success=False, or a
+        # caller retrying on "failure" would place a duplicate real order —
+        # but it must be logged and surfaced, not silently swallowed.
+        local_tracking_errors = []
         for it in added_items:
             try:
                 _add_item_to_local_cart(
@@ -733,8 +738,13 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
                     product_details={"description": it.get("name")},
                     user_id=user_id,
                 )
-            except Exception:
-                pass
+            except Exception as tracking_err:
+                logger.error(
+                    "Local cart tracking failed for %s after a successful Kroger order: %s",
+                    it["product_id"],
+                    tracking_err,
+                )
+                local_tracking_errors.append(it["product_id"])
 
         # Clear successfully-added items from the list; keep manual and failed items
         data["items"] = [
@@ -759,6 +769,11 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
             result["warning"] = (
                 f"{len(failed_items)} item(s) rejected by Kroger API "
                 "(invalid product ID or not available at this location)"
+            )
+        if local_tracking_errors:
+            result["local_tracking_warning"] = (
+                "Kroger order succeeded, but local cart tracking failed "
+                f"for {len(local_tracking_errors)} item(s): {local_tracking_errors}"
             )
         return JSONResponse(content=result)
 

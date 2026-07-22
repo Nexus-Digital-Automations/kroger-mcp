@@ -16,24 +16,34 @@ from ..ingredients import (
 
 logger = logging.getLogger(__name__)
 
-# Safety results are deterministic given (product text, ingredient ruleset,
-# user's disabled set), so a hit short-circuits the O(patterns) scan. Keyed by
-# product_id + a hash of (ingredients_version, sorted disabled set) so any
-# pattern/ingredient change auto-invalidates (old keys simply expire).
+# Safety results are deterministic given (user, product text, ingredient
+# ruleset, user's disabled set), so a hit short-circuits the O(patterns) scan.
+# Keyed by product_id + a hash of (user_id, ingredients_version, sorted
+# disabled set, description, brand) so any pattern/ingredient/text change or
+# a different viewing user auto-invalidates (old keys simply expire).
 _SAFETY_CACHE_TTL_SECONDS = 86_400  # 24h
 _INGREDIENTS_VERSION_KEY = "ingredients:version"
 
 
-def _safety_cache_key(product_id: str, disabled: set[str]) -> str:
+def _safety_cache_key(
+    user_id: str,
+    product_id: str,
+    description: str,
+    brand: str | None,
+    disabled: set[str],
+) -> str:
     """Build the Redis key for a product's cached safety result.
 
-    The hash component folds in the active ingredient ruleset version and the
-    user's disabled-ingredient set — the two inputs (besides product text)
-    that change the result. ``ingredients_version`` defaults to 0 when Redis
-    is unavailable.
+    The hash component folds in the user (custom ingredients are per-user),
+    the active ingredient ruleset version, the user's disabled-ingredient
+    set, and the actual scanned text — every input (besides product_id
+    itself) that changes the result. A description/brand change for the same
+    product_id must miss the cache, not return a stale verdict for text that
+    was never scanned. ``ingredients_version`` defaults to 0 when Redis is
+    unavailable.
     """
     ingredients_version = cache.get_version(_INGREDIENTS_VERSION_KEY) or 0
-    payload = f"{ingredients_version}:{sorted(disabled)}"
+    payload = f"{user_id}:{ingredients_version}:{sorted(disabled)}:{description}:{brand or ''}"
     # Non-security digest: this only namespaces a Redis cache key. usedforsecurity
     # =False documents intent and is the correct idiom (the payload is not secret).
     h = hashlib.sha1(payload.encode("utf-8"), usedforsecurity=False).hexdigest()
@@ -116,6 +126,7 @@ def _deserialize_safety_result(raw: str) -> SafetyResult:
 
 
 def _cached_product_safety(
+    user_id: str,
     product_id: str,
     description: str,
     brand: str | None,
@@ -134,7 +145,7 @@ def _cached_product_safety(
         try:
             redis_client = cache.get_redis()
             if redis_client is not None:
-                key = _safety_cache_key(product_id, disabled)
+                key = _safety_cache_key(user_id, product_id, description, brand, disabled)
                 hit = redis_client.get(key)
                 # get_redis() sets decode_responses=True, so a hit is str; the
                 # isinstance guard narrows the stub's bytes|str and degrades to
@@ -149,6 +160,7 @@ def _cached_product_safety(
         description=description,
         brand=brand,
         disabled_ingredients=disabled,
+        user_id=user_id,
     )
 
     if redis_client is not None and key is not None:

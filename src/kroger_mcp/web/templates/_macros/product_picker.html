@@ -38,7 +38,7 @@
         </span>
         <span x-show="p.on_sale" class="ss-autocomplete-sale-pill" x-text="'-' + p.savings_percent + '%'"></span>
         <span style="font-size: 0.8125rem; font-variant-numeric: tabular-nums; color: var(--text-1);"
-              x-text="(p.sale_price || p.regular_price) ? '$' + (p.sale_price || p.regular_price).toFixed(2) : ''"></span>
+              x-text="p.sale_price != null ? '$' + p.sale_price.toFixed(2) : (p.regular_price != null ? '$' + p.regular_price.toFixed(2) : '')"></span>
       </button>
     </template>
   </div>

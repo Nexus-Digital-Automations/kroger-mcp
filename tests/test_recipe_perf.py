@@ -288,20 +288,22 @@ def test_calculate_health_score_matches_reference_total(monkeypatch):
 
     monkeypatch.setattr(cache_mod, "get_redis", lambda: None)
     from kroger_mcp.analytics.ingredients import check_product_safety
+    from kroger_mcp.auth.dependencies import default_user_id
 
     _PENALTY_CAPS = {"critical": 45, "warning": 24, "watch": 12}
     _PENALTY_PER_MATCH = {"critical": 15, "warning": 8, "watch": 3}
+    uid = default_user_id()
 
     for names in _SAMPLE_INGREDIENT_LISTS:
         recipe = {"ingredients": [{"name": n} for n in names]}
-        result = rs.calculate_health_score(recipe, names_only=True)
+        result = rs.calculate_health_score(recipe, names_only=True, user_id=uid)
 
         comp = _reference_components(names)
 
         # Reproduce the BAD_INGREDIENTS penalty over the same name-only scans.
         severity_counts = {"critical": 0, "warning": 0, "watch": 0}
         for n in names:
-            for match in check_product_safety(n).matches:
+            for match in check_product_safety(n, user_id=uid).matches:
                 severity_counts[match.severity.value] += 1
         bad_ing_penalty = sum(
             min(c * _PENALTY_PER_MATCH[s], _PENALTY_CAPS[s])

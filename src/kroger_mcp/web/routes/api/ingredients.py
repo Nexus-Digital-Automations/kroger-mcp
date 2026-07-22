@@ -122,7 +122,7 @@ async def add_custom(request: Request, body: CustomIngredientRequest):
         try:
             from kroger_mcp.analytics.ingredients import get_compiled_patterns
 
-            get_compiled_patterns(force_refresh=True)
+            get_compiled_patterns(user_id=user_id, force_refresh=True)
         except Exception:
             pass
 
@@ -185,7 +185,7 @@ async def update_custom(request: Request, name: str, body: UpdateIngredientReque
         try:
             from kroger_mcp.analytics.ingredients import get_compiled_patterns
 
-            get_compiled_patterns(force_refresh=True)
+            get_compiled_patterns(user_id=user_id, force_refresh=True)
         except Exception:
             pass
 
@@ -219,7 +219,7 @@ async def remove_custom(request: Request, name: str):
         try:
             from kroger_mcp.analytics.ingredients import get_compiled_patterns
 
-            get_compiled_patterns(force_refresh=True)
+            get_compiled_patterns(user_id=user_id, force_refresh=True)
         except Exception:
             pass
 
@@ -242,11 +242,11 @@ async def remove_custom(request: Request, name: str):
 
 
 @router.get("/api/ingredients/all")
-async def list_all():
-    """Get all ingredients — system defaults merged with custom overrides."""
+async def list_all(request: Request):
+    """Get all ingredients — system defaults merged with the caller's custom overrides."""
     try:
         ensure_initialized()
-        ingredients = get_active_ingredients(include_custom=True)
+        ingredients = get_active_ingredients(user_id=current_user_id(request), include_custom=True)
         result = [
             {
                 "name": ing.get("name", ""),

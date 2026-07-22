@@ -122,6 +122,7 @@ def _estimate_cost_with_conn(
     for ing in ingredients:
         ing_name = ing.get("name", "")
         pid = ing.get("product_id")
+        qty = ing.get("quantity") or 1
         is_spice = _ingredient_is_spice(ing)
         counts_toward_total = include_spices or not is_spice
         if is_spice:
@@ -155,12 +156,16 @@ def _estimate_cost_with_conn(
                 effective, entry = _apply_price_row(row, entry, "estimated")
 
         if effective is not None:
+            # effective is the price of ONE unit of the linked product; the
+            # recipe needs `qty` of them (e.g. "3 onions", "2 cans"), so the
+            # ingredient's contribution to the total must scale with it.
+            ingredient_cost = effective * qty
             # Per-ingredient cost-per-serving is shown for every priced
             # ingredient, spice or not. Only count it toward the recipe total
             # when it isn't an excluded spice.
-            entry["cost_per_serving"] = round(effective / servings, 2)
+            entry["cost_per_serving"] = round(ingredient_cost / servings, 2)
             if counts_toward_total:
-                total_cost += effective
+                total_cost += ingredient_cost
                 priced_count += 1
         else:
             # Row absent or carried no usable price; leave as unknown so the

@@ -242,6 +242,16 @@ def register_tools(mcp):
 
         user_id = mcp_user_id()
 
+        # "default" is a tool-parameter sentinel, not a real list id (real
+        # default lists are `default-<uuid>` per user) -- resolve it up front
+        # so no downstream query ever queries/writes against the literal
+        # string (which would either no-op or, in an aggregate query, be
+        # tempted to skip user scoping entirely).
+        if list_id in (None, "default") and action not in ("create_list", "get_lists"):
+            from ..analytics.favorites import resolve_default_list_id
+
+            list_id = resolve_default_list_id(user_id=user_id)
+
         match action:
             case "create_list":
                 if not name:
@@ -588,6 +598,7 @@ def register_tools(mcp):
                         min_frequency_score if min_frequency_score is not None else 0.5
                     ),
                     limit=limit or 10,
+                    user_id=user_id,
                 )
 
             case "update_schedule":

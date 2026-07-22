@@ -125,7 +125,7 @@ def _recipes_payload(user_id: str) -> dict:
         except Exception:
             r["cost_per_serving"] = None
         try:
-            health = calculate_health_score(r, names_only=True)
+            health = calculate_health_score(r, names_only=True, user_id=user_id)
             r["health_score"] = health["score"]
             r["health_grade"] = health["grade"]
             r["health_flags"] = health.get("flags", [])
@@ -198,13 +198,13 @@ def enrich_ingredients_for_view(request: Request, ingredients: list[dict]) -> li
     that already hold the same list reference get both behaviors.
     Failures are non-fatal; missing chips simply don't render.
     """
-    _annotate_safety(ingredients)
+    _annotate_safety(ingredients, user_id=current_user_id(request))
     _infer_categories_from_safety(ingredients)
     _annotate_pantry(request, ingredients)
     return ingredients
 
 
-def _annotate_safety(ingredients: list[dict]) -> None:
+def _annotate_safety(ingredients: list[dict], *, user_id: str) -> None:
     try:
         from kroger_mcp.analytics.database import get_db_connection
         from kroger_mcp.analytics.ingredients import check_product_safety
@@ -235,7 +235,7 @@ def _annotate_safety(ingredients: list[dict]) -> None:
             scan_text = product_descs.get(pid, "") if pid else ""
             if not scan_text:
                 scan_text = ing.get("name", "")
-            result = check_product_safety(scan_text)
+            result = check_product_safety(scan_text, user_id=user_id)
             ing["safety_score"] = result.score
             ing["safety_grade"] = result.grade
             ing["safety_flags"] = [
@@ -328,7 +328,7 @@ def _build_recipe_context(request: Request, recipe_id: str, include_spices: bool
 
     health_data = None
     try:
-        health_data = calculate_health_score(recipe)
+        health_data = calculate_health_score(recipe, user_id=current_user_id(request))
     except Exception:
         pass
 

@@ -457,6 +457,8 @@ CREATE TABLE IF NOT EXISTS user_carts (
     description TEXT,
     quantity INTEGER DEFAULT 1,
     modality VARCHAR(20) DEFAULT 'PICKUP',
+    regular_price REAL,
+    sale_price REAL,
     added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     PRIMARY KEY (user_id, product_id)
 );
@@ -742,6 +744,8 @@ _PG_COLUMN_MIGRATIONS = (
     "TIMESTAMP WITH TIME ZONE",
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS typical_gap_days INTEGER",
     "ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS cook_skipped BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE user_carts ADD COLUMN IF NOT EXISTS regular_price REAL",
+    "ALTER TABLE user_carts ADD COLUMN IF NOT EXISTS sale_price REAL",
 )
 
 

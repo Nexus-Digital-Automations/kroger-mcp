@@ -23,9 +23,15 @@ from kroger_mcp.analytics.ingredients import (
     get_active_ingredients,
     get_compiled_patterns,
 )
+from kroger_mcp.auth.dependencies import default_user_id
 
 # SQLite-specific: relies on SQLite-only schema/DDL (AUTOINCREMENT, etc.).
 pytestmark = skip_on_pg
+
+
+def _test_user_id() -> str:
+    """Resolve the migration-installed default user for test inserts."""
+    return default_user_id()
 
 
 @pytest.fixture
@@ -307,7 +313,7 @@ class TestGetActiveIngredients:
 
     def test_get_active_ingredients_system_only(self, clean_db):
         """Test getting only system ingredients"""
-        ingredients = get_active_ingredients(include_custom=False)
+        ingredients = get_active_ingredients(_test_user_id(), include_custom=False)
 
         # Should have all 62 default ingredients
         assert len(ingredients) == 62
@@ -326,7 +332,7 @@ class TestGetActiveIngredients:
         finally:
             conn.close()
 
-        ingredients = get_active_ingredients(include_custom=True)
+        ingredients = get_active_ingredients(_test_user_id(), include_custom=True)
 
         # Should have 62 system + 1 custom
         assert len(ingredients) == 63
@@ -347,7 +353,7 @@ class TestGetActiveIngredients:
         finally:
             conn.close()
 
-        ingredients = get_active_ingredients(include_custom=False)
+        ingredients = get_active_ingredients(_test_user_id(), include_custom=False)
 
         # Find aspartame
         aspartame = next((ing for ing in ingredients if ing["name"] == "Aspartame"), None)
@@ -367,7 +373,7 @@ class TestGetActiveIngredients:
         finally:
             conn.close()
 
-        ingredients = get_active_ingredients(include_custom=False)
+        ingredients = get_active_ingredients(_test_user_id(), include_custom=False)
 
         # Aspartame should not be in the list
         aspartame = next((ing for ing in ingredients if ing["name"] == "Aspartame"), None)
@@ -382,7 +388,7 @@ class TestPatternCompilation:
 
     def test_get_compiled_patterns(self, clean_db):
         """Test pattern compilation"""
-        pattern_data = get_compiled_patterns(force_refresh=True)
+        pattern_data = get_compiled_patterns(user_id=_test_user_id(), force_refresh=True)
 
         assert "patterns" in pattern_data
         assert "timestamp" in pattern_data
@@ -392,7 +398,8 @@ class TestPatternCompilation:
     def test_pattern_cache_refresh(self, clean_db):
         """Test that adding ingredient refreshes cache"""
         # Get initial patterns
-        pattern_data1 = get_compiled_patterns(force_refresh=True)
+        uid = _test_user_id()
+        pattern_data1 = get_compiled_patterns(user_id=uid, force_refresh=True)
         count1 = pattern_data1["ingredient_count"]
 
         # Add custom ingredient
@@ -407,7 +414,7 @@ class TestPatternCompilation:
             conn.close()
 
         # Force refresh
-        pattern_data2 = get_compiled_patterns(force_refresh=True)
+        pattern_data2 = get_compiled_patterns(user_id=uid, force_refresh=True)
         count2 = pattern_data2["ingredient_count"]
 
         assert count2 == count1 + 1
@@ -432,7 +439,8 @@ class TestProductSafetyWithCustomIngredients:
         # Test product with maltitol
         result = check_product_safety(
             description="Sugar-free candy with maltitol",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=_test_user_id(),
         )
 
         assert result.has_concerns
@@ -455,7 +463,8 @@ class TestProductSafetyWithCustomIngredients:
         # Test product with aspartame
         result = check_product_safety(
             description="Diet soda with aspartame",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=_test_user_id(),
         )
 
         assert result.has_concerns
@@ -478,7 +487,8 @@ class TestProductSafetyWithCustomIngredients:
         # Test product with aspartame
         result = check_product_safety(
             description="Diet soda with aspartame",
-            force_refresh_patterns=True
+            force_refresh_patterns=True,
+            user_id=_test_user_id(),
         )
 
         # Should not flag aspartame

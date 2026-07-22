@@ -1043,6 +1043,17 @@ def run_schema_migrations() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_user_carts_user_id ON user_carts(user_id)"
         )
+
+        # regular_price/sale_price: added after the base CREATE TABLE above, so
+        # existing installs need the same ADD-COLUMN-if-missing treatment as
+        # product_statistics below. Lets calculate_cart_savings() see real
+        # numbers instead of always-empty fields.
+        cursor = conn.execute("PRAGMA table_info(user_carts)")
+        user_carts_columns = {row[1] for row in cursor.fetchall()}
+        for col_name in ("regular_price", "sale_price"):
+            if col_name not in user_carts_columns:
+                conn.execute(f"ALTER TABLE user_carts ADD COLUMN {col_name} REAL DEFAULT NULL")
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS user_shopping_lists (

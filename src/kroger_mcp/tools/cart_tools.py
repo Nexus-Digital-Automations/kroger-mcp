@@ -4,6 +4,7 @@ Cart tracking and management functionality
 
 import asyncio
 import logging
+import threading
 from datetime import datetime
 from typing import Any, Literal
 
@@ -15,6 +16,29 @@ from ._cart_safety import check_cart_items_safety
 from .shared import get_authenticated_client, get_preferred_location_id
 
 logger = logging.getLogger(__name__)
+
+_cart_write_locks: dict[str, threading.Lock] = {}
+_cart_write_locks_guard = threading.Lock()
+
+
+def _cart_write_lock(user_id: str | None) -> threading.Lock:
+    """Per-user lock serializing cart read-modify-write sequences.
+
+    _save_cart_data replaces a user's whole cart in one DELETE+INSERT pass, so
+    two concurrent load->mutate->save sequences for the same user (e.g. two
+    near-simultaneous add-to-cart calls) can race and silently lose one of
+    them (last save wins on the full snapshot). This only serializes within
+    one worker process -- web/app.py can run multiple gunicorn worker
+    processes, so a cross-process race remains possible in principle.
+    Acceptable given cart writes are low-frequency, human-paced actions.
+    """
+    owner = _resolve_cart_user_id(user_id)
+    with _cart_write_locks_guard:
+        lock = _cart_write_locks.get(owner)
+        if lock is None:
+            lock = threading.Lock()
+            _cart_write_locks[owner] = lock
+        return lock
 
 
 def _get_session_id(ctx) -> str:
@@ -45,7 +69,8 @@ def _load_cart_data(user_id: str) -> dict[str, Any]:
     try:
         rows = conn.execute(
             """
-            SELECT product_id, description, quantity, modality, added_at
+            SELECT product_id, description, quantity, modality, added_at,
+                   regular_price, sale_price
             FROM user_carts WHERE user_id = ?
             ORDER BY added_at
             """,
@@ -59,6 +84,8 @@ def _load_cart_data(user_id: str) -> dict[str, Any]:
                 "modality": row["modality"],
                 "added_at": row["added_at"],
                 "last_updated": row["added_at"],
+                "regular_price": row["regular_price"],
+                "price": row["sale_price"],
             }
             for row in rows
         ]
@@ -88,13 +115,16 @@ def _save_cart_data(cart_data: dict[str, Any], user_id: str) -> None:
             conn.execute(
                 """
                 INSERT INTO user_carts
-                    (user_id, product_id, description, quantity, modality, added_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (user_id, product_id, description, quantity, modality, added_at,
+                     regular_price, sale_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, product_id) DO UPDATE SET
                     description = excluded.description,
                     quantity = excluded.quantity,
                     modality = excluded.modality,
-                    added_at = excluded.added_at
+                    added_at = excluded.added_at,
+                    regular_price = excluded.regular_price,
+                    sale_price = excluded.sale_price
                 """,
                 (
                     owner,
@@ -103,6 +133,8 @@ def _save_cart_data(cart_data: dict[str, Any], user_id: str) -> None:
                     int(item.get("quantity", 1) or 1),
                     item.get("modality", "PICKUP"),
                     item.get("added_at") or datetime.now().isoformat(),
+                    item.get("regular_price"),
+                    item.get("price"),
                 ),
             )
         conn.commit()
@@ -118,33 +150,34 @@ def _add_item_to_local_cart(
     *, user_id: str,
 ) -> None:
     """Add an item to the local cart tracking and analytics database"""
-    cart_data = _load_cart_data(user_id=user_id)
-    current_cart = cart_data.get("current_cart", [])
+    with _cart_write_lock(user_id):
+        cart_data = _load_cart_data(user_id=user_id)
+        current_cart = cart_data.get("current_cart", [])
 
-    existing_item = None
-    for item in current_cart:
-        if item.get("product_id") == product_id and item.get("modality") == modality:
-            existing_item = item
-            break
+        existing_item = None
+        for item in current_cart:
+            if item.get("product_id") == product_id and item.get("modality") == modality:
+                existing_item = item
+                break
 
-    if existing_item:
-        existing_item["quantity"] = existing_item.get("quantity", 0) + quantity
-        existing_item["last_updated"] = datetime.now().isoformat()
-    else:
-        new_item = {
-            "product_id": product_id,
-            "quantity": quantity,
-            "modality": modality,
-            "added_at": datetime.now().isoformat(),
-            "last_updated": datetime.now().isoformat(),
-        }
-        if product_details:
-            new_item.update(product_details)
-        current_cart.append(new_item)
+        if existing_item:
+            existing_item["quantity"] = existing_item.get("quantity", 0) + quantity
+            existing_item["last_updated"] = datetime.now().isoformat()
+        else:
+            new_item = {
+                "product_id": product_id,
+                "quantity": quantity,
+                "modality": modality,
+                "added_at": datetime.now().isoformat(),
+                "last_updated": datetime.now().isoformat(),
+            }
+            if product_details:
+                new_item.update(product_details)
+            current_cart.append(new_item)
 
-    cart_data["current_cart"] = current_cart
-    cart_data["last_updated"] = datetime.now().isoformat()
-    _save_cart_data(cart_data, user_id=user_id)
+        cart_data["current_cart"] = current_cart
+        cart_data["last_updated"] = datetime.now().isoformat()
+        _save_cart_data(cart_data, user_id=user_id)
 
     try:
         from ..analytics.purchase_tracker import record_cart_add
@@ -155,13 +188,14 @@ def _add_item_to_local_cart(
 
     if product_details:
         try:
-            pricing = product_details.get("pricing", {})
+            regular_price = product_details.get("regular_price")
+            sale_price = product_details.get("sale_price") or product_details.get("price")
             location_id = get_preferred_location_id(user_id=user_id)
-            if pricing and location_id:
+            if (regular_price or sale_price) and location_id:
                 record_price_observation(
                     product_id=product_id,
-                    regular_price=pricing.get("regular_price"),
-                    sale_price=pricing.get("sale_price") or pricing.get("price"),
+                    regular_price=regular_price,
+                    sale_price=sale_price,
                     location_id=location_id,
                     source="cart_add",
                 )
@@ -319,6 +353,20 @@ def register_tools(mcp):
                         return {
                             "success": False,
                             "error": "product_id (single mode) or items (batch mode) is required",
+                        }
+
+                    invalid_quantities = [
+                        item["product_id"]
+                        for item in formatted_items
+                        if not (1 <= item["quantity"] <= 99)
+                    ]
+                    if invalid_quantities:
+                        return {
+                            "success": False,
+                            "error": (
+                                "quantity must be between 1 and 99 for: "
+                                f"{', '.join(invalid_quantities)}"
+                            ),
                         }
 
                     if preview_only:

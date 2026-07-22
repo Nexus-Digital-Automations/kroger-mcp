@@ -14,6 +14,12 @@ import kroger_mcp.analytics.recipe_cost as recipe_cost
 import kroger_mcp.analytics.recipe_scoring as recipe_scoring
 import kroger_mcp.analytics.recommendations as recommendations
 import kroger_mcp.cache as cache_mod
+from kroger_mcp.auth.dependencies import default_user_id
+
+
+def _test_user_id() -> str:
+    """Resolve the migration-installed default user for test inserts."""
+    return default_user_id()
 
 
 class _FakeRedis:
@@ -175,7 +181,7 @@ def _recipe(name="basil", pid=None, servings=2):
 
 
 def _patch_health_compute(monkeypatch, calls):
-    def _fake(recipe, names_only=False):
+    def _fake(recipe, names_only=False, *, user_id=None):
         calls["n"] += 1
         return {"score": 80, "grade": "B", "flags": []}
 
@@ -188,8 +194,9 @@ def test_health_score_second_call_served_from_cache(monkeypatch):
     calls = {"n": 0}
     _patch_health_compute(monkeypatch, calls)
 
-    a = recipe_scoring.calculate_health_score(_recipe(), names_only=True)
-    b = recipe_scoring.calculate_health_score(_recipe(), names_only=True)
+    uid = _test_user_id()
+    a = recipe_scoring.calculate_health_score(_recipe(), names_only=True, user_id=uid)
+    b = recipe_scoring.calculate_health_score(_recipe(), names_only=True, user_id=uid)
     assert a == b
     assert calls["n"] == 1
 
@@ -201,10 +208,11 @@ def test_health_score_ingredient_edit_changes_key(monkeypatch):
     calls = {"n": 0}
     _patch_health_compute(monkeypatch, calls)
 
-    recipe_scoring.calculate_health_score(_recipe(name="basil"))
-    recipe_scoring.calculate_health_score(_recipe(name="tomato"))
-    recipe_scoring.calculate_health_score(_recipe(name="basil", pid="0001"))
-    recipe_scoring.calculate_health_score(_recipe(name="basil", servings=6))
+    uid = _test_user_id()
+    recipe_scoring.calculate_health_score(_recipe(name="basil"), user_id=uid)
+    recipe_scoring.calculate_health_score(_recipe(name="tomato"), user_id=uid)
+    recipe_scoring.calculate_health_score(_recipe(name="basil", pid="0001"), user_id=uid)
+    recipe_scoring.calculate_health_score(_recipe(name="basil", servings=6), user_id=uid)
     assert calls["n"] == 4  # name, product link, and servings all key the hash
 
 
@@ -214,8 +222,9 @@ def test_health_score_names_only_variants_do_not_collide(monkeypatch):
     calls = {"n": 0}
     _patch_health_compute(monkeypatch, calls)
 
-    recipe_scoring.calculate_health_score(_recipe(), names_only=True)
-    recipe_scoring.calculate_health_score(_recipe(), names_only=False)
+    uid = _test_user_id()
+    recipe_scoring.calculate_health_score(_recipe(), names_only=True, user_id=uid)
+    recipe_scoring.calculate_health_score(_recipe(), names_only=False, user_id=uid)
     assert calls["n"] == 2
 
 
@@ -226,9 +235,10 @@ def test_health_score_ingredients_version_bump_misses(monkeypatch):
     calls = {"n": 0}
     _patch_health_compute(monkeypatch, calls)
 
-    recipe_scoring.calculate_health_score(_recipe())
+    uid = _test_user_id()
+    recipe_scoring.calculate_health_score(_recipe(), user_id=uid)
     fake.store["ingredients:version"] = "7"
-    recipe_scoring.calculate_health_score(_recipe())
+    recipe_scoring.calculate_health_score(_recipe(), user_id=uid)
     assert calls["n"] == 2
 
 

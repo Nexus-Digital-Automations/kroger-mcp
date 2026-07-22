@@ -83,6 +83,7 @@ def get_product_safety_status(
         brand=brand,
         categories=categories,
         disabled_ingredients=disabled,
+        user_id=resolved,
     )
 
     return ProductSafetyStatus(
@@ -163,6 +164,7 @@ def check_products_safety_batch(
 
         # Check ingredients (memoized in Redis when a product_id is present).
         safety_result = _cached_product_safety(
+            user_id=resolved,
             product_id=product_id,
             description=description,
             brand=brand,

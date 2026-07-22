@@ -7,12 +7,13 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from kroger_mcp.analytics.purchase_tracker import get_order_history, record_order
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.cart_tools import (
     _add_item_to_local_cart,
+    _cart_write_lock,
     _load_cart_data,
     _save_cart_data,
 )
@@ -25,11 +26,12 @@ router = APIRouter()
 
 class CartAddBody(BaseModel):
     product_id: str
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1, le=99)
     modality: str = "PICKUP"
     description: str | None = None
     brand: str | None = None
     price: float | None = None
+    regular_price: float | None = None
 
 
 @router.post("/api/cart")
@@ -43,6 +45,8 @@ async def add_to_cart(body: CartAddBody, request: Request):
             product_details["brand"] = body.brand
         if body.price is not None:
             product_details["price"] = body.price
+        if body.regular_price is not None:
+            product_details["regular_price"] = body.regular_price
         _add_item_to_local_cart(
             product_id=body.product_id,
             quantity=body.quantity,
@@ -76,22 +80,23 @@ async def remove_cart_item(product_id: str, request: Request):
     """Remove a single item from the cart by product_id."""
     try:
         user_id = current_user_id(request)
-        cart_data = _load_cart_data(user_id=user_id)
-        current_cart = cart_data.get("current_cart", [])
+        with _cart_write_lock(user_id):
+            cart_data = _load_cart_data(user_id=user_id)
+            current_cart = cart_data.get("current_cart", [])
 
-        original_len = len(current_cart)
-        cart_data["current_cart"] = [
-            item for item in current_cart if item.get("product_id") != product_id
-        ]
+            original_len = len(current_cart)
+            cart_data["current_cart"] = [
+                item for item in current_cart if item.get("product_id") != product_id
+            ]
 
-        if len(cart_data["current_cart"]) == original_len:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"Item {product_id!r} not found in cart"},
-            )
+            if len(cart_data["current_cart"]) == original_len:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": f"Item {product_id!r} not found in cart"},
+                )
 
-        cart_data["last_updated"] = datetime.now().isoformat()
-        _save_cart_data(cart_data, user_id=user_id)
+            cart_data["last_updated"] = datetime.now().isoformat()
+            _save_cart_data(cart_data, user_id=user_id)
         return JSONResponse(content={"success": True, "removed": product_id})
     except Exception as e:
         return JSONResponse(
@@ -105,10 +110,11 @@ async def clear_cart(request: Request):
     """Clear all items from the current cart."""
     try:
         user_id = current_user_id(request)
-        cart_data = _load_cart_data(user_id=user_id)
-        cart_data["current_cart"] = []
-        cart_data["last_updated"] = datetime.now().isoformat()
-        _save_cart_data(cart_data, user_id=user_id)
+        with _cart_write_lock(user_id):
+            cart_data = _load_cart_data(user_id=user_id)
+            cart_data["current_cart"] = []
+            cart_data["last_updated"] = datetime.now().isoformat()
+            _save_cart_data(cart_data, user_id=user_id)
         return JSONResponse(content={"success": True, "message": "Cart cleared"})
     except Exception as e:
         return JSONResponse(
@@ -196,9 +202,10 @@ async def mark_order_placed(request: Request):
             pass
 
         # Clear the local cart
-        cart_data["current_cart"] = []
-        cart_data["last_updated"] = datetime.now().isoformat()
-        _save_cart_data(cart_data, user_id=user_id)
+        with _cart_write_lock(user_id):
+            cart_data["current_cart"] = []
+            cart_data["last_updated"] = datetime.now().isoformat()
+            _save_cart_data(cart_data, user_id=user_id)
 
         items_sent = len(current_cart) - len(kroger_failed_items)
         result = {

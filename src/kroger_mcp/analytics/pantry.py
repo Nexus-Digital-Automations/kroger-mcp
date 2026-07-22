@@ -899,6 +899,12 @@ def consume_from_pantry(
             (new_level, now_str, new_quantity, now_str, last_used_source, product_id, owner),
         )
 
+        # quantity_delta is a UNIT-count column; a percent-only consumption
+        # (quantity<=0, deduction driven by `percent`) has no unit count to
+        # report, so it must not fabricate one -- record quantity=0 and
+        # quantity_delta=NULL rather than a fake "1 unit" / a percent value
+        # mislabeled as a unit delta.
+        has_quantity = quantity > 0
         conn.execute(
             """
             INSERT INTO purchase_events
@@ -908,13 +914,13 @@ def consume_from_pantry(
             """,
             (
                 product_id,
-                int(quantity) if quantity else 1,
+                int(quantity) if has_quantity else 0,
                 event_type,
                 now_str[:10],
                 now_str,
                 owner,
                 recipe_id,
-                -float(quantity) if quantity else -deduction,
+                -float(quantity) if has_quantity else None,
                 unit,
                 last_used_source,
             ),

@@ -57,16 +57,23 @@
     var task = fetch(path, opts)
       .then(function (res) {
         if (!res.ok) {
-          return res.json().then(function (errData) {
-            var msg =
-              (errData && (errData.detail || errData.error)) || res.statusText || 'Request failed';
-            window.dispatchEvent(
-              new CustomEvent('toast:show', {
-                detail: { message: msg, level: 'error' },
-              })
-            );
-            throw new Error(msg);
-          });
+          return res
+            .json()
+            .catch(function () {
+              return null; // non-JSON error body (HTML error page, empty, etc.)
+            })
+            .then(function (errData) {
+              var msg =
+                (errData && (errData.detail || errData.error)) ||
+                res.statusText ||
+                'Request failed';
+              window.dispatchEvent(
+                new CustomEvent('toast:show', {
+                  detail: { message: msg, level: 'error' },
+                })
+              );
+              throw new Error(msg);
+            });
         }
         return res.json().catch(function () {
           return null; // 204 No Content or empty body

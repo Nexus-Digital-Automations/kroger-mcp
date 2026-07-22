@@ -1,5 +1,6 @@
 """Safety configuration page route."""
 
+import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -8,6 +9,8 @@ from kroger_mcp.analytics.database import ensure_initialized
 from kroger_mcp.analytics.ingredients import BAD_INGREDIENTS
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.web.templating import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -27,12 +30,12 @@ async def safety_page(request: Request):
 
         settings = get_safety_settings(user_id=user_id)
     except Exception:
-        pass
+        logger.error("safety page: failed to load settings for user_id=%s", user_id, exc_info=True)
 
     try:
         ingredient_count = len(BAD_INGREDIENTS)
     except Exception:
-        pass
+        logger.error("safety page: failed to count BAD_INGREDIENTS", exc_info=True)
 
     custom_ingredients = []
     try:
@@ -47,7 +50,11 @@ async def safety_page(request: Request):
         blocked_count = r2.fetchone()["cnt"]
         conn.close()
     except Exception:
-        pass
+        logger.error(
+            "safety page: failed to load safe/blocked counts for user_id=%s",
+            user_id,
+            exc_info=True,
+        )
 
     try:
         from kroger_mcp.analytics.database import get_db_connection
@@ -64,7 +71,11 @@ async def safety_page(request: Request):
         custom_ingredients = [dict(row) for row in cursor.fetchall()]
         conn2.close()
     except Exception:
-        pass
+        logger.error(
+            "safety page: failed to load custom ingredients for user_id=%s",
+            user_id,
+            exc_info=True,
+        )
 
     return templates.TemplateResponse(
         request,

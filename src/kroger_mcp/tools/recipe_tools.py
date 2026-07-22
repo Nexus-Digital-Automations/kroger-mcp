@@ -427,8 +427,11 @@ def register_tools(mcp):
                         }
                         try:
                             from ..analytics.recipe_scoring import calculate_health_score
+                            from ..auth.dependencies import mcp_user_id
 
-                            hs = calculate_health_score(r, names_only=True)
+                            hs = calculate_health_score(
+                                r, names_only=True, user_id=mcp_user_id()
+                            )
                             summary["health_score"] = hs["score"]
                             summary["health_grade"] = hs["grade"]
                         except Exception:
@@ -457,8 +460,11 @@ def register_tools(mcp):
                         from ..auth.dependencies import mcp_user_id
                         from .shared import get_preferred_location_id
 
-                        loc_id = get_preferred_location_id(mcp_user_id())
-                        recipe["health_score"] = calculate_health_score(recipe)
+                        rt_user_id = mcp_user_id()
+                        loc_id = get_preferred_location_id(rt_user_id)
+                        recipe["health_score"] = calculate_health_score(
+                            recipe, user_id=rt_user_id
+                        )
                         recipe["cost_estimate"] = estimate_recipe_cost(
                             recipe,
                             location_id=loc_id,
@@ -1175,7 +1181,7 @@ def register_tools(mcp):
 
                     user_id = mcp_user_id()
                     loc_id = get_preferred_location_id(user_id)
-                    health = calculate_health_score(recipe)
+                    health = calculate_health_score(recipe, user_id=user_id)
 
                     # Try API-backed cost, fall back to DB-only
                     api_fallback_note = None

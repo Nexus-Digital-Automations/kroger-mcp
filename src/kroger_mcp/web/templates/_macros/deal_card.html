@@ -71,7 +71,7 @@
       <span class="text-xs line-through" style="color: var(--text-3);" x-text="'$' + ({{ item_expr }}.regular_price || 0).toFixed(2)"></span>
     </div>
     <p class="text-xs font-medium" style="color: var(--success);"
-      x-text="'Save $' + (({{ item_expr }}.regular_price || 0) - ({{ item_expr }}.sale_price || {{ item_expr }}.regular_price || 0)).toFixed(2)"></p>
+      x-text="'Save $' + (({{ item_expr }}.regular_price || 0) - ({{ item_expr }}.sale_price != null ? {{ item_expr }}.sale_price : ({{ item_expr }}.regular_price || 0))).toFixed(2)"></p>
   </div>
 
   <div class="flex items-center justify-between gap-2 mt-3">

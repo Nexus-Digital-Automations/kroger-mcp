@@ -28,8 +28,8 @@ const categoryGroups = [
 const dealCmp = {
   percent: (a, b) => (a.savings_percent || 0) - (b.savings_percent || 0),
   dollar: (a, b) => {
-    const sa = (a.regular_price || 0) - (a.sale_price || a.regular_price || 0);
-    const sb = (b.regular_price || 0) - (b.sale_price || b.regular_price || 0);
+    const sa = (a.regular_price || 0) - (a.sale_price != null ? a.sale_price : (a.regular_price || 0));
+    const sb = (b.regular_price || 0) - (b.sale_price != null ? b.sale_price : (b.regular_price || 0));
     return sa - sb;
   },
   favorites: (a, b, ctx) =>
@@ -55,6 +55,7 @@ function dealsData() {
     minSavings: 5,
     deals: [],
     loading: false,
+    _dealsSeq: 0,
     categoryGroups,
     watchlist: {{ watchlist | tojson }},
     favoriteIds: new Set({{ favorite_ids | tojson }}),
@@ -102,23 +103,30 @@ function dealsData() {
     },
 
     get dollarSaved() {
-      return d => ((d.regular_price || 0) - (d.sale_price || d.regular_price || 0)).toFixed(2);
+      return d => ((d.regular_price || 0) - (d.sale_price != null ? d.sale_price : (d.regular_price || 0))).toFixed(2);
     },
 
+    // Each loader captures a sequence number before awaiting its fetch; if a
+    // newer call has started by the time it resolves, its response is stale
+    // and must not overwrite fresher data (mirrors the idx-guard in
+    // linker_popover.js's _acFetchSuggestions).
     async autoLoad() {
+      const seq = ++this._dealsSeq;
       this.loading = true; this.deals = [];
       try {
         const params = new URLSearchParams();
         params.set('min_savings', this.minSavings);
         const r = await fetch('/api/deals/auto?' + params);
         const data = await r.json();
+        if (seq !== this._dealsSeq) return;
         if (r.ok) this.deals = data;
         else this.msg = data.error || 'Failed to load deals';
-      } catch(e) { this.msg = 'Failed to load deals'; }
-      this.loading = false;
+      } catch(e) { if (seq === this._dealsSeq) this.msg = 'Failed to load deals'; }
+      if (seq === this._dealsSeq) this.loading = false;
     },
 
     async findDeals() {
+      const seq = ++this._dealsSeq;
       this.loading = true; this.deals = [];
       const params = new URLSearchParams();
       if (this.query) params.set('q', this.query);
@@ -127,10 +135,11 @@ function dealsData() {
       try {
         const r = await fetch('/api/deals/find?' + params);
         const data = await r.json();
+        if (seq !== this._dealsSeq) return;
         if (r.ok) this.deals = data;
         else this.msg = data.error || 'Search failed';
-      } catch(e) { this.msg = 'Search failed'; }
-      this.loading = false;
+      } catch(e) { if (seq === this._dealsSeq) this.msg = 'Search failed'; }
+      if (seq === this._dealsSeq) this.loading = false;
     },
 
     cartBusy: {},
@@ -151,7 +160,7 @@ function dealsData() {
             modality: 'PICKUP',
             description: product.description,
             brand: product.brand,
-            price: product.sale_price || product.regular_price
+            price: product.sale_price != null ? product.sale_price : product.regular_price
           })
         });
         if (r.ok) {
@@ -374,7 +383,7 @@ function dealsData() {
             <span class="text-xs line-through" style="color: var(--text-3);" x-text="'$' + (deal.regular_price || 0).toFixed(2)"></span>
           </div>
           <p class="text-xs font-medium" style="color: var(--success);"
-            x-text="'Save $' + ((deal.regular_price || 0) - (deal.sale_price || deal.regular_price || 0)).toFixed(2)"></p>
+            x-text="'Save $' + ((deal.regular_price || 0) - (deal.sale_price != null ? deal.sale_price : (deal.regular_price || 0))).toFixed(2)"></p>
 
           <!-- Actions -->
           <div class="flex gap-2 mt-auto pt-3">

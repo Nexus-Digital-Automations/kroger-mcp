@@ -22,6 +22,7 @@ import sys
 from datetime import datetime
 
 from kroger_mcp.analytics.database import ensure_initialized, get_db_cursor
+from kroger_mcp.auth.dependencies import default_user_id
 from kroger_mcp.tools.shared import get_client_credentials_client, get_preferred_location_id
 
 logger = logging.getLogger("backfill_pantry_names")
@@ -77,8 +78,13 @@ def _fill_from_kroger(product_ids: list[str]) -> tuple[int, list[str]]:
     """Returns (filled_count, still_missing_ids)."""
     if not product_ids:
         return 0, []
-    client = get_client_credentials_client()
-    location_id = get_preferred_location_id()
+    # Global maintenance script with no per-request caller; product
+    # descriptions/credentials it resolves are shared catalog data, not
+    # per-user, so the migration default owner is the right stand-in (same
+    # pattern as web/app.py's startup pattern-cache warm-up).
+    owner = default_user_id()
+    client = get_client_credentials_client(owner)
+    location_id = get_preferred_location_id(owner)
     filled = 0
     still_missing: list[str] = []
     now = datetime.now().isoformat()

@@ -48,9 +48,16 @@ def _grade(score: int) -> str:
 
 
 def _recipe_content_hash(recipe: dict[str, Any]) -> str:
-    """16-hex content hash over the score-relevant recipe fields."""
+    """16-hex content hash over the score/cost-relevant recipe fields.
+
+    Includes quantity: recipe_cost.py's cost estimate scales with ingredient
+    quantity, so a quantity-only edit must still bust its cached total (the
+    health score doesn't use quantity, but sharing one hash just means an
+    occasional harmless extra rebuild there).
+    """
     payload = [
-        [ing.get("name"), ing.get("product_id")] for ing in (recipe.get("ingredients") or [])
+        [ing.get("name"), ing.get("product_id"), ing.get("quantity")]
+        for ing in (recipe.get("ingredients") or [])
     ] + [recipe.get("servings")]
     return hashlib.sha256(json.dumps(payload).encode()).hexdigest()[:16]
 
@@ -58,27 +65,33 @@ def _recipe_content_hash(recipe: dict[str, Any]) -> str:
 def calculate_health_score(
     recipe: dict[str, Any],
     names_only: bool = False,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """Redis-cached wrapper around the health-score computation.
 
-    Key embeds the recipe content hash plus the ``ingredients:version``
-    counter (bumped by analytics.ingredients when the user edits the safety
-    pattern list), so both recipe edits and safety-list edits miss cleanly.
+    Key embeds the recipe content hash, the ``ingredients:version`` counter
+    (bumped by analytics.ingredients when any user edits the safety pattern
+    list), and user_id (the score depends on the viewer's own custom
+    ingredients/overrides), so recipe edits, safety-list edits, and viewing
+    as a different user all miss cleanly.
     """
     rid = recipe.get("id") or "adhoc"
     ing_ver = get_version("ingredients:version") or 0
     mode = "n" if names_only else "f"
-    key = f"recipe:health:{rid}:{_recipe_content_hash(recipe)}:ing{ing_ver}:{mode}"
+    key = f"recipe:health:{rid}:{_recipe_content_hash(recipe)}:ing{ing_ver}:{mode}:u{user_id}"
     return cache_read_through(
         key,
         _HEALTH_TTL_SECONDS,
-        lambda: _calculate_health_score_uncached(recipe, names_only),
+        lambda: _calculate_health_score_uncached(recipe, names_only, user_id=user_id),
     )
 
 
 def _calculate_health_score_uncached(
     recipe: dict[str, Any],
     names_only: bool = False,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Calculate a health score (0-100) for a recipe using real ingredient data.
@@ -176,7 +189,7 @@ def _calculate_health_score_uncached(
         else:
             scan_text = ing_name
 
-        result = check_product_safety(scan_text)
+        result = check_product_safety(scan_text, user_id=user_id)
         for match in result.matches:
             sev = match.severity.value
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
@@ -264,6 +277,12 @@ def _calculate_health_score_uncached(
     bonus = cat_score + quality_score + whole_score
     total_penalty = proc_penalty + conv_penalty + heavy_penalty + sugar_penalty + bad_ing_penalty
     score = max(0, min(100, base + bonus - total_penalty))
+
+    # A CRITICAL-severity ingredient (e.g. trans fats, artificial dyes) must
+    # never be diluted into an "acceptable"/"good" headline grade by an
+    # otherwise produce-heavy ingredient list -- cap below the C threshold.
+    if severity_counts.get("critical", 0) > 0:
+        score = min(score, 49)
 
     # Confidence based on how much real data we had
     if usda_count == total:

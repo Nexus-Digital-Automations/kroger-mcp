@@ -4,6 +4,8 @@ src/kroger_mcp/tools/shopping_list_tools.py
 src/kroger_mcp/tools/favorites_tools.py
 src/kroger_mcp/tools/cart_tools.py
 src/kroger_mcp/tools/meal_planner_tools.py
+src/kroger_mcp/analytics/ingredients.py
+src/kroger_mcp/tools/product_tools.py
 src/kroger_mcp/tools/shared.py
 src/kroger_mcp/analytics/database.py
 src/kroger_mcp/analytics/recommendations.py
@@ -14,3 +16,4 @@ src/kroger_mcp/web/routes/api/shopping_list.py
 src/kroger_mcp/web/chat_engine.py
 src/kroger_mcp/analytics/pantry.py
 src/kroger_mcp/analytics/favorites.py
+src/kroger_mcp/analytics/pg_database.py
