@@ -122,4 +122,4 @@ against the code before being reported. This plan fixes all 23.
       missing `run_schema_migrations()` call in
       tests/test_ingredient_integration.py's clean_db fixture that left
       custom_ingredients without its user_id column in the isolated test DB)
-- [ ] Commit and push
+- [x] Commit and push
