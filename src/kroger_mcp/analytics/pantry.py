@@ -8,12 +8,15 @@ Tracks estimated inventory levels using percentage-based tracking.
 - Automatic expiration date tracking based on product category
 """
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
 from ._user_scope import resolve_user_id as _resolve_user_id
 from .database import ensure_initialized, get_db_connection, insert_returning_id
 from .favorite_depletion import get_favorite_depletion_rates
+
+logger = logging.getLogger(__name__)
 
 # Shelf life in days for common categories
 CATEGORY_SHELF_LIFE = {
@@ -692,11 +695,24 @@ def get_pantry_status(
                 last_updated = item["last_updated_at"]
                 if last_updated:
                     try:
-                        last_dt = datetime.fromisoformat(last_updated)
-                        days_elapsed = (now - last_dt).total_seconds() / 86400
+                        # SQLite returns last_updated_at as a naive ISO string;
+                        # Postgres returns it as a tz-aware datetime already —
+                        # normalize both to the same awareness before
+                        # subtracting, or a naive/aware mismatch raises
+                        # TypeError and (previously) froze depletion silently.
+                        last_dt = (
+                            last_updated
+                            if isinstance(last_updated, datetime)
+                            else datetime.fromisoformat(last_updated)
+                        )
+                        current_now = datetime.now(last_dt.tzinfo) if last_dt.tzinfo else now
+                        days_elapsed = (current_now - last_dt).total_seconds() / 86400
                         level = max(0, level - days_elapsed * rate)
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.warning(
+                            "Could not compute pantry depletion for "
+                            f"{item['product_id']}: {e}"
+                        )
 
             # Calculate days until empty
             days_until_empty = round(level / rate, 1) if rate and rate > 0 else None

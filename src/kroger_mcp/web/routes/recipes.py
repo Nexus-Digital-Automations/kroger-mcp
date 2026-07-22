@@ -138,29 +138,29 @@ def _recipes_payload(user_id: str) -> dict:
             r["health_categories"] = []
             r["health_bonus"] = 0
 
-    # Build JSON array for Alpine x-for rendering
-    recipes_json = json.dumps(
-        [
-            {
-                "id": r.get("id", ""),
-                "name": r.get("name", ""),
-                "servings": r.get("servings"),
-                "ing_count": len(r.get("ingredients", [])),
-                "tags": r.get("tags", []),
-                "times_ordered": r.get("times_ordered") or 0,
-                "cost": r.get("cost_per_serving"),
-                "health_score": r.get("health_score"),
-                "health_grade": r.get("health_grade"),
-                "health_flags": r.get("health_flags", []),
-                "health_categories": r.get("health_categories", []),
-                "health_bonus": r.get("health_bonus", 0),
-                "time_total": r["_time"]["total"],
-                "time_label": r["_time"]["label"],
-                "time_passive": r["_time"]["passive"],
-            }
-            for r in recipes
-        ]
-    )
+    # Build array for Alpine x-for rendering (serialized via Jinja's |tojson
+    # in the template, not here — a pre-dumped string piped through |safe
+    # was a stored-XSS vector for recipe names containing HTML/script markup)
+    recipes_json = [
+        {
+            "id": r.get("id", ""),
+            "name": r.get("name", ""),
+            "servings": r.get("servings"),
+            "ing_count": len(r.get("ingredients", [])),
+            "tags": r.get("tags", []),
+            "times_ordered": r.get("times_ordered") or 0,
+            "cost": r.get("cost_per_serving"),
+            "health_score": r.get("health_score"),
+            "health_grade": r.get("health_grade"),
+            "health_flags": r.get("health_flags", []),
+            "health_categories": r.get("health_categories", []),
+            "health_bonus": r.get("health_bonus", 0),
+            "time_total": r["_time"]["total"],
+            "time_label": r["_time"]["label"],
+            "time_passive": r["_time"]["passive"],
+        }
+        for r in recipes
+    ]
 
     return {
         "active_page": "recipes",

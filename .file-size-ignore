@@ -3,6 +3,7 @@ src/kroger_mcp/tools/recipe_tools.py
 src/kroger_mcp/tools/shopping_list_tools.py
 src/kroger_mcp/tools/favorites_tools.py
 src/kroger_mcp/tools/cart_tools.py
+src/kroger_mcp/tools/meal_planner_tools.py
 src/kroger_mcp/tools/shared.py
 src/kroger_mcp/analytics/database.py
 src/kroger_mcp/analytics/recommendations.py

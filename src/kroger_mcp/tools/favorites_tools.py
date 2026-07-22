@@ -3,12 +3,15 @@ Favorite lists MCP tools for the Kroger MCP server.
 """
 
 import asyncio
+import logging
 from typing import Any, Literal
 
 from fastmcp import Context
 from pydantic import Field
 
 from ._cart_safety import check_cart_items_safety
+
+logger = logging.getLogger(__name__)
 
 
 def register_tools(mcp):
@@ -492,19 +495,32 @@ def register_tools(mcp):
 
                     client.cart.add_to_cart(cart_items)
 
-                    for item in items_to_order:
-                        _add_item_to_local_cart(
-                            item["product_id"],
-                            item["quantity"],
-                            item["modality"],
-                            {"description": item.get("description")},
-                            user_id=user_id,
+                    local_tracking_warning = None
+                    order_result: dict[str, Any] = {}
+                    try:
+                        for item in items_to_order:
+                            _add_item_to_local_cart(
+                                item["product_id"],
+                                item["quantity"],
+                                item["modality"],
+                                {"description": item.get("description")},
+                                user_id=user_id,
+                            )
+
+                        ordered_ids = [i["product_id"] for i in items_to_order]
+                        increment_times_ordered(lid, ordered_ids, user_id=user_id)
+
+                        order_result = mark_list_ordered(lid, user_id=user_id)
+                    except Exception as tracking_err:
+                        # The real Kroger order already succeeded above — a
+                        # local-tracking failure must never make this report
+                        # success=False, or a caller retrying on "failure"
+                        # would place a duplicate real order.
+                        logger.error(
+                            f"Local order tracking failed for list {lid} after a "
+                            f"successful Kroger order: {tracking_err}"
                         )
-
-                    ordered_ids = [i["product_id"] for i in items_to_order]
-                    increment_times_ordered(lid, ordered_ids, user_id=user_id)
-
-                    order_result = mark_list_ordered(lid, user_id=user_id)
+                        local_tracking_warning = str(tracking_err)
 
                     response = {
                         "success": True,
@@ -535,6 +551,12 @@ def register_tools(mcp):
 
                         if order_result.get("was_overdue"):
                             response["message"] += " (This list was OVERDUE for reorder)"
+
+                    if local_tracking_warning:
+                        response["local_tracking_warning"] = (
+                            "Kroger order succeeded, but local tracking failed: "
+                            f"{local_tracking_warning}"
+                        )
 
                     return response
 

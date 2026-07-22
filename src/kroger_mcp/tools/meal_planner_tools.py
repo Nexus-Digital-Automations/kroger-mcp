@@ -560,33 +560,41 @@ def register_tools(mcp):
 
                     from .cart_tools import _add_item_to_local_cart
 
-                    for item in items_to_add:
-                        if item.get("product_id"):
-                            _add_item_to_local_cart(
-                                item["product_id"],
-                                max(1, int(round(item.get("quantity", 1)))),
-                                mod, user_id=user_id,
-                            )
+                    # The real Kroger order above already succeeded — a
+                    # local-tracking failure below must never flip this to
+                    # success=False, or a retry would duplicate the order.
+                    local_tracking_warning = None
+                    try:
+                        for item in items_to_add:
+                            if item.get("product_id"):
+                                _add_item_to_local_cart(
+                                    item["product_id"],
+                                    max(1, int(round(item.get("quantity", 1)))),
+                                    mod, user_id=user_id,
+                                )
+                        if plan_id:
+                            from ..analytics.database import get_db_connection
 
-                    if plan_id:
-                        from ..analytics.database import get_db_connection
+                            conn = get_db_connection()
+                            try:
+                                conn.execute(
+                                    """
+                                    UPDATE meal_plans
+                                    SET times_ordered = times_ordered + 1,
+                                        last_ordered_at = ?
+                                    WHERE id = ? AND user_id = ?
+                                    """,
+                                    (datetime.now().isoformat(), plan_id, user_id),
+                                )
+                                conn.commit()
+                            finally:
+                                conn.close()
+                    except Exception as tracking_err:
+                        if ctx:
+                            ctx.error(f"Local tracking failed after Kroger order: {tracking_err}")
+                        local_tracking_warning = str(tracking_err)
 
-                        conn = get_db_connection()
-                        try:
-                            conn.execute(
-                                """
-                                UPDATE meal_plans
-                                SET times_ordered = times_ordered + 1,
-                                    last_ordered_at = ?
-                                WHERE id = ? AND user_id = ?
-                                """,
-                                (datetime.now().isoformat(), plan_id, user_id),
-                            )
-                            conn.commit()
-                        finally:
-                            conn.close()
-
-                    return {
+                    result = {
                         "success": True,
                         "message": f"Added {len(api_items)} items to cart",
                         "items_ordered": [
@@ -610,6 +618,12 @@ def register_tools(mcp):
                             "Would you like to update any pantry levels?"
                         ),
                     }
+                    if local_tracking_warning:
+                        result["local_tracking_warning"] = (
+                            f"Kroger order succeeded, but local tracking failed: "
+                            f"{local_tracking_warning}"
+                        )
+                    return result
 
                 except Exception as cart_error:
                     error_msg = str(cart_error)

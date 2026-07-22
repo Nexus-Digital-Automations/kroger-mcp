@@ -3,6 +3,7 @@ Safety management tools for Kroger MCP server.
 """
 
 import asyncio
+import logging
 from typing import Any, Literal
 
 from fastmcp import Context
@@ -13,6 +14,8 @@ from ..analytics.ingredients import (
     get_all_ingredients,
 )
 from ..auth.dependencies import mcp_user_id
+
+logger = logging.getLogger(__name__)
 
 
 def register_tools(mcp):
@@ -419,9 +422,13 @@ def register_tools(mcp):
 
                 try:
                     cart_data = _load_cart_data(user_id=user_id)
-                    cart_items = cart_data.get("current_cart", [])
-                except Exception:
-                    cart_items = []
+                except Exception as e:
+                    logger.error(f"Failed to load cart for safety check: {e}")
+                    return {
+                        "success": False,
+                        "error": f"Could not read cart data: {e}",
+                    }
+                cart_items = cart_data.get("current_cart", [])
 
                 if not cart_items:
                     return {

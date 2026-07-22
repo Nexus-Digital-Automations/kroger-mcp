@@ -369,7 +369,7 @@ document.addEventListener('alpine:init', () => {
     activeTags: [],
     tagOpen: false,
     creating: false,
-    recipes: {{ recipes_json | safe }},
+    recipes: {{ recipes_json | tojson }},
 
     init() { this._loadSortRank(); },
 

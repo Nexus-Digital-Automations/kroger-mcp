@@ -1046,13 +1046,24 @@ def register_tools(mcp):
 
                     from .cart_tools import _add_item_to_local_cart
 
-                    for item in items_to_add:
-                        _add_item_to_local_cart(
-                            item["product_id"],
-                            item["quantity"],
-                            item["modality"],
-                            user_id=user_id,
+                    # The real Kroger order above already succeeded — a
+                    # local-tracking failure below must never flip this to
+                    # success=False, or a retry would duplicate the order.
+                    local_tracking_warning = None
+                    try:
+                        for item in items_to_add:
+                            _add_item_to_local_cart(
+                                item["product_id"],
+                                item["quantity"],
+                                item["modality"],
+                                user_id=user_id,
+                            )
+                    except Exception as tracking_err:
+                        logger.error(
+                            f"Local cart tracking failed after a successful "
+                            f"Kroger order: {tracking_err}"
                         )
+                        local_tracking_warning = str(tracking_err)
 
                     # Partial fulfillment leaves an implicit pantry draw —
                     # record it now so the user can confirm/deny at the pantry
@@ -1085,15 +1096,22 @@ def register_tools(mcp):
                         # Never let gap bookkeeping block the cart write.
                         pass
 
-                    data = _load_recipes()
-                    for r in data.get("recipes", []):
-                        if r.get("id") == recipe_id:
-                            r["times_ordered"] = r.get("times_ordered", 0) + 1
-                            r["last_ordered_at"] = datetime.now().isoformat()
-                            break
-                    _save_recipes(data)
+                    try:
+                        data = _load_recipes()
+                        for r in data.get("recipes", []):
+                            if r.get("id") == recipe_id:
+                                r["times_ordered"] = r.get("times_ordered", 0) + 1
+                                r["last_ordered_at"] = datetime.now().isoformat()
+                                break
+                        _save_recipes(data)
+                    except Exception as tracking_err:
+                        logger.error(
+                            f"Recipe times_ordered update failed after a "
+                            f"successful Kroger order: {tracking_err}"
+                        )
+                        local_tracking_warning = local_tracking_warning or str(tracking_err)
 
-                    return {
+                    result = {
                         "success": True,
                         "message": (
                             f"Added {len(items_to_add)} items to cart for '{recipe.get('name')}'"
@@ -1119,6 +1137,12 @@ def register_tools(mcp):
                             )
                         ),
                     }
+                    if local_tracking_warning:
+                        result["local_tracking_warning"] = (
+                            f"Kroger order succeeded, but local tracking failed: "
+                            f"{local_tracking_warning}"
+                        )
+                    return result
 
                 except Exception as cart_error:
                     error_msg = str(cart_error)

@@ -717,22 +717,37 @@ def register_tools(mcp):
 
                         client.cart.add_to_cart(api_items)
 
-                        # Track in local cart
-                        for item in items_to_add:
-                            _add_item_to_local_cart(
-                                item["product_id"], item["quantity"], _modality, user_id=user_id
+                        # The real Kroger order above already succeeded — a
+                        # failure in local tracking/list-clearing below must
+                        # never make this report success=False, or a caller
+                        # retrying on "failure" would place a duplicate order.
+                        shopping_list_cleared = True
+                        local_tracking_warning = None
+                        try:
+                            for item in items_to_add:
+                                _add_item_to_local_cart(
+                                    item["product_id"],
+                                    item["quantity"],
+                                    _modality,
+                                    user_id=user_id,
+                                )
+
+                            data["items"] = []
+                            _save_shopping_list(data, user_id=user_id)
+                        except Exception as tracking_err:
+                            logger.error(
+                                "Local cart tracking / shopping-list clear failed "
+                                f"after a successful Kroger order: {tracking_err}"
                             )
+                            shopping_list_cleared = False
+                            local_tracking_warning = str(tracking_err)
 
-                        # Clear shopping list
-                        data["items"] = []
-                        _save_shopping_list(data, user_id=user_id)
-
-                        return {
+                        result = {
                             "success": True,
                             "items_added_to_cart": len(items_to_add),
                             "items_skipped": len(items_to_skip),
                             "manual_purchase_required": items_manual,
-                            "shopping_list_cleared": True,
+                            "shopping_list_cleared": shopping_list_cleared,
                             "modality": _modality,
                             "message": f"Added {len(items_to_add)} items to cart. Shopping list has been cleared.",
                             "reminder": (
@@ -744,6 +759,12 @@ def register_tools(mcp):
                                 )
                             ),
                         }
+                        if local_tracking_warning:
+                            result["local_tracking_warning"] = (
+                                "Kroger order succeeded, but local tracking failed: "
+                                f"{local_tracking_warning}"
+                            )
+                        return result
 
                     except Exception as cart_error:
                         error_msg = str(cart_error)

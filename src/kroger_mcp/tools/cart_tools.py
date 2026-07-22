@@ -445,14 +445,26 @@ def register_tools(mcp):
                             f"Kroger API: {len(added_items)} added, {len(failed_items)} failed"
                         )
 
+                    local_tracking_errors = []
                     for item in added_items:
-                        _add_item_to_local_cart(
-                            item["product_id"],
-                            item["quantity"],
-                            item["modality"],
-                            product_details={"description": item.get("description")},
-                            user_id=user_id,
-                        )
+                        try:
+                            _add_item_to_local_cart(
+                                item["product_id"],
+                                item["quantity"],
+                                item["modality"],
+                                product_details={"description": item.get("description")},
+                                user_id=user_id,
+                            )
+                        except Exception as tracking_err:
+                            # The real Kroger order already succeeded above —
+                            # a local-tracking failure must never flip this
+                            # response to success=False, or a caller retrying
+                            # on "failure" would place a duplicate real order.
+                            logger.error(
+                                f"Local cart tracking failed for {item['product_id']} "
+                                f"after a successful Kroger order: {tracking_err}"
+                            )
+                            local_tracking_errors.append(item["product_id"])
 
                     if ctx:
                         await ctx.info("Item(s) added to local cart tracking")
@@ -477,10 +489,16 @@ def register_tools(mcp):
                                 f"{len(failed_items)} item(s) rejected by Kroger API "
                                 "(invalid product ID or not available at this location)"
                             )
+                        if local_tracking_errors:
+                            result["local_tracking_warning"] = (
+                                "Kroger order succeeded, but local cart tracking failed "
+                                f"for {len(local_tracking_errors)} item(s): "
+                                f"{local_tracking_errors}"
+                            )
                         return result
                     else:
                         item = formatted_items[0]
-                        return {
+                        result = {
                             "success": True,
                             "message": (
                                 f"Successfully added {item['quantity']}x "
@@ -491,6 +509,11 @@ def register_tools(mcp):
                             "modality": item["modality"],
                             "timestamp": datetime.now().isoformat(),
                         }
+                        if local_tracking_errors:
+                            result["local_tracking_warning"] = (
+                                "Kroger order succeeded, but local cart tracking failed."
+                            )
+                        return result
 
                 except Exception as e:
                     if ctx:
