@@ -8,6 +8,14 @@ Successfully implemented comprehensive discount scanning and whole foods trackin
 **Status**: ✅ Complete
 **Tests**: 13/13 passing
 
+> **⚠️ Historical record — describes the codebase as of February 11, 2026.**
+> This is a point-in-time implementation summary, not living documentation. File
+> paths, line counts, and module names below reflect that date and have since
+> drifted. Notably, `src/kroger_mcp/tools/whole_foods_tools.py` no longer exists —
+> it was absorbed during the 106 → 16 tool consolidation. For current setup
+> instructions see [BACKGROUND_SETUP.md](../BACKGROUND_SETUP.md); for the current
+> tool surface, read the code.
+
 ---
 
 ## What Was Implemented
