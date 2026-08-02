@@ -41,7 +41,11 @@
     <string>YOUR_CLIENT_ID_HERE</string>
     <key>KROGER_CLIENT_SECRET</key>
     <string>YOUR_CLIENT_SECRET_HERE</string>
-    <key>KROGER_PREFERRED_LOCATION</key>
+    <!-- Must be KROGER_LOCATION_ID: that is the name background_scanner.py
+         reads. An earlier template exported KROGER_PREFERRED_LOCATION, which
+         nothing consumes, so the watchlist scan found no location and quietly
+         did nothing. -->
+    <key>KROGER_LOCATION_ID</key>
     <string>YOUR_LOCATION_ID_HERE</string>
   </dict>
 </dict>

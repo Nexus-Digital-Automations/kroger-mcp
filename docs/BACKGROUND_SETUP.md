@@ -18,8 +18,13 @@ The background scanner automatically checks your watchlist for deals:
    ```bash
    KROGER_CLIENT_ID=your_client_id
    KROGER_CLIENT_SECRET=your_client_secret
-   KROGER_PREFERRED_LOCATION=your_location_id
+   KROGER_LOCATION_ID=your_location_id
    ```
+
+   The location variable is `KROGER_LOCATION_ID` — the name the scanner and
+   every other call site actually read. An earlier version of this doc said
+   `KROGER_PREFERRED_LOCATION`, which the code never looked at, so the
+   watchlist half of every scheduled scan silently found nothing.
 
 2. **Preferred Location Set**: Use `set_preferred_location` tool first
 

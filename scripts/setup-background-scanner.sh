@@ -15,16 +15,26 @@ echo ""
 # Check if .env file exists
 if [ ! -f "$PROJECT_DIR/.env" ]; then
     echo "ERROR: .env file not found at $PROJECT_DIR/.env"
-    echo "Please create .env file with KROGER_CLIENT_ID, KROGER_CLIENT_SECRET, and KROGER_PREFERRED_LOCATION"
+    echo "Please create .env file with KROGER_CLIENT_ID, KROGER_CLIENT_SECRET, and KROGER_LOCATION_ID"
     exit 1
 fi
 
 # Load environment variables
 source "$PROJECT_DIR/.env"
 
-if [ -z "$KROGER_CLIENT_ID" ] || [ -z "$KROGER_CLIENT_SECRET" ] || [ -z "$KROGER_PREFERRED_LOCATION" ]; then
+# The scanner (and every other call site) reads KROGER_LOCATION_ID. This script
+# used to require KROGER_PREFERRED_LOCATION and write that name into the plist,
+# so a scanner installed the documented way never saw a location at all and the
+# watchlist scan silently found nothing. The old name is still accepted so
+# existing .env files keep working, but it is not what gets exported.
+if [ -z "$KROGER_LOCATION_ID" ] && [ -n "$KROGER_PREFERRED_LOCATION" ]; then
+    echo "WARNING: KROGER_PREFERRED_LOCATION is deprecated — rename it to KROGER_LOCATION_ID in .env"
+    KROGER_LOCATION_ID="$KROGER_PREFERRED_LOCATION"
+fi
+
+if [ -z "$KROGER_CLIENT_ID" ] || [ -z "$KROGER_CLIENT_SECRET" ] || [ -z "$KROGER_LOCATION_ID" ]; then
     echo "ERROR: Missing required environment variables in .env file"
-    echo "Required: KROGER_CLIENT_ID, KROGER_CLIENT_SECRET, KROGER_PREFERRED_LOCATION"
+    echo "Required: KROGER_CLIENT_ID, KROGER_CLIENT_SECRET, KROGER_LOCATION_ID"
     exit 1
 fi
 
@@ -34,7 +44,7 @@ echo "✓ Environment variables loaded from .env"
 echo "Updating plist with credentials..."
 sed -e "s|YOUR_CLIENT_ID_HERE|$KROGER_CLIENT_ID|g" \
     -e "s|YOUR_CLIENT_SECRET_HERE|$KROGER_CLIENT_SECRET|g" \
-    -e "s|YOUR_LOCATION_ID_HERE|$KROGER_PREFERRED_LOCATION|g" \
+    -e "s|YOUR_LOCATION_ID_HERE|$KROGER_LOCATION_ID|g" \
     "$PLIST_SRC" > "/tmp/kroger-scanner.plist"
 
 # Create LaunchAgents directory if it doesn't exist

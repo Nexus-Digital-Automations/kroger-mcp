@@ -60,7 +60,7 @@ The following were already implemented in previous sessions:
 
 #### Phase 8: Background Scanner Script
 
-**New Script** (`scripts/background_scanner.py` - 234 lines)
+**New Script** (`scripts/background_scanner.py`)
 - Standalone Python script for automated scanning
 - Scans watchlist items for deals
 - Records prices to database
@@ -141,13 +141,13 @@ The following were already implemented in previous sessions:
    - Safety verification integration
    - Category scanning functionality
 
-2. **`scripts/background_scanner.py`** (234 lines)
+2. **`scripts/background_scanner.py`**
    - Standalone automated scanner
    - Watchlist scanning logic
    - Database integration
    - Notification system
 
-3. **`scripts/com.user.kroger-discount-scanner.plist`** (56 lines)
+3. **`scripts/com.user.kroger-discount-scanner.plist`**
    - macOS LaunchAgent configuration
    - Schedule definition
    - Environment setup
