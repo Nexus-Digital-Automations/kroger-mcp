@@ -199,5 +199,7 @@ re-authenticating requires the interactive Kroger OAuth flow.
 
 `pyproject.toml` sets `testpaths = ["tests/unit", "tests"]`, but a bare
 `uv run pytest` collects only **105** tests (all from `tests/unit`) instead of
-the 664 under `tests/`. Anyone trusting a bare `pytest` run is validating ~16%
-of the suite. Out of scope for this fix; flagged for a separate decision.
+the **667** under `tests/`. Anyone trusting a bare `pytest` run is validating
+~16% of the suite. Out of scope for this fix; flagged for a separate decision.
+
+<!-- last-verified: 2026-08-02 -->
