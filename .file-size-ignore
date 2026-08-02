@@ -17,3 +17,4 @@ src/kroger_mcp/web/chat_engine.py
 src/kroger_mcp/analytics/pantry.py
 src/kroger_mcp/analytics/favorites.py
 src/kroger_mcp/analytics/pg_database.py
+scripts/etl_sqlite_to_pg.py

@@ -26,6 +26,14 @@ from dataclasses import dataclass, field
 
 import psycopg
 
+# scripts/ has no __init__.py (and an unrelated `scripts` package shadows it in
+# site-packages), so put this file's own directory on sys.path to make the
+# sibling module importable both when run as a script and when the test suite
+# loads this file by path via importlib.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from pg_sequence_resync import resync_sequences as _resync_sequences  # noqa: E402
+
 logger = logging.getLogger("kroger_mcp.etl")
 
 
@@ -595,6 +603,11 @@ def run_etl(source_path: str, database_url: str) -> int:
                 pg.rollback()
                 logger.error("[%s] migration FAILED — rolling back this table", table)
                 raise
+
+        # Rows arrive carrying their source ids, which never touches nextval() —
+        # so every sequence is still parked below its table's max and would
+        # collide on the app's next insert. Must run after ALL tables land.
+        _resync_sequences(pg)
 
         return _report(results)
     finally:
