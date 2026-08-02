@@ -1,16 +1,59 @@
 """Product safety checking: single-product status, batch, and async wrappers."""
 
 import asyncio
+import logging
 from typing import Any
 
 from ..database import ensure_initialized, get_db_cursor
-from ..ingredients import check_product_safety
+from ..ingredients import check_product_safety, resolve_scan_text
 from ._cache import _cached_product_safety
 from ._common import _resolve_user_id
 from .blocked_list import get_all_blocked_product_ids, is_product_blocked
 from .ingredient_prefs import get_disabled_ingredients
 from .models import ProductSafetyStatus, SafetyStatus
 from .safe_list import get_all_safe_product_ids, is_product_safe_listed
+
+logger = logging.getLogger(__name__)
+
+
+def _load_ingredients_text(product_ids: list[str]) -> dict[str, str]:
+    """Batch-load cached label text for the given products.
+
+    One query per request rather than one per product. Recipe scoring already
+    does this lookup; without it the safety check only ever sees a product's
+    name and grades ultra-processed items as clean (see `resolve_scan_text`).
+
+    Returns:
+        product_id -> non-empty ingredients_text. Products with no cached label
+        are simply absent, as is every product when the lookup fails: a
+        degraded name-only scan is bad, but failing a cart-add safety check
+        outright is worse.
+    """
+    ids = [pid for pid in product_ids if pid]
+    if not ids:
+        return {}
+
+    placeholders = ",".join("?" * len(ids))
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                f"SELECT product_id, ingredients_text FROM products "  # noqa: S608 - placeholders only
+                f"WHERE product_id IN ({placeholders})",
+                ids,
+            )
+            return {
+                row["product_id"]: row["ingredients_text"]
+                for row in cursor.fetchall()
+                if row["ingredients_text"]
+            }
+    except Exception as exc:
+        logger.warning(
+            "safety label lookup failed for %d product(s) (%s); "
+            "falling back to description-only scan",
+            len(ids),
+            exc,
+        )
+        return {}
 
 
 def _status_from_score(score: float) -> SafetyStatus:
@@ -77,9 +120,16 @@ def get_product_safety_status(
 
     disabled = get_disabled_ingredients(user_id=resolved)
 
-    # Check ingredients
+    # Scan the real label when we have one -- the description is the product's
+    # name, which never lists its additives.
+    scan_text = resolve_scan_text(
+        description,
+        brand,
+        _load_ingredients_text([product_id]).get(product_id),
+    )
+
     safety_result = check_product_safety(
-        description=description,
+        description=scan_text,
         brand=brand,
         categories=categories,
         disabled_ingredients=disabled,
@@ -128,6 +178,9 @@ def check_products_safety_batch(
             for row in cursor.fetchall():
                 blocked_reasons[row["product_id"]] = row["blocked_reason"]
 
+    # One label lookup for the whole batch, not one per product.
+    labels = _load_ingredients_text([p.get("product_id", "") for p in products])
+
     results = []
     for product in products:
         product_id = product.get("product_id", "")
@@ -163,10 +216,12 @@ def check_products_safety_batch(
             continue
 
         # Check ingredients (memoized in Redis when a product_id is present).
+        # The memo key hashes the scanned text, so switching from name to label
+        # misses stale name-scanned entries rather than returning them.
         safety_result = _cached_product_safety(
             user_id=resolved,
             product_id=product_id,
-            description=description,
+            description=resolve_scan_text(description, brand, labels.get(product_id)),
             brand=brand,
             disabled=disabled,
         )

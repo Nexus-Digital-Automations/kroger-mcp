@@ -109,7 +109,7 @@ def _calculate_health_score_uncached(
     Returns:
         Dict with score, grade, confidence, flags, categories_detected, etc.
     """
-    from .ingredients import check_product_safety
+    from .ingredients import check_product_safety, resolve_scan_text
 
     ingredients = recipe.get("ingredients") or []
     total = len(ingredients)
@@ -174,15 +174,14 @@ def _calculate_health_score_uncached(
             linked_count += 1
             info = product_info[pid]
 
-            # Prefer real ingredient list from USDA
+            # Shared with the safety-tool path so the two cannot disagree about
+            # the same product (they did: name-only scanning graded a canned
+            # soup 95/A that the label puts at seven flagged additives).
             if info["ingredients_text"]:
-                scan_text = info["ingredients_text"]
                 usda_count += 1
-            else:
-                # Fall back to product description + brand
-                scan_text = info["description"]
-                if info["brand"]:
-                    scan_text = info["brand"] + " " + scan_text
+            scan_text = resolve_scan_text(
+                info["description"], info["brand"], info["ingredients_text"]
+            )
         elif pid:
             linked_count += 1
             scan_text = ing_name

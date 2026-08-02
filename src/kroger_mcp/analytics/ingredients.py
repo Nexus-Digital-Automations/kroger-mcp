@@ -1400,6 +1400,39 @@ class SafetyResult:
         }
 
 
+def resolve_scan_text(
+    description: str,
+    brand: str | None = None,
+    ingredients_text: str | None = None,
+) -> str:
+    """Pick the authoritative text to scan a product for bad ingredients.
+
+    The real label wins whenever we have one. A product's *name* essentially
+    never lists what is in it, so scanning the description alone grades an
+    ultra-processed item on the wholesome words in its name: "Cream of Chicken
+    Condensed Soup" earns Natural Dairy + Lean Protein bonuses and matches zero
+    additives, scoring 95/A, while its actual label carries soy protein
+    isolate, maltodextrin, autolyzed yeast extract and modified food starch.
+
+    Brand is folded in only on the fallback path, where every scrap of text
+    helps; it is noise once a real ingredient list is available.
+
+    Args:
+        description: Product description/name.
+        brand: Product brand, used only when no label is cached.
+        ingredients_text: Cached label from `products.ingredients_text`.
+
+    Returns:
+        The text to hand to `check_product_safety`. Never None; falls back to
+        `description` (possibly empty), which that function handles.
+    """
+    if ingredients_text:
+        return ingredients_text
+    if brand:
+        return f"{brand} {description}"
+    return description
+
+
 def check_product_safety(
     description: str,
     brand: str | None = None,
