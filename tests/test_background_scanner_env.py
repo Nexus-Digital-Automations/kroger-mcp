@@ -9,6 +9,7 @@ the deal-watchlist half of every scheduled scan.
 
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import logging
 import sys
@@ -105,6 +106,50 @@ def test_scan_requests_a_client_credentials_token_before_searching(monkeypatch, 
 
     # product search only needs the compact product scope.
     assert requested_scopes == ["product.compact"]
+
+
+def test_save_scan_results_uses_backend_agnostic_sql(monkeypatch):
+    """The 7-day cleanup must not use SQLite-only date() -- Postgres has no such
+    function, which made save_scan_results() raise and silently drop every deal
+    the scan had just found."""
+    scanner = _load_scanner()
+
+    executed: list[tuple[str, tuple]] = []
+
+    class _Conn:
+        def execute(self, sql, params=()):
+            executed.append((sql, params))
+
+        def commit(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(scanner, "get_db_connection", lambda: _Conn())
+
+    scanner.save_scan_results(
+        [
+            {
+                "product_id": "P1",
+                "description": "milk",
+                "regular_price": 3.19,
+                "sale_price": 2.99,
+                "savings": 0.20,
+            }
+        ]
+    )
+
+    delete_sql, delete_params = executed[0]
+    assert "DELETE FROM deal_scan_results" in delete_sql
+    # No SQLite-only date arithmetic; the cutoff is bound as a parameter.
+    assert "date(" not in delete_sql.lower()
+    assert len(delete_params) == 1
+    # An ISO date, which compares correctly against the TEXT scan_date column.
+    datetime.date.fromisoformat(delete_params[0])
+
+    # The deal itself still gets inserted.
+    assert any("INSERT INTO deal_scan_results" in sql for sql, _ in executed)
 
 
 def test_scan_reports_failure_when_every_watchlist_item_errors(monkeypatch, caplog):

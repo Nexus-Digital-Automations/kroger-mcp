@@ -10,7 +10,7 @@ Writes results to database for MCP server to read.
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # Add src to path so we can import modules
@@ -204,8 +204,13 @@ def save_scan_results(deals: list):
     """Save scan results to database"""
     conn = get_db_connection()
     try:
-        # Clear old results (keep last 7 days)
-        conn.execute("DELETE FROM deal_scan_results WHERE scan_date < date('now', '-7 days')")
+        # Clear old results (keep last 7 days). The cutoff is computed in Python
+        # and bound as a parameter rather than written as SQLite's
+        # date('now', '-7 days'), which does not exist in Postgres and made this
+        # whole function raise there. scan_date is TEXT holding ISO dates, so a
+        # lexicographic '<' is a correct date comparison on both backends.
+        cutoff = (datetime.now().date() - timedelta(days=7)).isoformat()
+        conn.execute("DELETE FROM deal_scan_results WHERE scan_date < ?", (cutoff,))
 
         # Insert new results
         scan_time = datetime.now().isoformat()
