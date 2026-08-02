@@ -146,6 +146,48 @@ Fixed both halves:
 Note this is independent of the expired *user* OAuth token (see below) — deal
 scanning only needs app-level client credentials, not user auth.
 
+### Third bug, unmasked by fixing the second: SQLite-only SQL in the save path
+
+With auth fixed, the scan found a real deal and then failed to store it:
+
+```
+ERROR - Failed to save results: function date(unknown, unknown) does not exist
+LINE 1: DELETE FROM deal_scan_results WHERE scan_date < date('now', ...
+```
+
+`save_scan_results()` opened with SQLite's `date('now', '-7 days')`, which
+Postgres has no equivalent for, so the whole function raised and discarded every
+deal. It had stayed hidden because the broken auth meant the function was never
+reached. Fixed by computing the cutoff in Python and binding it — `scan_date` is
+TEXT holding ISO dates, so lexicographic `<` is a valid comparison on both
+backends. This matches the pattern already used deliberately elsewhere (see the
+"Portable cutoff" comment in `tools/ingredient_management_tools.py`).
+
+Swept `scripts/` and `src/` for other `date('now'`/`datetime('now'`/`strftime(`
+SQL: no remaining occurrences — the scanner was the last straggler.
+
+### Final end-to-end verification (prod, 10:40)
+
+```
+Starting discount scan...
+Using location: 03400014
+Scanning 1 watchlist items...
+Checking 0001111091760: Kroger® Russet Potatoes
+Found deal: Kroger® Russet Potatoes - $2.99 (save $0.20)
+Saved 1 deals to database
+Scan complete. Found 1 deals
+```
+
+`SELECT … FROM deal_scan_results` returns that row at **id = 1** — the first
+deal this scan has ever successfully persisted, which corroborates that the
+watchlist half had never worked end to end.
+
+Caveat on method: an earlier "clean run" reading was taken while the *previous*
+run was still going (my `launchctl print | grep "state = running"` poll returned
+early, so the log lines I diffed were the old run's tail — the favorites scan
+alone takes ~7 minutes). The 10:40 run above is a single uninterrupted
+foreground invocation and is the reliable evidence.
+
 ### Also observed, NOT fixed: expired user OAuth token
 
 `kroger_tokens` holds one row (user `a7fd322a…`) whose `expires_at` was
