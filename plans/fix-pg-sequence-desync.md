@@ -122,6 +122,37 @@ declared-oversized files) to permit the 8-line integration.
   that resync repairs it, that it is idempotent, and that it never moves a
   sequence backward.
 
+### Second bug found by the post-fix scanner run: deal scan never authenticated
+
+Kicking off a scanner run to verify the sequence fix surfaced a separate,
+unrelated failure. `scripts/background_scanner.py` constructed
+`KrogerAPI(client_id, client_secret)` and went straight to
+`api.product.search_products(...)` — but constructing the client does not mint a
+token, so every call raised *"No access token available. Please authenticate
+first."* The working path in `kroger_mcp.tools.shared.get_client_credentials()`
+calls `authorization.get_token_with_client_credentials("product.compact")`
+immediately after construction; the scanner never did.
+
+The failure was invisible because the per-item `except` swallowed each error and
+the summary then logged `"Scan complete. No deals found"` — identical to a
+genuine no-sales result. The deal-watchlist scan has therefore been collecting
+nothing while reporting success.
+
+Fixed both halves:
+- acquire the client-credentials token before scanning (mirrors `shared.py`);
+- count per-item failures and log `Scan FAILED: every watchlist item errored`
+  rather than letting a 100%-failure run report "No deals found".
+
+Note this is independent of the expired *user* OAuth token (see below) — deal
+scanning only needs app-level client credentials, not user auth.
+
+### Also observed, NOT fixed: expired user OAuth token
+
+`kroger_tokens` holds one row (user `a7fd322a…`) whose `expires_at` was
+**2026-07-22**, ~11 days stale, though a refresh token is present. This governs
+user-scoped operations (cart, profile), not the deal scan. Left alone because
+re-authenticating requires the interactive Kroger OAuth flow.
+
 ### Unrelated issue found, NOT fixed
 
 `pyproject.toml` sets `testpaths = ["tests/unit", "tests"]`, but a bare

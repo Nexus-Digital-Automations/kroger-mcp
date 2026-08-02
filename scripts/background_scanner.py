@@ -45,20 +45,26 @@ def scan_watchlist_for_deals():
         logging.error("KROGER_CLIENT_ID or KROGER_CLIENT_SECRET not set")
         return
 
-    # Initialize Kroger API
+    # Validate local config BEFORE spending a network round-trip on a token.
+    location_id = os.getenv("KROGER_LOCATION_ID")
+    if not location_id:
+        logging.error("No KROGER_LOCATION_ID set")
+        return
+
+    # Initialize Kroger API. Constructing KrogerAPI does NOT mint a token, so
+    # the client-credentials grant has to be requested explicitly — without it
+    # every search_products() call below fails with "No access token available"
+    # and the scan reports a healthy-looking "No deals found" while actually
+    # having checked nothing. Mirrors get_client_credentials() in
+    # kroger_mcp.tools.shared; product search only needs product.compact.
     try:
         api = KrogerAPI(
             client_id=client_id,
             client_secret=client_secret
         )
+        api.authorization.get_token_with_client_credentials("product.compact")
     except Exception as e:
-        logging.error(f"Failed to initialize Kroger API: {e}")
-        return
-
-    # Get preferred location
-    location_id = os.getenv("KROGER_LOCATION_ID")
-    if not location_id:
-        logging.error("No KROGER_LOCATION_ID set")
+        logging.error(f"Failed to authenticate with the Kroger API: {e}")
         return
 
     logging.info(f"Using location: {location_id}")
@@ -92,6 +98,7 @@ def scan_watchlist_for_deals():
     logging.info(f"Scanning {len(watchlist)} watchlist items...")
 
     deals_found = []
+    scan_errors = 0
 
     # Scan each item
     for item in watchlist:
@@ -162,8 +169,20 @@ def scan_watchlist_for_deals():
                 logging.warning(f"Failed to update last_checked_at: {e}")
 
         except Exception as e:
+            scan_errors += 1
             logging.error(f"Error scanning {item['product_id']}: {e}")
             continue
+
+    # A scan where every item errored produces the same empty deals_found as a
+    # genuine "nothing is on sale" result. Report the error count so a broken
+    # scan can't keep masquerading as a healthy one — which is exactly how a
+    # missing API token went unnoticed.
+    checked = len(watchlist) - scan_errors
+    if scan_errors:
+        logging.error(
+            f"Scan errors: {scan_errors} of {len(watchlist)} watchlist item(s) "
+            f"failed to scan; only {checked} were actually checked"
+        )
 
     # Save scan results
     if deals_found:
@@ -175,8 +194,10 @@ def scan_watchlist_for_deals():
             send_notification(len(deals_found))
         except Exception as e:
             logging.error(f"Failed to save results: {e}")
+    elif scan_errors == len(watchlist) and watchlist:
+        logging.error("Scan FAILED: every watchlist item errored — no deals data collected")
     else:
-        logging.info("Scan complete. No deals found")
+        logging.info(f"Scan complete. No deals found ({checked} item(s) checked)")
 
 
 def save_scan_results(deals: list):

@@ -28,15 +28,23 @@ def _load_scanner() -> ModuleType:
     return module
 
 
-def _patch_scanner_dependencies(monkeypatch, scanner: ModuleType) -> None:
+def _patch_scanner_dependencies(monkeypatch, scanner: ModuleType) -> list[str]:
+    """Stub out KrogerAPI and the DB; return the list of scopes token-requested."""
+    requested_scopes: list[str] = []
+
+    class _DummyAuthorization:
+        def get_token_with_client_credentials(self, scope: str) -> None:
+            requested_scopes.append(scope)
+
     class _DummyAPI:
         def __init__(self, client_id: str, client_secret: str) -> None:
-            pass
+            self.authorization = _DummyAuthorization()
 
     monkeypatch.setattr(scanner, "KrogerAPI", _DummyAPI)
     monkeypatch.setattr(scanner, "ensure_initialized", lambda: None)
     monkeypatch.setenv("KROGER_CLIENT_ID", "test-id")
     monkeypatch.setenv("KROGER_CLIENT_SECRET", "test-secret")
+    return requested_scopes
 
 
 def test_scan_reads_kroger_location_id(monkeypatch, caplog):
@@ -72,3 +80,58 @@ def test_scan_errors_without_kroger_location_id(monkeypatch, caplog):
         scanner.scan_watchlist_for_deals()
 
     assert "No KROGER_LOCATION_ID set" in caplog.text
+
+
+def test_scan_requests_a_client_credentials_token_before_searching(monkeypatch, caplog):
+    """Constructing KrogerAPI does not mint a token -- the scan must request one.
+
+    Without this the very first search_products() call raises "No access token
+    available" for every watchlist item, and the swallowed errors leave the scan
+    reporting a healthy-looking "No deals found" while checking nothing.
+    """
+    scanner = _load_scanner()
+    requested_scopes = _patch_scanner_dependencies(monkeypatch, scanner)
+    monkeypatch.setenv("KROGER_LOCATION_ID", "03400014")
+
+    def _stop(*args, **kwargs):
+        raise RuntimeError("stop-after-auth")
+
+    monkeypatch.setattr(scanner, "get_db_connection", _stop)
+
+    try:
+        scanner.scan_watchlist_for_deals()
+    except RuntimeError:
+        pass
+
+    # product search only needs the compact product scope.
+    assert requested_scopes == ["product.compact"]
+
+
+def test_scan_reports_failure_when_every_watchlist_item_errors(monkeypatch, caplog):
+    """A 100%-failure scan must not be logged as a benign "No deals found"."""
+    scanner = _load_scanner()
+    _patch_scanner_dependencies(monkeypatch, scanner)
+    monkeypatch.setenv("KROGER_LOCATION_ID", "03400014")
+
+    class _Cursor:
+        def fetchall(self):
+            return [{"product_id": "P1", "description": "milk", "target_price": None}]
+
+    class _Conn:
+        def execute(self, *args, **kwargs):
+            return _Cursor()
+
+        def commit(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(scanner, "get_db_connection", lambda: _Conn())
+
+    with caplog.at_level(logging.ERROR):
+        scanner.scan_watchlist_for_deals()
+
+    # The stub API has no `.product`, so the single item raises and is counted.
+    assert "Scan FAILED" in caplog.text
+    assert "No deals found" not in caplog.text
