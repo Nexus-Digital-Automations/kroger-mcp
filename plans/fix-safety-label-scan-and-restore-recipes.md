@@ -133,6 +133,30 @@ entries instead of returning them.
 - `ruff check src/kroger_mcp/analytics/ tests/test_safety_label_scan.py` — clean.
 - `mypy` on both changed modules — clean.
 
+### Live prod verification (commit `0bc4e59`, deployed)
+
+Ran the deployed code on the mini against the real product from the finding:
+
+| | Before | After |
+|---|---|---|
+| score / grade | 95 / A | **31 / F** |
+| flagged ingredients | 0 | **8** |
+| status | clean | **AVOID** |
+
+The label was in the DB all along — `CHICKEN STOCK, MODIFIED CORN STARCH,
+COOKED CHICKEN MEAT, WHEAT FLOUR, … SOY PROTEIN CONCENTRATE, … YEAST EXTRACT…`
+Matches: Modified Food Starch, Soy Protein Isolate ×2, Soy Lecithin ×2,
+Autolyzed Yeast Extract, Maltodextrin, Natural Flavors.
+
+Positive attributes now match against the label rather than the name
+(`onion`, `chicken`, `milk`, `flour`) — those really are in the product, so
+the bonuses are earned rather than inferred from marketing copy.
+
+Note: the deploy hook reloads the web app immediately but the **Kroger MCP
+server only reloads on the next session**, so MCP tool calls in this session
+still ran the pre-fix code. Verification above bypassed the MCP server and
+called the deployed module directly.
+
 ### Restore
 
 Ran `output/recipe-restore/restore_removed_recipes.py` on the mini. Store went
