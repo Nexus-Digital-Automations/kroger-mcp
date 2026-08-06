@@ -188,3 +188,5 @@ guides. Easy to add back if the user wants them under Recipes too.
 (7 vs 10 ingredients, created 7 seconds apart). Both were restored rather than
 picking one, since choosing is the user's call. A newer
 `9308d52b` "Elevated Apple-Cranberry Chicken Salad" also exists.
+
+<!-- last-verified: 2026-08-02 -->
