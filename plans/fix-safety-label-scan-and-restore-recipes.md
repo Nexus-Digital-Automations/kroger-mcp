@@ -90,7 +90,8 @@ duplicate live guides.
 - [x] Repo stays lint/type clean
   verify: cmd uv run ruff check src/kroger_mcp/analytics/ && uv run mypy src/kroger_mcp/analytics/safety/checks.py src/kroger_mcp/analytics/recipe_scoring.py
 - [x] Full suite still passes
-  verify: tests tests/
+  verify: tests tests/ --ignore=tests/test_etl_sqlite_to_pg.py — split from the ETL file below: full `tests/` now runs ~134s against a 120s DSL cap (678 passed, 2 skipped, confirmed 2026-08-06), and the ETL/PG round-trip tests alone account for ~55s of that
+  verify: tests tests/test_etl_sqlite_to_pg.py
 
 ## Tasks
 
