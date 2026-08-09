@@ -202,4 +202,4 @@ re-authenticating requires the interactive Kroger OAuth flow.
 the **667** under `tests/`. Anyone trusting a bare `pytest` run is validating
 ~16% of the suite. Out of scope for this fix; flagged for a separate decision.
 
-<!-- last-verified: 2026-08-02 -->
+<!-- last-verified: 2026-08-09 -->
