@@ -37,7 +37,9 @@ Expect **82 PASS / 5 FAIL / 69 SKIP**. The 5 known failures are 3× `auth.*` (ne
 interactive re-auth) and 2× `notion.*` (`NOTION_API_KEY` unset). Anything beyond those is
 new. Results checkpoint to `output/mcp-smoke/results.jsonl` after every call, so an
 interrupted run resumes — omit `--restart` to continue one. Full analysis:
-`output/mcp-smoke/report.md`.
+`output/mcp-smoke/report.md` — note `output/` is gitignored, so that file is local to the
+machine that ran the sweep; the durable summary lives in
+`plans/verify-mcp-full-feature-surface.md`.
 
 Fast infrastructure check, no MCP round-trip:
 
