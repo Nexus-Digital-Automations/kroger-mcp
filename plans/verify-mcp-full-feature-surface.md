@@ -128,7 +128,8 @@ that the smoke sweep had passed:
 The recurring lesson, demonstrated three times: **a smoke PASS is not evidence a query is
 correctly scoped**, because a leaking query returns a perfectly well-formed response.
 
-Two items are open and deliberately not closed here, both needing a decision rather than a
-fix: `recipes` has `user_id` on Postgres but not in SQLite at all, and 43 prod
+Three items are open and deliberately not closed here, each needing a decision rather than
+a fix: `recipes` has `user_id` on Postgres but not in SQLite at all; `auto_categorize_all`
+mixes every user's statistics into the shared `products.category_type` column; and 43 prod
 `purchase_events` rows carry `user_id IS NULL` (a pre-migration backlog) that the
 `preview_impact` fix now correctly excludes. Detail in `output/mcp-smoke/report.md`.

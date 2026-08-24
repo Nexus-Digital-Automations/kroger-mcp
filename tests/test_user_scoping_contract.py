@@ -130,11 +130,13 @@ _CREATE_TABLE_RE = re.compile(
 )
 _CLAUSE_END = r"(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\b|\bLEFT\s+JOIN\b|\bJOIN\b|\bLIMIT\b|\"\"\"|$)"
 _LEFT_JOIN_RE = re.compile(r"LEFT\s+JOIN\s+(\w+)\s+(\w+)\s+ON\b(.*?)" + _CLAUSE_END, re.S | re.I)
-# Plain JOIN, excluding LEFT/RIGHT/FULL/CROSS so the two checks don't overlap.
-_INNER_JOIN_RE = re.compile(
-    r"(?<!LEFT )(?<!RIGHT )(?<!FULL )(?<!CROSS )(?<!OUTER )\bJOIN\s+(\w+)\s+(\w+)\s+ON\b",
-    re.I,
-)
+_JOIN_RE = re.compile(r"\bJOIN\s+(\w+)\s+(\w+)\s+ON\b", re.I)
+# Qualifiers that make a JOIN an outer one, handled by the LEFT-JOIN check
+# instead. Matched against the preceding token rather than a lookbehind, because
+# a fixed-width lookbehind like `(?<!LEFT )` misses `LEFT\n    JOIN` -- and SQL
+# wrapped across source lines is exactly how this codebase writes it, so that
+# gap double-reported every multi-line LEFT JOIN.
+_OUTER_QUALIFIER_RE = re.compile(r"\b(?:LEFT|RIGHT|FULL|CROSS|OUTER)\s*$", re.I)
 # A user filter is a COMPARISON, not a mention. `GROUP BY pe.user_id` and
 # `ORDER BY pe.user_id` name the column without restricting anything, so matching
 # a bare `\w+\.user_id` would let a genuine leak pass by merely grouping on it.
@@ -175,27 +177,33 @@ def _sql_literals(source: str) -> list[tuple[str, str, int]]:
     ...") is already joined into one node by the parser, which is the style this
     codebase writes SQL in.
     """
-    literals: dict[tuple[int, int], tuple[str, str, int]] = {}
-    for func in ast.walk(ast.parse(source)):
-        if not isinstance(func, ast.FunctionDef | ast.AsyncFunctionDef):
-            continue
-        for node in ast.walk(func):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                sql = node.value
-            elif isinstance(node, ast.JoinedStr):
-                # f-string: keep the literal parts, drop the interpolations.
-                sql = " ".join(
-                    part.value
-                    for part in node.values
-                    if isinstance(part, ast.Constant) and isinstance(part.value, str)
-                )
-            else:
-                continue
-            if "JOIN" in sql.upper():
-                # ast.walk is breadth-first from the module, so a nested function
-                # is visited after its parent and wins the attribution.
-                literals[(node.lineno, node.col_offset)] = (func.name, sql, node.lineno)
-    return list(literals.values())
+    literals: list[tuple[str, str, int]] = []
+
+    def visit(node: ast.AST, func: str) -> None:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            func = node.name  # descending, so the INNERMOST function wins
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            sql = node.value
+        elif isinstance(node, ast.JoinedStr):
+            # f-string: keep the literal parts, drop the interpolations.
+            sql = " ".join(
+                part.value
+                for part in node.values
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+            )
+        else:
+            sql = ""
+        if "JOIN" in sql.upper():
+            literals.append((func, sql, node.lineno))
+            return  # an f-string's own Constant parts must not report again
+        for child in ast.iter_child_nodes(node):
+            visit(child, func)
+
+    # Starts at the module, not at each function, so SQL held in a module-level
+    # constant or a class attribute is still scanned. Restricting the walk to
+    # function bodies silently dropped those from coverage.
+    visit(ast.parse(source), "<module>")
+    return literals
 
 
 def _find_unscoped_joins(sources: list[tuple[str, str]] | None = None) -> list[str]:
@@ -242,8 +250,10 @@ def _find_unscoped_joins(sources: list[tuple[str, str]] | None = None) -> list[s
             # me.plan_id = mp.id WHERE me.user_id = ?` reads only this owner's
             # entries and the join merely decorates them with the plan name they
             # already point at. Only total absence of a filter is a bug.
-            for match in _INNER_JOIN_RE.finditer(sql):
+            for match in _JOIN_RE.finditer(sql):
                 table, alias = match.group(1).lower(), match.group(2)
+                if _OUTER_QUALIFIER_RE.search(sql[: match.start()]):
+                    continue  # an outer join -- the LEFT JOIN check owns it
                 if table in tables and not _USER_FILTER_RE.search(sql):
                     _report(match, table, alias, "JOIN")
     return violations
@@ -267,7 +277,9 @@ def _scanned(sql: str) -> list[str]:
     inline. An earlier version of these tests reimplemented the predicate check,
     so it kept passing while the shipped rule diverged from the one under test.
     """
-    module = f'def planted():\n    return conn.execute("{sql}")\n'
+    # !r so a planted statement containing newlines or quotes still round-trips
+    # into parseable source instead of blowing up the literal it is embedded in.
+    module = f"def planted():\n    return conn.execute({sql!r})\n"
     return _find_unscoped_joins([("planted.py", module)])
 
 
@@ -301,10 +313,23 @@ def test_inner_join_contract_detects_a_planted_violation():
     assert not _scanned(f"{base} AND pe.user_id = ? WHERE x = 1"), (
         "false-positived on a plain JOIN correctly filtered in ON"
     )
-    # A LEFT JOIN must not be double-reported by the inner-join check.
-    assert not _INNER_JOIN_RE.search("LEFT JOIN purchase_events pe ON a.id = pe.id"), (
-        "inner-join regex matched a LEFT JOIN -- the two checks would overlap"
-    )
+    # A LEFT JOIN must be reported once, by the LEFT JOIN check only -- including
+    # when the qualifier and the keyword land on different source lines, which is
+    # how SQL wrapped across a Python literal actually looks.
+    for spacing in ("LEFT JOIN", "LEFT\n        JOIN"):
+        reported = _scanned(f"{spacing} pantry_items pi ON f.product_id = pi.product_id")
+        assert len(reported) == 1, f"double-reported `{spacing}`: {reported}"
+        assert "LEFT JOIN" in reported[0], f"wrong check claimed `{spacing}`: {reported}"
+
+
+def test_sql_outside_a_function_body_is_still_scanned():
+    """A module constant or class attribute holding SQL must not escape the scan."""
+    join = "JOIN purchase_events pe ON p.product_id = pe.product_id"
+    for placement, module in {
+        "module-level constant": f'QUERY = "SELECT * FROM products p {join}"\n',
+        "class attribute": f'class Repo:\n    QUERY = "SELECT * FROM products p {join}"\n',
+    }.items():
+        assert _find_unscoped_joins([("x.py", module)]), f"missed SQL in a {placement}"
 
 
 def test_naming_the_user_column_is_not_the_same_as_filtering_on_it():
