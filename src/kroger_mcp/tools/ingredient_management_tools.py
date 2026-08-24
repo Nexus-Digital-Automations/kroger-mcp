@@ -972,10 +972,10 @@ def register_tools(mcp):
                         SELECT DISTINCT p.product_id, p.description, p.brand
                         FROM products p
                         JOIN purchase_events pe ON p.product_id = pe.product_id
-                        WHERE pe.event_date >= ?
+                        WHERE pe.event_date >= ? AND pe.user_id = ?
                         LIMIT 500
                         """,
-                        (cutoff_date,),
+                        (cutoff_date, user_id),
                     )
                     products = cursor.fetchall()
 

@@ -23,6 +23,9 @@ from pathlib import Path
 
 REPO_SRC = Path(__file__).parent.parent / "src" / "kroger_mcp"
 SCOPED_DIRS = ["analytics", "tools"]
+# The join guard reaches further than the signature guard: web/routes also writes
+# raw SQL against per-user tables, and an audit noted it was unprotected.
+JOIN_SCOPED_DIRS = ["analytics", "tools", "web/routes"]
 
 # Boundary resolvers: these ARE the fallback mechanism (MCP tool dispatch has
 # no request/session to read a real user_id from), not a caller relying on it.
@@ -91,29 +94,50 @@ def test_contract_detects_a_planted_violation(tmp_path):
     assert found, "contract test failed to detect a deliberately-planted violation"
 
 
-# --- SHAPE 2: LEFT JOIN onto a per-user table without a user_id predicate ---
+# --- SHAPE 2: a JOIN onto a per-user table with no user_id predicate ---
 
-# Only LEFT JOINs are checked, and the predicate must be in the ON clause rather
-# than WHERE. That is not a stylistic preference: for a LEFT JOIN, moving the
-# filter to WHERE drops the unmatched-left rows and silently degrades it to an
-# inner join. So "the predicate belongs in ON" is exactly right here, which keeps
-# this check precise and free of false positives.
+# LEFT and INNER joins are held to DIFFERENT standards, because the semantics
+# differ:
+#
+#   LEFT JOIN -- the predicate must be in the ON clause. Not a style preference:
+#     moving it to WHERE drops the unmatched-left rows and silently degrades the
+#     join to an inner one.
+#   INNER/plain JOIN -- the predicate may live in ON or WHERE (they are
+#     equivalent here), so it only has to appear SOMEWHERE in the statement.
+#
+# An earlier version of this guard checked LEFT JOIN only, reasoning that inner
+# joins are "usually filtered in WHERE anyway". That was wrong, and an audit
+# caught it: ingredient_management_tools.py's preview_impact had a plain JOIN
+# onto purchase_events with NO user filter at all, leaking any tenant's
+# purchase-derived products. Absence is the bug; the ON-vs-WHERE distinction is
+# only about where the fix belongs.
 JOIN_ALLOWLIST = {
     # Rebuilds the SHARED products.category_type column from every user's stats.
     # It returns nothing to a caller, so it leaks no data across tenants; making
     # it per-user is impossible without a schema change, because category_type is
     # a single column on the shared products table, not a per-user row.
     ("analytics/categories.py", "auto_categorize_all"),
+    # Deliberately cross-user: builds a product_id -> [owners] fan-out map so the
+    # background price-drop scanner can route one price event to every user who
+    # favorited that product. The fl.user_id it selects is the ROUTING key -- each
+    # alert row is inserted with its own owner's user_id (notifications.py:257), so
+    # no owner ever sees another's. Scoping this to one user would break the scan.
+    ("analytics/notifications.py", "_favorited_products"),
 }
 
 _CREATE_TABLE_RE = re.compile(
     r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(\w+)\s*\((.*?)\n\s*\)", re.S | re.I
 )
-_LEFT_JOIN_RE = re.compile(
-    r"LEFT\s+JOIN\s+(\w+)\s+(\w+)\s+ON\b(.*?)"
-    r"(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\b|\bLEFT\s+JOIN\b|\bJOIN\b|\bLIMIT\b|\"\"\"|$)",
-    re.S | re.I,
+_CLAUSE_END = r"(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\b|\bLEFT\s+JOIN\b|\bJOIN\b|\bLIMIT\b|\"\"\"|$)"
+_LEFT_JOIN_RE = re.compile(r"LEFT\s+JOIN\s+(\w+)\s+(\w+)\s+ON\b(.*?)" + _CLAUSE_END, re.S | re.I)
+# Plain JOIN, excluding LEFT/RIGHT/FULL/CROSS so the two checks don't overlap.
+_INNER_JOIN_RE = re.compile(
+    r"(?<!LEFT )(?<!RIGHT )(?<!FULL )(?<!CROSS )(?<!OUTER )\bJOIN\s+(\w+)\s+(\w+)\s+ON\b",
+    re.I,
 )
+# How far past an inner join to look for its WHERE-clause user filter. Bounded so
+# the search cannot wander out of the SQL literal into unrelated code.
+_STATEMENT_WINDOW = 900
 
 
 # Prod runs Postgres, whose CREATE TABLE declares user_id explicitly (NOT NULL +
@@ -150,21 +174,45 @@ def _find_unscoped_joins() -> list[str]:
     assert tables, "found no user-scoped tables -- the schema scan itself is broken"
 
     violations = []
-    for scoped_dir in SCOPED_DIRS:
+    for scoped_dir in JOIN_SCOPED_DIRS:
         for path in sorted((REPO_SRC / scoped_dir).rglob("*.py")):
             rel_path = str(path.relative_to(REPO_SRC))
             text = path.read_text()
+
+            def _report(match, table: str, alias: str, kind: str) -> None:
+                func = _enclosing_function(text, match.start())
+                if (rel_path, func) in JOIN_ALLOWLIST:
+                    return
+                line = text[: match.start()].count("\n") + 1
+                violations.append(f"{rel_path}:{line} {func}() -- {kind} {table} {alias}")
+
+            # LEFT JOIN: the predicate must be in the ON clause specifically.
             for match in _LEFT_JOIN_RE.finditer(text):
                 table, alias, on_clause = match.group(1).lower(), match.group(2), match.group(3)
                 if table not in tables:
                     continue
                 if re.search(rf"\b{re.escape(alias)}\.user_id\b", on_clause):
                     continue
-                func = _enclosing_function(text, match.start())
-                if (rel_path, func) in JOIN_ALLOWLIST:
+                _report(match, table, alias, "LEFT JOIN")
+
+            # Plain JOIN: the predicate may be in ON or WHERE, so accept it
+            # anywhere in the rest of the statement -- only total absence is a bug.
+            for match in _INNER_JOIN_RE.finditer(text):
+                table, alias = match.group(1).lower(), match.group(2)
+                if table not in tables:
                     continue
-                line = text[: match.start()].count("\n") + 1
-                violations.append(f"{rel_path}:{line} {func}() -- LEFT JOIN {table} {alias}")
+                window = text[match.start() : match.start() + _STATEMENT_WINDOW]
+                window = re.split(r'"""', window)[0]
+                # ANY alias's user_id counts, not just the joined table's. A
+                # statement that filters its driving table by user_id is scoped
+                # transitively -- e.g. `FROM meal_entries me JOIN meal_plans mp
+                # ON me.plan_id = mp.id WHERE me.user_id = ?` reads only this
+                # owner's entries, and the join merely decorates them with the
+                # plan name they already point at. What this catches is the real
+                # bug: no user constraint anywhere in the statement.
+                if re.search(r"\b\w+\.user_id\b", window):
+                    continue
+                _report(match, table, alias, "JOIN")
     return violations
 
 
@@ -179,21 +227,48 @@ def test_no_unscoped_left_join_onto_a_per_user_table():
     )
 
 
-def test_join_contract_detects_a_planted_violation():
-    """The guard must fail on an unscoped join and pass once it is scoped."""
-    tables = _user_scoped_tables()
-    assert "pantry_items" in tables, "pantry_items should be detected as per-user"
+def test_left_join_contract_detects_a_planted_violation():
+    """A LEFT JOIN must carry the predicate in ON; WHERE is not good enough."""
+    assert "pantry_items" in _user_scoped_tables()
 
-    unscoped = "LEFT JOIN pantry_items pi ON f.product_id = pi.product_id WHERE x = 1"
-    scoped = (
-        "LEFT JOIN pantry_items pi ON f.product_id = pi.product_id "
-        "AND pi.user_id = ? WHERE x = 1"
-    )
-
-    def has_user_predicate(sql: str) -> bool:
+    def on_clause_scoped(sql: str) -> bool:
         match = _LEFT_JOIN_RE.search(sql)
         assert match, f"regex failed to match the join in: {sql}"
         return bool(re.search(rf"\b{match.group(2)}\.user_id\b", match.group(3)))
 
-    assert not has_user_predicate(unscoped), "guard missed a planted unscoped join"
-    assert has_user_predicate(scoped), "guard false-positives on a correctly scoped join"
+    base = "LEFT JOIN pantry_items pi ON f.product_id = pi.product_id"
+    assert not on_clause_scoped(f"{base} WHERE x = 1"), "missed a planted unscoped join"
+    assert not on_clause_scoped(f"{base} WHERE pi.user_id = ?"), (
+        "accepted a LEFT JOIN filtered in WHERE -- that silently degrades it to an "
+        "inner join, which is exactly what this check exists to reject"
+    )
+    assert on_clause_scoped(f"{base} AND pi.user_id = ? WHERE x = 1"), (
+        "false-positived on a correctly scoped LEFT JOIN"
+    )
+
+
+def test_inner_join_contract_detects_a_planted_violation():
+    """A plain JOIN may be filtered in ON or WHERE, but not nowhere."""
+    assert "purchase_events" in _user_scoped_tables()
+
+    def statement_scoped(sql: str) -> bool:
+        match = _INNER_JOIN_RE.search(sql)
+        assert match, f"regex failed to match the join in: {sql}"
+        window = re.split(r'"""', sql[match.start() : match.start() + _STATEMENT_WINDOW])[0]
+        return bool(re.search(rf"\b{match.group(2)}\.user_id\b", window))
+
+    base = "JOIN purchase_events pe ON p.product_id = pe.product_id"
+    # The real shape of the leak this check was added for.
+    assert not statement_scoped(f"{base} WHERE pe.event_date >= ?"), (
+        "missed a plain JOIN onto a per-user table with no user filter at all"
+    )
+    assert statement_scoped(f"{base} WHERE pe.event_date >= ? AND pe.user_id = ?"), (
+        "false-positived on a plain JOIN correctly filtered in WHERE"
+    )
+    assert statement_scoped(f"{base} AND pe.user_id = ? WHERE x = 1"), (
+        "false-positived on a plain JOIN correctly filtered in ON"
+    )
+    # A LEFT JOIN must not be double-reported by the inner-join check.
+    assert not _INNER_JOIN_RE.search("LEFT JOIN purchase_events pe ON a.id = pe.id"), (
+        "inner-join regex matched a LEFT JOIN -- the two checks would overlap"
+    )
