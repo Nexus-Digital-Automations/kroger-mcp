@@ -177,6 +177,28 @@ _PRESERVED_JOIN_RE = re.compile(
 # a predicate in here; anything in its ON clause filters the OTHER side's match,
 # not which of its own rows survive.
 _WHERE_TAIL_RE = re.compile(r"\bWHERE\b(.*)$", re.S | re.I)
+
+
+def _without_subqueries(clause: str) -> str:
+    """Drop every parenthesised group, so a nested query's WHERE cannot be credited
+    to the outer statement.
+
+    Without this, `RIGHT JOIN purchase_events pe ... WHERE f.id IN (SELECT ... FROM
+    other pe WHERE pe.user_id = ?)` reads as scoped: the inner `pe` shadows the outer
+    one, which is unfiltered. Removing text can only make the tail satisfy the filter
+    LESS often, so this direction of error is always toward flagging, never silence.
+    `pe.user_id IN (?)` survives because the regex matches on the `IN` keyword, which
+    sits outside the parentheses.
+    """
+    out, depth = [], 0
+    for char in clause:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            out.append(char)
+    return "".join(out)
 # A user filter is a COMPARISON, not a mention. `GROUP BY pe.user_id` and
 # `ORDER BY pe.user_id` name the column without restricting anything, so matching
 # a bare `\w+\.user_id` would let a genuine leak pass by merely grouping on it.
@@ -302,7 +324,7 @@ def _find_unscoped_joins(sources: list[tuple[str, str]] | None = None) -> list[s
                 table, alias = match.group(1).lower(), match.group(2)
                 scoped = where_tail is not None and re.search(
                     rf"\b{re.escape(alias)}\.user_id\s*(?:=|!=|<>|\bIN\b)",
-                    where_tail.group(1),
+                    _without_subqueries(where_tail.group(1)),
                     re.I,
                 )
                 if table in tables and not scoped:
@@ -409,6 +431,24 @@ def test_a_second_join_is_not_swallowed_by_the_first_ones_on_clause():
             assert any("pantry_items" in r for r in reported), (
                 f"{combo}: the first join was lost while matching the second: {reported}"
             )
+
+
+def test_a_subquerys_where_does_not_scope_the_outer_preserved_join():
+    """A nested query's WHERE belongs to the nested query. When the subquery reuses
+    the alias, crediting its filter to the outer statement clears an unfiltered
+    preserved-side join -- the one shape the pre-split guard caught and the WHERE-tail
+    check would otherwise have let through."""
+    shadowed = (
+        "SELECT * FROM f RIGHT JOIN purchase_events pe ON f.id = pe.id "
+        "WHERE f.id IN (SELECT id FROM other_events pe WHERE pe.user_id = ?)"
+    )
+    assert any("purchase_events" in r for r in _scanned(shadowed)), (
+        "a subquery's filter was credited to the outer statement"
+    )
+    # The outer filter still scopes it, parentheses in the predicate notwithstanding.
+    assert not _scanned(shadowed + " AND pe.user_id IN (?)"), (
+        "false-positived on an outer filter whose value list is parenthesised"
+    )
 
 
 def test_an_as_alias_is_the_same_join_as_a_bare_one():
