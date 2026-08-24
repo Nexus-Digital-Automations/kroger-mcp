@@ -129,13 +129,21 @@ _CREATE_TABLE_RE = re.compile(
     r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(\w+)\s*\((.*?)\n\s*\)", re.S | re.I
 )
 _CLAUSE_END = r"(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\b|\bLEFT\s+JOIN\b|\bJOIN\b|\bLIMIT\b|\"\"\"|$)"
-_LEFT_JOIN_RE = re.compile(r"LEFT\s+JOIN\s+(\w+)\s+(\w+)\s+ON\b(.*?)" + _CLAUSE_END, re.S | re.I)
+# Every outer join, not just LEFT: `LEFT OUTER JOIN`, `RIGHT JOIN` and
+# `FULL JOIN` used to escape BOTH checks -- the outer one because it demanded a
+# literal `LEFT JOIN`, and the inner one because the qualifier suppressed it. The
+# leading \b matters too: without it, a table named `foo_left` matched here AND
+# in the inner check, double-reporting one site.
+_OUTER_JOIN_RE = re.compile(
+    r"\b(?:LEFT|RIGHT|FULL)\s+(?:OUTER\s+)?JOIN\s+(\w+)\s+(\w+)\s+ON\b(.*?)" + _CLAUSE_END,
+    re.S | re.I,
+)
 _JOIN_RE = re.compile(r"\bJOIN\s+(\w+)\s+(\w+)\s+ON\b", re.I)
-# Qualifiers that make a JOIN an outer one, handled by the LEFT-JOIN check
-# instead. Matched against the preceding token rather than a lookbehind, because
-# a fixed-width lookbehind like `(?<!LEFT )` misses `LEFT\n    JOIN` -- and SQL
-# wrapped across source lines is exactly how this codebase writes it, so that
-# gap double-reported every multi-line LEFT JOIN.
+# Qualifiers meaning the outer-join check owns this site. Matched against the
+# preceding token rather than a lookbehind, because a fixed-width lookbehind like
+# `(?<!LEFT )` misses `LEFT\n    JOIN` -- and SQL wrapped across source lines is
+# exactly how this codebase writes it, so that gap double-reported every
+# multi-line LEFT JOIN.
 _OUTER_QUALIFIER_RE = re.compile(r"\b(?:LEFT|RIGHT|FULL|CROSS|OUTER)\s*$", re.I)
 # A user filter is a COMPARISON, not a mention. `GROUP BY pe.user_id` and
 # `ORDER BY pe.user_id` name the column without restricting anything, so matching
@@ -195,7 +203,14 @@ def _sql_literals(source: str) -> list[tuple[str, str, int]]:
             sql = ""
         if "JOIN" in sql.upper():
             literals.append((func, sql, node.lineno))
-            return  # an f-string's own Constant parts must not report again
+            # An f-string's own literal parts are already inside `sql` above and
+            # must not report again -- but its INTERPOLATIONS can hold a whole
+            # second statement, so they still have to be walked. Skipping the
+            # entire subtree here silently deleted that coverage.
+            for child in ast.iter_child_nodes(node):
+                if not isinstance(child, ast.Constant):
+                    visit(child, func)
+            return
         for child in ast.iter_child_nodes(node):
             visit(child, func)
 
@@ -236,12 +251,12 @@ def _find_unscoped_joins(sources: list[tuple[str, str]] | None = None) -> list[s
             # LEFT JOIN: the predicate must be in the ON clause specifically.
             # Moving it to WHERE drops the unmatched-left rows, silently
             # degrading the join to an inner one.
-            for match in _LEFT_JOIN_RE.finditer(sql):
+            for match in _OUTER_JOIN_RE.finditer(sql):
                 table, alias, on_clause = match.group(1).lower(), match.group(2), match.group(3)
                 if table in tables and not re.search(
                     rf"\b{re.escape(alias)}\.user_id\s*=", on_clause
                 ):
-                    _report(match, table, alias, "LEFT JOIN")
+                    _report(match, table, alias, "OUTER JOIN")
 
             # Plain JOIN: ON and WHERE are equivalent, so accept a filter
             # anywhere in the statement. ANY alias counts, not just the joined
@@ -298,6 +313,34 @@ def test_left_join_contract_detects_a_planted_violation():
     )
 
 
+def test_every_outer_join_spelling_is_checked_exactly_once():
+    """`LEFT OUTER`/`RIGHT`/`FULL` once escaped BOTH checks -- the largest hole."""
+    tail = "pantry_items pi ON f.product_id = pi.product_id"
+    spellings = (
+        "LEFT JOIN",
+        "LEFT OUTER JOIN",
+        "RIGHT JOIN",
+        "FULL OUTER JOIN",
+        # Wrapped across source lines, which is how this codebase writes SQL and
+        # what the old fixed-width `(?<!LEFT )` lookbehind could not see.
+        "LEFT\n        JOIN",
+    )
+    for spelling in spellings:
+        reported = _scanned(f"{spelling} {tail}")
+        assert len(reported) == 1, f"`{spelling}` reported {len(reported)}x: {reported}"
+        assert "OUTER JOIN" in reported[0], f"wrong check claimed `{spelling}`: {reported}"
+        assert not _scanned(f"{spelling} {tail} AND pi.user_id = ?"), (
+            f"false-positived on a correctly scoped `{spelling}`"
+        )
+
+
+def test_a_table_named_like_a_join_qualifier_is_not_mistaken_for_one():
+    """`FROM foo_left JOIN ...` is a plain join, and must report once, not twice."""
+    reported = _scanned("SELECT * FROM foo_left JOIN purchase_events pe ON f.id = pe.id")
+    assert len(reported) == 1, f"`foo_left` double-reported: {reported}"
+    assert "-- JOIN" in reported[0], f"claimed by the outer-join check: {reported}"
+
+
 def test_inner_join_contract_detects_a_planted_violation():
     """A plain JOIN may be filtered in ON or WHERE, but not nowhere."""
     assert "purchase_events" in _user_scoped_tables()
@@ -313,13 +356,26 @@ def test_inner_join_contract_detects_a_planted_violation():
     assert not _scanned(f"{base} AND pe.user_id = ? WHERE x = 1"), (
         "false-positived on a plain JOIN correctly filtered in ON"
     )
-    # A LEFT JOIN must be reported once, by the LEFT JOIN check only -- including
-    # when the qualifier and the keyword land on different source lines, which is
-    # how SQL wrapped across a Python literal actually looks.
-    for spacing in ("LEFT JOIN", "LEFT\n        JOIN"):
-        reported = _scanned(f"{spacing} pantry_items pi ON f.product_id = pi.product_id")
-        assert len(reported) == 1, f"double-reported `{spacing}`: {reported}"
-        assert "LEFT JOIN" in reported[0], f"wrong check claimed `{spacing}`: {reported}"
+    # Outer joins are the other check's business -- see
+    # test_every_outer_join_spelling_is_checked_exactly_once.
+    assert not _JOIN_RE.search("CROSS JOIN purchase_events pe"), (
+        "a CROSS JOIN has no ON clause and must not match the plain-join pattern"
+    )
+
+
+def test_sql_inside_an_f_string_interpolation_is_still_scanned():
+    """Matching an f-string must not stop the walk into its interpolations.
+
+    An earlier fix for f-string double-reporting skipped the whole subtree, which
+    silently hid any statement built inside an interpolation.
+    """
+    outer = "SELECT * FROM a JOIN purchase_events pe ON a.id = pe.id WHERE pe.user_id = ?"
+    hidden = "SELECT * FROM b JOIN pantry_items pi ON b.id = pi.product_id"
+    module = f'def f():\n    conn.execute(f"{outer} {{sub({hidden!r})}}")\n'
+    reported = _find_unscoped_joins([("x.py", module)])
+    assert any("pantry_items" in r for r in reported), (
+        f"an unscoped join nested in an f-string interpolation was skipped: {reported}"
+    )
 
 
 def test_sql_outside_a_function_body_is_still_scanned():
