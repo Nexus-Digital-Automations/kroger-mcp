@@ -75,8 +75,8 @@ sh "/Users/jeremyparker/Desktop/Claude Coding Projects/Automation Agent/scripts/
 ### Three deploy gotchas
 
 1. **A failed deploy does not fail the push.** The hook logs
-   `[deploy] FAILED — push continues` and exits 0. Always read the push output; a green
-   `git push` is not evidence that prod updated.
+   `[pre-push] deploy FAILED — push continues; deploy manually if needed` and exits 0.
+   Always read the push output; a green `git push` is not evidence that prod updated.
 2. **`uv sync` errors are swallowed** (`|| echo "[deploy] uv sync warned (continuing)"`).
    The app restarts regardless, so a dependency change can silently fail to install and
    leave prod running against stale packages. After any dependency change, verify on the

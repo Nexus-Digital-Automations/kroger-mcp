@@ -155,13 +155,18 @@ def get_product_category(product_id: str) -> str | None:
         conn.close()
 
 
-def get_items_by_category(category: str, include_stats: bool = True) -> list[dict[str, Any]]:
+def get_items_by_category(
+    category: str, include_stats: bool = True, *, user_id: str
+) -> list[dict[str, Any]]:
     """
     Get all items in a specific category.
 
     Args:
         category: Category to filter by
         include_stats: Whether to include statistics
+        user_id: Owner whose purchase statistics may be read. Required — `products`
+            is a shared catalog but `product_statistics` is per-user, so an unscoped
+            join here returns another tenant's purchase history to the caller.
 
     Returns:
         List of product dictionaries
@@ -176,11 +181,12 @@ def get_items_by_category(category: str, include_stats: bool = True) -> list[dic
                 SELECT p.*, ps.total_purchases, ps.avg_days_between_purchases,
                        ps.last_purchase_date, ps.seasonality_score
                 FROM products p
-                LEFT JOIN product_statistics ps ON p.product_id = ps.product_id
+                LEFT JOIN product_statistics ps
+                    ON p.product_id = ps.product_id AND ps.user_id = ?
                 WHERE p.category_type = ?
                 ORDER BY p.description
             """,
-                (category,),
+                (user_id, category),
             )
         else:
             cursor = conn.execute(

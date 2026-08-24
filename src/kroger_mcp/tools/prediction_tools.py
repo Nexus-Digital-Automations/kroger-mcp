@@ -57,10 +57,11 @@ def _build_recommendation_context(product_id: str, *, user_id: str) -> dict[str,
                 pi.expiration_date
             FROM product_statistics ps
             LEFT JOIN products p ON ps.product_id = p.product_id
-            LEFT JOIN pantry_items pi ON ps.product_id = pi.product_id
-            WHERE ps.product_id = ?
+            LEFT JOIN pantry_items pi
+                ON ps.product_id = pi.product_id AND pi.user_id = ps.user_id
+            WHERE ps.product_id = ? AND ps.user_id = ?
             """,
-            (product_id,),
+            (product_id, user_id),
         )
         row = cursor.fetchone()
         if row is None:
@@ -1010,7 +1011,9 @@ def register_tools(mcp):
                 try:
                     from ..analytics.categories import get_items_by_category
 
-                    cat_items = get_items_by_category(category, include_stats=True)
+                    cat_items = get_items_by_category(
+                        category, include_stats=True, user_id=user_id
+                    )
                     return {
                         "success": True,
                         "category": category,

@@ -1899,6 +1899,12 @@ def list_pending_meals(
     query = (
         "SELECT me.plan_id, me.meal_date, me.meal_slot, me.recipe_id, "
         "r.name AS recipe_name "
+        # NOT correlated on user_id, deliberately: recipes.user_id exists on
+        # Postgres but NOT in the SQLite schema, so `AND r.user_id = me.user_id`
+        # raises "no such column" there. Safe as-is because the left side is
+        # already filtered by me.user_id, so only this owner's entries are read,
+        # and the join only decorates them with the name of a recipe they
+        # themselves reference. See test_user_scoping_contract.py's divergence note.
         "FROM meal_entries me LEFT JOIN recipes r ON r.id = me.recipe_id "
         "WHERE me.user_id = ? AND me.pantry_deducted = 0 AND me.cook_skipped = 0 "
         "AND me.cooked_at IS NULL AND me.meal_date < ?"
