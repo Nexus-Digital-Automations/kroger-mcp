@@ -799,9 +799,9 @@ def register_tools(mcp):
                 try:
                     cursor = conn.execute(
                         """
-                        SELECT scan_date, scan_time, COUNT(*) as deal_count
-                        FROM deal_scan_results
-                        GROUP BY scan_date
+                        SELECT scan_date, MAX(scan_time) as scan_time,
+                               COUNT(*) as deal_count
+                        FROM deal_scan_results GROUP BY scan_date
                         ORDER BY scan_date DESC
                         LIMIT 1
                         """

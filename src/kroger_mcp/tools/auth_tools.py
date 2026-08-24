@@ -18,7 +18,11 @@ from kroger_api.utils import generate_pkce_parameters
 from pydantic import Field
 
 from ..auth.dependencies import mcp_user_id
-from .shared import get_authenticated_client, invalidate_authenticated_client
+from .shared import (
+    KROGER_OAUTH_SCOPES,
+    get_authenticated_client,
+    invalidate_authenticated_client,
+)
 
 # Load environment variables
 load_dotenv()
@@ -113,8 +117,7 @@ def register_tools(mcp):
                 # Initialize the Kroger API client
                 kroger = KrogerAPI()
 
-                # Scopes needed for Kroger API
-                scopes = "product.compact cart.basic:write"
+                scopes = KROGER_OAUTH_SCOPES
 
                 # Get the authorization URL with PKCE
                 auth_url = kroger.authorization.get_authorization_url(

@@ -355,8 +355,10 @@ async def start_oauth(request: Request):
     except Exception as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
 
+    from kroger_mcp.tools.shared import KROGER_OAUTH_SCOPES
+
     auth_url = kroger.authorization.get_authorization_url(
-        scope="product.compact cart.basic:write",
+        scope=KROGER_OAUTH_SCOPES,
         state=state,
         code_challenge=pkce["code_challenge"],
         code_challenge_method=pkce["code_challenge_method"],

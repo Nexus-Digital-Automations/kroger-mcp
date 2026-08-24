@@ -29,6 +29,16 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# The OAuth scopes every user-authorization flow requests. Defined once because
+# the MCP tool and the web settings route must request the SAME set — if they
+# drift, a token minted by one path fails validation on the other.
+#
+# profile.compact is load-bearing beyond `auth get_profile`: kroger-api's
+# test_token() validates ANY token by GETting /v1/connect/oauth2/profile, so
+# without this scope that probe always 403s and every token check degrades into
+# a refresh round-trip.
+KROGER_OAUTH_SCOPES = "product.compact cart.basic:write profile.compact"
+
 # Install 429/5xx backoff on the Kroger HTTP chokepoint before any client is
 # built. Idempotent; covers every client created below.
 install_kroger_retry()

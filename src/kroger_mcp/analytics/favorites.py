@@ -694,17 +694,23 @@ def get_list_items(
                         MIN(fli.current_stock_quantity) as current_stock_quantity,
                         MAX(fli.last_ordered_at) as last_ordered_at,
                         MAX(fli.typical_gap_days) as typical_gap_days,
-                        pi.level_percent,
-                        pi.daily_depletion_rate,
-                        pi.low_threshold
+                        -- Aggregated, not bare: Postgres rejects a bare column
+                        -- under GROUP BY. UNIQUE(user_id, product_id) on
+                        -- pantry_items means the owner-scoped join yields at
+                        -- most one row per product, so MAX() returns exactly
+                        -- that row's value rather than an arbitrary pick.
+                        MAX(pi.level_percent) as level_percent,
+                        MAX(pi.daily_depletion_rate) as daily_depletion_rate,
+                        MAX(pi.low_threshold) as low_threshold
                     FROM favorite_list_items fli
                     JOIN favorite_lists fl ON fl.id = fli.list_id
-                    LEFT JOIN pantry_items pi ON fli.product_id = pi.product_id
+                    LEFT JOIN pantry_items pi
+                        ON fli.product_id = pi.product_id AND pi.user_id = ?
                     WHERE fl.user_id = ?
                     GROUP BY fli.product_id
                     ORDER BY {agg_sort_column}
                     """,
-                    (owner,),
+                    (owner, owner),
                 )
             else:
                 cursor.execute(
