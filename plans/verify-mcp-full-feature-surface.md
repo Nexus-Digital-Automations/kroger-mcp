@@ -121,12 +121,24 @@ that the smoke sweep had passed:
 - `ingredient_management_tools.py:974` (`ingredients.preview_impact`) — joined
   `purchase_events` with no user filter anywhere in the statement (`5313b95`), found only
   after an audit **falsified the stated rationale** for checking `LEFT JOIN` only
-- the guard itself then failed an adversarial review twice — it accepted a *mention* of
-  `user_id` (`GROUP BY pe.user_id`) as a filter, and its character window spilled past the
-  SQL literal into the next function (`7171cfc`)
+- the guard itself then failed **four consecutive adversarial reviews**, each finding a
+  real defect: it accepted a *mention* of `user_id` (`GROUP BY pe.user_id`) as a filter and
+  its character window spilled past the SQL literal into the next function (`7171cfc`); the
+  `ast` rewrite dropped module-level SQL (`dd73212`); the f-string fix hid SQL nested in an
+  interpolation (`4ac4810`); and the `RIGHT`/`FULL` rule was **semantically inverted** while
+  a following join's qualifier was swallowed by the previous `ON` clause (`c65310d`). The
+  last of those was fixed too aggressively and let a subquery's `WHERE` scope an outer
+  preserved join, caught by diffing old-vs-new catch sets (`dc5beb5`).
 
-The recurring lesson, demonstrated three times: **a smoke PASS is not evidence a query is
-correctly scoped**, because a leaking query returns a perfectly well-formed response.
+Two lessons, both demonstrated rather than argued:
+
+1. **A smoke PASS is not evidence a query is correctly scoped** — a leaking query returns a
+   perfectly well-formed response. Two live leaks passed the sweep while leaking.
+2. **This guard was wrong in every round it was attacked and in none where it was read.** A
+   blind-spot list asserts *absences*, which reading a regex cannot confirm; only executing
+   the case can. Corollary: a *shrinking* guard is more dangerous than a growing one, so
+   each change is now checked by diffing the old and new catch sets, not by reviewing the
+   new code.
 
 Three items are open and deliberately not closed here, each needing a decision rather than
 a fix: `recipes` has `user_id` on Postgres but not in SQLite at all; `auto_categorize_all`
