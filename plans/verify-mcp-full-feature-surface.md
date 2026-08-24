@@ -55,23 +55,57 @@ plus `docs/prod-runbook.md` documenting how to verify/restore the prod mini.
 
 ## Decisions
 
-- [ ] Smoke-test against the **production** MCP over the real `.mcp.json` SSH transport, not a local in-process server — that is the path the user actually uses, and a local run would not prove prod works.
-- [ ] Write-capable actions are exercised in preview/dry-run mode only; no live cart, pantry, recipe, or consent mutations.
-- [ ] Actions with no non-committing mode are skipped and reported explicitly with a reason, never counted as passes.
-- [ ] The smoke harness is checkpointed to JSONL after every call so an interrupted run resumes instead of re-running the whole 156-action matrix.
+- [x] Smoke-test against the **production** MCP over the real `.mcp.json` SSH transport, not a local in-process server — that is the path the user actually uses, and a local run would not prove prod works.
+  verify: present "\.mcp\.json" scripts/smoke_mcp.py — build_transport() reads the real config, so the test uses the production path
+- [x] Write-capable actions are exercised in preview/dry-run mode only; no live cart, pantry, recipe, or consent mutations.
+  verify: present "preview_only" scripts/smoke_mcp_spec.py
+- [x] Actions with no non-committing mode are skipped and reported explicitly with a reason, never counted as passes.
+  verify: cmd uv run --frozen python -c "import sys; sys.path.insert(0,'scripts'); from smoke_mcp_spec import SPEC; bad=[(t,a) for t,a_ in SPEC.items() for a,(m,_,w) in a_.items() if m=='skip' and not w]; assert not bad, bad; print('all 65 skips carry a reason')"
+- [x] The smoke harness is checkpointed to JSONL after every call so an interrupted run resumes instead of re-running the whole 156-action matrix.
+  verify: present "handle.flush\(\)" scripts/smoke_mcp.py — append-then-flush per row; resume confirmed live (156 rows before, 156 after, nothing re-executed)
 
 ## Acceptance Criteria
 
-- [ ] `scripts/smoke_mcp.py` exists and connects to the prod MCP over the `.mcp.json` transport.
-- [ ] All 18 registered tools and all 156 actions are enumerated from the live server, and the harness's coverage table accounts for every one (invoked or explicitly skipped with a reason).
-- [ ] A results report is written to `output/mcp-smoke/` listing per-action PASS / FAIL / SKIP with the reason for each non-pass.
-- [ ] Every FAIL is either fixed or documented with a root cause; no failure is left unexplained.
-- [ ] `docs/prod-runbook.md` documents the verified prod topology and the restore procedure.
+- [x] `scripts/smoke_mcp.py` exists and connects to the prod MCP over the `.mcp.json` transport.
+  verify: present "def build_transport" scripts/smoke_mcp.py
+- [x] All 18 registered tools and all 156 actions are enumerated from the live server, and the harness's coverage table accounts for every one (invoked or explicitly skipped with a reason).
+  verify: cmd uv run --frozen python -c "import sys; sys.path.insert(0,'scripts'); from smoke_mcp_spec import SPEC; n=sum(len(v) for v in SPEC.values()); assert (len(SPEC),n)==(18,156), (len(SPEC),n); print('18 tools / 156 actions')"
+- [x] A results report is written to `output/mcp-smoke/` listing per-action PASS / FAIL / SKIP with the reason for each non-pass.
+  verify: present "Per-tool results" output/mcp-smoke/report.md
+- [x] Every FAIL is either fixed or documented with a root cause; no failure is left unexplained.
+  verify: absent "ON fli\.product_id = pi\.product_id$" src/kroger_mcp/analytics/favorites.py — every pantry join is user-scoped; the remaining 5 FAILs are re-auth + missing NOTION_API_KEY, both documented in the report
+- [x] `docs/prod-runbook.md` documents the verified prod topology and the restore procedure.
+  verify: present "Restore procedures" docs/prod-runbook.md
 
 ## Tasks
 
-- [ ] Build `scripts/smoke_mcp.py` with the action-argument spec table and read/preview/skip classification.
-- [ ] Run the full 156-action smoke test against prod.
-- [ ] Triage every FAIL to a root cause; fix the ones that are real defects.
-- [ ] Write the results report to `output/mcp-smoke/`.
-- [ ] Write `docs/prod-runbook.md`.
+- [x] Build `scripts/smoke_mcp.py` with the action-argument spec table and read/preview/skip classification.
+- [x] Run the full 156-action smoke test against prod.
+- [x] Triage every FAIL to a root cause; fix the ones that are real defects.
+- [x] Write the results report to `output/mcp-smoke/`.
+- [x] Write `docs/prod-runbook.md`.
+
+## Outcome
+
+**82 PASS / 5 FAIL / 69 SKIP** across 156 actions. Effective coverage is 86 exercised —
+the 4 fixture-gated skips (`deals.get_price_history`, `predictions.get_item_stats`,
+`get_history`, `explain_recommendation`) were probed directly against prod with a real
+product ID and returned cleanly.
+
+Four live-only defects were found and fixed, three of them the same SQLite→Postgres
+portability class that passes the test suite and fails only on prod:
+
+1. `deal_tools.get_latest_scan` — bare `scan_time` under `GROUP BY` (`c81605a`)
+2. `analytics/favorites.py` — five unscoped `pantry_items` joins, a cross-tenant leak,
+   plus the same bare-column error (`c81605a`, `efc14e9`)
+3. `product_tools.py` — `client.search_products` → `client.product.search_products`,
+   which made `scan_for_whole_foods` raise on every call (`efc14e9`)
+4. `deal_tools.get_price_history` — `MAX(on_sale)` over a `BOOLEAN`; Postgres has no
+   `max(boolean)` (`18b1915`)
+
+Also fixed: the MCP tool and the web settings route each hardcoded their own OAuth scope
+string and both omitted `profile.compact`. They now share `KROGER_OAUTH_SCOPES`, pinned
+by `tests/test_oauth_scopes.py`.
+
+The 5 remaining failures are not code defects — 3× `auth.*` awaiting interactive re-auth,
+2× `notion.*` awaiting `NOTION_API_KEY`.
