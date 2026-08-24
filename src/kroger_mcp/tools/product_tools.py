@@ -1233,7 +1233,7 @@ def register_tools(mcp):
                     client = await asyncio.to_thread(get_client_credentials_client, user_id)
                     search_result = await asyncio.to_thread(
                         functools.partial(
-                            client.search_products,
+                            client.product.search_products,
                             term=search_term_wf,
                             location_id=loc_id,
                             limit=_limit,

@@ -758,11 +758,12 @@ def get_list_items(
                     pi.daily_depletion_rate,
                     pi.low_threshold
                 FROM favorite_list_items fli
-                LEFT JOIN pantry_items pi ON fli.product_id = pi.product_id
+                LEFT JOIN pantry_items pi
+                    ON fli.product_id = pi.product_id AND pi.user_id = ?
                 WHERE fli.list_id = ?
                 ORDER BY {sort_column}
                 """,
-                (list_id,),
+                (owner, list_id),
             )
         else:
             cursor.execute(
@@ -1000,11 +1001,12 @@ def check_snacks(
                 fli.typical_gap_days,
                 pi.level_percent
             FROM favorite_list_items fli
-            LEFT JOIN pantry_items pi ON fli.product_id = pi.product_id
+            LEFT JOIN pantry_items pi
+                ON fli.product_id = pi.product_id AND pi.user_id = ?
             WHERE fli.list_id IN ({placeholders})
             ORDER BY fli.description
             """,
-            snack_list_ids,
+            [owner, *snack_list_ids],
         )
         rows = cursor.fetchall()
 
@@ -1093,7 +1095,8 @@ def get_items_needing_reorder(
     """Get items needing reorder, only if the list belongs to `user_id`."""
     ensure_initialized()
 
-    lst = get_list(list_id, user_id=_resolve_user_id(user_id))
+    owner = _resolve_user_id(user_id)
+    lst = get_list(list_id, user_id=owner)
     if not lst:
         return {"success": False, "error": f"List '{list_id}' not found"}
 
@@ -1109,12 +1112,13 @@ def get_items_needing_reorder(
                 pi.level_percent,
                 pi.daily_depletion_rate
             FROM favorite_list_items fli
-            LEFT JOIN pantry_items pi ON fli.product_id = pi.product_id
+            LEFT JOIN pantry_items pi
+                ON fli.product_id = pi.product_id AND pi.user_id = ?
             WHERE fli.list_id = ?
               AND (pi.level_percent IS NULL OR pi.level_percent < ?)
             ORDER BY COALESCE(pi.level_percent, 0) ASC
             """,
-            (list_id, pantry_threshold),
+            (owner, list_id, pantry_threshold),
         )
         rows = cursor.fetchall()
 
@@ -1310,7 +1314,8 @@ def get_low_stock_items(
     """Return low-stock items, only if the list belongs to `user_id`."""
     ensure_initialized()
 
-    lst = get_list(list_id, user_id=_resolve_user_id(user_id))
+    owner = _resolve_user_id(user_id)
+    lst = get_list(list_id, user_id=owner)
     if not lst:
         return {"success": False, "error": f"List '{list_id}' not found"}
 
@@ -1327,12 +1332,13 @@ def get_low_stock_items(
                 fli.current_stock_quantity,
                 pi.level_percent
             FROM favorite_list_items fli
-            LEFT JOIN pantry_items pi ON fli.product_id = pi.product_id
+            LEFT JOIN pantry_items pi
+                ON fli.product_id = pi.product_id AND pi.user_id = ?
             WHERE fli.list_id = ?
               AND (fli.min_stock_percent IS NOT NULL OR fli.min_stock_quantity IS NOT NULL)
             ORDER BY fli.description
             """,
-            (list_id,),
+            (owner, list_id),
         )
         rows = cursor.fetchall()
 
