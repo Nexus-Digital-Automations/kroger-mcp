@@ -480,7 +480,7 @@ def register_tools(mcp):
                         SELECT
                             DATE(observed_at) as date,
                             AVG(COALESCE(sale_price, regular_price)) as avg_price,
-                            MAX(on_sale) as on_sale,
+                            MAX(CASE WHEN on_sale THEN 1 ELSE 0 END) as on_sale,
                             MAX(savings_percent) as max_savings
                         FROM price_history
                         WHERE product_id = ?
