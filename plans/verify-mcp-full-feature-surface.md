@@ -109,3 +109,26 @@ by `tests/test_oauth_scopes.py`.
 
 The 5 remaining failures are not code defects — 3× `auth.*` awaiting interactive re-auth,
 2× `notion.*` awaiting `NOTION_API_KEY`.
+
+### Follow-on: the scoping guard, and what writing it kept finding
+
+Locking defect 2 in with a regression test (`tests/test_user_scoping_contract.py`) turned
+into its own thread, because every time the guard was widened it found another live leak
+that the smoke sweep had passed:
+
+- `prediction_tools._build_recommendation_context` and `categories.get_items_by_category` —
+  both read another tenant's `product_statistics` (`c028f0c`)
+- `ingredient_management_tools.py:974` (`ingredients.preview_impact`) — joined
+  `purchase_events` with no user filter anywhere in the statement (`5313b95`), found only
+  after an audit **falsified the stated rationale** for checking `LEFT JOIN` only
+- the guard itself then failed an adversarial review twice — it accepted a *mention* of
+  `user_id` (`GROUP BY pe.user_id`) as a filter, and its character window spilled past the
+  SQL literal into the next function (`7171cfc`)
+
+The recurring lesson, demonstrated three times: **a smoke PASS is not evidence a query is
+correctly scoped**, because a leaking query returns a perfectly well-formed response.
+
+Two items are open and deliberately not closed here, both needing a decision rather than a
+fix: `recipes` has `user_id` on Postgres but not in SQLite at all, and 43 prod
+`purchase_events` rows carry `user_id IS NULL` (a pre-migration backlog) that the
+`preview_impact` fix now correctly excludes. Detail in `output/mcp-smoke/report.md`.
