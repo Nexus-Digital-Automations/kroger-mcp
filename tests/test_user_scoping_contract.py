@@ -128,23 +128,55 @@ JOIN_ALLOWLIST = {
 _CREATE_TABLE_RE = re.compile(
     r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(\w+)\s*\((.*?)\n\s*\)", re.S | re.I
 )
-_CLAUSE_END = r"(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\b|\bLEFT\s+JOIN\b|\bJOIN\b|\bLIMIT\b|\"\"\"|$)"
-# Every outer join, not just LEFT: `LEFT OUTER JOIN`, `RIGHT JOIN` and
-# `FULL JOIN` used to escape BOTH checks -- the outer one because it demanded a
-# literal `LEFT JOIN`, and the inner one because the qualifier suppressed it. The
-# leading \b matters too: without it, a table named `foo_left` matched here AND
-# in the inner check, double-reporting one site.
-_OUTER_JOIN_RE = re.compile(
-    r"\b(?:LEFT|RIGHT|FULL)\s+(?:OUTER\s+)?JOIN\s+(\w+)\s+(\w+)\s+ON\b(.*?)" + _CLAUSE_END,
+# An ON clause runs until the next clause keyword -- including the QUALIFIER of a
+# following join, not just its JOIN token. Listing only `LEFT\s+JOIN` here meant a
+# following `RIGHT`/`FULL OUTER` qualifier was swallowed into the previous ON
+# clause, after which neither check could see that second join at all.
+_QUALIFIED_JOIN = r"\b(?:LEFT|RIGHT|FULL|CROSS|INNER)\s+(?:OUTER\s+)?JOIN\b"
+_CLAUSE_END = (
+    r"(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\b|" + _QUALIFIED_JOIN + r"|\bJOIN\b|\bLIMIT\b|\"\"\"|$)"
+)
+# LEFT JOIN only -- `LEFT OUTER JOIN` is the same join spelled longer. RIGHT and
+# FULL deliberately do NOT belong here; see the comment on _LEFT_QUALIFIER_RE.
+_ALIASED_TABLE = r"(\w+)\s+(?:AS\s+)?(\w+)"  # `t a` and `t AS a` are the same join
+_LEFT_JOIN_RE = re.compile(
+    r"\bLEFT\s+(?:OUTER\s+)?JOIN\s+" + _ALIASED_TABLE + r"\s+ON\b(.*?)" + _CLAUSE_END,
     re.S | re.I,
 )
-_JOIN_RE = re.compile(r"\bJOIN\s+(\w+)\s+(\w+)\s+ON\b", re.I)
-# Qualifiers meaning the outer-join check owns this site. Matched against the
-# preceding token rather than a lookbehind, because a fixed-width lookbehind like
-# `(?<!LEFT )` misses `LEFT\n    JOIN` -- and SQL wrapped across source lines is
-# exactly how this codebase writes it, so that gap double-reported every
-# multi-line LEFT JOIN.
-_OUTER_QUALIFIER_RE = re.compile(r"\b(?:LEFT|RIGHT|FULL|CROSS|OUTER)\s*$", re.I)
+_JOIN_RE = re.compile(r"\bJOIN\s+" + _ALIASED_TABLE + r"\s+ON\b", re.I)
+# Which side of the join is PRESERVED decides where the filter has to live:
+#
+#   A LEFT JOIN B  -- B is the nullable side. `WHERE b.user_id = ?` discards the
+#     null-extended rows, degrading the join to an inner one, so the predicate
+#     genuinely has to be in ON.               -> _LEFT_JOIN_RE, checks ON
+#   A RIGHT JOIN B -- B is the PRESERVED side. An ON predicate removes none of
+#     B's rows, so demanding it there is not merely strict, it is backwards: it
+#     would bless the leaking form and flag the WHERE form that actually scopes.
+#     Only a WHERE on B scopes B.              -> _PRESERVED_JOIN_RE, checks WHERE
+#   A FULL JOIN B / CROSS JOIN B -- both sides preserved; same rule as RIGHT.
+#     (CROSS has no ON clause at all, so WHERE is the only place a filter can go.)
+#
+# Letting RIGHT/FULL/CROSS fall through to the plain-join rule instead was wrong
+# in a way a single-join test could not show: that rule accepts a filter on ANY
+# alias anywhere in the statement, so an unfiltered `RIGHT JOIN purchase_events`
+# sitting beside a correctly scoped `LEFT JOIN pantry_items pi ON ... AND
+# pi.user_id = ?` was cleared by pi's filter -- which cannot scope the preserved
+# side. Measured, not argued: the repo has zero RIGHT/FULL/CROSS joins today, so
+# this rule flags nothing live and exists to not lay a trap for the first one.
+#
+# The qualifier is matched against the preceding text rather than as a lookbehind,
+# because a fixed-width lookbehind like `(?<!LEFT )` misses `LEFT\n    JOIN` -- and
+# SQL wrapped across source lines is exactly how this codebase writes it, so that
+# gap double-reported every multi-line LEFT JOIN. The leading \b matters too:
+# without it a table named `foo_left` reads as a qualifier.
+_OWNED_QUALIFIER_RE = re.compile(r"\b(?:LEFT|RIGHT|FULL|CROSS)\s+(?:OUTER\s+)?$", re.I)
+_PRESERVED_JOIN_RE = re.compile(
+    r"\b(?:RIGHT|FULL|CROSS)\s+(?:OUTER\s+)?JOIN\s+" + _ALIASED_TABLE + r"\b", re.I
+)
+# Everything from the first WHERE onward. A preserved-side table is scoped only by
+# a predicate in here; anything in its ON clause filters the OTHER side's match,
+# not which of its own rows survive.
+_WHERE_TAIL_RE = re.compile(r"\bWHERE\b(.*)$", re.S | re.I)
 # A user filter is a COMPARISON, not a mention. `GROUP BY pe.user_id` and
 # `ORDER BY pe.user_id` name the column without restricting anything, so matching
 # a bare `\w+\.user_id` would let a genuine leak pass by merely grouping on it.
@@ -251,12 +283,12 @@ def _find_unscoped_joins(sources: list[tuple[str, str]] | None = None) -> list[s
             # LEFT JOIN: the predicate must be in the ON clause specifically.
             # Moving it to WHERE drops the unmatched-left rows, silently
             # degrading the join to an inner one.
-            for match in _OUTER_JOIN_RE.finditer(sql):
+            for match in _LEFT_JOIN_RE.finditer(sql):
                 table, alias, on_clause = match.group(1).lower(), match.group(2), match.group(3)
                 if table in tables and not re.search(
                     rf"\b{re.escape(alias)}\.user_id\s*=", on_clause
                 ):
-                    _report(match, table, alias, "OUTER JOIN")
+                    _report(match, table, alias, "LEFT JOIN")
 
             # Plain JOIN: ON and WHERE are equivalent, so accept a filter
             # anywhere in the statement. ANY alias counts, not just the joined
@@ -265,10 +297,21 @@ def _find_unscoped_joins(sources: list[tuple[str, str]] | None = None) -> list[s
             # me.plan_id = mp.id WHERE me.user_id = ?` reads only this owner's
             # entries and the join merely decorates them with the plan name they
             # already point at. Only total absence of a filter is a bug.
+            where_tail = _WHERE_TAIL_RE.search(sql)
+            for match in _PRESERVED_JOIN_RE.finditer(sql):
+                table, alias = match.group(1).lower(), match.group(2)
+                scoped = where_tail is not None and re.search(
+                    rf"\b{re.escape(alias)}\.user_id\s*(?:=|!=|<>|\bIN\b)",
+                    where_tail.group(1),
+                    re.I,
+                )
+                if table in tables and not scoped:
+                    _report(match, table, alias, "preserved JOIN")
+
             for match in _JOIN_RE.finditer(sql):
                 table, alias = match.group(1).lower(), match.group(2)
-                if _OUTER_QUALIFIER_RE.search(sql[: match.start()]):
-                    continue  # an outer join -- the LEFT JOIN check owns it
+                if _OWNED_QUALIFIER_RE.search(sql[: match.start()]):
+                    continue  # a LEFT/RIGHT/FULL/CROSS join -- a stricter check owns it
                 if table in tables and not _USER_FILTER_RE.search(sql):
                     _report(match, table, alias, "JOIN")
     return violations
@@ -313,23 +356,95 @@ def test_left_join_contract_detects_a_planted_violation():
     )
 
 
-def test_every_outer_join_spelling_is_checked_exactly_once():
-    """`LEFT OUTER`/`RIGHT`/`FULL` once escaped BOTH checks -- the largest hole."""
+def test_every_join_spelling_is_checked_exactly_once():
+    """`LEFT OUTER`/`RIGHT`/`FULL` once escaped BOTH checks -- the largest hole.
+
+    LEFT and LEFT OUTER get the strict ON-clause rule. RIGHT and FULL get the
+    plain-join rule instead, because they preserve the joined side: an ON
+    predicate removes none of its rows there, so demanding one would bless the
+    leaking form and reject the WHERE form that actually scopes.
+    """
     tail = "pantry_items pi ON f.product_id = pi.product_id"
-    spellings = (
-        "LEFT JOIN",
-        "LEFT OUTER JOIN",
-        "RIGHT JOIN",
-        "FULL OUTER JOIN",
+    # spelling -> (check that must claim it, clause that correctly scopes it)
+    spellings = {
+        "LEFT JOIN": ("LEFT JOIN", "AND pi.user_id = ?"),
+        "LEFT OUTER JOIN": ("LEFT JOIN", "AND pi.user_id = ?"),
         # Wrapped across source lines, which is how this codebase writes SQL and
         # what the old fixed-width `(?<!LEFT )` lookbehind could not see.
-        "LEFT\n        JOIN",
-    )
-    for spelling in spellings:
+        "LEFT\n        JOIN": ("LEFT JOIN", "AND pi.user_id = ?"),
+        "RIGHT JOIN": ("preserved JOIN", "WHERE pi.user_id = ?"),
+        "FULL OUTER JOIN": ("preserved JOIN", "WHERE pi.user_id = ?"),
+    }
+    for spelling, (owning_check, scoping_clause) in spellings.items():
         reported = _scanned(f"{spelling} {tail}")
         assert len(reported) == 1, f"`{spelling}` reported {len(reported)}x: {reported}"
-        assert "OUTER JOIN" in reported[0], f"wrong check claimed `{spelling}`: {reported}"
-        assert not _scanned(f"{spelling} {tail} AND pi.user_id = ?"), (
+        assert owning_check in reported[0], f"wrong check claimed `{spelling}`: {reported}"
+        assert not _scanned(f"{spelling} {tail} {scoping_clause}"), (
+            f"false-positived on a correctly scoped `{spelling}`"
+        )
+
+
+def test_a_second_join_is_not_swallowed_by_the_first_ones_on_clause():
+    """An ON clause must end at the next join's QUALIFIER, not at its JOIN token.
+
+    Listing only `LEFT\\s+JOIN` as a clause terminator let a following
+    `RIGHT`/`FULL OUTER` qualifier be absorbed into the previous ON clause, after
+    which neither check could see that second join at all.
+    """
+    spellings = ("LEFT JOIN", "LEFT OUTER JOIN", "RIGHT JOIN", "FULL OUTER JOIN", "JOIN")
+    # The whole MATRIX, not one row of it: which qualifier gets swallowed depends on
+    # the FIRST join's spelling too, so fixing the first to `LEFT JOIN` would pin 5
+    # of the 25 combinations while reading as though it covered them all.
+    for first_spelling in spellings:
+        for second_spelling in spellings:
+            first = f"{first_spelling} pantry_items pi ON f.product_id = pi.product_id"
+            second = f"{second_spelling} purchase_events pe ON f.id = pe.id"
+            reported = _scanned(f"SELECT * FROM f {first} {second}")
+            combo = f"`{first_spelling}` then `{second_spelling}`"
+            # Both joins are unfiltered, so both must surface. Scoping either one
+            # would test the filter rule instead of the clause boundary.
+            assert any("purchase_events" in r for r in reported), (
+                f"{combo}: the second join was swallowed by the first ON clause: {reported}"
+            )
+            assert any("pantry_items" in r for r in reported), (
+                f"{combo}: the first join was lost while matching the second: {reported}"
+            )
+
+
+def test_an_as_alias_is_the_same_join_as_a_bare_one():
+    """`JOIN t AS a` and `JOIN t a` are identical SQL, so the guard must not go
+    blind on the spelling that happens to include the optional AS keyword."""
+    for join in ("JOIN", "LEFT JOIN", "RIGHT JOIN"):
+        bare = f"SELECT * FROM f {join} pantry_items pi ON f.product_id = pi.product_id"
+        assert _scanned(bare), f"unscoped bare-alias `{join}` went unreported"
+        with_as = bare.replace("pantry_items pi", "pantry_items AS pi")
+        assert _scanned(with_as), f"unscoped `{join} ... AS pi` went unreported"
+
+
+def test_another_aliass_filter_cannot_scope_a_preserved_side_join():
+    """A RIGHT/FULL/CROSS join keeps ALL of its table's rows, so no predicate on a
+    different alias -- and no predicate in its own ON clause -- restricts which of
+    them come back. Only `WHERE <its alias>.user_id = ?` does.
+
+    Found by pairing an unfiltered preserved join with a correctly scoped LEFT
+    JOIN: the any-alias plain-join rule saw pi's filter and cleared pe.
+    """
+    scoped_neighbour = (
+        "LEFT JOIN pantry_items pi ON f.product_id = pi.product_id AND pi.user_id = ?"
+    )
+    for spelling in ("RIGHT JOIN", "RIGHT OUTER JOIN", "FULL OUTER JOIN", "CROSS JOIN"):
+        leaking = f"SELECT * FROM f {scoped_neighbour} {spelling} purchase_events pe ON f.id = pe.id"
+        assert any("purchase_events" in r for r in _scanned(leaking)), (
+            f"a neighbour's filter was accepted as scoping a preserved `{spelling}`"
+        )
+        # Its own ON clause does not scope it either -- that filters f's match, not
+        # which purchase_events rows survive.
+        on_only = f"SELECT * FROM f {spelling} purchase_events pe ON f.id = pe.id AND pe.user_id = ?"
+        assert any("purchase_events" in r for r in _scanned(on_only)), (
+            f"an ON-clause filter was accepted as scoping a preserved `{spelling}`"
+        )
+        # A WHERE on its own alias is the one form that does.
+        assert not _scanned(f"{on_only} WHERE pe.user_id = ?"), (
             f"false-positived on a correctly scoped `{spelling}`"
         )
 
@@ -338,7 +453,7 @@ def test_a_table_named_like_a_join_qualifier_is_not_mistaken_for_one():
     """`FROM foo_left JOIN ...` is a plain join, and must report once, not twice."""
     reported = _scanned("SELECT * FROM foo_left JOIN purchase_events pe ON f.id = pe.id")
     assert len(reported) == 1, f"`foo_left` double-reported: {reported}"
-    assert "-- JOIN" in reported[0], f"claimed by the outer-join check: {reported}"
+    assert "-- JOIN" in reported[0], f"claimed by the LEFT JOIN check: {reported}"
 
 
 def test_inner_join_contract_detects_a_planted_violation():
