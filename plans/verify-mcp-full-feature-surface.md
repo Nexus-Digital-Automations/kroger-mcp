@@ -145,3 +145,5 @@ a fix: `recipes` has `user_id` on Postgres but not in SQLite at all; `auto_categ
 mixes every user's statistics into the shared `products.category_type` column; and 43 prod
 `purchase_events` rows carry `user_id IS NULL` (a pre-migration backlog) that the
 `preview_impact` fix now correctly excludes. Detail in `output/mcp-smoke/report.md`.
+
+<!-- last-verified: 2026-08-29 -->

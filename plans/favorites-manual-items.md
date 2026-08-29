@@ -128,7 +128,7 @@ purchase-history-driven and never matches a sentinel id, so manual items are nat
       migrations for already-provisioned databases
   verify: present "override_reason" src/kroger_mcp/analytics/pg_database.py
 - [x] Full test suite passes and ruff is clean
-  verify: cmd python3 -m pytest tests -q -x --timeout=300
+  verify: cmd .venv/bin/python -m pytest tests -q && .venv/bin/python -m ruff check . — bare python3 is the 3.14 homebrew interpreter, which has no pytest; pytest-timeout isn't installed either, so no --timeout
 
 ## Tasks
 
