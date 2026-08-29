@@ -77,6 +77,11 @@ purchase-history-driven and never matches a sentinel id, so manual items are nat
       save/load round-trip instead of being dropped by `_save_shopping_list`'s fixed column
       list — a pre-existing bug that also silently broke recipe overrides
   verify: present "manual_purchase" src/kroger_mcp/tools/shopping_list_tools.py
+- [x] The "never carted" invariant is enforced server-side, not only in the browser: both
+      caller-facing cart-add entry points (`web/routes/api/products.py::add_product_to_cart`
+      and the `cart` MCP tool's add action) reject a `manual:` id before any Kroger API call,
+      and batch mode fails before ordering any item
+  verify: tests tests/test_favorites_manual_items.py::test_cart_add_rejects_a_manual_id
 
 ## Acceptance Criteria
 
@@ -121,5 +126,6 @@ purchase-history-driven and never matches a sentinel id, so manual items are nat
 - [x] Frontend: manual-item toggle in the Add Item form, MANUAL badge on the row, guarded
       action-menu entries
 - [x] Persist `manual_purchase` + `notes` on `user_shopping_lists` (both backends)
+- [x] Guard both caller-facing cart-add entry points against a `manual:` id server-side
 - [x] Write `tests/test_favorites_manual_items.py`
 - [x] Run the full suite + ruff

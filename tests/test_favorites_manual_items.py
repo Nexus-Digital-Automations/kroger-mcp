@@ -31,9 +31,11 @@ from kroger_mcp.analytics.favorites import (
     get_list_items,
     get_low_stock_items,
 )
+from kroger_mcp.tools.cart_tools import register_tools as register_cart_tools
 from kroger_mcp.tools.favorites_tools import register_tools
 from kroger_mcp.tools.shopping_list_tools import _load_shopping_list
 from kroger_mcp.web.routes.api.favorites import add_list_to_shopping_list
+from kroger_mcp.web.routes.api.products import AddToCartBody, add_product_to_cart
 
 USER = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
 LIST_ID = "TESTLIST_manual"
@@ -131,22 +133,43 @@ _TOOL_DEFAULTS: dict[str, Any] = {
 }
 
 
-def _favorites_tool():
-    """Register the favorites tools against a stub MCP and return the closure."""
+# Same treatment for the `cart` tool, used to prove a manual id can't be
+# ordered through the generic cart-add path.
+_CART_DEFAULTS: dict[str, Any] = {
+    "product_id": None,
+    "quantity": 1,
+    "modality": "PICKUP",
+    "items": None,
+    "preview_only": True,
+    "confirm_unsafe": False,
+    "order_notes": None,
+    "limit": 10,
+    "product_ids": None,
+    "pantry_threshold": 30,
+    "ctx": None,
+}
+
+
+def _register(register_func, tool_name: str):
+    """Register a tool module against a stub MCP and return the named closure."""
     captured: dict[str, Any] = {}
 
     def capture_tool(func):
         captured[func.__name__] = func
         return func
 
-    mcp = SimpleNamespace(tool=lambda: capture_tool)
-    register_tools(mcp)
-    return captured["favorites"]
+    register_func(SimpleNamespace(tool=lambda: capture_tool))
+    return captured[tool_name]
 
 
 def _call_tool(action: str, **overrides) -> dict[str, Any]:
     kwargs = {**_TOOL_DEFAULTS, **overrides}
-    return asyncio.run(_favorites_tool()(action=action, **kwargs))
+    return asyncio.run(_register(register_tools, "favorites")(action=action, **kwargs))
+
+
+def _call_cart_tool(action: str, **overrides) -> dict[str, Any]:
+    kwargs = {**_CART_DEFAULTS, **overrides}
+    return asyncio.run(_register(register_cart_tools, "cart")(action=action, **kwargs))
 
 
 def _add_manual(
@@ -330,6 +353,42 @@ def test_order_preview_splits_manual_items(clean_db):
     assert manual_row["override_reason"] == REASON
     assert manual_row["action"] == "MANUAL"
     assert "MANUAL PURCHASE" in result["next_step"]
+
+
+def test_cart_add_rejects_a_manual_id(clean_db):
+    """Spec: the generic cart-add paths refuse a synthetic manual id.
+
+    The favorites UI hides "+ Cart" for manual items, but that invariant can't
+    live only in the browser — both the web route and the MCP `cart` tool take
+    a caller-supplied product_id straight into the Kroger `upc` field.
+    """
+    manual_pid = _add_manual()["product_id"]
+
+    web_response = asyncio.run(
+        add_product_to_cart(manual_pid, AddToCartBody(quantity=1), _request(USER))
+    )
+    assert web_response.status_code == 400
+    assert b"not sold at Kroger" in web_response.body
+
+    tool_result = _call_cart_tool("add", product_id=manual_pid, preview_only=False)
+    assert tool_result["success"] is False
+    # The phrase pins it to the guard — an auth/API failure also returns
+    # success=False and would otherwise make this test pass for free.
+    assert "not sold at Kroger" in tool_result["error"]
+    assert manual_pid in tool_result["error"]
+
+    # Batch mode must fail before ordering ANY item, not partway through.
+    batch_result = _call_cart_tool(
+        "add",
+        items=[
+            {"product_id": LINKED_PID, "quantity": 1},
+            {"product_id": manual_pid, "quantity": 1},
+        ],
+        preview_only=False,
+    )
+    assert batch_result["success"] is False
+    assert "not sold at Kroger" in batch_result["error"]
+    assert manual_pid in batch_result["error"]
 
 
 def test_add_to_shopping_list_marks_manual_items(clean_db):

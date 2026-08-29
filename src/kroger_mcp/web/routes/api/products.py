@@ -301,6 +301,23 @@ class AddToCartBody(BaseModel):
 @router.post("/api/products/{product_id}/add-to-cart")
 async def add_product_to_cart(product_id: str, body: AddToCartBody, request: Request):
     """Add a single product to the Kroger cart and local cart tracking."""
+    from kroger_mcp.analytics.favorites import is_manual_product_id
+
+    # A manual favorite's synthetic id is not a UPC. The favorites UI already
+    # hides "+ Cart" for those, but this is the generic cart-add route — the
+    # invariant can't live only in the browser.
+    if is_manual_product_id(product_id):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": (
+                    "This is a manual item not sold at Kroger — "
+                    "you'll need to source it yourself."
+                ),
+            },
+        )
+
     try:
         # Off-loop like cart.py / shopping_list.py: the Kroger cart POST (and
         # its retry backoff sleeps) must not block the single worker.

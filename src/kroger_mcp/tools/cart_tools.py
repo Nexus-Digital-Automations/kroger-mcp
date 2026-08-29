@@ -355,6 +355,28 @@ def register_tools(mcp):
                             "error": "product_id (single mode) or items (batch mode) is required",
                         }
 
+                    # A manual favorite's synthetic id is not a UPC — Kroger
+                    # would reject it, and the whole point of a manual item is
+                    # that the user sources it themselves. Caught here rather
+                    # than at the API call so batch mode fails before any of
+                    # its items are ordered.
+                    from ..analytics.favorites import is_manual_product_id
+
+                    manual_ids = [
+                        item["product_id"]
+                        for item in formatted_items
+                        if is_manual_product_id(item["product_id"])
+                    ]
+                    if manual_ids:
+                        return {
+                            "success": False,
+                            "error": (
+                                "These are manual items not sold at Kroger and cannot be "
+                                f"added to the cart: {', '.join(manual_ids)}. "
+                                "You'll need to source them yourself."
+                            ),
+                        }
+
                     invalid_quantities = [
                         item["product_id"]
                         for item in formatted_items
