@@ -154,3 +154,5 @@ purchase-history-driven and never matches a sentinel id, so manual items are nat
       the laundering path through a recipe ingredient's forced `override=False`
 - [x] Write `tests/test_favorites_manual_items.py`
 - [x] Run the full suite + ruff
+
+<!-- last-verified: 2026-08-29 -->
