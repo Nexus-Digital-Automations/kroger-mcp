@@ -203,6 +203,15 @@
             if (ok) { await this.confirmSend(true); }
             return;
           }
+          if (result.success === false) {
+            // A hard block (manual items, or hard block mode) has no
+            // confirm-and-retry, so it lands here. Without this it rendered as
+            // a success toast and closed the modal over an order never sent.
+            this.sendBusy = false;
+            window._ssToast(result.message || result.error || 'Could not send to cart.',
+                            { level: 'error' });
+            return;
+          }
           const parts = [result.message || `Sent ${result.items_added || 0} items to Kroger cart.`];
           if (result.warning) parts.push(result.warning);
           window._ssToast(parts.join(' '));

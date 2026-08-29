@@ -243,7 +243,9 @@
         this.cartError = d.message || 'Add to cart cancelled';
       }
       else if (d.auth_required) { this.cartError = d.error; }
-      else { this.cartError = d.error || 'Failed to add to cart'; }
+      // A hard block reports the reason in `message`, not `error` — without
+      // that fallback a blocked manual item showed only the generic text.
+      else { this.cartError = d.error || d.message || 'Failed to add to cart'; }
     } catch(e) { this.cartError = 'Network error'; }
     this.cartLoading = false;
   },
