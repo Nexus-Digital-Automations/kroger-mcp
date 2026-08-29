@@ -39,7 +39,7 @@ def _load_shopping_list(user_id: str) -> dict[str, Any]:
         rows = conn.execute(
             """
             SELECT id, product_id, name, quantity, unit, category,
-                   purchased, recipe_source, added_at
+                   purchased, recipe_source, notes, manual_purchase, added_at
             FROM user_shopping_lists WHERE user_id = ?
             ORDER BY added_at
             """,
@@ -55,6 +55,9 @@ def _load_shopping_list(user_id: str) -> dict[str, Any]:
                 "category": row["category"],
                 "purchased": bool(row["purchased"]),
                 "recipe_source": row["recipe_source"],
+                "notes": row["notes"],
+                # SQLite hands back 0/1, Postgres a bool.
+                "manual_purchase": bool(row["manual_purchase"]),
                 "added_at": row["added_at"],
             }
             for row in rows
@@ -80,8 +83,8 @@ def _save_shopping_list(data: dict[str, Any], user_id: str) -> None:
                 """
                 INSERT INTO user_shopping_lists
                     (id, user_id, product_id, name, quantity, unit, category,
-                     purchased, recipe_source, added_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     purchased, recipe_source, notes, manual_purchase, added_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     user_id = excluded.user_id,
                     product_id = excluded.product_id,
@@ -91,6 +94,8 @@ def _save_shopping_list(data: dict[str, Any], user_id: str) -> None:
                     category = excluded.category,
                     purchased = excluded.purchased,
                     recipe_source = excluded.recipe_source,
+                    notes = excluded.notes,
+                    manual_purchase = excluded.manual_purchase,
                     added_at = excluded.added_at
                 """,
                 (
@@ -103,6 +108,8 @@ def _save_shopping_list(data: dict[str, Any], user_id: str) -> None:
                     item.get("category"),
                     bool(item.get("purchased")),
                     item.get("recipe_source"),
+                    item.get("notes"),
+                    bool(item.get("manual_purchase")),
                     item.get("added_at") or datetime.now().isoformat(),
                 ),
             )

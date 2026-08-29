@@ -274,6 +274,11 @@ CREATE TABLE IF NOT EXISTS favorite_list_items (
     current_stock_quantity INTEGER,
     last_ordered_at TIMESTAMP WITH TIME ZONE,
     typical_gap_days INTEGER,
+    -- Manual (not sold at Kroger) items. product_id stays NOT NULL and part of
+    -- the PK; a manual row carries a synthetic 'manual:<uuid>' id instead
+    -- (see analytics/favorites.py::new_manual_product_id).
+    is_manual BOOLEAN DEFAULT FALSE,
+    override_reason TEXT,
     PRIMARY KEY (list_id, product_id)
 );
 
@@ -477,6 +482,11 @@ CREATE TABLE IF NOT EXISTS user_shopping_lists (
     category VARCHAR(100),
     purchased BOOLEAN DEFAULT FALSE,
     recipe_source TEXT,
+    -- An item the user must source themselves (recipe override or a manual
+    -- favorite). It carries no product_id, so without this flag the cart-send
+    -- path can't tell it apart from a row not yet linked to a product.
+    notes TEXT,
+    manual_purchase BOOLEAN DEFAULT FALSE,
     added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_user_shopping_lists_user_id
@@ -743,9 +753,14 @@ _PG_COLUMN_MIGRATIONS = (
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS last_ordered_at "
     "TIMESTAMP WITH TIME ZONE",
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS typical_gap_days INTEGER",
+    "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS is_manual BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS override_reason TEXT",
     "ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS cook_skipped BOOLEAN DEFAULT FALSE",
     "ALTER TABLE user_carts ADD COLUMN IF NOT EXISTS regular_price REAL",
     "ALTER TABLE user_carts ADD COLUMN IF NOT EXISTS sale_price REAL",
+    "ALTER TABLE user_shopping_lists ADD COLUMN IF NOT EXISTS notes TEXT",
+    "ALTER TABLE user_shopping_lists ADD COLUMN IF NOT EXISTS manual_purchase "
+    "BOOLEAN DEFAULT FALSE",
 )
 
 

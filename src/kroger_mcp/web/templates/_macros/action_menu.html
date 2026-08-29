@@ -87,10 +87,13 @@
         <button type="button" role="menuitem" class="action-menu-item" @click="act('view-details')">View Details</button>
 
       {% elif card_type == 'favorite_item' %}
+        {# A manual item has no Kroger product behind it, so the two actions
+           that call product-id endpoints (cart add, recipe ingredient link)
+           are hidden for it. Move/Add to List/Remove still apply. #}
         {{ _submenu_trigger('favorites', 'Move to List') }}
         <button type="button" role="menuitem" class="action-menu-item" @click="act('shopping-add')">Add to List</button>
-        <button type="button" role="menuitem" class="action-menu-item" @click="act('cart-add')">+ Cart</button>
-        <button type="button" role="menuitem" class="action-menu-item" @click="act('recipe-pick')">Add to Recipe…</button>
+        <button type="button" role="menuitem" class="action-menu-item" x-show="!config.item.is_manual" @click="act('cart-add')">+ Cart</button>
+        <button type="button" role="menuitem" class="action-menu-item" x-show="!config.item.is_manual" @click="act('recipe-pick')">Add to Recipe…</button>
         <div class="action-menu-separator" role="none"></div>
         <button type="button" role="menuitem" class="action-menu-item is-danger" @click="act('delete')">Remove</button>
 

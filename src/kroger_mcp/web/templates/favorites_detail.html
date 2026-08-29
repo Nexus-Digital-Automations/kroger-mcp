@@ -156,10 +156,20 @@
   quantity: 1,
   loading: false,
   error: '',
-  manualId: false,
+  typeUpcManually: false,
+  /* A manual item has no Kroger product behind it (farmers market, home-grown,
+     specialty butcher) — the server stores it unlinked and never carts it. */
+  manualItem: false,
+  overrideReason: '',
+  get ready() {
+    return this.description.trim() && (this.manualItem || this.productId.trim());
+  },
   async submit() {
-    if (!this.productId.trim() || !this.description.trim()) {
-      this.error = 'Pick a product (or enter an ID) and a description'; return;
+    if (!this.ready) {
+      this.error = this.manualItem
+        ? 'Enter a description'
+        : 'Pick a product (or enter an ID) and a description';
+      return;
     }
     this.loading = true; this.error = '';
     try {
@@ -167,17 +177,19 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          product_id: this.productId.trim(),
+          product_id: this.manualItem ? null : this.productId.trim(),
           description: this.description.trim(),
           brand: this.brand.trim() || null,
-          quantity: this.quantity
+          quantity: this.quantity,
+          manual: this.manualItem,
+          override_reason: this.manualItem ? (this.overrideReason.trim() || null) : null
         })
       });
       const d = await r.json();
       if (r.ok && d.success) {
         window._ssToast('Added to list');
         this.productId = ''; this.description = ''; this.brand = '';
-        this.quantity = 1;
+        this.quantity = 1; this.overrideReason = '';
         window.refreshFavoritesDetail();
       } else {
         this.error = d.error || 'Failed to add item';
@@ -189,20 +201,27 @@
   @product-picker:select="productId = $event.detail.product_id; if (!description.trim()) description = $event.detail.description"
   class="ss-card p-5 mb-4">
   <h3 class="text-xs font-semibold uppercase tracking-wide mb-3" style="color: var(--text-2);">Add Item</h3>
-  <div class="mb-3">
+  <div class="mb-3" x-show="!manualItem">
     {{ product_picker(placeholder='Search Kroger by name…') }}
     <p x-show="productId" style="font-size: 0.6875rem; color: var(--success); margin-top: 0.25rem;">
       Selected: <span style="font-variant-numeric: tabular-nums;" x-text="productId"></span>
       <button type="button" @click="productId = ''" style="margin-left: 0.375rem; border: 0; background: none; color: var(--text-3); cursor: pointer;">✕</button>
     </p>
-    <button type="button" @click="manualId = !manualId"
+    <button type="button" @click="typeUpcManually = !typeUpcManually"
             style="border: 0; background: none; padding: 0; margin-top: 0.25rem; font-size: 0.6875rem; color: var(--text-3); cursor: pointer; text-decoration: underline;">
-      <span x-show="!manualId">enter a product ID manually</span>
-      <span x-show="manualId">hide manual entry</span>
+      <span x-show="!typeUpcManually">enter a product ID manually</span>
+      <span x-show="typeUpcManually">hide manual entry</span>
     </button>
-    <input x-show="manualId" x-cloak x-model="productId" type="text" placeholder="e.g. 0001111042018"
+    <input x-show="typeUpcManually" x-cloak x-model="productId" type="text" placeholder="e.g. 0001111042018"
            class="ss-input w-full" style="margin-top: 0.25rem;" />
   </div>
+  <label class="flex items-center gap-2 mb-3" style="font-size: 0.75rem; color: var(--text-2); cursor: pointer;">
+    <input type="checkbox" x-model="manualItem" @change="if (manualItem) productId = ''" />
+    Not sold at Kroger — track it here, buy it myself
+  </label>
+  <input x-show="manualItem" x-cloak x-model="overrideReason" type="text"
+         placeholder="Where you get it (optional) — e.g. farmers market"
+         class="ss-input w-full mb-3" />
   <div class="flex gap-3 flex-wrap">
     <input x-model="description" type="text" placeholder="Description *"
       class="ss-input flex-1 min-w-40"/>
@@ -210,7 +229,7 @@
       class="ss-input w-32"/>
     <input x-model.number="quantity" type="number" min="1" placeholder="Qty"
       class="ss-input w-20 text-center"/>
-    <button @click="submit()" :disabled="loading || !productId.trim() || !description.trim()"
+    <button @click="submit()" :disabled="loading || !ready"
       class="ss-btn-primary">
       <span x-show="!loading">Add</span>
       <span x-show="loading">Adding...</span>
@@ -256,6 +275,12 @@
       <tr class="ss-table-tr">
         <td class="px-6 py-4">
           <span class="font-medium" style="color: var(--text-1);">{{ item.description }}</span>
+          {% if item.is_manual %}
+          <span class="ss-badge ss-badge-muted ml-2" style="font-size: 0.625rem;">MANUAL</span>
+          <span class="block text-xs mt-0.5" style="color: var(--text-3);">
+            Not sold at Kroger{% if item.override_reason %} — {{ item.override_reason }}{% endif %}
+          </span>
+          {% endif %}
           {% if item.notes %}
           <span class="block text-xs mt-0.5" style="color: var(--text-3);">{{ item.notes }}</span>
           {% endif %}
@@ -398,6 +423,10 @@ function favoriteItemsActions(currentListId) {
             brand: item.brand || '',
             quantity: item.default_quantity || 1,
             notes: item.notes || null,
+            // Carry manual-ness across the move; the server also infers it from
+            // the 'manual:' id prefix, so a stale client can't relink the item.
+            manual: !!item.is_manual,
+            override_reason: item.override_reason || null,
           }),
         });
         const addData = await addRes.json();
@@ -417,6 +446,9 @@ function favoriteItemsActions(currentListId) {
     },
 
     async addToCart(item) {
+      // Manual items have no Kroger product; the menu hides this action for
+      // them, but guard the handler too since the event is dispatchable.
+      if (item.is_manual) { this._flash('Manual item — buy it yourself'); return; }
       if (this.busy[item.product_id]) return;
       this.busy = {...this.busy, [item.product_id]: true};
       try {
@@ -446,10 +478,13 @@ function favoriteItemsActions(currentListId) {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
-            product_id: item.product_id,
+            // A manual item goes onto the shopping list unlinked, matching how
+            // recipe-override ingredients are stored there.
+            product_id: item.is_manual ? null : item.product_id,
             name: item.description,
             quantity: item.default_quantity || 1,
             unit: '',
+            manual_purchase: !!item.is_manual,
           }),
         });
         const d = await r.json();
@@ -462,6 +497,9 @@ function favoriteItemsActions(currentListId) {
     },
 
     async addToRecipe(item, recipeId, recipeName) {
+      // Recipe ingredients link to a Kroger product id — a manual favorite
+      // has none, so this action is hidden for it (guarded here as well).
+      if (item.is_manual) { this._flash('Manual item — add it to the recipe manually'); return; }
       if (this.busy[item.product_id]) return;
       this.busy = {...this.busy, [item.product_id]: true};
       try {

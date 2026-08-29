@@ -101,7 +101,19 @@ def register_tools(mcp):
         ),
         items: list[dict[str, Any]] | None = Field(
             default=None,
-            description="Bulk add: [{product_id, description, brand, default_quantity, preferred_modality, notes, min_stock_percent, min_stock_quantity, current_stock_quantity}]",
+            description="Bulk add: [{product_id, description, brand, default_quantity, preferred_modality, notes, min_stock_percent, min_stock_quantity, current_stock_quantity, manual, override_reason}]",
+        ),
+        manual: bool | None = Field(
+            default=False,
+            description=(
+                "add_item — True for an item Kroger doesn't sell (farmers market, "
+                "home-grown, specialty butcher). No product_id needed; it is stored "
+                "as a MANUAL PURCHASE item and never sent to the Kroger cart."
+            ),
+        ),
+        override_reason: str | None = Field(
+            default=None,
+            description="add_item — optional note on why a manual item isn't a Kroger product",
         ),
         min_stock_percent: int | None = Field(
             default=None,
@@ -189,6 +201,8 @@ def register_tools(mcp):
             preferred_modality,
             notes,
             items,
+            manual,
+            override_reason,
             min_stock_percent,
             min_stock_quantity,
             current_stock_quantity,
@@ -222,6 +236,8 @@ def register_tools(mcp):
         preferred_modality,
         notes,
         items,
+        manual,
+        override_reason,
         min_stock_percent,
         min_stock_quantity,
         current_stock_quantity,
@@ -303,11 +319,13 @@ def register_tools(mcp):
                         list_id=list_id or "default", items=items, user_id=user_id
                     )
 
-                if not product_id or not description:
+                if not description or (not product_id and not manual):
                     return {
                         "success": False,
                         "error": (
-                            "For single item add, both product_id and description are required. "
+                            "For single item add, both product_id and description are required "
+                            "— unless the item isn't sold at Kroger, in which case pass "
+                            "manual=True with a description (product_id not needed). "
                             "For bulk add, provide items list."
                         ),
                     }
@@ -316,6 +334,8 @@ def register_tools(mcp):
                     list_id=list_id or "default",
                     product_id=product_id,
                     description=description,
+                    manual=bool(manual),
+                    override_reason=override_reason,
                     brand=brand,
                     default_quantity=default_quantity or 1,
                     preferred_modality=preferred_modality or "PICKUP",
@@ -387,8 +407,24 @@ def register_tools(mcp):
 
                 items_to_order = []
                 items_skipped = []
+                # Items with no Kroger product behind them. Reported separately
+                # so the user still sees what they have to source themselves —
+                # mirrors recipes(action='preview_order')'s manual_purchase list.
+                manual_purchase = [
+                    {
+                        "product_id": item["product_id"],
+                        "description": item["description"],
+                        "quantity": item["default_quantity"],
+                        "override_reason": item.get("override_reason"),
+                        "action": "MANUAL",
+                    }
+                    for item in result["items"]
+                    if item.get("is_manual")
+                ]
 
                 for item in result["items"]:
+                    if item.get("is_manual"):
+                        continue
                     pantry = item.get("pantry_status", {})
                     level = pantry.get("level_percent")
                     min_pct = item.get("min_stock_percent")
@@ -446,11 +482,20 @@ def register_tools(mcp):
                 if not items_to_order:
                     return {
                         "success": True,
-                        "message": "No items needed - all are well-stocked",
+                        "message": (
+                            "No items needed - all are well-stocked"
+                            + (
+                                f". {len(manual_purchase)} item(s) require manual purchase."
+                                if manual_purchase
+                                else ""
+                            )
+                        ),
                         "items_ordered": [],
                         "items_skipped": items_skipped,
+                        "manual_purchase": manual_purchase,
                         "order_count": 0,
                         "skip_count": len(items_skipped),
+                        "manual_count": len(manual_purchase),
                         "reorder_status": list_info.get("reorder_status"),
                     }
 
@@ -469,11 +514,19 @@ def register_tools(mcp):
                                 for i in items_to_order
                             ],
                             "items_skipped": items_skipped,
+                            "manual_purchase": manual_purchase,
                             "order_count": len(items_to_order),
                             "skip_count": len(items_skipped),
+                            "manual_count": len(manual_purchase),
                         },
                         "next_step": (
                             "Review the items above. Call again with confirm=True to add to cart."
+                            + (
+                                " Items under MANUAL PURCHASE are not sold at Kroger — "
+                                "you'll need to source those yourself."
+                                if manual_purchase
+                                else ""
+                            )
                         ),
                     }
 
@@ -534,7 +587,15 @@ def register_tools(mcp):
 
                     response = {
                         "success": True,
-                        "message": f"Added {len(items_to_order)} items, skipped {len(items_skipped)}",
+                        "message": (
+                            f"Added {len(items_to_order)} items, "
+                            f"skipped {len(items_skipped)}"
+                            + (
+                                f", {len(manual_purchase)} require manual purchase"
+                                if manual_purchase
+                                else ""
+                            )
+                        ),
                         "items_ordered": [
                             {
                                 "product_id": i["product_id"],
@@ -545,8 +606,10 @@ def register_tools(mcp):
                             for i in items_to_order
                         ],
                         "items_skipped": items_skipped,
+                        "manual_purchase": manual_purchase,
                         "order_count": len(items_to_order),
                         "skip_count": len(items_skipped),
+                        "manual_count": len(manual_purchase),
                     }
 
                     if order_result.get("success"):
@@ -586,6 +649,7 @@ def register_tools(mcp):
                             for i in items_to_order
                         ],
                         "items_skipped": items_skipped,
+                        "manual_purchase": manual_purchase,
                     }
 
             case "suggest":

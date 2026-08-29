@@ -20,6 +20,29 @@ from .database import ensure_initialized, get_db_cursor
 SNACK_DEFAULT_GAP_DAYS = 21
 SNACK_PANTRY_LOW_PERCENT = 30
 
+# Manual items — things the user wants on a list that Kroger doesn't sell (a
+# farmers-market find, a home-grown herb, a specialty butcher cut).
+# `favorite_list_items.product_id` is NOT NULL and half the composite primary
+# key, so a manual row gets a synthetic id under this prefix rather than a NULL.
+# 'manual:' + 32 hex chars = 39, inside Postgres' VARCHAR(50) on that column.
+MANUAL_ID_PREFIX = "manual:"
+
+
+def new_manual_product_id() -> str:
+    """Mint a synthetic product_id for an item with no Kroger product behind it."""
+    return f"{MANUAL_ID_PREFIX}{uuid.uuid4().hex}"
+
+
+def is_manual_product_id(product_id: str | None) -> bool:
+    """True for a synthetic manual id.
+
+    The `is_manual` column is authoritative, but this prefix check is the
+    backstop for callers that re-post an existing item's stored product_id —
+    the favorites "Move to List" action does exactly that — so a manual item
+    can never be copied into another list as a Kroger-linked row.
+    """
+    return product_id is not None and product_id.startswith(MANUAL_ID_PREFIX)
+
 
 def _resolve_user_id(user_id: str) -> str:
     """Identity passthrough, kept so this module's ~20 call sites don't need a
@@ -460,7 +483,7 @@ def delete_list(list_id: str, user_id: str) -> dict[str, Any]:
 
 def add_to_list(
     list_id: str,
-    product_id: str,
+    product_id: str | None,
     description: str,
     brand: str | None = None,
     default_quantity: int = 1,
@@ -470,15 +493,26 @@ def add_to_list(
     min_stock_quantity: int | None = None,
     current_stock_quantity: int | None = None,
     typical_gap_days: int | None = None,
+    manual: bool = False,
+    override_reason: str | None = None,
     *, user_id: str,
 ) -> dict[str, Any]:
-    """Add a product to a favorite list, only if the list belongs to `user_id`."""
+    """Add an item to a favorite list, only if the list belongs to `user_id`.
+
+    Pass `manual=True` (or omit `product_id`) for something Kroger doesn't sell:
+    the row gets a synthetic `manual:<uuid>` product_id, is flagged `is_manual`,
+    and is excluded from every Kroger cart-add path downstream.
+    """
     ensure_initialized()
     owner = _resolve_user_id(user_id)
 
     lst = get_list(list_id, user_id=owner)
     if not lst:
         return {"success": False, "error": f"List '{list_id}' not found"}
+
+    is_manual = manual or not product_id or is_manual_product_id(product_id)
+    if is_manual and not product_id:
+        product_id = new_manual_product_id()
 
     try:
         with get_db_cursor() as cursor:
@@ -487,8 +521,8 @@ def add_to_list(
                 INSERT INTO favorite_list_items
                 (list_id, product_id, description, brand, default_quantity,
                  preferred_modality, notes, min_stock_percent, min_stock_quantity,
-                 current_stock_quantity, typical_gap_days)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 current_stock_quantity, typical_gap_days, is_manual, override_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     list_id,
@@ -502,6 +536,8 @@ def add_to_list(
                     min_stock_quantity,
                     current_stock_quantity,
                     typical_gap_days,
+                    is_manual,
+                    override_reason if is_manual else None,
                 ),
             )
 
@@ -516,6 +552,8 @@ def add_to_list(
                 "list_id": list_id,
                 "product_id": product_id,
                 "description": description,
+                "is_manual": is_manual,
+                "override_reason": override_reason if is_manual else None,
             }
     except Exception as e:
         if "UNIQUE constraint" in str(e):
@@ -531,7 +569,12 @@ def bulk_add_to_list(
     items: list[dict[str, Any]],
     user_id: str,
 ) -> dict[str, Any]:
-    """Add multiple products in one operation, only if the list belongs to `user_id`."""
+    """Add multiple items in one operation, only if the list belongs to `user_id`.
+
+    An item dict with `manual: True` (or no `product_id`) is stored as a manual
+    item — see `add_to_list` — so a batch can mix Kroger products and things the
+    user sources elsewhere.
+    """
     ensure_initialized()
     owner = _resolve_user_id(user_id)
 
@@ -546,8 +589,11 @@ def bulk_add_to_list(
         for item in items:
             product_id = item.get("product_id")
             description = item.get("description")
+            is_manual = bool(
+                item.get("manual") or not product_id or is_manual_product_id(product_id)
+            )
 
-            if not product_id or not description:
+            if not description or (not product_id and not is_manual):
                 failed.append(
                     {
                         "product_id": product_id,
@@ -556,14 +602,17 @@ def bulk_add_to_list(
                 )
                 continue
 
+            if not product_id:
+                product_id = new_manual_product_id()
+
             try:
                 cursor.execute(
                     """
                     INSERT INTO favorite_list_items
                     (list_id, product_id, description, brand, default_quantity,
                      preferred_modality, notes, min_stock_percent, min_stock_quantity,
-                     current_stock_quantity, typical_gap_days)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     current_stock_quantity, typical_gap_days, is_manual, override_reason)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         list_id,
@@ -577,9 +626,17 @@ def bulk_add_to_list(
                         item.get("min_stock_quantity"),
                         item.get("current_stock_quantity"),
                         item.get("typical_gap_days"),
+                        is_manual,
+                        item.get("override_reason") if is_manual else None,
                     ),
                 )
-                added.append({"product_id": product_id, "description": description})
+                added.append(
+                    {
+                        "product_id": product_id,
+                        "description": description,
+                        "is_manual": is_manual,
+                    }
+                )
             except Exception as e:
                 if "UNIQUE constraint" in str(e):
                     failed.append({"product_id": product_id, "error": "Already in list"})
@@ -694,6 +751,11 @@ def get_list_items(
                         MIN(fli.current_stock_quantity) as current_stock_quantity,
                         MAX(fli.last_ordered_at) as last_ordered_at,
                         MAX(fli.typical_gap_days) as typical_gap_days,
+                        -- CASE, not MAX(fli.is_manual): Postgres has no MAX()
+                        -- for boolean. Manual ids are unique per row anyway, so
+                        -- this group is always a single row's value.
+                        MAX(CASE WHEN fli.is_manual THEN 1 ELSE 0 END) as is_manual,
+                        MIN(fli.override_reason) as override_reason,
                         -- Aggregated, not bare: Postgres rejects a bare column
                         -- under GROUP BY. UNIQUE(user_id, product_id) on
                         -- pantry_items means the owner-scoped join yields at
@@ -728,7 +790,9 @@ def get_list_items(
                         MIN(fli.min_stock_quantity) as min_stock_quantity,
                         MIN(fli.current_stock_quantity) as current_stock_quantity,
                         MAX(fli.last_ordered_at) as last_ordered_at,
-                        MAX(fli.typical_gap_days) as typical_gap_days
+                        MAX(fli.typical_gap_days) as typical_gap_days,
+                        MAX(CASE WHEN fli.is_manual THEN 1 ELSE 0 END) as is_manual,
+                        MIN(fli.override_reason) as override_reason
                     FROM favorite_list_items fli
                     JOIN favorite_lists fl ON fl.id = fli.list_id
                     WHERE fl.user_id = ?
@@ -754,6 +818,8 @@ def get_list_items(
                     fli.current_stock_quantity,
                     fli.last_ordered_at,
                     fli.typical_gap_days,
+                    fli.is_manual,
+                    fli.override_reason,
                     pi.level_percent,
                     pi.daily_depletion_rate,
                     pi.low_threshold
@@ -781,7 +847,9 @@ def get_list_items(
                     fli.min_stock_quantity,
                     fli.current_stock_quantity,
                     fli.last_ordered_at,
-                    fli.typical_gap_days
+                    fli.typical_gap_days,
+                    fli.is_manual,
+                    fli.override_reason
                 FROM favorite_list_items fli
                 WHERE fli.list_id = ?
                 ORDER BY {sort_column}
@@ -811,6 +879,10 @@ def get_list_items(
             "current_stock_quantity": cur_qty,
             "last_ordered_at": row["last_ordered_at"],
             "typical_gap_days": row["typical_gap_days"],
+            # SQLite hands back 0/1, Postgres a bool — normalise so callers and
+            # templates can test this without knowing the backend.
+            "is_manual": bool(row["is_manual"]),
+            "override_reason": row["override_reason"],
         }
 
         if include_pantry_status:
@@ -999,6 +1071,8 @@ def check_snacks(
                 fli.preferred_modality,
                 fli.last_ordered_at,
                 fli.typical_gap_days,
+                fli.is_manual,
+                fli.override_reason,
                 pi.level_percent
             FROM favorite_list_items fli
             LEFT JOIN pantry_items pi
@@ -1046,6 +1120,8 @@ def check_snacks(
                 "never_ordered": never_ordered,
                 "pre_ticked": pre_ticked,
                 "reason": reason,
+                "is_manual": bool(row["is_manual"]),
+                "override_reason": row["override_reason"],
             }
         )
 
@@ -1330,6 +1406,7 @@ def get_low_stock_items(
                 fli.min_stock_percent,
                 fli.min_stock_quantity,
                 fli.current_stock_quantity,
+                fli.is_manual,
                 pi.level_percent
             FROM favorite_list_items fli
             LEFT JOIN pantry_items pi
@@ -1376,6 +1453,7 @@ def get_low_stock_items(
                 "below_min_percent": below_min_percent,
                 "below_min_quantity": below_min_quantity,
                 "restock_reasons": reasons,
+                "is_manual": bool(row["is_manual"]),
             }
         )
 

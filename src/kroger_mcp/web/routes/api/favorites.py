@@ -23,11 +23,19 @@ class RenameListBody(BaseModel):
 
 
 class AddItemBody(BaseModel):
-    product_id: str
+    """A favorites item to add.
+
+    `product_id` is omitted for a manual item — something Kroger doesn't sell.
+    Such an item is stored with a synthetic id and never sent to the Kroger cart.
+    """
+
+    product_id: str | None = None
     description: str
     brand: str | None = None
     quantity: int = 1
     notes: str | None = None
+    manual: bool = False
+    override_reason: str | None = None
 
 
 class UpdateItemBody(BaseModel):
@@ -146,9 +154,18 @@ async def get_list_items(list_id: str, request: Request):
 
 @router.post("/api/favorites/lists/{list_id}/items")
 async def add_item(list_id: str, body: AddItemBody, request: Request):
-    """Add a product to a favorite list."""
+    """Add a product — or a manual, non-Kroger item — to a favorite list."""
     try:
         from kroger_mcp.analytics.favorites import add_to_list
+
+        if not body.product_id and not body.manual:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "product_id is required unless the item is marked manual",
+                },
+            )
 
         result = add_to_list(
             list_id=list_id,
@@ -157,6 +174,8 @@ async def add_item(list_id: str, body: AddItemBody, request: Request):
             brand=body.brand,
             default_quantity=body.quantity,
             notes=body.notes,
+            manual=body.manual,
+            override_reason=body.override_reason,
             user_id=current_user_id(request),
         )
         if not result.get("success"):
@@ -262,27 +281,36 @@ async def add_list_to_shopping_list(list_id: str, request: Request):
     items_skipped = 0
     now = datetime.now().isoformat()
 
+    items_manual = 0
     for item in items:
         product_id = item.get("product_id")
         if not product_id:
             continue
-        level = pantry_levels.get(product_id, 0)
-        if level >= 30:
-            items_skipped += 1
-            continue
+        # A manual favorite has no real Kroger product: carry it onto the list
+        # as an unlinked manual_purchase row (the same shape recipe overrides
+        # use) so the cart-send path shows it instead of trying to buy it.
+        manual = bool(item.get("is_manual"))
+        if not manual:
+            level = pantry_levels.get(product_id, 0)
+            if level >= 30:
+                items_skipped += 1
+                continue
         data["items"].append(
             {
                 "id": _generate_list_item_id(),
-                "product_id": product_id,
+                "product_id": None if manual else product_id,
                 "name": item.get("description", ""),
                 "quantity": item.get("default_quantity") or 1,
                 "unit": "",
                 "sources": [{"favorites_list_id": list_id, "favorites_list_name": list_name}],
                 "added_at": now,
+                "notes": (item.get("override_reason") or "Manual purchase") if manual else None,
+                "manual_purchase": manual,
                 "recipe_name": None,
             }
         )
         items_added += 1
+        items_manual += 1 if manual else 0
 
     data["items"] = _consolidate_items(data["items"])
     _save_shopping_list(data, user_id=user_id)
@@ -297,6 +325,7 @@ async def add_list_to_shopping_list(list_id: str, request: Request):
         "list_name": list_name,
         "items_added": items_added,
         "items_skipped": items_skipped,
+        "items_manual": items_manual,
         "total_items": len(data["items"]),
     }
 
@@ -349,15 +378,19 @@ async def add_snacks_to_shopping_list(body: AddSnacksBody, request: Request):
         snack = by_id.get(product_id)
         if not snack:
             continue
+        manual = bool(snack.get("is_manual"))
         data["items"].append(
             {
                 "id": _generate_list_item_id(),
-                "product_id": product_id,
+                # Manual snacks carry no real UPC — drop the synthetic id and
+                # flag the row so the cart-send path lists it as a manual buy.
+                "product_id": None if manual else product_id,
                 "name": snack["description"],
                 "quantity": snack.get("default_quantity") or 1,
                 "unit": "",
                 "added_at": now,
-                "notes": None,
+                "notes": (snack.get("override_reason") or "Manual purchase") if manual else None,
+                "manual_purchase": manual,
                 "sources": [{"snacks_list_id": snack["list_id"]}],
             }
         )

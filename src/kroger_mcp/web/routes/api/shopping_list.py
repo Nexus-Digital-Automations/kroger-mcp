@@ -350,6 +350,10 @@ class AddItemBody(BaseModel):
     name: str
     quantity: float = 1.0
     unit: str = ""
+    # Set for something Kroger doesn't sell (a manual favorites item, a recipe
+    # override). Keeps the row out of the Kroger cart-add and lists it under
+    # MANUAL PURCHASE instead of "no product ID — search for product first".
+    manual_purchase: bool = False
 
 
 @router.post("/api/shopping-list/items")
@@ -365,7 +369,8 @@ async def add_shopping_list_item(body: AddItemBody, request: Request):
             "quantity": body.quantity,
             "unit": body.unit,
             "added_at": datetime.now().isoformat(),
-            "notes": None,
+            "notes": "Manual purchase" if body.manual_purchase else None,
+            "manual_purchase": body.manual_purchase,
             "sources": [],
         }
         listing["items"].append(new_item)

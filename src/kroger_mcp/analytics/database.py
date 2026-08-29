@@ -61,6 +61,8 @@ _PG_BOOL_COLS = (
     "purchased",
     "is_hidden",
     "cook_skipped",
+    "is_manual",
+    "manual_purchase",
 )
 _BOOL_EQ_RE = re.compile(r"\b(" + "|".join(_PG_BOOL_COLS) + r")\s*=\s*([01])\b")
 
@@ -462,6 +464,11 @@ def initialize_database() -> None:
                 times_ordered INTEGER DEFAULT 0,
                 last_ordered_at TEXT DEFAULT NULL,
                 typical_gap_days INTEGER DEFAULT NULL,
+                -- Manual (not sold at Kroger) items. product_id stays NOT NULL and
+                -- part of the PK; a manual row carries a synthetic 'manual:<uuid>'
+                -- id instead (see analytics/favorites.py::new_manual_product_id).
+                is_manual INTEGER DEFAULT 0,
+                override_reason TEXT DEFAULT NULL,
                 PRIMARY KEY (list_id, product_id),
                 FOREIGN KEY (list_id) REFERENCES favorite_lists(id) ON DELETE CASCADE
             );
@@ -1066,6 +1073,12 @@ def run_schema_migrations() -> None:
                 category TEXT,
                 purchased INTEGER DEFAULT 0,
                 recipe_source TEXT,
+                -- An item the user must source themselves (recipe override or a
+                -- manual favorite). It carries no product_id, so without this
+                -- flag the cart-send path can't tell it apart from a row that
+                -- simply hasn't been linked to a product yet.
+                notes TEXT,
+                manual_purchase INTEGER DEFAULT 0,
                 added_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
             """
@@ -1074,6 +1087,15 @@ def run_schema_migrations() -> None:
             "CREATE INDEX IF NOT EXISTS idx_user_shopping_lists_user_id "
             "ON user_shopping_lists(user_id)"
         )
+        # Existing databases predate notes/manual_purchase.
+        cursor = conn.execute("PRAGMA table_info(user_shopping_lists)")
+        usl_columns = {row[1] for row in cursor.fetchall()}
+        for col_name, col_def in (
+            ("notes", "TEXT DEFAULT NULL"),
+            ("manual_purchase", "INTEGER DEFAULT 0"),
+        ):
+            if col_name not in usl_columns:
+                conn.execute(f"ALTER TABLE user_shopping_lists ADD COLUMN {col_name} {col_def}")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS user_notion_sync (
@@ -1333,6 +1355,9 @@ def run_schema_migrations() -> None:
             # the per-item "days between buys" threshold (defaults to 21 in app).
             ("last_ordered_at", "TEXT DEFAULT NULL"),
             ("typical_gap_days", "INTEGER DEFAULT NULL"),
+            # Manual items — no Kroger product behind them (see schema comment).
+            ("is_manual", "INTEGER DEFAULT 0"),
+            ("override_reason", "TEXT DEFAULT NULL"),
         ]
 
         added_fli_columns = []
