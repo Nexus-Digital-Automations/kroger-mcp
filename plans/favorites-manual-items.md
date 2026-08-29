@@ -129,6 +129,11 @@ purchase-history-driven and never matches a sentinel id, so manual items are nat
   verify: present "override_reason" src/kroger_mcp/analytics/pg_database.py
 - [x] Full test suite passes and ruff is clean
   verify: cmd .venv/bin/python -m pytest tests -q && .venv/bin/python -m ruff check . — bare python3 is the 3.14 homebrew interpreter, which has no pytest; pytest-timeout isn't installed either, so no --timeout
+- [x] Verified against the LIVE MCP server, not only by tests: a manual favorite is
+      created with no product_id, `get_items` returns `is_manual`/`override_reason`,
+      the `order` preview splits it into `manual_purchase` while the linked item still
+      orders, and both the single and batch `cart add` paths refuse the sentinel id
+  manual: docs/validation/favorites-manual-items-live-check.md
 
 ## Tasks
 
