@@ -18,6 +18,19 @@ Test suite for the Smart Shopper / Kroger MCP server, run via `pytest`.
   dependents rather than the whole database (so unrelated pre-existing FK
   debt in a long-lived dev/prod DB doesn't false-positive the migration).
 
+- **`test_favorites_manual_items.py`** — specs for favorites items with no
+  linked Kroger product (farmers-market finds, home-grown herbs). Because
+  `favorite_list_items.product_id` is NOT NULL and half the composite primary
+  key, such an item carries a synthetic `manual:<uuid>` id plus an `is_manual`
+  flag; these tests pin that it stores, survives every read path (including
+  the separate GROUP BY shape the aggregate `default` list uses), stays manual
+  when moved between lists, and — the part that matters — is never sent to the
+  Kroger cart while never being silently dropped either. The shopping-list
+  case asserts after a `_save_shopping_list`/`_load_shopping_list` round-trip
+  on purpose: `manual_purchase` was previously absent from the
+  `user_shopping_lists` column list, so the flag was dropped on reload and
+  recipe overrides silently reverted to ordinary unlinked rows.
+
 ## Isolation pattern
 
 Fixtures that touch the database use a `tmp_path`-backed SQLite file via
