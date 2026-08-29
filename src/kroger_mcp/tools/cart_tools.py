@@ -152,11 +152,15 @@ def _add_item_to_local_cart(
     """Add an item to the local cart tracking and analytics database.
 
     Raises ValueError if `product_id` is a manual favorite's synthetic id. Every
-    local-cart row is eventually shipped to Kroger as a `upc`, and this function
-    is the one chokepoint all nine cart-add paths funnel through — the paths that
-    legitimately carry manual items (the favorites `order` action, the
-    shopping-list and recipe pushes) filter them out well before here, so
-    reaching this line at all means a caller lost track of one.
+    local-cart row is eventually shipped to Kroger as a `upc`, and this is the
+    sole appender to `current_cart`.
+
+    This is a backstop for *local* state only — it is NOT what keeps manual items
+    out of the real Kroger order. Several callers (recipe_tools, meal_planner_tools,
+    shopping_list_tools) call `client.cart.add_to_cart` first and only then record
+    locally, inside a try/except that downgrades failures to a warning so a
+    successful order is never reported as failed. The real order is gated earlier,
+    by `check_cart_items_safety` and the entry-point guards.
     """
     from ..analytics.favorites import is_manual_product_id
 

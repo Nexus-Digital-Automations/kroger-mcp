@@ -556,6 +556,25 @@ def register_tools(mcp):
                             "items_unknown": [i["name"] for i in items_unknown],
                         }
 
+                    # Unlike the other cart-write paths this one has no
+                    # check_cart_items_safety() call to hang the manual-item
+                    # check off, so it is inlined. A manual favorite's id can
+                    # reach here by being linked to a recipe ingredient that the
+                    # plan then pulls in.
+                    from ..analytics.favorites import is_manual_product_id
+
+                    manual_upcs = [i["upc"] for i in api_items if is_manual_product_id(i["upc"])]
+                    if manual_upcs:
+                        return {
+                            "success": False,
+                            "error": (
+                                "These are manual items not sold at Kroger and cannot be "
+                                f"added to the cart: {', '.join(manual_upcs)}. "
+                                "You'll need to source them yourself."
+                            ),
+                            "manual_items": manual_upcs,
+                        }
+
                     client.cart.add_to_cart(api_items)
 
                     from .cart_tools import _add_item_to_local_cart

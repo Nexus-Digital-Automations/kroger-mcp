@@ -50,6 +50,17 @@ dropped on the next `_load_shopping_list`. Both consumers read it off the *loade
 revert to an ordinary unlinked row after a reload. This already broke recipe overrides; both
 columns are now persisted in both backends, with idempotent migrations.
 
+**Why the guard ended up in two layers.** Guarding entry points alone was tried and was
+wrong three times running, because the id does not only arrive from a caller. Every
+recipe/meal-plan/shopping-list cart push decides manual-ness from an `override` /
+`manual_purchase` *boolean* that is decoupled from the product_id string —
+`recipes(action='link_ingredient')` writes any product_id onto an ingredient and forces
+`override = False` — so a `manual:` id linked to an ingredient passes every upstream filter
+and reaches the real `client.cart.add_to_cart`. The durable fix is the shared gate those
+paths already call one line before the API: `check_cart_items_safety` rejects manual ids
+first thing, above `is_filtering_enabled` and outside `confirm_unsafe`'s reach, because this
+is a structural invariant rather than one of the user's safety preferences.
+
 **Analytics: manual stock levels only.** `set_stock_level` / `update_quantity` / `get_low_stock`
 work unchanged (those columns live on `favorite_list_items` itself). `suggest` is
 purchase-history-driven and never matches a sentinel id, so manual items are naturally absent.
@@ -77,12 +88,22 @@ purchase-history-driven and never matches a sentinel id, so manual items are nat
       save/load round-trip instead of being dropped by `_save_shopping_list`'s fixed column
       list — a pre-existing bug that also silently broke recipe overrides
   verify: present "manual_purchase" src/kroger_mcp/tools/shopping_list_tools.py
-- [x] The "never carted" invariant is enforced server-side, not only in the browser: all three
-      caller-facing cart-add entry points (`web/routes/api/products.py::add_product_to_cart`,
-      `web/routes/api/cart.py::add_to_cart`, and the `cart` MCP tool's add action) reject a
-      `manual:` id before any Kroger API call, and batch mode fails before ordering any item.
-      `_add_item_to_local_cart` — the single writer every cart-add path funnels through —
-      raises as a backstop, so a path that loses track of a manual item fails loudly
+- [x] The "never carted" invariant is enforced server-side, not only in the browser, at two
+      layers. (1) The three entry points that take a caller-supplied product_id
+      (`web/routes/api/products.py::add_product_to_cart`, `web/routes/api/cart.py::add_to_cart`,
+      the `cart` MCP tool's add action) reject a `manual:` id up front, and batch mode fails
+      before ordering any item. (2) A manual id can also be *laundered* past those — the
+      recipe/meal-plan/shopping-list pushes decide manual-ness from an `override` /
+      `manual_purchase` boolean that `recipes(action='link_ingredient')` forces to False while
+      accepting any product_id — so `check_cart_items_safety`, which runs immediately before
+      the real `client.cart.add_to_cart` on every one of those paths, rejects manual ids
+      unconditionally (ahead of `is_filtering_enabled` and not bypassable via `confirm_unsafe`),
+      and `meal_planner_tools`, the one such path with no gate call, checks inline
+  verify: tests tests/test_favorites_manual_items.py::test_shared_cart_gate_rejects_a_manual_id_unconditionally
+- [x] `_add_item_to_local_cart` raises on a manual id as a *local-state* backstop only. It is
+      the sole appender to the local cart, but several callers order from Kroger first and
+      record locally afterwards inside a warning-only try/except, so it is deliberately not
+      what keeps manual items out of the real order
   verify: tests tests/test_favorites_manual_items.py::test_cart_add_rejects_a_manual_id
 
 ## Acceptance Criteria
@@ -129,5 +150,7 @@ purchase-history-driven and never matches a sentinel id, so manual items are nat
       action-menu entries
 - [x] Persist `manual_purchase` + `notes` on `user_shopping_lists` (both backends)
 - [x] Guard all three caller-facing cart-add entry points against a `manual:` id server-side
+- [x] Reject manual ids in `check_cart_items_safety` (+ inline in `meal_planner_tools`), closing
+      the laundering path through a recipe ingredient's forced `override=False`
 - [x] Write `tests/test_favorites_manual_items.py`
 - [x] Run the full suite + ruff

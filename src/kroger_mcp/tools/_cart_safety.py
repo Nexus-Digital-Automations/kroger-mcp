@@ -1,14 +1,15 @@
 """
-Shared cart-item safety-check helper.
+Shared cart-item gate: manual-item rejection, then the ingredient-safety check.
 
 Extracted from cart_tools.py's `add` action so every cart-write call site
 (cart_tools.add, recipe_tools.add_to_cart, shopping_list_tools.add_to_cart,
-favorites_tools.order) enforces the same ingredient-safety gate before
-hitting the real Kroger API.
+favorites_tools.order, and the meal_plan/shopping_list web routes) enforces the
+same gate before hitting the real Kroger API.
 """
 
 from typing import Any
 
+from ..analytics.favorites import is_manual_product_id
 from ..analytics.ingredients import check_product_safety
 from ..analytics.safety import (
     BlockMode,
@@ -37,7 +38,33 @@ def check_cart_items_safety(
 
     warn_only mode never blocks (always returns None once filtering allows
     the batch through).
+
+    Manual items are rejected unconditionally, ahead of everything else. A
+    `manual:<uuid>` id is not a UPC, so sending it would fail at Kroger anyway —
+    but more importantly the user's whole reason for marking an item manual is
+    that they source it themselves. That is a structural invariant, not a
+    tunable preference, so it is checked before `is_filtering_enabled` and is
+    not bypassable via `confirm_unsafe` or warn_only mode.
     """
+    manual_ids = [item["product_id"] for item in items if is_manual_product_id(item["product_id"])]
+    if manual_ids:
+        return {
+            "success": False,
+            "requires_confirmation": False,
+            "message": (
+                "These are manual items not sold at Kroger and cannot be added to "
+                f"the cart: {', '.join(manual_ids)}. You'll need to source them "
+                "yourself."
+            ),
+            "manual_items": manual_ids,
+            "items_requested": len(items),
+            "next_step": (
+                "Remove the manual items from your request. If one of them is "
+                "actually sold at Kroger, search for the real product and link "
+                "that product_id instead."
+            ),
+        }
+
     if not is_filtering_enabled(user_id=user_id):
         return None
 

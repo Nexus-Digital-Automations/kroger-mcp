@@ -31,6 +31,7 @@ from kroger_mcp.analytics.favorites import (
     get_list_items,
     get_low_stock_items,
 )
+from kroger_mcp.tools._cart_safety import check_cart_items_safety
 from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
 from kroger_mcp.tools.cart_tools import register_tools as register_cart_tools
 from kroger_mcp.tools.favorites_tools import register_tools
@@ -401,11 +402,47 @@ def test_cart_add_rejects_a_manual_id(clean_db):
     assert "not sold at Kroger" in batch_result["error"]
     assert manual_pid in batch_result["error"]
 
-    # Backstop: the nine cart-add paths all funnel through this one writer, so
-    # a caller that loses track of a manual item fails loudly here instead of
-    # quietly parking a fake UPC in the local cart for mark_order_placed to ship.
+    # Local-state backstop: this is the sole appender to the local cart, so a
+    # caller that loses track of a manual item fails loudly here instead of
+    # quietly parking a fake UPC for mark_order_placed to ship.
     with pytest.raises(ValueError, match="not sold at Kroger"):
         _add_item_to_local_cart(manual_pid, 1, "PICKUP", user_id=USER)
+
+
+def test_shared_cart_gate_rejects_a_manual_id_unconditionally(clean_db, monkeypatch):
+    """Spec: the gate every cart-write path shares refuses a manual id.
+
+    The entry-point guards only cover callers who supply a product_id directly.
+    An id can also be *laundered* in — `recipes(action='link_ingredient')` writes
+    any product_id onto an ingredient and forces `override=False`, so the
+    recipe/meal-plan/shopping-list cart pushes, which decide manual-ness from
+    that boolean rather than from the id, would ship it to the real Kroger API.
+    `check_cart_items_safety` runs immediately before every one of those calls.
+
+    Asserted with safety filtering OFF and with `confirm_unsafe=True` — the two
+    settings that short-circuit every ingredient check below. The manual check
+    sits above both, so blocking under the most permissive configuration is what
+    proves it is a structural invariant rather than a tunable preference.
+    """
+    monkeypatch.setattr("kroger_mcp.tools._cart_safety.is_filtering_enabled", lambda **_: False)
+
+    manual_pid = _add_manual()["product_id"]
+    items = [
+        {"product_id": LINKED_PID, "description": "olive oil"},
+        {"product_id": manual_pid, "description": "sourdough starter"},
+    ]
+
+    for confirm_unsafe in (False, True):
+        blocked = check_cart_items_safety(items, user_id=USER, confirm_unsafe=confirm_unsafe)
+        assert blocked is not None, f"manual id passed the gate (confirm_unsafe={confirm_unsafe})"
+        assert blocked["success"] is False
+        # Hard block: unlike a safety warning, there is no confirm-and-retry.
+        assert blocked["requires_confirmation"] is False
+        assert blocked["manual_items"] == [manual_pid]
+
+    # A batch with no manual id must still fall through, or this gate would
+    # block every order rather than just the ones carrying a manual item.
+    assert check_cart_items_safety(items[:1], user_id=USER) is None
 
 
 def test_add_to_shopping_list_marks_manual_items(clean_db):
