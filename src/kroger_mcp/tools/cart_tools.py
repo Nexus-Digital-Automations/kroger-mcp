@@ -149,7 +149,23 @@ def _add_item_to_local_cart(
     product_details: dict[str, Any] | None = None,
     *, user_id: str,
 ) -> None:
-    """Add an item to the local cart tracking and analytics database"""
+    """Add an item to the local cart tracking and analytics database.
+
+    Raises ValueError if `product_id` is a manual favorite's synthetic id. Every
+    local-cart row is eventually shipped to Kroger as a `upc`, and this function
+    is the one chokepoint all nine cart-add paths funnel through — the paths that
+    legitimately carry manual items (the favorites `order` action, the
+    shopping-list and recipe pushes) filter them out well before here, so
+    reaching this line at all means a caller lost track of one.
+    """
+    from ..analytics.favorites import is_manual_product_id
+
+    if is_manual_product_id(product_id):
+        raise ValueError(
+            f"{product_id} is a manual item not sold at Kroger and cannot be added "
+            "to the cart"
+        )
+
     with _cart_write_lock(user_id):
         cart_data = _load_cart_data(user_id=user_id)
         current_cart = cart_data.get("current_cart", [])

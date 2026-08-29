@@ -31,9 +31,11 @@ from kroger_mcp.analytics.favorites import (
     get_list_items,
     get_low_stock_items,
 )
+from kroger_mcp.tools.cart_tools import _add_item_to_local_cart
 from kroger_mcp.tools.cart_tools import register_tools as register_cart_tools
 from kroger_mcp.tools.favorites_tools import register_tools
 from kroger_mcp.tools.shopping_list_tools import _load_shopping_list
+from kroger_mcp.web.routes.api.cart import CartAddBody, add_to_cart
 from kroger_mcp.web.routes.api.favorites import add_list_to_shopping_list
 from kroger_mcp.web.routes.api.products import AddToCartBody, add_product_to_cart
 
@@ -359,8 +361,8 @@ def test_cart_add_rejects_a_manual_id(clean_db):
     """Spec: the generic cart-add paths refuse a synthetic manual id.
 
     The favorites UI hides "+ Cart" for manual items, but that invariant can't
-    live only in the browser — both the web route and the MCP `cart` tool take
-    a caller-supplied product_id straight into the Kroger `upc` field.
+    live only in the browser — all three cart-add paths take a caller-supplied
+    product_id straight into the Kroger `upc` field.
     """
     manual_pid = _add_manual()["product_id"]
 
@@ -369,6 +371,15 @@ def test_cart_add_rejects_a_manual_id(clean_db):
     )
     assert web_response.status_code == 400
     assert b"not sold at Kroger" in web_response.body
+
+    # POST /api/cart only writes to the *local* cart, but mark_order_placed
+    # later ships every local row's product_id as a Kroger upc — so the id has
+    # to be refused at the door rather than filtered out mid-order.
+    local_response = asyncio.run(
+        add_to_cart(CartAddBody(product_id=manual_pid), _request(USER))
+    )
+    assert local_response.status_code == 400
+    assert b"not sold at Kroger" in local_response.body
 
     tool_result = _call_cart_tool("add", product_id=manual_pid, preview_only=False)
     assert tool_result["success"] is False
@@ -389,6 +400,12 @@ def test_cart_add_rejects_a_manual_id(clean_db):
     assert batch_result["success"] is False
     assert "not sold at Kroger" in batch_result["error"]
     assert manual_pid in batch_result["error"]
+
+    # Backstop: the nine cart-add paths all funnel through this one writer, so
+    # a caller that loses track of a manual item fails loudly here instead of
+    # quietly parking a fake UPC in the local cart for mark_order_placed to ship.
+    with pytest.raises(ValueError, match="not sold at Kroger"):
+        _add_item_to_local_cart(manual_pid, 1, "PICKUP", user_id=USER)
 
 
 def test_add_to_shopping_list_marks_manual_items(clean_db):

@@ -37,6 +37,24 @@ class CartAddBody(BaseModel):
 @router.post("/api/cart")
 async def add_to_cart(body: CartAddBody, request: Request):
     """Add a single item to the local cart."""
+    from kroger_mcp.analytics.favorites import is_manual_product_id
+
+    # Guarded at entry, not at mark-placed: everything in the local cart is
+    # pushed to the Kroger `upc` field verbatim when the order is placed, so a
+    # manual id must never be stored in the first place. Filtering it out later
+    # would silently drop an item mid-order instead of telling the caller now.
+    if is_manual_product_id(body.product_id):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": (
+                    "This is a manual item not sold at Kroger — "
+                    "you'll need to source it yourself."
+                ),
+            },
+        )
+
     try:
         product_details: dict[str, Any] = {}
         if body.description:
