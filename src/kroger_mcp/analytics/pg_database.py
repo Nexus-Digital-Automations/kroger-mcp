@@ -30,9 +30,7 @@ def _get_pool():
         # keeps the pool's sockets inside the worker process (fork-safe).
         min_size = int(os.environ.get("PG_POOL_MIN", 1))
         max_size = int(os.environ.get("PG_POOL_MAX", 8))
-        _pool = psycopg_pool.ConnectionPool(
-            url, min_size=min_size, max_size=max_size, timeout=10
-        )
+        _pool = psycopg_pool.ConnectionPool(url, min_size=min_size, max_size=max_size, timeout=10)
     return _pool
 
 
@@ -279,6 +277,10 @@ CREATE TABLE IF NOT EXISTS favorite_list_items (
     -- (see analytics/favorites.py::new_manual_product_id).
     is_manual BOOLEAN DEFAULT FALSE,
     override_reason TEXT,
+    -- Where a manual item is bought ('Walmart', 'Indian grocery'). Free text;
+    -- known vendors are canonicalized on the way in by
+    -- analytics/manual_sources.py::normalize_source.
+    manual_source TEXT,
     PRIMARY KEY (list_id, product_id)
 );
 
@@ -482,11 +484,14 @@ CREATE TABLE IF NOT EXISTS user_shopping_lists (
     category VARCHAR(100),
     purchased BOOLEAN DEFAULT FALSE,
     recipe_source TEXT,
-    -- An item the user must source themselves (recipe override or a manual
-    -- favorite). It carries no product_id, so without this flag the cart-send
-    -- path can't tell it apart from a row not yet linked to a product.
     notes TEXT,
+    -- An item the user sources themselves. Derived from a missing product_id
+    -- and cached here so a reader doesn't have to re-derive it;
+    -- analytics/manual_sources.py::is_manual_item is the authority.
     manual_purchase BOOLEAN DEFAULT FALSE,
+    -- Where that item is bought ('Walmart'). Named manual_source, not source,
+    -- because recipe_source above already means "from which recipe".
+    manual_source TEXT,
     added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_user_shopping_lists_user_id
@@ -755,12 +760,14 @@ _PG_COLUMN_MIGRATIONS = (
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS typical_gap_days INTEGER",
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS is_manual BOOLEAN DEFAULT FALSE",
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS override_reason TEXT",
+    "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS manual_source TEXT",
     "ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS cook_skipped BOOLEAN DEFAULT FALSE",
     "ALTER TABLE user_carts ADD COLUMN IF NOT EXISTS regular_price REAL",
     "ALTER TABLE user_carts ADD COLUMN IF NOT EXISTS sale_price REAL",
     "ALTER TABLE user_shopping_lists ADD COLUMN IF NOT EXISTS notes TEXT",
     "ALTER TABLE user_shopping_lists ADD COLUMN IF NOT EXISTS manual_purchase "
     "BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE user_shopping_lists ADD COLUMN IF NOT EXISTS manual_source TEXT",
 )
 
 

@@ -318,8 +318,7 @@ def initialize_database() -> None:
     """
     conn = get_db_connection()
     try:
-        conn.executescript(
-            """
+        conn.executescript("""
             -- Products with category tracking
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -469,6 +468,11 @@ def initialize_database() -> None:
                 -- id instead (see analytics/favorites.py::new_manual_product_id).
                 is_manual INTEGER DEFAULT 0,
                 override_reason TEXT DEFAULT NULL,
+                -- Where a manual item is bought ('Walmart', 'Indian grocery').
+                -- Free text; known vendors are canonicalized on the way in by
+                -- analytics/manual_sources.py::normalize_source so their
+                -- shopping-list sections don't fragment across spellings.
+                manual_source TEXT DEFAULT NULL,
                 PRIMARY KEY (list_id, product_id),
                 FOREIGN KEY (list_id) REFERENCES favorite_lists(id) ON DELETE CASCADE
             );
@@ -788,8 +792,7 @@ def initialize_database() -> None:
                 ON deal_scan_results(scan_date DESC);
             CREATE INDEX IF NOT EXISTS idx_deal_scan_results_viewed
                 ON deal_scan_results(viewed);
-        """
-        )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -954,8 +957,7 @@ def _rebuild_table_add_user_id(
 
         owner = mcp_user_id()
         executor.execute(
-            f"INSERT INTO {table}_new (user_id, {col_list}) "
-            f"SELECT ?, {col_list} FROM {table}",
+            f"INSERT INTO {table}_new (user_id, {col_list}) " f"SELECT ?, {col_list} FROM {table}",
             (owner,),
         )
     else:
@@ -980,13 +982,12 @@ def _rebuild_table_add_user_id(
     ]
     for dep in dependents:
         bad = [
-            v for v in executor.execute(f"PRAGMA foreign_key_check({dep})").fetchall()
+            v
+            for v in executor.execute(f"PRAGMA foreign_key_check({dep})").fetchall()
             if v[2] == table
         ]
         if bad:
-            raise RuntimeError(
-                f"rebuilding {table} left {len(bad)} dangling reference(s) in {dep}"
-            )
+            raise RuntimeError(f"rebuilding {table} left {len(bad)} dangling reference(s) in {dep}")
 
 
 def run_schema_migrations() -> None:
@@ -1014,8 +1015,7 @@ def run_schema_migrations() -> None:
         # Per-user key/value preferences (location, servings, consent flags, …).
         # Normally created by scripts/migrate_to_multi_tenant.py; created here too
         # so fresh installs and the consent layer work without the full migration.
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS user_settings (
                 user_id TEXT NOT NULL,
                 setting_key TEXT NOT NULL,
@@ -1023,8 +1023,7 @@ def run_schema_migrations() -> None:
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (user_id, setting_key)
             )
-            """
-        )
+            """)
 
         # user_carts / user_shopping_lists / user_notion_sync: same gap as
         # user_settings above — these JSON-state-replacing tables only ever
@@ -1034,8 +1033,7 @@ def run_schema_migrations() -> None:
         # list/Notion-sync tables at all. Created here too, matching that
         # script's shape exactly, so fresh installs work without the full
         # one-time migration.
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS user_carts (
                 user_id TEXT NOT NULL,
                 product_id TEXT NOT NULL,
@@ -1045,11 +1043,8 @@ def run_schema_migrations() -> None:
                 added_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (user_id, product_id)
             )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_user_carts_user_id ON user_carts(user_id)"
-        )
+            """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_user_carts_user_id ON user_carts(user_id)")
 
         # regular_price/sale_price: added after the base CREATE TABLE above, so
         # existing installs need the same ADD-COLUMN-if-missing treatment as
@@ -1061,8 +1056,7 @@ def run_schema_migrations() -> None:
             if col_name not in user_carts_columns:
                 conn.execute(f"ALTER TABLE user_carts ADD COLUMN {col_name} REAL DEFAULT NULL")
 
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS user_shopping_lists (
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
@@ -1073,39 +1067,41 @@ def run_schema_migrations() -> None:
                 category TEXT,
                 purchased INTEGER DEFAULT 0,
                 recipe_source TEXT,
-                -- An item the user must source themselves (recipe override or a
-                -- manual favorite). It carries no product_id, so without this
-                -- flag the cart-send path can't tell it apart from a row that
-                -- simply hasn't been linked to a product yet.
                 notes TEXT,
+                -- An item the user sources themselves. Derived from a missing
+                -- product_id and cached here so a reader doesn't have to
+                -- re-derive it; analytics/manual_sources.py::is_manual_item is
+                -- the authority.
                 manual_purchase INTEGER DEFAULT 0,
+                -- Where that item is bought ('Walmart', 'Indian grocery').
+                -- Named manual_source, not source, because recipe_source above
+                -- already means "which recipe did this come from".
+                manual_source TEXT DEFAULT NULL,
                 added_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
-            """
-        )
+            """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_user_shopping_lists_user_id "
             "ON user_shopping_lists(user_id)"
         )
-        # Existing databases predate notes/manual_purchase.
+        # Existing databases predate notes/manual_purchase/manual_source.
         cursor = conn.execute("PRAGMA table_info(user_shopping_lists)")
         usl_columns = {row[1] for row in cursor.fetchall()}
         for col_name, col_def in (
             ("notes", "TEXT DEFAULT NULL"),
             ("manual_purchase", "INTEGER DEFAULT 0"),
+            ("manual_source", "TEXT DEFAULT NULL"),
         ):
             if col_name not in usl_columns:
                 conn.execute(f"ALTER TABLE user_shopping_lists ADD COLUMN {col_name} {col_def}")
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS user_notion_sync (
                 user_id TEXT PRIMARY KEY,
                 notion_database_id TEXT,
                 last_sync_at TEXT,
                 config_json TEXT
             )
-            """
-        )
+            """)
 
         # Get existing columns in product_statistics
         cursor = conn.execute("PRAGMA table_info(product_statistics)")
@@ -1136,9 +1132,7 @@ def run_schema_migrations() -> None:
             cursor = conn.execute(f"PRAGMA table_info({table})")
             if "user_id" not in {row[1] for row in cursor.fetchall()}:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT")
-                conn.execute(
-                    f"CREATE INDEX IF NOT EXISTS idx_{table}_user_id ON {table}(user_id)"
-                )
+                conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_user_id ON {table}(user_id)")
 
         # favorite_lists has the same gap as pantry_items above: no user_id in
         # the base CREATE TABLE, only added by the one-time
@@ -1316,8 +1310,7 @@ def run_schema_migrations() -> None:
 
         # Gap reconciliation: tracks shortfalls where a placed order delivered
         # less of a product than a contributing recipe required.
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS pending_gaps (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
@@ -1332,8 +1325,7 @@ def run_schema_migrations() -> None:
                 resolved_at TEXT,
                 resolution TEXT
             )
-            """
-        )
+            """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_pending_gaps_user_unresolved "
             "ON pending_gaps(user_id, resolved_at)"
@@ -1358,6 +1350,8 @@ def run_schema_migrations() -> None:
             # Manual items — no Kroger product behind them (see schema comment).
             ("is_manual", "INTEGER DEFAULT 0"),
             ("override_reason", "TEXT DEFAULT NULL"),
+            # Vendor for a manual item (see schema comment).
+            ("manual_source", "TEXT DEFAULT NULL"),
         ]
 
         added_fli_columns = []
@@ -1371,8 +1365,7 @@ def run_schema_migrations() -> None:
         # ordered" the first time the check-up runs. Only fires the migration
         # pass that first adds the column.
         if "last_ordered_at" in added_fli_columns:
-            conn.execute(
-                """
+            conn.execute("""
                 UPDATE favorite_list_items
                 SET last_ordered_at = (
                     SELECT pi.last_restocked_at
@@ -1385,8 +1378,7 @@ def run_schema_migrations() -> None:
                     WHERE pi.product_id = favorite_list_items.product_id
                       AND pi.last_restocked_at IS NOT NULL
                   )
-                """
-            )
+                """)
 
         # Migrate meal_entries table - add cooking/deduction tracking
         cursor = conn.execute("PRAGMA table_info(meal_entries)")

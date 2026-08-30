@@ -169,7 +169,8 @@ def create_list(
     description: str | None = None,
     list_type: str = "custom",
     reorder_weeks: int | None = None,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Create a new favorite list owned by `user_id`.
@@ -408,7 +409,8 @@ def rename_list(
     list_id: str,
     new_name: str | None = None,
     new_description: str | None = None,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """Rename a list or update its description, only if it belongs to `user_id`."""
     ensure_initialized()
@@ -495,14 +497,20 @@ def add_to_list(
     typical_gap_days: int | None = None,
     manual: bool = False,
     override_reason: str | None = None,
-    *, user_id: str,
+    source: str | None = None,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """Add an item to a favorite list, only if the list belongs to `user_id`.
 
     Pass `manual=True` (or omit `product_id`) for something Kroger doesn't sell:
     the row gets a synthetic `manual:<uuid>` product_id, is flagged `is_manual`,
-    and is excluded from every Kroger cart-add path downstream.
+    and is excluded from every Kroger cart-add path downstream. `source` names
+    the vendor you buy it from ("Walmart") so it groups into its own shopping
+    list section; it is ignored for Kroger-linked items.
     """
+    from .manual_sources import stored_source
+
     ensure_initialized()
     owner = _resolve_user_id(user_id)
 
@@ -521,8 +529,9 @@ def add_to_list(
                 INSERT INTO favorite_list_items
                 (list_id, product_id, description, brand, default_quantity,
                  preferred_modality, notes, min_stock_percent, min_stock_quantity,
-                 current_stock_quantity, typical_gap_days, is_manual, override_reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 current_stock_quantity, typical_gap_days, is_manual,
+                 override_reason, manual_source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     list_id,
@@ -538,6 +547,7 @@ def add_to_list(
                     typical_gap_days,
                     is_manual,
                     override_reason if is_manual else None,
+                    stored_source(source) if is_manual else None,
                 ),
             )
 
@@ -554,6 +564,7 @@ def add_to_list(
                 "description": description,
                 "is_manual": is_manual,
                 "override_reason": override_reason if is_manual else None,
+                "source": stored_source(source) if is_manual else None,
             }
     except Exception as e:
         if "UNIQUE constraint" in str(e):
@@ -573,8 +584,10 @@ def bulk_add_to_list(
 
     An item dict with `manual: True` (or no `product_id`) is stored as a manual
     item — see `add_to_list` — so a batch can mix Kroger products and things the
-    user sources elsewhere.
+    user sources elsewhere. Manual items may carry a `source` vendor name.
     """
+    from .manual_sources import stored_source
+
     ensure_initialized()
     owner = _resolve_user_id(user_id)
 
@@ -611,8 +624,9 @@ def bulk_add_to_list(
                     INSERT INTO favorite_list_items
                     (list_id, product_id, description, brand, default_quantity,
                      preferred_modality, notes, min_stock_percent, min_stock_quantity,
-                     current_stock_quantity, typical_gap_days, is_manual, override_reason)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     current_stock_quantity, typical_gap_days, is_manual,
+                     override_reason, manual_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         list_id,
@@ -628,6 +642,7 @@ def bulk_add_to_list(
                         item.get("typical_gap_days"),
                         is_manual,
                         item.get("override_reason") if is_manual else None,
+                        stored_source(item.get("source")) if is_manual else None,
                     ),
                 )
                 added.append(
@@ -635,6 +650,7 @@ def bulk_add_to_list(
                         "product_id": product_id,
                         "description": description,
                         "is_manual": is_manual,
+                        "source": (stored_source(item.get("source")) if is_manual else None),
                     }
                 )
             except Exception as e:
@@ -698,7 +714,8 @@ def get_list_items(
     list_id: str,
     include_pantry_status: bool = True,
     sort_by: str = "description",
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """Get items in a favorite list, only if it belongs to `user_id`.
 
@@ -756,6 +773,7 @@ def get_list_items(
                         -- this group is always a single row's value.
                         MAX(CASE WHEN fli.is_manual THEN 1 ELSE 0 END) as is_manual,
                         MIN(fli.override_reason) as override_reason,
+                        MIN(fli.manual_source) as manual_source,
                         -- Aggregated, not bare: Postgres rejects a bare column
                         -- under GROUP BY. UNIQUE(user_id, product_id) on
                         -- pantry_items means the owner-scoped join yields at
@@ -792,7 +810,8 @@ def get_list_items(
                         MAX(fli.last_ordered_at) as last_ordered_at,
                         MAX(fli.typical_gap_days) as typical_gap_days,
                         MAX(CASE WHEN fli.is_manual THEN 1 ELSE 0 END) as is_manual,
-                        MIN(fli.override_reason) as override_reason
+                        MIN(fli.override_reason) as override_reason,
+                        MIN(fli.manual_source) as manual_source
                     FROM favorite_list_items fli
                     JOIN favorite_lists fl ON fl.id = fli.list_id
                     WHERE fl.user_id = ?
@@ -820,6 +839,7 @@ def get_list_items(
                     fli.typical_gap_days,
                     fli.is_manual,
                     fli.override_reason,
+                    fli.manual_source,
                     pi.level_percent,
                     pi.daily_depletion_rate,
                     pi.low_threshold
@@ -849,7 +869,8 @@ def get_list_items(
                     fli.last_ordered_at,
                     fli.typical_gap_days,
                     fli.is_manual,
-                    fli.override_reason
+                    fli.override_reason,
+                    fli.manual_source
                 FROM favorite_list_items fli
                 WHERE fli.list_id = ?
                 ORDER BY {sort_column}
@@ -883,6 +904,7 @@ def get_list_items(
             # templates can test this without knowing the backend.
             "is_manual": bool(row["is_manual"]),
             "override_reason": row["override_reason"],
+            "source": row["manual_source"],
         }
 
         if include_pantry_status:
@@ -1073,6 +1095,7 @@ def check_snacks(
                 fli.typical_gap_days,
                 fli.is_manual,
                 fli.override_reason,
+                fli.manual_source,
                 pi.level_percent
             FROM favorite_list_items fli
             LEFT JOIN pantry_items pi
@@ -1122,6 +1145,7 @@ def check_snacks(
                 "reason": reason,
                 "is_manual": bool(row["is_manual"]),
                 "override_reason": row["override_reason"],
+                "source": row["manual_source"],
             }
         )
 
@@ -1166,7 +1190,8 @@ def mark_snacks_ordered(product_ids: list[str], user_id: str) -> int:
 def get_items_needing_reorder(
     list_id: str = "default",
     pantry_threshold: int = 30,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """Get items needing reorder, only if the list belongs to `user_id`."""
     ensure_initialized()
@@ -1234,7 +1259,8 @@ def suggest_for_list(
     min_purchases: int = 3,
     min_frequency_score: float = 0.5,
     limit: int = 10,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Suggest products to add to favorites based on purchase history.

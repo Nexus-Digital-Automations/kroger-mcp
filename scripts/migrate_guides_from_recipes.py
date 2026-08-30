@@ -87,8 +87,12 @@ def _ingredient_to_step(ingredient: dict) -> str:
         extras.append(str(ingredient["notes"]).strip())
     if ingredient.get("product_id"):
         extras.append(f"Kroger product {ingredient['product_id']}")
-    elif ingredient.get("override"):
-        reason = ingredient.get("override_reason") or "manual purchase"
+    else:
+        # No product_id means manual, whether or not the legacy `override` flag
+        # is set — ingredients written under the current contract carry neither
+        # it nor a reason, just an optional `source` naming the vendor.
+        vendor = (ingredient.get("source") or "").strip()
+        reason = vendor or ingredient.get("override_reason") or "manual purchase"
         extras.append(f"manual purchase: {reason}")
     if extras:
         line = f"{line} — {'; '.join(extras)}"

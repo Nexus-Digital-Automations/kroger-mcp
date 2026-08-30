@@ -17,6 +17,13 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ..analytics.manual_sources import (
+    group_by_source,
+    is_manual_item,
+    item_source,
+    manual_note,
+    stored_source,
+)
 from ._cart_safety import check_cart_items_safety
 
 logger = logging.getLogger(__name__)
@@ -39,7 +46,8 @@ def _load_shopping_list(user_id: str) -> dict[str, Any]:
         rows = conn.execute(
             """
             SELECT id, product_id, name, quantity, unit, category,
-                   purchased, recipe_source, notes, manual_purchase, added_at
+                   purchased, recipe_source, notes, manual_purchase,
+                   manual_source, added_at
             FROM user_shopping_lists WHERE user_id = ?
             ORDER BY added_at
             """,
@@ -50,6 +58,10 @@ def _load_shopping_list(user_id: str) -> dict[str, Any]:
                 "id": row["id"],
                 "product_id": row["product_id"],
                 "name": row["name"],
+                # The cart/preview paths read ingredient_name; only `name`
+                # survives the DB round-trip, so re-seed it here rather than
+                # leaving every reader to guess which key is populated.
+                "ingredient_name": row["name"],
                 "quantity": row["quantity"],
                 "unit": row["unit"],
                 "category": row["category"],
@@ -58,6 +70,7 @@ def _load_shopping_list(user_id: str) -> dict[str, Any]:
                 "notes": row["notes"],
                 # SQLite hands back 0/1, Postgres a bool.
                 "manual_purchase": bool(row["manual_purchase"]),
+                "source": row["manual_source"],
                 "added_at": row["added_at"],
             }
             for row in rows
@@ -83,8 +96,9 @@ def _save_shopping_list(data: dict[str, Any], user_id: str) -> None:
                 """
                 INSERT INTO user_shopping_lists
                     (id, user_id, product_id, name, quantity, unit, category,
-                     purchased, recipe_source, notes, manual_purchase, added_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     purchased, recipe_source, notes, manual_purchase,
+                     manual_source, added_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     user_id = excluded.user_id,
                     product_id = excluded.product_id,
@@ -96,20 +110,24 @@ def _save_shopping_list(data: dict[str, Any], user_id: str) -> None:
                     recipe_source = excluded.recipe_source,
                     notes = excluded.notes,
                     manual_purchase = excluded.manual_purchase,
+                    manual_source = excluded.manual_source,
                     added_at = excluded.added_at
                 """,
                 (
                     item_id,
                     owner,
                     item.get("product_id"),
-                    item.get("name", ""),
+                    item.get("name") or item.get("ingredient_name") or "",
                     float(item.get("quantity", 1) or 1),
                     item.get("unit", ""),
                     item.get("category"),
                     bool(item.get("purchased")),
                     item.get("recipe_source"),
                     item.get("notes"),
-                    bool(item.get("manual_purchase")),
+                    # Manual status is derived, never taken on trust: an item
+                    # with no product_id is manual whatever the caller passed.
+                    is_manual_item(item),
+                    stored_source(item.get("source")) if is_manual_item(item) else None,
                     item.get("added_at") or datetime.now().isoformat(),
                 ),
             )
@@ -236,6 +254,13 @@ def register_tools(mcp):
         clear_all: bool | None = Field(default=None, description="Clear entire list"),
         quantity: int | None = Field(default=None, ge=1, description="New quantity"),
         notes: str | None = Field(default=None, description="Item notes"),
+        source: str | None = Field(
+            default=None,
+            description=(
+                "update_item — vendor for an unlinked item, e.g. 'Walmart'. "
+                "Groups it into its own section of the list. Free text."
+            ),
+        ),
         modality: str | None = Field(default=None, description="PICKUP or DELIVERY"),
         confirm: bool | None = Field(default=None, description="False=preview, True=execute"),
         confirm_unsafe: bool | None = Field(
@@ -264,6 +289,7 @@ def register_tools(mcp):
             clear_all,
             quantity,
             notes,
+            source,
             modality,
             confirm,
             confirm_unsafe,
@@ -281,6 +307,7 @@ def register_tools(mcp):
         clear_all,
         quantity,
         notes,
+        source,
         modality,
         confirm,
         confirm_unsafe,
@@ -341,20 +368,23 @@ def register_tools(mcp):
                         quantity_val = ing.get("quantity", 1)
                         unit = ing.get("unit", "")
                         product_id = ing.get("product_id")
-                        is_override = ing.get("override", False)
 
                         # Calculate scaled quantity
                         scaled_quantity = (
                             round(quantity_val * scale_factor, 2) if quantity_val else 1
                         )
 
-                        # Handle override (manual purchase) items
-                        if is_override:
-                            override_reason = ing.get("override_reason", "Not from Kroger")
+                        # An unlinked ingredient is one the user buys elsewhere.
+                        if is_manual_item(ing):
+                            item_vendor = item_source(ing)
                             list_item = {
                                 "id": _generate_list_item_id(),
                                 "product_id": None,
                                 "ingredient_name": name,
+                                # Both keys: `name` is what round-trips through
+                                # the DB, `ingredient_name` is what the
+                                # in-memory preview readers use.
+                                "name": name,
                                 "quantity": scaled_quantity,
                                 "unit": unit,
                                 "sources": [
@@ -367,12 +397,21 @@ def register_tools(mcp):
                                     }
                                 ],
                                 "added_at": datetime.now().isoformat(),
-                                "notes": f"Manual: {override_reason}",
+                                "notes": manual_note(ing),
                                 "manual_purchase": True,
+                                # Storage keeps None for "no vendor named";
+                                # item_vendor carries the display sentinel.
+                                "source": stored_source(ing.get("source")),
+                                "recipe_name": recipe.get("name"),
                             }
                             data["items"].append(list_item)
                             manual_purchase_items.append(
-                                {"name": name, "override_reason": override_reason}
+                                {
+                                    "name": name,
+                                    "quantity": scaled_quantity,
+                                    "unit": unit,
+                                    "source": item_vendor,
+                                }
                             )
                             items_added += 1
                             continue
@@ -448,6 +487,7 @@ def register_tools(mcp):
                         "items_skipped": items_skipped,
                         "skip_reasons": skip_reasons,
                         "manual_purchase_required": manual_purchase_items,
+                        "manual_purchase_by_source": group_by_source(manual_purchase_items),
                         "shopping_list_total_items": len(data["items"]),
                         "message": (
                             f"Added {items_added} ingredients from '{recipe.get('name')}' "
@@ -488,10 +528,19 @@ def register_tools(mcp):
                     recipes_included = list(recipes_map.values())
                     total_servings = sum(r["servings"] for r in recipes_included)
 
+                    # Read the list as an errand plan: what Kroger fulfills,
+                    # then a section per vendor the user visits themselves.
+                    manual_items = [item for item in items if is_manual_item(item)]
+                    kroger_items = [item for item in items if not is_manual_item(item)]
+
                     return {
                         "success": True,
                         "items": items,
                         "total_items": len(items),
+                        "kroger_items": kroger_items,
+                        "kroger_item_count": len(kroger_items),
+                        "manual_purchase_required": manual_items,
+                        "manual_purchase_by_source": group_by_source(manual_items),
                         "recipes_included": recipes_included,
                         "servings_summary": {
                             "household_default": get_default_servings(user_id=user_id),
@@ -560,6 +609,17 @@ def register_tools(mcp):
                                 item["quantity"] = quantity
                             if notes is not None:
                                 item["notes"] = notes
+                            if source is not None:
+                                if not is_manual_item(item):
+                                    return {
+                                        "success": False,
+                                        "error": (
+                                            f"Item '{item_id}' is linked to Kroger product "
+                                            f"{item.get('product_id')}. Remove the product link "
+                                            "before assigning a manual vendor."
+                                        ),
+                                    }
+                                item["source"] = stored_source(source)
                             item["last_updated"] = datetime.now().isoformat()
                             break
 
@@ -625,21 +685,17 @@ def register_tools(mcp):
 
                     for item in items:
                         product_id = item.get("product_id")
-                        if item.get("manual_purchase"):
+                        # No product_id means the user buys it elsewhere -- it is
+                        # a manual item, not a half-finished Kroger one.
+                        if is_manual_item(item):
                             items_manual.append(
                                 {
-                                    "ingredient_name": item.get("ingredient_name"),
+                                    "ingredient_name": item.get("ingredient_name")
+                                    or item.get("name"),
                                     "quantity": item.get("quantity"),
                                     "unit": item.get("unit", ""),
-                                    "notes": item.get("notes", "Manual purchase required"),
-                                }
-                            )
-                            continue
-                        if not product_id:
-                            items_to_skip.append(
-                                {
-                                    "ingredient_name": item.get("ingredient_name"),
-                                    "reason": "No product_id (search for product first)",
+                                    "source": item_source(item),
+                                    "notes": item.get("notes"),
                                 }
                             )
                             continue
@@ -686,6 +742,7 @@ def register_tools(mcp):
                                 "modality": _modality,
                                 "items": items_to_add + items_to_skip,
                                 "manual_purchase_required": items_manual,
+                                "manual_purchase_by_source": group_by_source(items_manual),
                             },
                             "next_step": (
                                 "Review the items above. Call this tool again with confirm=True to add to cart."
@@ -701,10 +758,11 @@ def register_tools(mcp):
                     if not items_to_add:
                         return {
                             "success": True,
-                            "message": "No items to add - all are well-stocked, missing product_ids, or manual",
+                            "message": "No items to add - all are well-stocked or manual",
                             "items_added_to_cart": 0,
                             "items_skipped": len(items_to_skip),
                             "manual_purchase_required": items_manual,
+                            "manual_purchase_by_source": group_by_source(items_manual),
                         }
 
                     safety_response = check_cart_items_safety(
@@ -754,7 +812,10 @@ def register_tools(mcp):
                                     user_id=user_id,
                                 )
 
-                            data["items"] = []
+                            # Keep manual items. The Kroger order doesn't buy
+                            # them, so clearing the whole list would silently
+                            # drop the user's Walmart errands on the floor.
+                            data["items"] = [item for item in data["items"] if is_manual_item(item)]
                             _save_shopping_list(data, user_id=user_id)
                         except Exception as tracking_err:
                             logger.error(
@@ -769,9 +830,19 @@ def register_tools(mcp):
                             "items_added_to_cart": len(items_to_add),
                             "items_skipped": len(items_to_skip),
                             "manual_purchase_required": items_manual,
+                            "manual_purchase_by_source": group_by_source(items_manual),
                             "shopping_list_cleared": shopping_list_cleared,
+                            "manual_items_kept_on_list": len(items_manual),
                             "modality": _modality,
-                            "message": f"Added {len(items_to_add)} items to cart. Shopping list has been cleared.",
+                            "message": (
+                                f"Added {len(items_to_add)} items to cart. "
+                                "Kroger items cleared from the shopping list"
+                                + (
+                                    f"; {len(items_manual)} manual item(s) kept."
+                                    if items_manual
+                                    else "."
+                                )
+                            ),
                             "reminder": (
                                 "Review your cart in the Kroger app before checkout."
                                 + (

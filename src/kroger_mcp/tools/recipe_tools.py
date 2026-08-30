@@ -19,6 +19,7 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ..analytics.manual_sources import group_by_source, is_manual_item, item_source
 from ._cart_safety import check_cart_items_safety
 from ._storage import JsonStore
 from .shared import get_authenticated_client
@@ -151,24 +152,17 @@ def _ingredient_matches(ingredient_name: str, skip_items: list[str]) -> bool:
 
 
 def _validate_ingredients(ingredients):
-    """Return list of validation errors for ingredient list."""
+    """Return list of validation errors for ingredient list.
+
+    Only `name` is required. An ingredient with no `product_id` is a manual
+    item the user sources themselves — a normal, supported case, not an
+    override needing justification. Optionally name the vendor with `source`
+    ("Walmart") so the shopping list can group it into an errand section.
+    """
     errors = []
     for i, ing in enumerate(ingredients):
         if not ing.get("name"):
             errors.append(f"Ingredient {i+1}: missing 'name'")
-            continue
-        has_pid = bool(ing.get("product_id"))
-        has_override = ing.get("override", False)
-        if not has_pid and not has_override:
-            errors.append(
-                f"Ingredient {i+1} ('{ing.get('name')}'): requires a Kroger product_id. "
-                f"Search with products(action='search') then link with recipes(action='link_ingredient'). "
-                f"If not sold at Kroger, set override=True with override_reason."
-            )
-        elif has_override and not ing.get("override_reason"):
-            errors.append(
-                f"Ingredient {i+1} ('{ing.get('name')}'): override=True requires override_reason."
-            )
     return errors
 
 
@@ -190,7 +184,8 @@ def register_tools(mcp):
             "analyze",
         ] = Field(
             description=(
-                "save — ingredients need product_id or override=True. "
+                "save — ingredients need only a name; add product_id to order "
+                "from Kroger, or source='Walmart' for items you buy elsewhere. "
                 "link_ingredient — batch via links=[{recipe_id, ingredient_index, product_id}]. "
                 "preview_order — check pantry before ordering. "
                 "add_to_cart — order recipe ingredients. "
@@ -207,7 +202,11 @@ def register_tools(mcp):
         ),
         ingredients: list[dict[str, Any]] | None = Field(
             default=None,
-            description="List of {name, quantity, unit, product_id (required), category, override (bool), override_reason (required if override=True)}",
+            description=(
+                "List of {name (required), quantity, unit, category, "
+                "product_id (optional — link it to order from Kroger), "
+                "source (optional vendor for unlinked items, e.g. 'Walmart')}"
+            ),
         ),
         instructions: str | None = Field(
             default=None,
@@ -284,8 +283,10 @@ def register_tools(mcp):
     ) -> dict[str, Any]:
         """Recipe management with Kroger product linking.
 
-        CRITICAL: Every ingredient requires either a product_id (from products tool)
-        or override=True + override_reason (for items not at Kroger).
+        Ingredients need only a name. Link a product_id (from the products tool)
+        to order it from Kroger; leave it off for anything you buy elsewhere and
+        set `source` to the vendor ("Walmart") so it groups into its own errand
+        section on the shopping list. Unlinked items are never sent to Kroger.
 
         Workflow: save recipe → link_ingredient (batch: links=[...]) → preview_order → add_to_cart.
         analyze — health score and cost estimate.
@@ -352,13 +353,9 @@ def register_tools(mcp):
                 if validation_errors:
                     return {
                         "success": False,
-                        "error": "Recipe ingredients require Kroger product IDs",
+                        "error": "Recipe ingredients are invalid",
                         "validation_errors": validation_errors,
-                        "tip": (
-                            "Search for each ingredient with products(action='search'), then include "
-                            "product_id when saving. For items not sold at Kroger, set override=True "
-                            "and provide override_reason."
-                        ),
+                        "tip": "Every ingredient needs a 'name'.",
                     }
 
                 if instructions:
@@ -429,9 +426,7 @@ def register_tools(mcp):
                             from ..analytics.recipe_scoring import calculate_health_score
                             from ..auth.dependencies import mcp_user_id
 
-                            hs = calculate_health_score(
-                                r, names_only=True, user_id=mcp_user_id()
-                            )
+                            hs = calculate_health_score(r, names_only=True, user_id=mcp_user_id())
                             summary["health_score"] = hs["score"]
                             summary["health_grade"] = hs["grade"]
                         except Exception:
@@ -462,9 +457,7 @@ def register_tools(mcp):
 
                         rt_user_id = mcp_user_id()
                         loc_id = get_preferred_location_id(rt_user_id)
-                        recipe["health_score"] = calculate_health_score(
-                            recipe, user_id=rt_user_id
-                        )
+                        recipe["health_score"] = calculate_health_score(recipe, user_id=rt_user_id)
                         recipe["cost_estimate"] = estimate_recipe_cost(
                             recipe,
                             location_id=loc_id,
@@ -603,12 +596,11 @@ def register_tools(mcp):
                         qty = ing.get("quantity", 1)
                         unit = ing.get("unit", "")
                         pid = ing.get("product_id")
-                        is_override = ing.get("override", False)
+                        is_manual = is_manual_item(ing)
                         will_skip = _ingredient_matches(ing_name, _skip)
 
-                        if is_override:
+                        if is_manual:
                             action_val = "MANUAL"
-                            override_reason = ing.get("override_reason")
                             manual_purchase.append(
                                 {
                                     "index": i,
@@ -616,7 +608,8 @@ def register_tools(mcp):
                                     "quantity": qty,
                                     "unit": unit,
                                     "scaled_quantity": round(qty * _scale, 2) if qty else None,
-                                    "override_reason": override_reason,
+                                    "source": item_source(ing),
+                                    "override_reason": ing.get("override_reason"),
                                 }
                             )
                         elif will_skip:
@@ -638,13 +631,14 @@ def register_tools(mcp):
                                 "is_spice": _ingredient_is_spice(ing),
                                 "action": action_val,
                                 "will_order": action_val == "ORDER",
+                                "source": item_source(ing) if is_manual else None,
                                 "skip_reason": (
                                     "user has item"
-                                    if will_skip and not is_override
-                                    else ("manual purchase" if is_override else None)
+                                    if will_skip and not is_manual
+                                    else ("manual purchase" if is_manual else None)
                                 ),
                                 "override_reason": (
-                                    ing.get("override_reason") if is_override else None
+                                    ing.get("override_reason") if is_manual else None
                                 ),
                             }
                         )
@@ -674,6 +668,7 @@ def register_tools(mcp):
                         "items_to_order": items_to_order,
                         "items_to_skip": items_to_skip_count,
                         "manual_purchase": manual_purchase,
+                        "manual_purchase_by_source": group_by_source(manual_purchase),
                         "total_ingredients": len(ingredients_preview),
                         "cost_estimate": cost_estimate,
                     }
@@ -735,9 +730,12 @@ def register_tools(mcp):
                                 )
                                 continue
 
+                            # Linking a product makes this a Kroger item, so the
+                            # manual-vendor attribution no longer applies.
                             recipe_ings[idx]["product_id"] = pid
                             recipe_ings[idx]["override"] = False
                             recipe_ings[idx]["override_reason"] = None
+                            recipe_ings[idx]["source"] = None
                             _remember_ingredient_link(recipe_ings[idx].get("name", ""), pid)
                             updated_recipes.add(rid)
                             results.append(
@@ -786,6 +784,7 @@ def register_tools(mcp):
                             recipe_ings[ingredient_index]["product_id"] = product_id
                             recipe_ings[ingredient_index]["override"] = False
                             recipe_ings[ingredient_index]["override_reason"] = None
+                            recipe_ings[ingredient_index]["source"] = None
                             recipe["updated_at"] = datetime.now().isoformat()
                             _save_recipes(data)
                             _remember_ingredient_link(
@@ -848,7 +847,7 @@ def register_tools(mcp):
                         qty = ing.get("quantity", 1)
                         unit = ing.get("unit", "")
                         pid = ing.get("product_id")
-                        is_override = ing.get("override", False)
+                        is_manual = is_manual_item(ing)
                         scaled_qty = max(1, int(round(qty * _scale))) if qty else 1
                         user_skip = _ingredient_matches(ing_name, _skip)
                         pantry = pantry_context.get(pid, {}) if pid else {}
@@ -870,18 +869,16 @@ def register_tools(mcp):
                         action_val = "ADD"
                         reason = ""
 
-                        if is_override:
+                        if is_manual:
                             action_val = "MANUAL"
-                            reason = (
-                                f"Manual purchase: {ing.get('override_reason', 'Not from Kroger')}"
-                            )
+                            source_name = item_source(ing)
+                            reason = f"Manual purchase from {source_name}"
                             items_manual.append(
                                 {
                                     "name": ing_name,
                                     "quantity": f"{scaled_qty} {unit}".strip(),
-                                    "override_reason": ing.get(
-                                        "override_reason", "Not from Kroger"
-                                    ),
+                                    "source": source_name,
+                                    "override_reason": ing.get("override_reason"),
                                 }
                             )
                         elif user_skip:
@@ -1001,6 +998,7 @@ def register_tools(mcp):
                             },
                             "items_in_pantry": items_in_pantry,
                             "manual_purchase_required": items_manual,
+                            "manual_purchase_by_source": group_by_source(items_manual),
                             "next_step": (
                                 "Review the ingredients above. "
                                 "Call this tool again with confirm=True to add items to cart. "
@@ -1023,6 +1021,7 @@ def register_tools(mcp):
                             "items_ordered": [],
                             "items_skipped": items_to_skip,
                             "manual_purchase_required": items_manual,
+                            "manual_purchase_by_source": group_by_source(items_manual),
                         }
 
                     safety_response = check_cart_items_safety(
@@ -1132,6 +1131,7 @@ def register_tools(mcp):
                         ],
                         "items_skipped": items_to_skip,
                         "manual_purchase_required": items_manual,
+                        "manual_purchase_by_source": group_by_source(items_manual),
                         "modality": _modality,
                         "reminder": (
                             "Please review your cart in the Kroger app before checkout. "

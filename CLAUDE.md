@@ -56,26 +56,35 @@ This location is pre-configured and persists across sessions. **Do NOT call loca
 
 ## Recipe Ingredient Requirements
 
-**Every recipe ingredient must be linked to a Kroger product.** This ensures recipes can be ordered directly and prices/availability are tracked.
+**Only `name` is required.** Link a `product_id` to order an ingredient from Kroger; leave it off for anything sourced elsewhere.
+
+Manual status is *derived*, never declared: no `product_id` means manual, full stop. There is no flag to set and no justification to write. (`override` / `override_reason` are still accepted so existing recipes keep loading, but nothing reads them to decide anything.)
 
 ### Standard Workflow (New Recipes)
 1. Draft the recipe ingredients
-2. For each ingredient: `products(action='search', search_term='...')` — find the best matching product
+2. For each one Kroger sells: `products(action='search', search_term='...')` — find the best match
 3. Run `safety(action='check_product')` on candidates
-4. Save recipe with `product_id` included in each ingredient
-5. Alternatively: save recipe first using `link_ingredient` action, then use `recipes(action='link_ingredient')` to link product IDs
+4. Save the recipe with `product_id` on the linked ingredients
+5. Alternatively: save first, then link later with `recipes(action='link_ingredient')`
 
-### Override (Rare)
-If an ingredient is genuinely not available at Kroger (specialty butcher cut, farmers market find, home-grown herb):
-- Set `override: true` and provide a specific `override_reason`
-- **This should be rare** — most ingredients are available at Kroger
-- Override items appear as "MANUAL PURCHASE" in order previews and shopping lists
-- The user must source and acquire these items themselves
+**Prefer linking.** A linked ingredient orders in one step and gets its price and availability tracked; an unlinked one becomes an errand to run by hand. Search before giving up on an ingredient.
+
+### Naming the vendor
+For an unlinked ingredient, set `source` to where it's bought — `"Walmart"`, `"Costco"`, `"Indian grocery on Airport Blvd"`. Free text; nothing is rejected. Known vendors normalize to one spelling (`"wal-mart"` → `"Walmart"`) so they group cleanly.
+
+`source` is what turns the shopping list into an errand plan: manual items come back grouped into per-vendor sections (`manual_purchase_by_source`) beside the Kroger items. Without it they land in a catch-all "Manual" section — still correct, far less useful. Name the vendor whenever it's known.
+
+Linking a product clears `source`: an item can't be both a Kroger order and a Walmart errand.
 
 ### Examples
-- ✅ `{"name": "olive oil", "product_id": "0001111015405", ...}` — correct
-- ✅ `{"name": "heirloom tomatoes", "override": true, "override_reason": "Farmers market only, not sold at Kroger", ...}` — valid rare use
-- ❌ `{"name": "garlic", ...}` — missing product_id, no override → rejected
+- ✅ `{"name": "olive oil", "product_id": "0001111015405", ...}` — ordered from Kroger
+- ✅ `{"name": "gochujang", "source": "Walmart", ...}` — errand, grouped under Walmart
+- ✅ `{"name": "heirloom tomatoes", "source": "Farmers market", ...}` — errand, own section
+- ⚠️ `{"name": "garlic", ...}` — valid, but lands in the unattributed "Manual" section; search Kroger or name the vendor
+- ❌ `{"product_id": "0001111015405", ...}` — missing `name` → rejected
+
+### The one hard rule
+A manual item is **never** sent to the Kroger cart. Any item with a falsy `product_id` is rejected unconditionally — ahead of the safety filter, not bypassable by `confirm_unsafe`. It shows as MANUAL PURCHASE in previews and stays on the shopping list after a Kroger order is placed, because that order didn't buy it.
 
 ---
 

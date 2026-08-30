@@ -9,6 +9,13 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from kroger_mcp.analytics.manual_sources import (
+    group_by_source,
+    is_manual_item,
+    item_source,
+    manual_note,
+    stored_source,
+)
 from kroger_mcp.auth.dependencies import current_user_id
 from kroger_mcp.tools.shopping_list_tools import (
     _consolidate_items,
@@ -99,7 +106,6 @@ def _build_recipe_preview(recipe: dict, servings: int, pantry: dict[str, int]) -
         name = ing.get("name", "Unknown")
         unit = ing.get("unit", "")
         product_id = ing.get("product_id")
-        is_override = ing.get("override", False)
 
         try:
             qty_num = float(ing.get("quantity") or 1)
@@ -107,14 +113,16 @@ def _build_recipe_preview(recipe: dict, servings: int, pantry: dict[str, int]) -
             qty_num = 1.0
         scaled_qty = _round_scaled_qty(qty_num * scale_factor)
 
-        if is_override:
+        # No product_id means the user buys it elsewhere.
+        if is_manual_item(ing):
             manual_purchase.append(
                 {
                     "name": name,
                     "unit": unit,
                     "quantity": scaled_qty,
                     "original_quantity": ing.get("quantity"),
-                    "notes": ing.get("override_reason", "Not from Kroger"),
+                    "source": item_source(ing),
+                    "notes": ing.get("override_reason"),
                 }
             )
             continue
@@ -148,6 +156,7 @@ def _build_recipe_preview(recipe: dict, servings: int, pantry: dict[str, int]) -
         "items_to_add": items_to_add,
         "items_to_skip": items_to_skip,
         "manual_purchase": manual_purchase,
+        "manual_purchase_by_source": group_by_source(manual_purchase),
         "scale_factor": scale_factor,
     }
 
@@ -184,7 +193,11 @@ class SelectedIngredient(BaseModel):
     # Recipe ingredients with no unit serialise as null; accept both for
     # robustness — anything falsy becomes "" downstream.
     unit: str | None = ""
+    # Kept for wire back-compat with older clients. Manual status is derived
+    # from a missing product_id, so nothing reads this to make a decision.
     override: bool = False
+    # Vendor for an unlinked item, e.g. "Walmart". Free text.
+    source: str | None = None
 
 
 class AddRecipeBody(BaseModel):
@@ -224,10 +237,13 @@ def _commit_recipe_items(
     listing = _load_shopping_list(user_id=user_id)
     now_iso = datetime.now().isoformat()
     for sel in selections:
+        # An unlinked row is a manual item whatever the legacy `override` flag
+        # says -- derive it so the two can never disagree.
+        is_manual = is_manual_item(sel)
         listing["items"].append(
             {
                 "id": _generate_list_item_id(),
-                "product_id": None if sel["override"] else sel["product_id"],
+                "product_id": None if is_manual else sel["product_id"],
                 "ingredient_name": sel["name"],
                 "name": sel["name"],
                 "quantity": sel["quantity"],
@@ -242,8 +258,9 @@ def _commit_recipe_items(
                     }
                 ],
                 "added_at": now_iso,
-                "notes": "Manual purchase" if sel["override"] else None,
-                "manual_purchase": sel["override"],
+                "notes": manual_note(sel) if is_manual else None,
+                "manual_purchase": is_manual,
+                "source": stored_source(sel.get("source")) if is_manual else None,
                 "recipe_name": recipe.get("name"),
             }
         )
@@ -283,6 +300,7 @@ async def add_recipe_to_list(body: AddRecipeBody, request: Request):
                     "items_to_add": preview["items_to_add"],
                     "items_to_skip": preview["items_to_skip"],
                     "manual_purchase": preview["manual_purchase"],
+                    "manual_purchase_by_source": preview["manual_purchase_by_source"],
                     "summary": {
                         "to_add": len(preview["items_to_add"]),
                         "to_skip": len(preview["items_to_skip"]),
@@ -297,17 +315,22 @@ async def add_recipe_to_list(body: AddRecipeBody, request: Request):
                 for row in preview["items_to_add"]
             ] + [
                 {**row, "override": True, "product_id": None, "original_quantity": None}
-                for row in preview["manual_purchase"]
+                for row in preview["manual_purchase"]  # product_id=None => manual
             ]
             items_skipped = len(preview["items_to_skip"])
         else:
             chosen = [
                 {
                     "name": s.name,
-                    "product_id": s.product_id,
+                    # A legacy client sends override=True to mean "don't order
+                    # this from Kroger". Honour it by dropping the link, so
+                    # is_manual_item derives the same answer downstream instead
+                    # of the flag and the product_id contradicting each other.
+                    "product_id": None if s.override else s.product_id,
                     "quantity": max(0.25, float(s.quantity)),
                     "unit": s.unit,
                     "override": s.override,
+                    "source": s.source,
                     "original_quantity": None,
                 }
                 for s in body.selections
@@ -350,10 +373,12 @@ class AddItemBody(BaseModel):
     name: str
     quantity: float = 1.0
     unit: str = ""
-    # Set for something Kroger doesn't sell (a manual favorites item, a recipe
-    # override). Keeps the row out of the Kroger cart-add and lists it under
-    # MANUAL PURCHASE instead of "no product ID — search for product first".
+    # Kept for wire back-compat. An item with no product_id is manual whether
+    # or not this is set; is_manual_item is the authority.
     manual_purchase: bool = False
+    # Vendor for a manual item, e.g. "Walmart". Free text; groups the item into
+    # its own section of the shopping list.
+    source: str | None = None
 
 
 @router.post("/api/shopping-list/items")
@@ -362,15 +387,21 @@ async def add_shopping_list_item(body: AddItemBody, request: Request):
     try:
         user_id = current_user_id(request)
         listing = _load_shopping_list(user_id=user_id)
+        # manual_purchase=True with no product_id is the same thing; derive it
+        # so the flag and the link can never disagree.
+        product_id = None if body.manual_purchase else body.product_id
+        is_manual = is_manual_item({"product_id": product_id})
         new_item: dict[str, Any] = {
             "id": _generate_list_item_id(),
-            "product_id": body.product_id,
+            "product_id": product_id,
             "name": body.name,
+            "ingredient_name": body.name,
             "quantity": body.quantity,
             "unit": body.unit,
             "added_at": datetime.now().isoformat(),
-            "notes": "Manual purchase" if body.manual_purchase else None,
-            "manual_purchase": body.manual_purchase,
+            "notes": manual_note({"source": body.source}) if is_manual else None,
+            "manual_purchase": is_manual,
+            "source": stored_source(body.source) if is_manual else None,
             "sources": [],
         }
         listing["items"].append(new_item)
@@ -577,23 +608,17 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
             product_id = item.get("product_id")
             name = item.get("name") or item.get("ingredient_name") or product_id
 
-            if item.get("manual_purchase"):
+            # No product_id means the user buys it elsewhere -- a manual item,
+            # not a half-finished Kroger one.
+            if is_manual_item(item):
                 items_manual.append(
                     {
                         "product_id": None,
                         "name": name,
                         "quantity": item.get("quantity", 1),
                         "unit": item.get("unit", ""),
-                        "notes": item.get("notes", "Manual purchase required"),
-                    }
-                )
-                continue
-
-            if not product_id:
-                items_to_skip.append(
-                    {
-                        "name": name,
-                        "reason": "No product ID — search for product first",
+                        "source": item_source(item),
+                        "notes": item.get("notes"),
                     }
                 )
                 continue
@@ -635,6 +660,7 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
                     "items": items_to_add,
                     "items_to_skip": items_to_skip,
                     "manual_purchase": items_manual,
+                    "manual_purchase_by_source": group_by_source(items_manual),
                     "spices": items_spices,
                     "summary": {
                         "to_add": len(items_to_add),
@@ -766,6 +792,7 @@ async def shopping_list_to_cart(body: AddToCartBody, request: Request):
             "items_added": len(added_items),
             "items_skipped": len(items_to_skip),
             "manual_purchase": items_manual,
+            "manual_purchase_by_source": group_by_source(items_manual),
             "message": f"Added {len(added_items)} items to your Kroger cart.",
         }
         if failed_items:

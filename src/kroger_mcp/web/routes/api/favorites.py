@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from kroger_mcp.analytics.manual_sources import manual_note, stored_source
 from kroger_mcp.auth.dependencies import current_user_id
 
 router = APIRouter()
@@ -304,8 +305,9 @@ async def add_list_to_shopping_list(list_id: str, request: Request):
                 "unit": "",
                 "sources": [{"favorites_list_id": list_id, "favorites_list_name": list_name}],
                 "added_at": now,
-                "notes": (item.get("override_reason") or "Manual purchase") if manual else None,
+                "notes": manual_note(item) if manual else None,
                 "manual_purchase": manual,
+                "source": stored_source(item.get("source")) if manual else None,
                 "recipe_name": None,
             }
         )
@@ -389,8 +391,9 @@ async def add_snacks_to_shopping_list(body: AddSnacksBody, request: Request):
                 "quantity": snack.get("default_quantity") or 1,
                 "unit": "",
                 "added_at": now,
-                "notes": (snack.get("override_reason") or "Manual purchase") if manual else None,
+                "notes": manual_note(snack) if manual else None,
                 "manual_purchase": manual,
+                "source": stored_source(snack.get("source")) if manual else None,
                 "sources": [{"snacks_list_id": snack["list_id"]}],
             }
         )

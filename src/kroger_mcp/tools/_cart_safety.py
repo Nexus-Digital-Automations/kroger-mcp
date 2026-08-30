@@ -9,8 +9,8 @@ same gate before hitting the real Kroger API.
 
 from typing import Any
 
-from ..analytics.favorites import is_manual_product_id
 from ..analytics.ingredients import check_product_safety
+from ..analytics.manual_sources import is_manual_item
 from ..analytics.safety import (
     BlockMode,
     get_all_blocked_product_ids,
@@ -39,24 +39,36 @@ def check_cart_items_safety(
     warn_only mode never blocks (always returns None once filtering allows
     the batch through).
 
-    Manual items are rejected unconditionally, ahead of everything else. A
-    `manual:<uuid>` id is not a UPC, so sending it would fail at Kroger anyway —
-    but more importantly the user's whole reason for marking an item manual is
-    that they source it themselves. That is a structural invariant, not a
-    tunable preference, so it is checked before `is_filtering_enabled` and is
-    not bypassable via `confirm_unsafe` or warn_only mode.
+    Manual items are rejected unconditionally, ahead of everything else. An
+    item with no `product_id`, or with a synthetic `manual:<uuid>` id, has no
+    UPC to send, so Kroger would reject it anyway — but more importantly the
+    user's whole reason for leaving an item unlinked is that they source it
+    themselves. That is a structural invariant, not a tunable preference, so it
+    is checked before `is_filtering_enabled` and is not bypassable via
+    `confirm_unsafe` or warn_only mode.
+
+    WHY the check is `is_manual_item` and not the `manual:` prefix alone:
+    `product_id` is optional, so an unlinked item reaches here as
+    `product_id: None`. A prefix-only test returns False for None and would let
+    it through to be posted as `{"upc": None}`.
     """
-    manual_ids = [item["product_id"] for item in items if is_manual_product_id(item["product_id"])]
-    if manual_ids:
+    manual_items = [item for item in items if is_manual_item(item)]
+    if manual_items:
+        # An unlinked item has no id to name it by, so fall back to whatever
+        # the caller labelled it with.
+        labels = [
+            item.get("product_id") or item.get("description") or item.get("name") or "(unnamed)"
+            for item in manual_items
+        ]
         return {
             "success": False,
             "requires_confirmation": False,
             "message": (
                 "These are manual items not sold at Kroger and cannot be added to "
-                f"the cart: {', '.join(manual_ids)}. You'll need to source them "
+                f"the cart: {', '.join(labels)}. You'll need to source them "
                 "yourself."
             ),
-            "manual_items": manual_ids,
+            "manual_items": labels,
             "items_requested": len(items),
             "next_step": (
                 "Remove the manual items from your request. If one of them is "
@@ -83,7 +95,7 @@ def check_cart_items_safety(
     blocked_items = []
 
     for item in items:
-        pid = item["product_id"]
+        pid = item.get("product_id")
         description = item.get("description") or ""
 
         if pid in safe_ids:
@@ -154,8 +166,7 @@ def check_cart_items_safety(
         "success": False,
         "requires_confirmation": True,
         "message": (
-            "Some products have safety concerns. "
-            "Set confirm_unsafe=True to add anyway."
+            "Some products have safety concerns. " "Set confirm_unsafe=True to add anyway."
         ),
         "blocked_items": blocked_items,
         "safety_warnings": safety_warnings,

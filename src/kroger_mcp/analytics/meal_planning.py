@@ -18,6 +18,7 @@ from typing import Any
 from kroger_mcp.cache import bump_version, get_version
 
 from .database import ensure_initialized, get_db_connection, get_db_cursor
+from .manual_sources import group_by_source, is_manual_item, item_source, manual_note
 from .pantry import get_pantry_status
 from .recipe_integration import match_ingredient_to_pantry
 
@@ -230,7 +231,8 @@ def create_meal_plan(
     plan_type: str = "weekly",
     description: str | None = None,
     is_template: bool = False,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Create a new meal plan owned by `user_id`.
@@ -320,7 +322,8 @@ def get_meal_plans(
     include_past: bool = False,
     include_templates: bool = False,
     limit: int = 20,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     List meal plans owned by `user_id` with summary info.
@@ -390,9 +393,7 @@ def get_meal_plans(
         conn.close()
 
 
-def find_plan_covering_date(
-    meal_date: str, user_id: str
-) -> dict[str, Any] | None:
+def find_plan_covering_date(meal_date: str, user_id: str) -> dict[str, Any] | None:
     """
     Return the user's non-template plan whose date range contains `meal_date`,
     or None if no such plan exists.
@@ -426,7 +427,8 @@ def find_plan_covering_date(
 def get_meal_plan(
     plan_id: str,
     include_recipe_details: bool = True,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Get full details of a meal plan owned by `user_id`, including all meal entries.
@@ -527,7 +529,8 @@ def update_meal_plan(
     description: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Update meal plan metadata, only if `user_id` owns the plan.
@@ -761,7 +764,8 @@ def assign_meal(
     meal_slot: str,
     servings_override: int | None = None,
     notes: str | None = None,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Assign a recipe to a specific day and meal slot, only if `user_id`
@@ -875,9 +879,7 @@ def assign_meal(
         conn.close()
 
 
-def remove_meal(
-    plan_id: str, meal_date: str, meal_slot: str, user_id: str
-) -> dict[str, Any]:
+def remove_meal(plan_id: str, meal_date: str, meal_slot: str, user_id: str) -> dict[str, Any]:
     """
     Remove a recipe from a meal slot, only if `user_id` owns the plan.
 
@@ -1069,7 +1071,8 @@ def get_meal_entries_for_dates(
     plan_id: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    *, user_id: str,
+    *,
+    user_id: str,
     exclude_cooked: bool = False,
 ) -> list[dict[str, Any]]:
     """
@@ -1131,7 +1134,8 @@ def generate_meal_plan_shopping_list(
     pantry_threshold: int = 30,
     combine_duplicates: bool = True,
     skip_items: list[str] | None = None,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Generate shopping list for `user_id`'s meal plan(s).
@@ -1265,6 +1269,7 @@ def generate_meal_plan_shopping_list(
                     "quantity": quantity,
                     "unit": unit,
                     "product_id": product_id,
+                    "source": ing.get("source"),
                     "from_recipes": [ing.get("from_recipe_name") or recipe.get("name")],
                 }
 
@@ -1274,6 +1279,7 @@ def generate_meal_plan_shopping_list(
     items_to_add = []
     items_to_skip = []
     items_unknown = []
+    items_manual = []
 
     def _matches_skip(name: str) -> bool:
         name_lower = name.lower()
@@ -1313,9 +1319,13 @@ def generate_meal_plan_shopping_list(
         elif pantry_level is not None and pantry_level >= pantry_threshold:
             action = "SKIP"
             reason = f"Pantry: {pantry_level}% remaining"
-        elif not product_id:
-            action = "UNKNOWN"
-            reason = "No product linked - search needed"
+        elif is_manual_item(ing):
+            # No product_id means the user buys it elsewhere. It is a manual
+            # errand, not an unresolved lookup.
+            action = "MANUAL"
+            # Every row needs a reason string, so fall back when no vendor
+            # was named — "Manual" alone reads like a bug, not an instruction.
+            reason = manual_note(ing) or "Not sold at Kroger — source it yourself"
         else:
             action = "ADD"
             if in_pantry:
@@ -1328,6 +1338,7 @@ def generate_meal_plan_shopping_list(
             "quantity": round(ing["quantity"], 2) if ing["quantity"] else 1,
             "unit": ing.get("unit", ""),
             "product_id": product_id,
+            "source": item_source(ing) if is_manual_item(ing) else None,
             "from_recipes": list(set(ing["from_recipes"])),
             "action": action,
             "reason": reason,
@@ -1338,6 +1349,8 @@ def generate_meal_plan_shopping_list(
             items_to_add.append(ingredient_info)
         elif action == "SKIP":
             items_to_skip.append(ingredient_info)
+        elif action == "MANUAL":
+            items_manual.append(ingredient_info)
         else:
             items_unknown.append(ingredient_info)
 
@@ -1350,13 +1363,16 @@ def generate_meal_plan_shopping_list(
         },
         "meals_included": len(entries),
         "recipes_included": recipes_included,
-        "ingredients": items_to_add + items_to_skip + items_unknown,
+        "ingredients": items_to_add + items_to_skip + items_manual + items_unknown,
         "items_to_add": items_to_add,
         "items_to_skip": items_to_skip,
         "items_unknown": items_unknown,
+        "manual_purchase_required": items_manual,
+        "manual_purchase_by_source": group_by_source(items_manual),
         "summary": {
             "items_to_add": len(items_to_add),
             "items_to_skip": len(items_to_skip),
+            "items_manual_purchase": len(items_manual),
             "items_unknown": len(items_unknown),
             "total_ingredients": len(all_ingredients),
         },
@@ -1477,9 +1493,7 @@ def _deduct_ingredients(
     from ..analytics.recipe_integration import match_ingredient_to_pantry
 
     owner = _resolve_user_id(user_id)
-    actual_by_pid = {
-        a["product_id"]: a for a in (actuals or []) if a.get("product_id")
-    }
+    actual_by_pid = {a["product_id"]: a for a in (actuals or []) if a.get("product_id")}
 
     deductions: list[dict[str, Any]] = []
     deduction_errors: list[dict[str, Any]] = []
@@ -1523,7 +1537,9 @@ def _deduct_ingredients(
                 event_type="recipe_consumed",
             )
         except Exception as exc:
-            logger.error("cook deduction errored product=%s cook=%s: %s", product_id, cook_event_id, exc)
+            logger.error(
+                "cook deduction errored product=%s cook=%s: %s", product_id, cook_event_id, exc
+            )
             deduction_errors.append({"ingredient": name, "error": str(exc)})
             continue
 
@@ -1538,8 +1554,12 @@ def _deduct_ingredients(
             continue
 
         _record_cook_deduction(
-            cook_event_id, source_type, product_id,
-            result["amount_deducted"], result["previous_level"], owner,
+            cook_event_id,
+            source_type,
+            product_id,
+            result["amount_deducted"],
+            result["previous_level"],
+            owner,
         )
 
         new_level = result["new_level"]
@@ -1567,9 +1587,7 @@ def _deduct_ingredients(
     }
 
 
-def preview_meal_cook(
-    plan_id: str, meal_date: str, meal_slot: str, user_id: str
-) -> dict[str, Any]:
+def preview_meal_cook(plan_id: str, meal_date: str, meal_slot: str, user_id: str) -> dict[str, Any]:
     """Prefill data for the cook popup of a scheduled meal — scaled ingredient
     amounts plus current pantry levels — without deducting anything."""
     ensure_initialized()
@@ -1641,7 +1659,8 @@ def mark_meal_cooked(
     meal_date: str,
     meal_slot: str,
     deduct_pantry: bool = True,
-    *, user_id: str,
+    *,
+    user_id: str,
     actuals: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -1818,9 +1837,7 @@ def _reverse_cook_deductions(
     return restored
 
 
-def undo_meal_cooked(
-    plan_id: str, meal_date: str, meal_slot: str, user_id: str
-) -> dict[str, Any]:
+def undo_meal_cooked(plan_id: str, meal_date: str, meal_slot: str, user_id: str) -> dict[str, Any]:
     """
     Reverse a scheduled meal's cook: restore the pantry exactly, delete the
     reversal-ledger rows, and clear cooked_at/pantry_deducted. Owner-scoped.
@@ -1930,13 +1947,20 @@ def _run_cook_loop(candidates: list[dict[str, Any]], owner: str, log_label: str)
     for meal in candidates:
         try:
             result = mark_meal_cooked(
-                meal["plan_id"], meal["meal_date"], meal["meal_slot"],
-                deduct_pantry=True, user_id=owner,
+                meal["plan_id"],
+                meal["meal_date"],
+                meal["meal_slot"],
+                deduct_pantry=True,
+                user_id=owner,
             )
         except Exception as exc:
             logger.error(
                 "%s failed plan=%s date=%s slot=%s: %s",
-                log_label, meal["plan_id"], meal["meal_date"], meal["meal_slot"], exc,
+                log_label,
+                meal["plan_id"],
+                meal["meal_date"],
+                meal["meal_slot"],
+                exc,
             )
             skipped.append({**meal, "error": str(exc)})
             continue
@@ -1981,7 +2005,13 @@ def reconcile_past_meals(
 
     if mode != "automatic":
         pending = list_pending_meals(user_id=owner, today=today, plan_id=plan_id)
-        return {"success": True, "reconciled": 0, "meals": [], "skipped": [], "pending": len(pending)}
+        return {
+            "success": True,
+            "reconciled": 0,
+            "meals": [],
+            "skipped": [],
+            "pending": len(pending),
+        }
 
     candidates = list_pending_meals(user_id=owner, today=today, plan_id=plan_id)
     return _run_cook_loop(candidates, owner, "reconcile_past_meals")
@@ -2000,9 +2030,7 @@ def confirm_all_pending_meals(user_id: str, today: str | None = None) -> dict[st
     return _run_cook_loop(candidates, owner, "confirm_all_pending_meals")
 
 
-def skip_pending_meal(
-    plan_id: str, meal_date: str, meal_slot: str, user_id: str
-) -> dict[str, Any]:
+def skip_pending_meal(plan_id: str, meal_date: str, meal_slot: str, user_id: str) -> dict[str, Any]:
     """Mark a never-cooked past meal as permanently skipped ("I didn't cook
     this"), without ever touching the pantry.
 
@@ -2048,7 +2076,8 @@ def cook_recipe_adhoc(
     recipe_id: str,
     servings_override: int | None = None,
     deduct_pantry: bool = True,
-    *, user_id: str,
+    *,
+    user_id: str,
     actuals: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -2632,7 +2661,8 @@ def get_meal_history(
     days: int = 30,
     start_date: str | None = None,
     end_date: str | None = None,
-    *, user_id: str,
+    *,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Return past meal entries for `user_id`, grouped by date (most recent first).
@@ -2739,9 +2769,7 @@ def cleanup_expired_plans(retention_days: int = 90, *, user_id: str) -> dict[str
         # "end_date < today - retention_days". Compute the cutoff in Python and
         # bind it, instead of the SQLite-only date(end_date, '+N days') / date('now')
         # idioms (no such functions on PostgreSQL). Same date granularity as before.
-        cutoff_date = (datetime.now() - timedelta(days=retention_days)).strftime(
-            "%Y-%m-%d"
-        )
+        cutoff_date = (datetime.now() - timedelta(days=retention_days)).strftime("%Y-%m-%d")
         # Identify plans to delete first (for informative response)
         expired = conn.execute(
             """

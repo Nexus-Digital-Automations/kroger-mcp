@@ -9,6 +9,7 @@ from typing import Any, Literal
 from fastmcp import Context
 from pydantic import Field
 
+from ..analytics.manual_sources import group_by_source
 from ._cart_safety import check_cart_items_safety
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,7 @@ def register_tools(mcp):
         ),
         items: list[dict[str, Any]] | None = Field(
             default=None,
-            description="Bulk add: [{product_id, description, brand, default_quantity, preferred_modality, notes, min_stock_percent, min_stock_quantity, current_stock_quantity, manual, override_reason}]",
+            description="Bulk add: [{product_id, description, brand, default_quantity, preferred_modality, notes, min_stock_percent, min_stock_quantity, current_stock_quantity, manual, override_reason, source}]",
         ),
         manual: bool | None = Field(
             default=False,
@@ -114,6 +115,13 @@ def register_tools(mcp):
         override_reason: str | None = Field(
             default=None,
             description="add_item — optional note on why a manual item isn't a Kroger product",
+        ),
+        source: str | None = Field(
+            default=None,
+            description=(
+                "add_item — vendor for a manual item, e.g. 'Walmart'. Groups it "
+                "into its own section of the shopping list. Free text."
+            ),
         ),
         min_stock_percent: int | None = Field(
             default=None,
@@ -203,6 +211,7 @@ def register_tools(mcp):
             items,
             manual,
             override_reason,
+            source,
             min_stock_percent,
             min_stock_quantity,
             current_stock_quantity,
@@ -238,6 +247,7 @@ def register_tools(mcp):
         items,
         manual,
         override_reason,
+        source,
         min_stock_percent,
         min_stock_quantity,
         current_stock_quantity,
@@ -336,6 +346,7 @@ def register_tools(mcp):
                     description=description,
                     manual=bool(manual),
                     override_reason=override_reason,
+                    source=source,
                     brand=brand,
                     default_quantity=default_quantity or 1,
                     preferred_modality=preferred_modality or "PICKUP",
@@ -416,6 +427,7 @@ def register_tools(mcp):
                         "description": item["description"],
                         "quantity": item["default_quantity"],
                         "override_reason": item.get("override_reason"),
+                        "source": item.get("source"),
                         "action": "MANUAL",
                     }
                     for item in result["items"]
@@ -493,6 +505,7 @@ def register_tools(mcp):
                         "items_ordered": [],
                         "items_skipped": items_skipped,
                         "manual_purchase": manual_purchase,
+                        "manual_purchase_by_source": group_by_source(manual_purchase),
                         "order_count": 0,
                         "skip_count": len(items_skipped),
                         "manual_count": len(manual_purchase),
@@ -515,6 +528,7 @@ def register_tools(mcp):
                             ],
                             "items_skipped": items_skipped,
                             "manual_purchase": manual_purchase,
+                            "manual_purchase_by_source": group_by_source(manual_purchase),
                             "order_count": len(items_to_order),
                             "skip_count": len(items_skipped),
                             "manual_count": len(manual_purchase),
@@ -532,7 +546,10 @@ def register_tools(mcp):
 
                 safety_response = check_cart_items_safety(
                     [
-                        {"product_id": item["product_id"], "description": item.get("description", "")}
+                        {
+                            "product_id": item["product_id"],
+                            "description": item.get("description", ""),
+                        }
                         for item in items_to_order
                     ],
                     user_id=user_id,
@@ -607,6 +624,7 @@ def register_tools(mcp):
                         ],
                         "items_skipped": items_skipped,
                         "manual_purchase": manual_purchase,
+                        "manual_purchase_by_source": group_by_source(manual_purchase),
                         "order_count": len(items_to_order),
                         "skip_count": len(items_skipped),
                         "manual_count": len(manual_purchase),
@@ -650,6 +668,7 @@ def register_tools(mcp):
                         ],
                         "items_skipped": items_skipped,
                         "manual_purchase": manual_purchase,
+                        "manual_purchase_by_source": group_by_source(manual_purchase),
                     }
 
             case "suggest":

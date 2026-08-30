@@ -560,10 +560,15 @@ def register_tools(mcp):
                     # check_cart_items_safety() call to hang the manual-item
                     # check off, so it is inlined. A manual favorite's id can
                     # reach here by being linked to a recipe ingredient that the
-                    # plan then pulls in.
-                    from ..analytics.favorites import is_manual_product_id
+                    # plan then pulls in. Uses the shared predicate so an
+                    # unlinked (product_id-less) item is caught too, not just a
+                    # `manual:` id — the api_items comprehension above filters
+                    # those out, but this must not depend on that staying true.
+                    from ..analytics.manual_sources import is_manual_item
 
-                    manual_upcs = [i["upc"] for i in api_items if is_manual_product_id(i["upc"])]
+                    manual_upcs = [
+                        i["upc"] for i in api_items if is_manual_item({"product_id": i["upc"]})
+                    ]
                     if manual_upcs:
                         return {
                             "success": False,
@@ -589,7 +594,8 @@ def register_tools(mcp):
                                 _add_item_to_local_cart(
                                     item["product_id"],
                                     max(1, int(round(item.get("quantity", 1)))),
-                                    mod, user_id=user_id,
+                                    mod,
+                                    user_id=user_id,
                                 )
                         if plan_id:
                             from ..analytics.database import get_db_connection
