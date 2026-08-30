@@ -488,6 +488,30 @@ Recipes are stored in `kroger_recipes.json` with:
 
 ---
 
+### 🛒 Manual Items & Vendor Attribution
+
+Not everything comes from Kroger. An ingredient needs only a `name`; a Kroger `product_id` is optional and makes the item orderable. Anything without one is a **manual item** — an errand you run yourself.
+
+`src/kroger_mcp/analytics/manual_sources.py` owns the whole contract, so every surface (recipes, shopping list, favorites, meal plans, web API) agrees on it:
+
+| Function | Purpose |
+| --- | --- |
+| `is_manual_item(item)` | The single predicate for "never send this to the Kroger cart". True for a falsy `product_id` **or** a synthetic `manual:<uuid>` id. |
+| `normalize_source(s)` | Canonical vendor name for display. Known stores collapse onto one spelling (`wal-mart` → `Walmart`); unknown ones pass through verbatim. Blank → `"Manual"`. |
+| `stored_source(s)` | Same, but returns `None` for a blank vendor. **Every persisted write uses this** — the `"Manual"` label is for display, never for the column. |
+| `manual_note(item)` | The one-line explanation: `"Buy at Walmart"`, else a legacy `override_reason`, else `None`. |
+| `group_by_source(items)` | Turns a flat manual list into `[{source, item_count, items}, …]` — known vendors first, then named unknowns, then unattributed. |
+
+**Manual status is derived, never declared.** No `product_id` means manual, full stop — there is no flag to set. (`override` / `override_reason` are still accepted so existing recipes load, but nothing reads them to decide anything.) This removes the failure mode where `override=False` on an unlinked item produced a row that was neither orderable nor marked manual.
+
+**Vendor is free text.** Set `source` to `"Walmart"`, `"Costco"`, or `"Indian grocery on Airport Blvd"` — nothing is rejected for being unrecognized. Every surface emits `manual_purchase_by_source` (per-vendor sections, so the list reads as an errand plan) *beside* the existing flat `manual_purchase_required` list, which is unchanged.
+
+**The hard rule.** `check_cart_items_safety` rejects manual items unconditionally — ahead of the safety filter and not bypassable by `confirm_unsafe` or warn-only mode. They surface as MANUAL PURCHASE in previews and **stay on the shopping list after a Kroger order is placed**, since that order didn't buy them.
+
+Storage: `manual_source TEXT` on `user_shopping_lists` and `favorite_list_items` in both SQLite and Postgres. The column is `manual_source` rather than `source` because `user_shopping_lists.recipe_source` already means "which recipe did this come from". Recipes need no migration — they're JSON-stored, so `source` rides along in the ingredient dict.
+
+---
+
 ## 🖥️ Web Dashboard
 
 A read-only personal dashboard for browsing recipes, meal plans, favorites, and pantry inventory — no Claude required.

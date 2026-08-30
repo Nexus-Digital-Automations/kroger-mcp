@@ -31,6 +31,29 @@ Test suite for the Smart Shopper / Kroger MCP server, run via `pytest`.
   `user_shopping_lists` column list, so the flag was dropped on reload and
   recipe overrides silently reverted to ordinary unlinked rows.
 
+- **`test_manual_source_items.py`** — specs for the *unlinked* half of the same
+  idea: an ingredient with no `product_id` at all, because the user buys it at
+  Walmart. Manual status is derived from the missing id rather than declared by
+  a flag, and `source` names the vendor so the list groups into per-vendor
+  errand sections (`manual_purchase_by_source`).
+
+  The `cart_gate` tests are the load-bearing ones. `check_cart_items_safety` is
+  the single gate every cart-write path shares, and it used to recognize manual
+  items by the `manual:<uuid>` prefix alone — but `is_manual_product_id(None)`
+  is `False`, so making `product_id` optional would have let an unlinked item
+  through to be POSTed to Kroger as `{"upc": None}`. Those tests run with the
+  safety filter **off** and `confirm_unsafe=True`: a block that survives the
+  most permissive configuration is what proves the invariant is structural
+  rather than a tunable preference. They also cover the missing-key shape,
+  which the old `item["product_id"]` subscript raised `KeyError` on.
+
+  The rest pins the storage/display split that bit during implementation:
+  `UNSPECIFIED_SOURCE` (`"Manual"`) is a display label, so writes go through
+  `stored_source()` and persist `NULL`. Storing the sentinel made "never said
+  where" indistinguishable from a store by that name and overwrote the
+  `override_reason` note that older manual favorites are the sole carrier of —
+  caught by `test_favorites_manual_items.py`, above.
+
 ## Isolation pattern
 
 Fixtures that touch the database use a `tmp_path`-backed SQLite file via
