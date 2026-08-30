@@ -143,3 +143,5 @@ makes manual items first-class.
 - [x] Add `stored_source()` and `manual_note()` and route every persisted write / note through them, so the display sentinel never reaches a column and no user-written reason is overwritten.
 - [x] Drop the `override`-gated branch in `scripts/migrate_guides_from_recipes.py` — an unlinked ingredient no longer carries the flag, so the guide line went missing entirely.
 - [x] Run ruff + black + mypy and the full test suite.
+
+<!-- last-verified: 2026-08-30 -->
