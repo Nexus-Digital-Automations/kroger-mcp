@@ -92,17 +92,23 @@ class TestPantryAlertsForBell:
 
 
 class TestNextWeekNeedsPlan:
-    def test_true_when_no_plan_covers_next_monday(self, clean_db):
+    def test_true_when_no_plan_covers_next_week_start(self, clean_db):
         assert next_week_needs_plan(_user_id()) is True
 
-    def test_false_once_a_plan_covers_next_monday(self, clean_db):
+    def test_false_once_a_plan_covers_next_week_start(self, clean_db):
+        # Anchor on the user's configured week boundary (default Sunday=6),
+        # exactly as next_week_needs_plan does.
+        from kroger_mcp.analytics.meal_planning import week_start_for_date
+        from kroger_mcp.tools.shared import get_week_start_day
+
         today = datetime.now().date()
-        next_monday = today + timedelta(days=(7 - today.weekday()))
-        next_sunday = next_monday + timedelta(days=6)
+        next_start = week_start_for_date(
+            today, get_week_start_day(user_id=_user_id())
+        ) + timedelta(days=7)
         create_meal_plan(
             name="Next week",
-            start_date=next_monday.isoformat(),
-            end_date=next_sunday.isoformat(),
+            start_date=next_start.isoformat(),
+            end_date=(next_start + timedelta(days=6)).isoformat(),
             user_id=_user_id(),
         )
         assert next_week_needs_plan(_user_id()) is False

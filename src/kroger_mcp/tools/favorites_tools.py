@@ -35,10 +35,13 @@ def register_tools(mcp):
             "update_quantity",
             "get_low_stock",
             "check_snacks",
+            "log_snack",
         ] = Field(
             description=(
                 "order — ADD ENTIRE LIST TO CART in one call (skips well-stocked items). "
                 "Use this whenever user asks to order/add a favorites list. "
+                "log_snack — ONE-CALL snack log: pass item='chips' and it matches a "
+                "pantry item and deducts in one step (no quantity needed). "
                 "check_snacks — pre-cart replenishment checklist for the Snacks list: "
                 "returns each snack with a pre_ticked guess (pantry-low, stale, or never ordered) "
                 "for the user to confirm before sending the list to cart. "
@@ -179,6 +182,10 @@ def register_tools(mcp):
             default=False,
             description="order — override safety warnings",
         ),
+        item: str | None = Field(
+            default=None,
+            description="log_snack — what was eaten, free text, e.g. 'chips'",
+        ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Favorite list management operations.
@@ -226,6 +233,7 @@ def register_tools(mcp):
             limit,
             confirm,
             confirm_unsafe,
+            item,
             ctx,
         )
 
@@ -262,6 +270,7 @@ def register_tools(mcp):
         limit,
         confirm,
         confirm_unsafe,
+        item,
         ctx,
     ):
         from kroger_mcp.auth.dependencies import mcp_user_id
@@ -735,6 +744,13 @@ def register_tools(mcp):
                 from ..analytics.favorites import check_snacks
 
                 return check_snacks(user_id=user_id)
+
+            case "log_snack":
+                from ..analytics.favorites import log_snack_consumption
+
+                if not item:
+                    return {"success": False, "error": "item is required"}
+                return log_snack_consumption(item=item, user_id=user_id)
 
             case _:
                 return {"success": False, "error": f"Unknown action: {action}"}

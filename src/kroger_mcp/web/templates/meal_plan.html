@@ -646,12 +646,11 @@
       <!-- Day headers -->
       <div class="grid" style="grid-template-columns: 90px repeat(7, 1fr); border-bottom: 1px solid var(--border);">
         <div class="px-3 py-2" style="background: oklch(97% 0.01 70);"></div>
-        {% set day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] %}
         {% for day in week_dates %}
         {% set is_today = (day == today) %}
         <div class="px-2 py-2 text-center" style="border-left: 1px solid var(--border); background: {% if is_today %}var(--green-light){% else %}oklch(97% 0.01 70){% endif %};">
           <p class="text-xs font-semibold" style="color: {% if is_today %}var(--success){% else %}var(--text-3){% endif %};">
-            {{ day_names[loop.index0] }}
+            {{ day.strftime("%a") }}
           </p>
           <p class="text-xs" style="color: {% if is_today %}var(--success){% else %}var(--text-3){% endif %}; font-weight: {% if is_today %}500{% else %}400{% endif %};">
             {{ day.strftime("%-d") }}

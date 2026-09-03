@@ -19,7 +19,6 @@ from kroger_mcp.web.templating import templates
 router = APIRouter()
 
 SLOTS = ["breakfast", "lunch", "dinner", "snack"]
-DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def _get_all_plans(user_id: str, include_templates: bool = False):
@@ -32,7 +31,7 @@ def _get_all_plans(user_id: str, include_templates: bool = False):
                 SELECT id, name, description, start_date, end_date,
                        plan_type, is_template, times_ordered, last_ordered_at
                 FROM meal_plans
-                WHERE user_id = ?
+                WHERE user_id = ? AND is_draft = 0
                 ORDER BY is_template ASC, start_date DESC
             """,
                 (user_id,),
@@ -43,7 +42,7 @@ def _get_all_plans(user_id: str, include_templates: bool = False):
                 SELECT id, name, description, start_date, end_date,
                        plan_type, is_template, times_ordered, last_ordered_at
                 FROM meal_plans
-                WHERE user_id = ? AND is_template = 0
+                WHERE user_id = ? AND is_template = 0 AND is_draft = 0
                 ORDER BY start_date DESC
             """,
                 (user_id,),
@@ -71,24 +70,29 @@ def _get_plan_entries(plan_id: str, user_id: str):
         conn.close()
 
 
-def _build_calendar(plan, entries, recipe_map, week_offset: int = 0, time_map=None):
-    """Build a Mon–Sun grid for the plan, offset by week_offset weeks.
+def _build_calendar(
+    plan, entries, recipe_map, week_offset: int = 0, time_map=None, week_start_day: int = 6
+):
+    """Build a 7-day grid for the plan, offset by week_offset weeks.
 
+    The grid aligns to the week containing the plan's own start_date (using
+    the user's configured week start day), not to "today's week".
     time_map: optional {recipe_id: "45 min"} labels shown on calendar cells.
     """
+    from kroger_mcp.analytics.meal_planning import week_start_for_date
+
     time_map = time_map or {}
     if not plan:
         return [], None, None
 
     start_dt = datetime.strptime(plan["start_date"], "%Y-%m-%d").date()
 
-    # Find Monday of the first week, then apply offset
-    first_monday = start_dt - timedelta(days=start_dt.weekday())
-    view_monday = first_monday + timedelta(weeks=week_offset)
+    first_week_start = week_start_for_date(start_dt, week_start_day)
+    view_start = first_week_start + timedelta(weeks=week_offset)
 
-    view_sunday = view_monday + timedelta(days=6)
+    view_end = view_start + timedelta(days=6)
 
-    week_dates = [view_monday + timedelta(days=i) for i in range(7)]
+    week_dates = [view_start + timedelta(days=i) for i in range(7)]
 
     # Build lookup: {(date_str, slot): {recipe_name, recipe_id, cooked_at}}
     entry_map = {}
@@ -119,12 +123,15 @@ def _build_calendar(plan, entries, recipe_map, week_offset: int = 0, time_map=No
             )
         calendar.append(row)
 
-    return calendar, week_dates, (view_monday, view_sunday)
+    return calendar, week_dates, (view_start, view_end)
 
 
 def _meal_plan_payload(user_id: str, plan_id: str | None, week: int | None) -> dict:
     """All blocking work for the meal-plan page (DB queries + JSON load), run
     off the event loop via run_in_thread."""
+    from kroger_mcp.tools.shared import get_week_start_day
+
+    week_start_day = get_week_start_day(user_id=user_id)
     plans = _get_all_plans(user_id, include_templates=False)
     all_plans_with_templates = _get_all_plans(user_id, include_templates=True)
     templates_list = [p for p in all_plans_with_templates if p.get("is_template")]
@@ -166,13 +173,15 @@ def _meal_plan_payload(user_id: str, plan_id: str | None, week: int | None) -> d
 
         # Auto-advance only on first load (no explicit week param)
         if entries and not explicit_week:
+            from kroger_mcp.analytics.meal_planning import week_start_for_date
+
             start_dt = datetime.strptime(active_plan["start_date"], "%Y-%m-%d").date()
-            first_monday = start_dt - timedelta(days=start_dt.weekday())
+            first_week_start = week_start_for_date(start_dt, week_start_day)
             entry_dates = [datetime.strptime(e["meal_date"], "%Y-%m-%d").date() for e in entries]
             earliest = min(entry_dates)
-            default_week_end = first_monday + timedelta(days=6)
+            default_week_end = first_week_start + timedelta(days=6)
             if earliest > default_week_end:
-                week_offset = (earliest - first_monday).days // 7
+                week_offset = (earliest - first_week_start).days // 7
 
         # Time labels only for recipes actually on the plan (cheap regex parse).
         plan_recipe_ids = {e["recipe_id"] for e in entries}
@@ -180,14 +189,16 @@ def _meal_plan_payload(user_id: str, plan_id: str | None, week: int | None) -> d
         for r in recipe_data.get("recipes", []):
             if r.get("id") in plan_recipe_ids:
                 try:
-                    summary = recipe_time_summary(r)
-                    if summary["total"]:
-                        time_map[r["id"]] = summary["label"]
+                    # Distinct name: reusing `summary` here used to clobber the
+                    # page's meal-count summary dict built above.
+                    time_summary = recipe_time_summary(r)
+                    if time_summary["total"]:
+                        time_map[r["id"]] = time_summary["label"]
                 except Exception:
                     pass
 
         calendar, week_dates, _ = _build_calendar(
-            active_plan, entries, recipe_map, week_offset, time_map
+            active_plan, entries, recipe_map, week_offset, time_map, week_start_day
         )
 
     today = datetime.now().date()

@@ -446,6 +446,18 @@ def register_tools(mcp):
                     from ..config.session_state import get_session_manager
 
                     session_id = _get_session_id(ctx)
+
+                    # Lazy passive-deduction catch-up: this is the mandated
+                    # first call of every shopping session, so settling past
+                    # planned meals here keeps pantry levels current without
+                    # the user ever opening the meal plan. Fire-and-discard.
+                    try:
+                        from ..analytics.meal_planning import reconcile_past_meals
+
+                        reconcile_past_meals(user_id=user_id)
+                    except Exception:
+                        pass
+
                     pantry_items = get_pantry_status(apply_depletion=True, user_id=user_id)
                     overdue_predictions = get_predictions_for_period(
                         days_ahead=0, min_confidence=0.5, include_overdue=True, user_id=user_id
@@ -554,10 +566,21 @@ def register_tools(mcp):
                     }
                     session_manager = get_session_manager()
                     session_manager.mark_tool_called(session_id, "get_pantry_attention")
+
+                    # Surface silently-recorded snack-log misses (see
+                    # favorites.log_snack_consumption) — never fail the call.
+                    try:
+                        from ..analytics.notifications import list_unmatched_snacks_for_bell
+
+                        unmatched_snacks = list_unmatched_snacks_for_bell(user_id)
+                    except Exception:
+                        unmatched_snacks = []
+
                     return {
                         "success": True,
                         "items": attention_items,
                         "summary": summary,
+                        "unmatched_snacks": unmatched_snacks,
                         "timestamp": datetime.now().isoformat(),
                         "_session_requirement_fulfilled": True,
                     }

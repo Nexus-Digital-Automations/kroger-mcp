@@ -34,10 +34,17 @@ def register_tools(mcp):
             "get_servings",
             "set_servings",
             "get_preferences",
+            "set_week_start_day",
+            "set_planning_horizon_days",
+            "set_draft_dinners_per_week",
         ] = Field(
             description=(
                 "set_servings — set household size (used by recipe scaling). "
-                "get_preferences — current location + servings. "
+                "get_preferences — current location + servings + planning settings. "
+                "set_week_start_day — value 0-6 (0=Monday..6=Sunday, default 6). "
+                "set_planning_horizon_days — value 1-28, days a plan covers (default 7). "
+                "set_draft_dinners_per_week — value 1-7, dinners the weekly auto-draft "
+                "fills (default 3). "
                 "Other: list_chains|get_chain|check_chain|list_departments|get_department|check_department|get_datetime|get_servings"
             )
         ),
@@ -52,6 +59,11 @@ def register_tools(mcp):
         servings: int | None = Field(
             default=None,
             description="Number of servings 1-20",
+        ),
+        value: int | None = Field(
+            default=None,
+            description="New value for the set_week_start_day / "
+            "set_planning_horizon_days / set_draft_dinners_per_week actions",
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
@@ -68,11 +80,12 @@ def register_tools(mcp):
             chain_name,
             department_id,
             servings,
+            value,
             ctx,
             user_id,
         )
 
-    def _info_impl(action, chain_name, department_id, servings, ctx, user_id):
+    def _info_impl(action, chain_name, department_id, servings, value, ctx, user_id):
         match action:
             case "list_chains":
                 if ctx:
@@ -322,17 +335,50 @@ def register_tools(mcp):
             case "get_preferences":
                 try:
                     from .shared import get_default_servings as _get_default_servings
-                    from .shared import get_preferred_location_id
+                    from .shared import (
+                        get_draft_dinners_per_week,
+                        get_planning_horizon_days,
+                        get_preferred_location_id,
+                        get_week_start_day,
+                    )
 
                     return {
                         "success": True,
                         "profile": {
                             "preferred_location_id": get_preferred_location_id(user_id),
                             "default_servings_per_meal": _get_default_servings(user_id),
+                            "week_start_day": get_week_start_day(user_id=user_id),
+                            "planning_horizon_days": get_planning_horizon_days(user_id=user_id),
+                            "draft_dinners_per_week": get_draft_dinners_per_week(user_id=user_id),
                         },
                     }
                 except Exception as e:
                     return {"success": False, "error": f"Failed to get preferences: {str(e)}"}
+
+            case "set_week_start_day" | "set_planning_horizon_days" | "set_draft_dinners_per_week":
+                if value is None:
+                    return {"success": False, "error": f"value is required for {action}"}
+                from .shared import (
+                    set_draft_dinners_per_week,
+                    set_planning_horizon_days,
+                    set_week_start_day,
+                )
+
+                setters = {
+                    "set_week_start_day": set_week_start_day,
+                    "set_planning_horizon_days": set_planning_horizon_days,
+                    "set_draft_dinners_per_week": set_draft_dinners_per_week,
+                }
+                setting_name = action.removeprefix("set_")
+                try:
+                    setters[action](value, user_id=user_id)
+                except ValueError as e:
+                    return {"success": False, "error": str(e)}
+                return {
+                    "success": True,
+                    setting_name: value,
+                    "message": f"{setting_name} set to {value}",
+                }
 
             case _:
                 return {"success": False, "error": f"Unknown action: {action}"}

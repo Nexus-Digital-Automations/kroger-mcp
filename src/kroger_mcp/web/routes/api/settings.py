@@ -35,6 +35,10 @@ class MealPlanDeductionModeBody(BaseModel):
     mode: str
 
 
+class PlanningSettingBody(BaseModel):
+    value: int
+
+
 class LocationBody(BaseModel):
     location_id: str
 
@@ -57,10 +61,13 @@ async def get_settings(request: Request):
         from kroger_mcp.tools.shared import (
             get_authenticated_client,
             get_default_servings,
+            get_draft_dinners_per_week,
             get_favorites_display_mode,
             get_include_spices_by_default,
             get_meal_plan_pantry_deduction_mode,
+            get_planning_horizon_days,
             get_preferred_location_id,
+            get_week_start_day,
             should_show_deduction_default_notice,
         )
 
@@ -87,6 +94,9 @@ async def get_settings(request: Request):
             "favorites_display_mode": favorites_display_mode,
             "meal_plan_pantry_deduction_mode": meal_plan_pantry_deduction_mode,
             "show_meal_plan_deduction_notice": show_meal_plan_deduction_notice,
+            "week_start_day": get_week_start_day(user_id=user_id),
+            "planning_horizon_days": get_planning_horizon_days(user_id=user_id),
+            "draft_dinners_per_week": get_draft_dinners_per_week(user_id=user_id),
             "auth_status": auth_status,
         }
     except Exception as exc:
@@ -143,6 +153,48 @@ async def set_meal_plan_pantry_deduction_mode_route(
 
         set_meal_plan_pantry_deduction_mode(body.mode, user_id=current_user_id(request))
         return {"success": True, "meal_plan_pantry_deduction_mode": body.mode}
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/week-start-day")
+async def set_week_start_day_route(body: PlanningSettingBody, request: Request):
+    """Persist this user's week start day (0=Monday .. 6=Sunday)."""
+    try:
+        from kroger_mcp.tools.shared import set_week_start_day
+
+        set_week_start_day(body.value, user_id=current_user_id(request))
+        return {"success": True, "week_start_day": body.value}
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/planning-horizon-days")
+async def set_planning_horizon_days_route(body: PlanningSettingBody, request: Request):
+    """Persist this user's planning horizon in days (1-28)."""
+    try:
+        from kroger_mcp.tools.shared import set_planning_horizon_days
+
+        set_planning_horizon_days(body.value, user_id=current_user_id(request))
+        return {"success": True, "planning_horizon_days": body.value}
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/settings/draft-dinners-per-week")
+async def set_draft_dinners_per_week_route(body: PlanningSettingBody, request: Request):
+    """Persist how many dinners the weekly auto-draft fills (1-7)."""
+    try:
+        from kroger_mcp.tools.shared import set_draft_dinners_per_week
+
+        set_draft_dinners_per_week(body.value, user_id=current_user_id(request))
+        return {"success": True, "draft_dinners_per_week": body.value}
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:

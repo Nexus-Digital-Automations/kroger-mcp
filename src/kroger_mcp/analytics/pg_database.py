@@ -272,6 +272,10 @@ CREATE TABLE IF NOT EXISTS favorite_list_items (
     current_stock_quantity INTEGER,
     last_ordered_at TIMESTAMP WITH TIME ZONE,
     typical_gap_days INTEGER,
+    -- Consumption-side snack signal: stamped/incremented by
+    -- favorites(action='log_snack'), count reset by mark_snacks_ordered.
+    last_consumed_at TIMESTAMP WITH TIME ZONE,
+    consumed_count_since_order INTEGER DEFAULT 0,
     -- Manual (not sold at Kroger) items. product_id stays NOT NULL and part of
     -- the PK; a manual row carries a synthetic 'manual:<uuid>' id instead
     -- (see analytics/favorites.py::new_manual_product_id).
@@ -294,6 +298,9 @@ CREATE TABLE IF NOT EXISTS meal_plans (
     end_date DATE NOT NULL,
     plan_type VARCHAR(20) DEFAULT 'weekly',
     is_template BOOLEAN DEFAULT FALSE,
+    -- Auto-generated weekly draft awaiting approval; excluded from lazy
+    -- pantry reconciliation until approve_draft flips it off.
+    is_draft BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_ordered_at TIMESTAMP WITH TIME ZONE,
@@ -319,6 +326,15 @@ CREATE TABLE IF NOT EXISTS meal_entries (
     -- reconciler never silently re-deducts it.
     cook_skipped BOOLEAN DEFAULT FALSE,
     UNIQUE(plan_id, meal_date, meal_slot)
+);
+
+-- Snack quick-logs that couldn't be matched to any pantry item. Surfaced for
+-- 14 days via pantry get_attention / the web bell, then ages out (no dismiss).
+CREATE TABLE IF NOT EXISTS unmatched_snack_log (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_text TEXT NOT NULL,
+    logged_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Safe products (user-scoped)
@@ -762,6 +778,11 @@ _PG_COLUMN_MIGRATIONS = (
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS override_reason TEXT",
     "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS manual_source TEXT",
     "ALTER TABLE meal_entries ADD COLUMN IF NOT EXISTS cook_skipped BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE meal_plans ADD COLUMN IF NOT EXISTS is_draft BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS last_consumed_at "
+    "TIMESTAMP WITH TIME ZONE",
+    "ALTER TABLE favorite_list_items ADD COLUMN IF NOT EXISTS "
+    "consumed_count_since_order INTEGER DEFAULT 0",
     "ALTER TABLE user_carts ADD COLUMN IF NOT EXISTS regular_price REAL",
     "ALTER TABLE user_carts ADD COLUMN IF NOT EXISTS sale_price REAL",
     "ALTER TABLE user_shopping_lists ADD COLUMN IF NOT EXISTS notes TEXT",

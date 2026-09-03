@@ -427,6 +427,59 @@ def mark_deduction_default_notice_seen(user_id: str) -> None:
     _save_preference("meal_plan_deduction_notice_seen", True, user_id=user_id)
 
 
+def get_week_start_day(user_id: str) -> int:
+    """First day of this user's planning week, Python weekday() convention.
+
+    0=Monday .. 6=Sunday. Default 6 (Sunday) — the passive weekly workflow
+    plans Sunday-through-Saturday unless the user reconfigures it.
+    """
+    return int(_load_preferences(user_id=user_id).get("week_start_day", 6))
+
+
+def set_week_start_day(value: int, user_id: str) -> None:
+    """Persist this user's week start day.
+
+    Raises ValueError if value isn't 0 (Monday) through 6 (Sunday).
+    """
+    if not 0 <= int(value) <= 6:
+        raise ValueError("week_start_day must be 0 (Monday) through 6 (Sunday)")
+    _save_preference("week_start_day", int(value), user_id=user_id)
+
+
+def get_planning_horizon_days(user_id: str) -> int:
+    """How many days ahead an auto-generated weekly draft covers. Default 7."""
+    return int(_load_preferences(user_id=user_id).get("planning_horizon_days", 7))
+
+
+def set_planning_horizon_days(value: int, user_id: str) -> None:
+    """Persist this user's planning horizon.
+
+    Raises ValueError if value isn't between 1 and 28 days.
+    """
+    if not 1 <= int(value) <= 28:
+        raise ValueError("planning_horizon_days must be between 1 and 28")
+    _save_preference("planning_horizon_days", int(value), user_id=user_id)
+
+
+def get_draft_dinners_per_week(user_id: str) -> int:
+    """How many dinner slots the weekly auto-draft fills. Default 3.
+
+    Only the dinner slot is auto-planned: saved recipes carry no
+    breakfast/lunch classification, so filling other slots would be guessing.
+    """
+    return int(_load_preferences(user_id=user_id).get("draft_dinners_per_week", 3))
+
+
+def set_draft_dinners_per_week(value: int, user_id: str) -> None:
+    """Persist how many dinners the weekly auto-draft plans.
+
+    Raises ValueError if value isn't between 1 and 7.
+    """
+    if not 1 <= int(value) <= 7:
+        raise ValueError("draft_dinners_per_week must be between 1 and 7")
+    _save_preference("draft_dinners_per_week", int(value), user_id=user_id)
+
+
 def get_kroger_credentials(user_id: str) -> dict:
     """Get this user's Kroger API credentials; falls back to KROGER_* env vars."""
     import json as _json

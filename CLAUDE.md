@@ -54,6 +54,42 @@ This location is pre-configured and persists across sessions. **Do NOT call loca
 
 ---
 
+## Passive Weekly Workflow
+
+The app is designed to run itself; the user's routine involvement is a weekly
+plan glance and snack logging. Everything else happens automatically.
+
+**Automatic pantry deduction (no action needed).** When a planned meal's date
+passes, its ingredients are deducted from the pantry automatically on the next
+interaction — `pantry(action='get_attention')` and `meal_plan` list/get/week
+views all trigger the catch-up. Never ask the user to confirm past meals.
+Corrections when reality differed from the plan:
+- `meal_plan(action='skip_meal', plan_id=..., meal_date=..., meal_slot=...)` — didn't cook it; no deduction
+- `meal_plan(action='undo_cooked', ...)` — marked cooked by mistake; restores pantry
+
+**Weekly draft (one touchpoint per week).** When the bell / `get_attention`
+flags that next week has no plan, call `meal_plan(action='generate_draft')` —
+it fills the configured number of dinners (default 3) from saved recipes,
+avoiding recent repeats. Show the user the draft; after their OK, call
+`meal_plan(action='approve_draft', plan_id=...)`. Drafts never deduct pantry
+until approved.
+
+**Snack logging (the one routine manual update).** When the user says they ate
+something: `favorites(action='log_snack', item='chips')` — one call, no
+quantity. It fuzzy-matches the pantry and deducts 10%. If nothing matches, it
+still succeeds silently and the item surfaces later in `get_attention`'s
+`unmatched_snacks` — resolve those with the user when convenient, not
+immediately.
+
+**Settings** (via `info` tool or web settings): `set_week_start_day` (0=Mon..
+6=Sun, default Sunday), `set_planning_horizon_days` (default 7),
+`set_draft_dinners_per_week` (default 3).
+
+The Confirmation Protocol below still applies in full to anything that spends
+money — cart adds and orders always get an explicit preview and yes.
+
+---
+
 ## Recipe Ingredient Requirements
 
 **Only `name` is required.** Link a `product_id` to order an ingredient from Kroger; leave it off for anything sourced elsewhere.

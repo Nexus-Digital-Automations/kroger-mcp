@@ -146,25 +146,28 @@ def _ensure_week_plan(meal_dt: datetime, user_id: str) -> tuple[str, bool]:
     """Return (plan_id, created) for the plan covering meal_dt.
 
     Reuses any non-template plan whose range already contains the date;
-    otherwise creates a Monday-aligned weekly plan for that week so it renders
-    correctly in the Monday-aligned week view. Raises on creation failure.
+    otherwise creates a weekly plan aligned to the user's configured week
+    start day so it renders correctly in the week view. Raises on creation
+    failure.
     """
     from kroger_mcp.analytics.meal_planning import (
         create_meal_plan,
         find_plan_covering_date,
+        week_start_for_date,
     )
+    from kroger_mcp.tools.shared import get_week_start_day
 
     meal_date = meal_dt.strftime("%Y-%m-%d")
     existing = find_plan_covering_date(meal_date, user_id=user_id)
     if existing:
         return existing["id"], False
 
-    monday = meal_dt - timedelta(days=meal_dt.weekday())
-    sunday = monday + timedelta(days=6)
+    week_start = week_start_for_date(meal_dt, get_week_start_day(user_id=user_id))
+    week_end = week_start + timedelta(days=6)
     created = create_meal_plan(
-        name=f"Week of {monday.strftime('%b %d')}",
-        start_date=monday.strftime("%Y-%m-%d"),
-        end_date=sunday.strftime("%Y-%m-%d"),
+        name=f"Week of {week_start.strftime('%b %d')}",
+        start_date=week_start.strftime("%Y-%m-%d"),
+        end_date=week_end.strftime("%Y-%m-%d"),
         plan_type="weekly",
         user_id=user_id,
     )
@@ -689,16 +692,18 @@ async def plan_week_view(
         # has passed so the grid (and pantry levels behind it) stay accurate.
         reconcile_past_meals(user_id=user_id, plan_id=plan_id)
 
-        today = datetime.now()
-        days_since_monday = today.weekday()
-        monday = today - timedelta(days=days_since_monday) + timedelta(weeks=week_offset)
-        sunday = monday + timedelta(days=6)
+        from kroger_mcp.analytics.meal_planning import week_start_for_date
+        from kroger_mcp.tools.shared import get_week_start_day
 
-        week_start_str = monday.strftime("%Y-%m-%d")
-        week_end_str = sunday.strftime("%Y-%m-%d")
+        wsd = get_week_start_day(user_id=user_id)
+        week_start = week_start_for_date(datetime.now(), wsd) + timedelta(weeks=week_offset)
+        week_end = week_start + timedelta(days=6)
 
-        start_label = monday.strftime("%b %-d")
-        end_label = sunday.strftime("%b %-d, %Y")
+        week_start_str = week_start.strftime("%Y-%m-%d")
+        week_end_str = week_end.strftime("%Y-%m-%d")
+
+        start_label = week_start.strftime("%b %-d")
+        end_label = week_end.strftime("%b %-d, %Y")
         week_label = f"{start_label} – {end_label}"
 
         entries = get_meal_entries_for_dates(
@@ -718,11 +723,10 @@ async def plan_week_view(
                 "cooked_at": e.get("cooked_at"),
             }
 
-        day_shorts = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         slots = ["breakfast", "lunch", "dinner", "snack"]
         days = []
         for i in range(7):
-            day_dt = monday + timedelta(days=i)
+            day_dt = week_start + timedelta(days=i)
             day_str = day_dt.strftime("%Y-%m-%d")
             day_slots = {}
             for slot in slots:
@@ -730,7 +734,9 @@ async def plan_week_view(
             days.append(
                 {
                     "date": day_str,
-                    "day_short": day_shorts[i],
+                    # Derived from the date, not a Monday-first constant, so a
+                    # configurable week start keeps labels truthful.
+                    "day_short": day_dt.strftime("%a"),
                     "slots": day_slots,
                 }
             )

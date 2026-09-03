@@ -63,6 +63,7 @@ _PG_BOOL_COLS = (
     "cook_skipped",
     "is_manual",
     "manual_purchase",
+    "is_draft",
 )
 _BOOL_EQ_RE = re.compile(r"\b(" + "|".join(_PG_BOOL_COLS) + r")\s*=\s*([01])\b")
 
@@ -463,6 +464,12 @@ def initialize_database() -> None:
                 times_ordered INTEGER DEFAULT 0,
                 last_ordered_at TEXT DEFAULT NULL,
                 typical_gap_days INTEGER DEFAULT NULL,
+                -- Consumption-side snack signal: stamped/incremented by
+                -- favorites(action='log_snack'), count reset by
+                -- mark_snacks_ordered. check_snacks pre-ticks a snack once the
+                -- count says a purchase has been "eaten into" enough times.
+                last_consumed_at TEXT DEFAULT NULL,
+                consumed_count_since_order INTEGER DEFAULT 0,
                 -- Manual (not sold at Kroger) items. product_id stays NOT NULL and
                 -- part of the PK; a manual row carries a synthetic 'manual:<uuid>'
                 -- id instead (see analytics/favorites.py::new_manual_product_id).
@@ -486,6 +493,11 @@ def initialize_database() -> None:
                 end_date TEXT NOT NULL,
                 plan_type TEXT DEFAULT 'weekly',
                 is_template INTEGER DEFAULT 0,
+                -- Auto-generated weekly draft awaiting user approval. Draft meals
+                -- are excluded from lazy pantry reconciliation until
+                -- approve_draft flips this off (meal_planning.list_pending_meals
+                -- joins on is_draft = 0).
+                is_draft INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 last_ordered_at TEXT,
@@ -504,6 +516,16 @@ def initialize_database() -> None:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (plan_id) REFERENCES meal_plans(id) ON DELETE CASCADE,
                 UNIQUE(plan_id, meal_date, meal_slot)
+            );
+
+            -- Snack quick-logs that couldn't be matched to any pantry item.
+            -- Deliberately fire-and-forget (no dismiss flow): surfaced for 14
+            -- days via pantry get_attention / the web bell, then ages out.
+            CREATE TABLE IF NOT EXISTS unmatched_snack_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                item_text TEXT NOT NULL,
+                logged_at TEXT NOT NULL
             );
 
             -- Safe products (user-approved, bypass all ingredient checks)
@@ -1395,6 +1417,22 @@ def run_schema_migrations() -> None:
         for col_name, col_def in meal_entries_new_columns:
             if col_name not in meal_entries_columns:
                 conn.execute(f"ALTER TABLE meal_entries ADD COLUMN {col_name} {col_def}")
+
+        # Migrate meal_plans - add draft flag for auto-generated weekly plans
+        cursor = conn.execute("PRAGMA table_info(meal_plans)")
+        meal_plans_columns = {row[1] for row in cursor.fetchall()}
+        if "is_draft" not in meal_plans_columns:
+            conn.execute("ALTER TABLE meal_plans ADD COLUMN is_draft INTEGER DEFAULT 0")
+
+        # Migrate favorite_list_items - add consumption-side snack signal
+        cursor = conn.execute("PRAGMA table_info(favorite_list_items)")
+        favorite_item_columns = {row[1] for row in cursor.fetchall()}
+        for col_name, col_def in [
+            ("last_consumed_at", "TEXT DEFAULT NULL"),
+            ("consumed_count_since_order", "INTEGER DEFAULT 0"),
+        ]:
+            if col_name not in favorite_item_columns:
+                conn.execute(f"ALTER TABLE favorite_list_items ADD COLUMN {col_name} {col_def}")
 
         # Migrate products table - add USDA ingredient text cache
         cursor = conn.execute("PRAGMA table_info(products)")

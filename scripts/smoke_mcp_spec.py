@@ -87,6 +87,7 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "update_quantity": (SKIP, {}, "mutates list quantities"),
         "get_low_stock": (READ, {}, ""),
         "check_snacks": (READ, {}, ""),
+        "log_snack": (SKIP, {}, "deducts pantry / persists a snack-log row"),
     },
     "guides": {
         "list": (READ, {}, ""),
@@ -107,6 +108,9 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "get_servings": (READ, {}, ""),
         "set_servings": (SKIP, {}, "mutates the stored servings preference"),
         "get_preferences": (READ, {}, ""),
+        "set_week_start_day": (SKIP, {}, "mutates the stored week-start preference"),
+        "set_planning_horizon_days": (SKIP, {}, "mutates the stored horizon preference"),
+        "set_draft_dinners_per_week": (SKIP, {}, "mutates the stored draft-size preference"),
     },
     "ingredients": {
         "add_custom": (SKIP, {}, "persists a custom ingredient rule"),
@@ -147,6 +151,10 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "add_to_cart": (PREVIEW, {"plan_id": P_PLAN, "confirm": False}, ""),
         "get_week_view": (READ, {}, ""),
         "get_summary": (READ, {"plan_id": P_PLAN}, ""),
+        "generate_draft": (SKIP, {}, "persists a draft meal plan"),
+        "approve_draft": (SKIP, {}, "promotes a draft to the active plan"),
+        "skip_meal": (SKIP, {}, "mutates a pending meal's state"),
+        "undo_cooked": (SKIP, {}, "reverts cooking history and restores pantry"),
     },
     "notion": {
         "setup": (SKIP, {}, "writes Notion database schema"),

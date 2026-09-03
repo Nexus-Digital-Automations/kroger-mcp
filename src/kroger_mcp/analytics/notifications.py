@@ -131,20 +131,54 @@ def list_pantry_alerts_for_bell(user_id: str, limit: int = 5) -> list[dict[str, 
     return alerts[:limit]
 
 
-def next_week_needs_plan(user_id: str) -> bool:
-    """True if no meal plan covers next Monday -- surfaced as a bell reminder.
+def list_unmatched_snacks_for_bell(user_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Recent snack-log entries that matched no pantry item (14-day window).
 
-    Checking a single anchor date (next Monday) rather than the whole week is
-    enough: create_meal_plan's weekly default spans Mon-Sun, so any plan
-    covering that Monday covers the whole upcoming week.
+    Decision: unmatched snacks never error the log call — they're recorded
+    silently and surfaced here (bell + pantry get_attention) so the user can
+    fix them on their own schedule. Newest first; no dismiss flow — entries
+    age out of the window naturally.
     """
     from datetime import timedelta
 
-    from .meal_planning import find_plan_covering_date
+    ensure_initialized()
+    cutoff = (datetime.now() - timedelta(days=14)).isoformat()
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT id, item_text, logged_at FROM unmatched_snack_log "
+            "WHERE user_id = ? AND logged_at >= ? "
+            "ORDER BY logged_at DESC, id DESC LIMIT ?",
+            (user_id, cutoff, limit),
+        )
+        return [
+            {"id": row["id"], "item_text": row["item_text"], "logged_at": row["logged_at"]}
+            for row in cursor.fetchall()
+        ]
+    finally:
+        conn.close()
 
-    today = datetime.now().date()
-    next_monday = today + timedelta(days=(7 - today.weekday()))
-    return find_plan_covering_date(next_monday.isoformat(), user_id=user_id) is None
+
+def next_week_needs_plan(user_id: str) -> bool:
+    """True if no meal plan covers next week's first day -- a bell reminder.
+
+    Checking a single anchor date (next week's start, per the user's
+    configured week_start_day setting) rather than the whole week is enough:
+    weekly plans are created aligned to that same boundary, so any plan
+    covering the first day covers the upcoming week. Draft plans don't count
+    (find_plan_covering_date excludes them), so the reminder stays up until
+    the auto-drafted week is actually approved.
+    """
+    from datetime import timedelta
+
+    from kroger_mcp.tools.shared import get_week_start_day
+
+    from .meal_planning import find_plan_covering_date, week_start_for_date
+
+    next_start = week_start_for_date(
+        datetime.now().date(), get_week_start_day(user_id=user_id)
+    ) + timedelta(days=7)
+    return find_plan_covering_date(next_start.isoformat(), user_id=user_id) is None
 
 
 def mark_alerts_seen(user_id: str) -> int:

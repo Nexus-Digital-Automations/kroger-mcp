@@ -13,7 +13,7 @@ import logging
 import os
 import uuid
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 
 from kroger_mcp.cache import bump_version, get_version
 
@@ -89,6 +89,22 @@ def _safe_float(value: Any, default: float = 1.0) -> float:
 def _format_date(dt: datetime) -> str:
     """Format a datetime as YYYY-MM-DD."""
     return dt.strftime("%Y-%m-%d")
+
+
+_DateT = TypeVar("_DateT", datetime, date)
+
+
+def week_start_for_date(d: _DateT, week_start_day: int = 6) -> _DateT:
+    """Start of the week containing `d`, honoring a configurable first day.
+
+    week_start_day follows Python's date.weekday() convention: 0=Monday ..
+    6=Sunday (the default, matching the app's Sunday-start setting default).
+    Pure calendar-day arithmetic; equals the old hardcoded
+    `d - timedelta(days=d.weekday())` idiom when week_start_day=0. Works for
+    both "this week's start" (pass now) and a stored plan's own week boundary
+    (pass the plan's start_date) — callers choose the anchor date.
+    """
+    return d - timedelta(days=(d.weekday() - week_start_day) % 7)
 
 
 def _recipes_file_fingerprint() -> tuple[float, int] | None:
@@ -231,6 +247,7 @@ def create_meal_plan(
     plan_type: str = "weekly",
     description: str | None = None,
     is_template: bool = False,
+    is_draft: bool = False,
     *,
     user_id: str,
 ) -> dict[str, Any]:
@@ -244,6 +261,8 @@ def create_meal_plan(
         plan_type: 'weekly', 'monthly', or 'custom'
         description: Optional description
         is_template: Whether this is a reusable template
+        is_draft: Auto-generated draft awaiting approval; excluded from lazy
+            pantry reconciliation and plan listings until approve_draft.
         user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
@@ -288,8 +307,8 @@ def create_meal_plan(
             """
             INSERT INTO meal_plans
             (id, name, description, start_date, end_date, plan_type,
-             is_template, created_at, updated_at, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             is_template, is_draft, created_at, updated_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 plan_id,
@@ -299,6 +318,7 @@ def create_meal_plan(
                 end_date,
                 plan_type,
                 bool(is_template),
+                bool(is_draft),
                 now,
                 now,
                 owner,
@@ -314,6 +334,7 @@ def create_meal_plan(
         "days_count": days_count,
         "plan_type": plan_type,
         "is_template": is_template,
+        "is_draft": is_draft,
         "message": f"Created meal plan '{name}' covering {days_count} days",
     }
 
@@ -354,7 +375,9 @@ def get_meal_plans(
         if not include_templates:
             query += " AND is_template = 0"
 
-        query += " ORDER BY start_date DESC LIMIT ?"
+        # Unapproved drafts are fetched by id (generate_draft returns it),
+        # never listed alongside real plans.
+        query += " AND is_draft = 0 ORDER BY start_date DESC LIMIT ?"
         params.append(limit)
 
         cursor = conn.execute(query, params)
@@ -368,6 +391,7 @@ def get_meal_plans(
             )
             plan["meal_count"] = cursor.fetchone()[0]
             plan["is_template"] = bool(plan.get("is_template"))
+            plan["is_draft"] = bool(plan.get("is_draft"))
 
         # Count templates and upcoming for this user
         cursor = conn.execute(
@@ -377,7 +401,7 @@ def get_meal_plans(
 
         cursor = conn.execute(
             "SELECT COUNT(*) FROM meal_plans "
-            "WHERE user_id = ? AND end_date >= ? AND is_template = 0",
+            "WHERE user_id = ? AND end_date >= ? AND is_template = 0 AND is_draft = 0",
             (owner, today),
         )
         upcoming_count = cursor.fetchone()[0]
@@ -412,7 +436,7 @@ def find_plan_covering_date(meal_date: str, user_id: str) -> dict[str, Any] | No
     with get_db_cursor() as cursor:
         cursor.execute(
             "SELECT id, start_date, end_date FROM meal_plans "
-            "WHERE user_id = ? AND is_template = 0 "
+            "WHERE user_id = ? AND is_template = 0 AND is_draft = 0 "
             "AND start_date <= ? AND end_date >= ? "
             "ORDER BY start_date DESC LIMIT 1",
             (owner, meal_date, meal_date),
@@ -456,6 +480,7 @@ def get_meal_plan(
 
         plan = dict(row)
         plan["is_template"] = bool(plan.get("is_template"))
+        plan["is_draft"] = bool(plan.get("is_draft"))
 
         # Get meal entries
         cursor = conn.execute(
@@ -1922,7 +1947,12 @@ def list_pending_meals(
         # already filtered by me.user_id, so only this owner's entries are read,
         # and the join only decorates them with the name of a recipe they
         # themselves reference. See test_user_scoping_contract.py's divergence note.
-        "FROM meal_entries me LEFT JOIN recipes r ON r.id = me.recipe_id "
+        "FROM meal_entries me "
+        # Draft plans' meals are never reconciliation candidates: this is the
+        # single choke point every auto-deduction path funnels through
+        # (reconcile_past_meals, confirm_all_pending_meals, the bell).
+        "JOIN meal_plans mp ON mp.id = me.plan_id AND mp.is_draft = 0 "
+        "LEFT JOIN recipes r ON r.id = me.recipe_id "
         "WHERE me.user_id = ? AND me.pantry_deducted = 0 AND me.cook_skipped = 0 "
         "AND me.cooked_at IS NULL AND me.meal_date < ?"
     )
@@ -1972,6 +2002,179 @@ def _run_cook_loop(candidates: list[dict[str, Any]], owner: str, log_label: str)
     return {"success": True, "reconciled": len(reconciled), "meals": reconciled, "skipped": skipped}
 
 
+def _recently_used_recipe_ids(owner: str, lookback_days: int) -> dict[str, str]:
+    """{recipe_id: most-recent meal_date} for this user's non-draft meal
+    entries in the last `lookback_days` — used to deprioritize repeats when
+    generating a new weekly draft."""
+    conn = get_db_connection()
+    try:
+        cutoff = _format_date(datetime.now() - timedelta(days=lookback_days))
+        cursor = conn.execute(
+            "SELECT me.recipe_id, MAX(me.meal_date) AS last_used "
+            "FROM meal_entries me JOIN meal_plans mp ON mp.id = me.plan_id "
+            "WHERE me.user_id = ? AND mp.is_draft = 0 AND me.meal_date >= ? "
+            "GROUP BY me.recipe_id",
+            (owner, cutoff),
+        )
+        return {row["recipe_id"]: row["last_used"] for row in cursor.fetchall()}
+    finally:
+        conn.close()
+
+
+def generate_draft(
+    user_id: str,
+    week_start_day: int | None = None,
+    horizon_days: int | None = None,
+    dinners: int | None = None,
+) -> dict[str, Any]:
+    """Auto-draft next week's dinners from saved recipes, avoiding repeats.
+
+    The passive weekly workflow's one planning touchpoint: fills
+    draft_dinners_per_week dinner slots (only dinner — saved recipes carry no
+    breakfast/lunch classification) spread evenly across the planning
+    horizon, starting on next week's configured first day.
+
+    Idempotent: a second call before approval returns the SAME draft
+    unchanged rather than re-rolling assignments the user may have already
+    glanced at. Draft meals never auto-deduct pantry — is_draft=1 excludes
+    them from reconcile_past_meals via list_pending_meals' join — until
+    approve_draft promotes the plan.
+    """
+    from kroger_mcp.tools.shared import (
+        get_draft_dinners_per_week,
+        get_planning_horizon_days,
+        get_week_start_day,
+    )
+
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    wsd = week_start_day if week_start_day is not None else get_week_start_day(user_id=owner)
+    horizon = horizon_days if horizon_days is not None else get_planning_horizon_days(user_id=owner)
+    dinner_count = dinners if dinners is not None else get_draft_dinners_per_week(user_id=owner)
+    dinner_count = max(1, min(dinner_count, horizon))
+
+    draft_start = week_start_for_date(datetime.now(), wsd) + timedelta(days=7)
+    draft_end = draft_start + timedelta(days=horizon - 1)
+    draft_start_str = _format_date(draft_start)
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT id FROM meal_plans "
+            "WHERE user_id = ? AND is_draft = 1 AND start_date = ? LIMIT 1",
+            (owner, draft_start_str),
+        )
+        existing = cursor.fetchone()
+    finally:
+        conn.close()
+    if existing:
+        current = get_meal_plan(
+            plan_id=existing["id"], include_recipe_details=True, user_id=owner
+        )
+        current["plan_id"] = existing["id"]
+        current["is_draft"] = True
+        current["already_drafted"] = True
+        return current
+
+    covering = find_plan_covering_date(draft_start_str, user_id=owner)
+    if covering:
+        return {
+            "success": True,
+            "already_planned": True,
+            "plan_id": covering["id"],
+            "start_date": covering["start_date"],
+            "end_date": covering["end_date"],
+            "message": "Next week is already covered by an approved plan.",
+        }
+
+    recipes = list(_get_recipes_index().values())
+    if not recipes:
+        return {
+            "success": False,
+            "error": "No saved recipes to draft from. Save at least one recipe first.",
+        }
+
+    recent = _recently_used_recipe_ids(owner, lookback_days=max(28, horizon * 2))
+    # Never-used recipes sort first ("" < any YYYY-MM-DD), then least-recent.
+    recipes.sort(key=lambda r: recent.get(r["id"], ""))
+
+    created = create_meal_plan(
+        name=f"Week of {draft_start.strftime('%b %d')} (draft)",
+        start_date=draft_start_str,
+        end_date=_format_date(draft_end),
+        plan_type="weekly",
+        is_draft=True,
+        user_id=owner,
+    )
+    if not created.get("success"):
+        return created
+    plan_id = created["plan_id"]
+
+    # Spread N dinners evenly across the horizon (e.g. 3 in 7 days -> days
+    # 0, 2, 5); dedupe guards horizon < N after clamping.
+    day_offsets = sorted({round(i * horizon / dinner_count) for i in range(dinner_count)})
+    assignments = [
+        {
+            "recipe_id": recipes[i % len(recipes)]["id"],
+            "meal_date": _format_date(draft_start + timedelta(days=offset)),
+            "meal_slot": "dinner",
+        }
+        for i, offset in enumerate(day_offsets)
+    ]
+    assign_result = bulk_assign_meals(plan_id=plan_id, assignments=assignments, user_id=owner)
+    logger.info(
+        "generate_draft: plan %s for %s, %s dinners assigned",
+        plan_id,
+        draft_start_str,
+        assign_result.get("assigned", 0),
+    )
+    return {
+        "success": True,
+        "plan_id": plan_id,
+        "is_draft": True,
+        "start_date": draft_start_str,
+        "end_date": _format_date(draft_end),
+        "assigned": assign_result.get("assigned", 0),
+        "meals": assignments,
+        "message": (
+            f"Drafted {assign_result.get('assigned', 0)} dinners for the week of "
+            f"{draft_start.strftime('%b %d')}. Review and approve with "
+            "meal_plan(action='approve_draft')."
+        ),
+    }
+
+
+def approve_draft(plan_id: str, user_id: str) -> dict[str, Any]:
+    """Promote a generated draft to a real plan — the weekly approval touch.
+
+    Once approved, reconcile_past_meals treats its meals like any other
+    plan's (auto-deducting pantry as their dates pass).
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT is_draft FROM meal_plans WHERE id = ? AND user_id = ?",
+            (plan_id, owner),
+        )
+        row = cursor.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {"success": False, "error": f"Meal plan '{plan_id}' not found"}
+    if not row["is_draft"]:
+        return {"success": False, "error": "Plan is not a pending draft"}
+
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "UPDATE meal_plans SET is_draft = 0, updated_at = ? WHERE id = ?",
+            (datetime.now().isoformat(), plan_id),
+        )
+    logger.info("approve_draft: plan %s approved", plan_id)
+    return {"success": True, "plan_id": plan_id, "message": "Draft approved — it's now the active plan."}
+
+
 def reconcile_past_meals(
     user_id: str,
     today: str | None = None,
@@ -1982,9 +2185,10 @@ def reconcile_past_meals(
     in 'automatic' mode. This is the lazy trigger: called on meal-plan views
     and shopping-list generation (there is no scheduler).
 
-    In 'confirm' mode (the default), this makes no changes; past, un-cooked
-    meals remain "pending" until the user confirms them via the notification
-    bell (see list_pending_meals / confirm_all_pending_meals).
+    In 'confirm' mode (opt-in — the stored default is 'automatic', see
+    shared.get_meal_plan_pantry_deduction_mode), this makes no changes; past,
+    un-cooked meals remain "pending" until the user confirms them via the
+    notification bell (see list_pending_meals / confirm_all_pending_meals).
 
     Idempotent in 'automatic' mode: the candidate query excludes already-
     deducted/cooked/skipped rows, and mark_meal_cooked flips pantry_deducted,
@@ -2302,7 +2506,8 @@ def get_week_view(start_date: str | None = None, *, user_id: str) -> dict[str, A
     Get a calendar-style view of `user_id`'s meals for a week.
 
     Args:
-        start_date: Monday of the week (defaults to current week)
+        start_date: First day of the week to show (defaults to the current
+            week, starting on the user's configured week_start_day).
         user_id: Owner. None resolves to the migration-installed default user.
 
     Returns:
@@ -2317,10 +2522,9 @@ def get_week_view(start_date: str | None = None, *, user_id: str) -> dict[str, A
         except ValueError:
             return {"success": False, "error": "Invalid start_date format. Use YYYY-MM-DD"}
     else:
-        # Get Monday of current week
-        today = datetime.now()
-        days_since_monday = today.weekday()
-        week_start = today - timedelta(days=days_since_monday)
+        from ..tools.shared import get_week_start_day
+
+        week_start = week_start_for_date(datetime.now(), get_week_start_day(user_id=owner))
 
     week_end = week_start + timedelta(days=6)
 

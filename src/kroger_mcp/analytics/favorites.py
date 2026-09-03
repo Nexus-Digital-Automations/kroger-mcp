@@ -20,6 +20,13 @@ from .database import ensure_initialized, get_db_cursor
 SNACK_DEFAULT_GAP_DAYS = 21
 SNACK_PANTRY_LOW_PERCENT = 30
 
+# One-call snack log (log_snack_consumption): no quantity/unit asked of the
+# user — each log deducts a flat slice of the matched pantry item's level.
+SNACK_LOG_DEDUCT_PERCENT = 10
+# check_snacks pre-ticks a snack once it's been logged this many times since
+# the last order — the consumption-side reorder signal.
+SNACK_CONSUMED_REORDER_THRESHOLD = 4
+
 # Manual items — things the user wants on a list that Kroger doesn't sell (a
 # farmers-market find, a home-grown herb, a specialty butcher cut).
 # `favorite_list_items.product_id` is NOT NULL and half the composite primary
@@ -1093,6 +1100,8 @@ def check_snacks(
                 fli.preferred_modality,
                 fli.last_ordered_at,
                 fli.typical_gap_days,
+                fli.last_consumed_at,
+                fli.consumed_count_since_order,
                 fli.is_manual,
                 fli.override_reason,
                 fli.manual_source,
@@ -1114,12 +1123,16 @@ def check_snacks(
         days_since = _days_since(row["last_ordered_at"])
         never_ordered = row["last_ordered_at"] is None
 
+        consumed_count = row["consumed_count_since_order"] or 0
         pantry_low = level is not None and level < pantry_low_percent
         stale = days_since is not None and days_since >= gap
-        pre_ticked = pantry_low or never_ordered or stale
+        heavily_consumed = consumed_count >= SNACK_CONSUMED_REORDER_THRESHOLD
+        pre_ticked = pantry_low or never_ordered or stale or heavily_consumed
 
         if pantry_low:
             reason = f"Pantry at {level}%"
+        elif heavily_consumed:
+            reason = f"Eaten into {consumed_count} times since last order"
         elif never_ordered:
             reason = "Never ordered yet"
         elif stale:
@@ -1140,6 +1153,8 @@ def check_snacks(
                 "pantry_level": level,
                 "days_since_ordered": days_since,
                 "typical_gap_days": gap,
+                "last_consumed_at": row["last_consumed_at"],
+                "consumed_count_since_order": consumed_count,
                 "never_ordered": never_ordered,
                 "pre_ticked": pre_ticked,
                 "reason": reason,
@@ -1179,12 +1194,104 @@ def mark_snacks_ordered(product_ids: list[str], user_id: str) -> int:
         cursor.execute(
             f"""
             UPDATE favorite_list_items
-            SET last_ordered_at = ?, times_ordered = times_ordered + 1
+            SET last_ordered_at = ?, times_ordered = times_ordered + 1,
+                consumed_count_since_order = 0
             WHERE list_id IN ({list_ph}) AND product_id IN ({prod_ph})
             """,
             [now] + snack_list_ids + product_ids,
         )
         return cursor.rowcount
+
+
+def log_snack_consumption(item: str, user_id: str) -> dict[str, Any]:
+    """One-call snack log: fuzzy-match `item` to a pantry item and deduct.
+
+    The passive workflow's only routine manual touchpoint. Matched → deduct a
+    flat SNACK_LOG_DEDUCT_PERCENT via consume_from_pantry (recorded as a
+    'snack_consumed' purchase event) and, when the product is on the user's
+    snacks list, stamp last_consumed_at / bump consumed_count_since_order so
+    check_snacks can pre-tick heavily-eaten snacks. Unmatched → recorded
+    silently in unmatched_snack_log and surfaced later via get_attention and
+    the web bell; never an error (locked decision: mismatches stay silent).
+    """
+    from .pantry import consume_from_pantry
+    from .recipe_integration import match_ingredient_to_pantry
+
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    text = (item or "").strip()
+    if not text:
+        return {"success": False, "error": "item is required"}
+
+    now = datetime.now().isoformat()
+    match = match_ingredient_to_pantry(text, user_id=owner)
+    if not match:
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO unmatched_snack_log (user_id, item_text, logged_at) "
+                "VALUES (?, ?, ?)",
+                (owner, text, now),
+            )
+        return {
+            "success": True,
+            "matched": False,
+            "item": text,
+            "message": (
+                "No pantry match — logged anyway; it'll show up in your "
+                "attention list so you can sort it out later."
+            ),
+        }
+
+    product_id = match["product_id"]
+    result = consume_from_pantry(
+        product_id,
+        percent=SNACK_LOG_DEDUCT_PERCENT,
+        source_type="snack",
+        source_description=f"Snack log: {text}",
+        user_id=owner,
+        event_type="snack_consumed",
+    )
+    if not result.get("success"):
+        return result
+
+    # Consumption-side reorder signal, only for products on the snacks list.
+    consumed_count = None
+    snack_list_ids = get_snacks_list_ids(owner)
+    if snack_list_ids:
+        list_ph = ", ".join("?" * len(snack_list_ids))
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                f"""
+                UPDATE favorite_list_items
+                SET last_consumed_at = ?,
+                    consumed_count_since_order =
+                        COALESCE(consumed_count_since_order, 0) + 1
+                WHERE product_id = ? AND list_id IN ({list_ph})
+                """,
+                [now, product_id] + snack_list_ids,
+            )
+            if cursor.rowcount:
+                cursor.execute(
+                    f"""
+                    SELECT MAX(consumed_count_since_order) AS n
+                    FROM favorite_list_items
+                    WHERE product_id = ? AND list_id IN ({list_ph})
+                    """,
+                    [product_id] + snack_list_ids,
+                )
+                row = cursor.fetchone()
+                consumed_count = row["n"] if row else None
+
+    return {
+        "success": True,
+        "matched": True,
+        "item": text,
+        "product_id": product_id,
+        "description": match.get("description"),
+        "deducted_percent": SNACK_LOG_DEDUCT_PERCENT,
+        "new_level_percent": result.get("new_level"),
+        "consumed_count_since_order": consumed_count,
+    }
 
 
 def get_items_needing_reorder(

@@ -326,3 +326,30 @@ def test_skip_pending_meal_sets_tombstone_without_deduction(clean_db, monkeypatc
     assert row["pantry_deducted"] in (0, False)
     assert get_pantry_item("RC_OIL", user_id=user_id)["level_percent"] == 100  # untouched
     assert list_pending_meals(today=_date(0), user_id=user_id) == []  # tombstoned, no longer pending
+
+
+def test_reconcile_excludes_draft_plans_until_approved(clean_db, monkeypatch):
+    """A draft plan's past meals must never deduct pantry; approval opts them in."""
+    from kroger_mcp.analytics.meal_planning import approve_draft
+
+    user_id = os.environ["KROGER_MCP_DEFAULT_USER_ID"]
+    add_to_pantry("RC_OIL", "Olive Oil", level=100, user_id=user_id)
+    monkeypatch.setattr(
+        meal_planning, "get_recipe",
+        lambda rid: _fake_recipe([{"name": "olive oil", "product_id": "RC_OIL", "quantity": 1}]),
+    )
+    plan = create_meal_plan(
+        "Draft Plan", _date(-5), _date(5), plan_type="custom",
+        is_draft=True, user_id=user_id,
+    )
+    plan_id = plan["plan_id"]
+    assign_meal(plan_id, "R1", _date(-1), "dinner", servings_override=4, user_id=user_id)
+
+    result = reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
+    assert result["reconciled"] == 0
+    assert get_pantry_item("RC_OIL", user_id)["level_percent"] == 100  # untouched
+
+    approve_draft(plan_id, user_id=user_id)
+    result = reconcile_past_meals(today=_date(0), mode="automatic", user_id=user_id)
+    assert result["reconciled"] == 1
+    assert get_pantry_item("RC_OIL", user_id)["level_percent"] < 100

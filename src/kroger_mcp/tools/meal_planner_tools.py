@@ -34,12 +34,22 @@ def register_tools(mcp):
             "add_to_cart",
             "get_week_view",
             "get_summary",
+            "generate_draft",
+            "approve_draft",
+            "skip_meal",
+            "undo_cooked",
         ] = Field(
             description=(
                 "preview_shopping — see ingredients needed with pantry status. "
                 "add_to_cart — add plan ingredients (confirm=True to execute). "
                 "assign_meal — add recipe to date/slot. "
                 "mark_cooked — mark/unmark a meal as cooked (deducts pantry). "
+                "generate_draft — auto-draft next week's dinners from saved recipes. "
+                "approve_draft — promote a draft plan (needs plan_id). "
+                "skip_meal — skip a pending past meal, no pantry deduction "
+                "(plan_id+meal_date+meal_slot). "
+                "undo_cooked — revert a cooked meal and restore pantry "
+                "(plan_id+meal_date+meal_slot). "
                 "Other: create|list|get|update|delete|copy|remove_meal|swap|get_week_view|get_summary"
             )
         ),
@@ -259,6 +269,16 @@ def register_tools(mcp):
         ctx,
     ):
         user_id = mcp_user_id()
+
+        # Lazy passive-deduction catch-up: viewing plans is a natural moment to
+        # settle past meals. Fire-and-discard — a reconcile hiccup must never
+        # break a read action.
+        if action in ("list", "get", "get_week_view"):
+            try:
+                meal_planning.reconcile_past_meals(user_id=user_id)
+            except Exception:
+                pass
+
         match action:
             case "create":
                 if not name:
@@ -672,6 +692,43 @@ def register_tools(mcp):
                     return {"success": False, "error": "plan_id is required"}
 
                 return meal_planning.get_meal_plan_summary(plan_id=plan_id, user_id=user_id)
+
+            case "generate_draft":
+                result = meal_planning.generate_draft(user_id=user_id)
+                if ctx and result.get("success") and result.get("is_draft"):
+                    ctx.info(result.get("message", "Draft generated"))
+                return result
+
+            case "approve_draft":
+                if not plan_id:
+                    return {"success": False, "error": "plan_id is required"}
+                return meal_planning.approve_draft(plan_id=plan_id, user_id=user_id)
+
+            case "skip_meal":
+                if not plan_id or not meal_date or not meal_slot:
+                    return {
+                        "success": False,
+                        "error": "plan_id, meal_date and meal_slot are required",
+                    }
+                return meal_planning.skip_pending_meal(
+                    plan_id=plan_id,
+                    meal_date=meal_date,
+                    meal_slot=meal_slot,
+                    user_id=user_id,
+                )
+
+            case "undo_cooked":
+                if not plan_id or not meal_date or not meal_slot:
+                    return {
+                        "success": False,
+                        "error": "plan_id, meal_date and meal_slot are required",
+                    }
+                return meal_planning.undo_meal_cooked(
+                    plan_id=plan_id,
+                    meal_date=meal_date,
+                    meal_slot=meal_slot,
+                    user_id=user_id,
+                )
 
             case _:
                 return {"success": False, "error": f"Unknown action: {action}"}
