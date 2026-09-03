@@ -54,6 +54,27 @@ Test suite for the Smart Shopper / Kroger MCP server, run via `pytest`.
   `override_reason` note that older manual favorites are the sole carrier of —
   caught by `test_favorites_manual_items.py`, above.
 
+- **`test_weekly_draft.py`** — specs for the passive weekly workflow's
+  planning half: `week_start_for_date` under both Sunday (default 6) and
+  Monday conventions, `generate_draft` (dinner-only slots spread evenly over
+  the horizon, idempotent — a repeat call returns the same draft rather than
+  re-rolling, clean error with zero saved recipes, `already_planned` when a
+  real plan covers next week, rotation away from recently-cooked recipes),
+  draft invisibility until `approve_draft`, and `next_week_needs_plan`
+  anchoring on the configured week start while ignoring unapproved drafts.
+  Data-integrity stakes: a wrong week boundary or a deducting draft silently
+  drains the pantry for meals that were never approved.
+
+- **`test_snack_log.py`** — specs for the one-call snack log
+  (`favorites(action='log_snack')`): a matched item deducts a flat
+  `SNACK_LOG_DEDUCT_PERCENT` exactly once and writes an auditable
+  `snack_consumed` purchase event; an unmatched item never raises (locked
+  product decision: silent) but is persisted to `unmatched_snack_log` and
+  surfaced via `list_unmatched_snacks_for_bell`; and the consumption signal —
+  `consumed_count_since_order` increments per log, resets on
+  `mark_snacks_ordered`, and pre-ticks `check_snacks` exactly at
+  `SNACK_CONSUMED_REORDER_THRESHOLD`.
+
 ## Isolation pattern
 
 Fixtures that touch the database use a `tmp_path`-backed SQLite file via
