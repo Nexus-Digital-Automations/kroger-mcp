@@ -73,7 +73,7 @@ piece and requested one feature:
       verify: present "selection_mode" src/kroger_mcp/analytics/meal_planning.py
 - [x] No test can hit the live Gemma endpoint (autouse GEMINI_API_KEY strip).
       verify: present "GEMINI_API_KEY" tests/conftest.py
-- [ ] Prod `draft_auto_approve` reset to 0 for the live user; memory note
+- [x] Prod `draft_auto_approve` reset to 0 for the live user; memory note
       f25bf34b superseded.
       manual: plans/gemma-seasonal-draft.md — evidence in session: guarded ssh heredoc output shows draft_auto_approve=0
 
@@ -103,5 +103,7 @@ piece and requested one feature:
 - [x] Write tests/test_gemma_draft.py; update tests/README.md
 - [x] Update project CLAUDE.md passive workflow section
 - [x] Run full suite + ruff + mypy
-- [ ] Flip prod draft_auto_approve to 0 for live user; supersede memory f25bf34b
-- [ ] Commit and push (deploy) once the mini is reachable
+- [x] Flip prod draft_auto_approve to 0 for live user; supersede memory f25bf34b
+- [x] Commit and push (deploy) once the mini is reachable
+
+<!-- last-verified: 2026-09-04 -->
