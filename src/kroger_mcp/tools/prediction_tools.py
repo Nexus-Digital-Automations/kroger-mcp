@@ -458,6 +458,31 @@ def register_tools(mcp):
                     except Exception:
                         pass
 
+                    # Server-side weekly draft: if next week has no approved
+                    # plan, create (or re-surface) the draft here so it's
+                    # already waiting when the user glances. Failures (e.g.
+                    # zero saved recipes) stay silent — the bell keeps
+                    # flagging needs_plan, so nothing is lost.
+                    weekly_draft = None
+                    try:
+                        from ..analytics.meal_planning import generate_draft
+                        from ..analytics.notifications import next_week_needs_plan
+
+                        if next_week_needs_plan(user_id):
+                            draft = generate_draft(user_id=user_id)
+                            if draft.get("success"):
+                                weekly_draft = {
+                                    "plan_id": draft.get("plan_id"),
+                                    "is_draft": draft.get("is_draft", True),
+                                    "auto_approved": draft.get("auto_approved", False),
+                                    "already_drafted": draft.get("already_drafted", False),
+                                    "assigned": draft.get("assigned"),
+                                    "message": draft.get("message")
+                                    or "Draft for next week is awaiting approval.",
+                                }
+                    except Exception:
+                        weekly_draft = None
+
                     pantry_items = get_pantry_status(apply_depletion=True, user_id=user_id)
                     overdue_predictions = get_predictions_for_period(
                         days_ahead=0, min_confidence=0.5, include_overdue=True, user_id=user_id
@@ -576,7 +601,7 @@ def register_tools(mcp):
                     except Exception:
                         unmatched_snacks = []
 
-                    return {
+                    attention = {
                         "success": True,
                         "items": attention_items,
                         "summary": summary,
@@ -584,6 +609,9 @@ def register_tools(mcp):
                         "timestamp": datetime.now().isoformat(),
                         "_session_requirement_fulfilled": True,
                     }
+                    if weekly_draft is not None:
+                        attention["weekly_draft"] = weekly_draft
+                    return attention
                 except Exception as e:
                     return {
                         "success": False,

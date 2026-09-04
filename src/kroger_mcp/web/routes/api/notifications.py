@@ -28,6 +28,9 @@ async def get_notifications(request: Request):
         pending_meals = await run_in_thread(notifications.list_pending_meals_for_bell, user_id)
         pantry_alerts = await run_in_thread(notifications.list_pantry_alerts_for_bell, user_id)
         needs_plan = await run_in_thread(notifications.next_week_needs_plan, user_id)
+        # needs_plan stays True while a draft awaits approval (drafts don't
+        # count as coverage), so this adds context, not another unseen tick.
+        pending_draft = await run_in_thread(notifications.draft_awaiting_approval, user_id)
         unmatched_snacks = await run_in_thread(
             notifications.list_unmatched_snacks_for_bell, user_id
         )
@@ -43,6 +46,7 @@ async def get_notifications(request: Request):
                 "pending_meals": pending_meals,
                 "pantry_alerts": pantry_alerts,
                 "needs_plan": needs_plan,
+                "draft_awaiting_approval": pending_draft,
                 "unmatched_snacks": unmatched_snacks,
                 "unseen": unseen,
             }

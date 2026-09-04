@@ -61,6 +61,7 @@ async def get_settings(request: Request):
         from kroger_mcp.tools.shared import (
             get_authenticated_client,
             get_default_servings,
+            get_draft_auto_approve,
             get_draft_dinners_per_week,
             get_favorites_display_mode,
             get_include_spices_by_default,
@@ -97,6 +98,7 @@ async def get_settings(request: Request):
             "week_start_day": get_week_start_day(user_id=user_id),
             "planning_horizon_days": get_planning_horizon_days(user_id=user_id),
             "draft_dinners_per_week": get_draft_dinners_per_week(user_id=user_id),
+            "draft_auto_approve": get_draft_auto_approve(user_id=user_id),
             "auth_status": auth_status,
         }
     except Exception as exc:
@@ -159,42 +161,31 @@ async def set_meal_plan_pantry_deduction_mode_route(
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
-@router.post("/api/settings/week-start-day")
-async def set_week_start_day_route(body: PlanningSettingBody, request: Request):
-    """Persist this user's week start day (0=Monday .. 6=Sunday)."""
+@router.post("/api/settings/planning/{setting}")
+async def set_planning_setting(setting: str, body: PlanningSettingBody, request: Request):
+    """Persist one planning setting by its URL slug.
+
+    week-start-day (0=Monday..6=Sunday) · planning-horizon-days (1-28) ·
+    draft-dinners-per-week (1-7) · draft-auto-approve (0/1).
+    """
     try:
-        from kroger_mcp.tools.shared import set_week_start_day
+        from kroger_mcp.tools.shared import (
+            set_draft_auto_approve,
+            set_draft_dinners_per_week,
+            set_planning_horizon_days,
+            set_week_start_day,
+        )
 
-        set_week_start_day(body.value, user_id=current_user_id(request))
-        return {"success": True, "week_start_day": body.value}
-    except ValueError as exc:
-        return JSONResponse(status_code=400, content={"error": str(exc)})
-    except Exception as exc:
-        return JSONResponse(status_code=500, content={"error": str(exc)})
-
-
-@router.post("/api/settings/planning-horizon-days")
-async def set_planning_horizon_days_route(body: PlanningSettingBody, request: Request):
-    """Persist this user's planning horizon in days (1-28)."""
-    try:
-        from kroger_mcp.tools.shared import set_planning_horizon_days
-
-        set_planning_horizon_days(body.value, user_id=current_user_id(request))
-        return {"success": True, "planning_horizon_days": body.value}
-    except ValueError as exc:
-        return JSONResponse(status_code=400, content={"error": str(exc)})
-    except Exception as exc:
-        return JSONResponse(status_code=500, content={"error": str(exc)})
-
-
-@router.post("/api/settings/draft-dinners-per-week")
-async def set_draft_dinners_per_week_route(body: PlanningSettingBody, request: Request):
-    """Persist how many dinners the weekly auto-draft fills (1-7)."""
-    try:
-        from kroger_mcp.tools.shared import set_draft_dinners_per_week
-
-        set_draft_dinners_per_week(body.value, user_id=current_user_id(request))
-        return {"success": True, "draft_dinners_per_week": body.value}
+        setters = {
+            "week-start-day": set_week_start_day,
+            "planning-horizon-days": set_planning_horizon_days,
+            "draft-dinners-per-week": set_draft_dinners_per_week,
+            "draft-auto-approve": set_draft_auto_approve,
+        }
+        if setting not in setters:
+            return JSONResponse(status_code=404, content={"error": f"Unknown setting: {setting}"})
+        setters[setting](body.value, user_id=current_user_id(request))
+        return {"success": True, setting.replace("-", "_"): body.value}
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:

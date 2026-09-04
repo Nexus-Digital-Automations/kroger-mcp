@@ -111,6 +111,7 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "set_week_start_day": (SKIP, {}, "mutates the stored week-start preference"),
         "set_planning_horizon_days": (SKIP, {}, "mutates the stored horizon preference"),
         "set_draft_dinners_per_week": (SKIP, {}, "mutates the stored draft-size preference"),
+        "set_draft_auto_approve": (SKIP, {}, "mutates the stored auto-approve preference"),
     },
     "ingredients": {
         "add_custom": (SKIP, {}, "persists a custom ingredient rule"),

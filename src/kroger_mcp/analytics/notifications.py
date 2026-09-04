@@ -181,6 +181,38 @@ def next_week_needs_plan(user_id: str) -> bool:
     return find_plan_covering_date(next_start.isoformat(), user_id=user_id) is None
 
 
+def draft_awaiting_approval(user_id: str) -> dict[str, Any] | None:
+    """The unapproved auto-draft covering next week's start, if one exists.
+
+    Lets the bell say "approve the waiting draft" (with its plan id) instead
+    of the vaguer "no plan for next week" once the server has auto-drafted
+    one — next_week_needs_plan stays True either way because drafts don't
+    count as coverage.
+    """
+    from datetime import timedelta
+
+    from kroger_mcp.tools.shared import get_week_start_day
+
+    from .meal_planning import week_start_for_date
+
+    ensure_initialized()
+    next_start = week_start_for_date(
+        datetime.now().date(), get_week_start_day(user_id=user_id)
+    ) + timedelta(days=7)
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT id, name, start_date FROM meal_plans "
+            "WHERE user_id = ? AND is_draft = 1 AND start_date = ? LIMIT 1",
+            (user_id, next_start.isoformat()),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return {"plan_id": row["id"], "name": row["name"], "start_date": row["start_date"]}
+
+
 def mark_alerts_seen(user_id: str) -> int:
     """Clear the badge: mark all of a user's active alerts as seen."""
     ensure_initialized()

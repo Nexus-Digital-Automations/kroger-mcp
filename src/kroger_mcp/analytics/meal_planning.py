@@ -2039,8 +2039,14 @@ def generate_draft(
     glanced at. Draft meals never auto-deduct pantry — is_draft=1 excludes
     them from reconcile_past_meals via list_pending_meals' join — until
     approve_draft promotes the plan.
+
+    With the opt-in draft_auto_approve setting on, the plan is created LIVE
+    (is_draft=0) instead — zero approval touchpoint; its meals auto-deduct as
+    their dates pass. An already-existing unapproved draft is never
+    retroactively approved by flipping the setting.
     """
     from kroger_mcp.tools.shared import (
+        get_draft_auto_approve,
         get_draft_dinners_per_week,
         get_planning_horizon_days,
         get_week_start_day,
@@ -2052,6 +2058,7 @@ def generate_draft(
     horizon = horizon_days if horizon_days is not None else get_planning_horizon_days(user_id=owner)
     dinner_count = dinners if dinners is not None else get_draft_dinners_per_week(user_id=owner)
     dinner_count = max(1, min(dinner_count, horizon))
+    auto_approve = get_draft_auto_approve(user_id=owner)
 
     draft_start = week_start_for_date(datetime.now(), wsd) + timedelta(days=7)
     draft_end = draft_start + timedelta(days=horizon - 1)
@@ -2098,12 +2105,13 @@ def generate_draft(
     # Never-used recipes sort first ("" < any YYYY-MM-DD), then least-recent.
     recipes.sort(key=lambda r: recent.get(r["id"], ""))
 
+    plan_name = f"Week of {draft_start.strftime('%b %d')}"
     created = create_meal_plan(
-        name=f"Week of {draft_start.strftime('%b %d')} (draft)",
+        name=plan_name if auto_approve else f"{plan_name} (draft)",
         start_date=draft_start_str,
         end_date=_format_date(draft_end),
         plan_type="weekly",
-        is_draft=True,
+        is_draft=not auto_approve,
         user_id=owner,
     )
     if not created.get("success"):
@@ -2122,24 +2130,30 @@ def generate_draft(
         for i, offset in enumerate(day_offsets)
     ]
     assign_result = bulk_assign_meals(plan_id=plan_id, assignments=assignments, user_id=owner)
+    assigned = assign_result.get("assigned", 0)
     logger.info(
-        "generate_draft: plan %s for %s, %s dinners assigned",
+        "generate_draft: plan %s for %s, %s dinners assigned (auto_approve=%s)",
         plan_id,
         draft_start_str,
-        assign_result.get("assigned", 0),
+        assigned,
+        auto_approve,
     )
+    week_label = draft_start.strftime("%b %d")
     return {
         "success": True,
         "plan_id": plan_id,
-        "is_draft": True,
+        "is_draft": not auto_approve,
+        "auto_approved": auto_approve,
         "start_date": draft_start_str,
         "end_date": _format_date(draft_end),
-        "assigned": assign_result.get("assigned", 0),
+        "assigned": assigned,
         "meals": assignments,
         "message": (
-            f"Drafted {assign_result.get('assigned', 0)} dinners for the week of "
-            f"{draft_start.strftime('%b %d')}. Review and approve with "
-            "meal_plan(action='approve_draft')."
+            f"Planned {assigned} dinners for the week of {week_label} "
+            "(auto-approved — correct with meal_plan skip_meal/undo_cooked)."
+            if auto_approve
+            else f"Drafted {assigned} dinners for the week of {week_label}. "
+            "Review and approve with meal_plan(action='approve_draft')."
         ),
     }
 

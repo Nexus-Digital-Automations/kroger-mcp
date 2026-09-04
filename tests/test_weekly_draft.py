@@ -30,9 +30,13 @@ from kroger_mcp.analytics.meal_planning import (
     get_meal_plans,
     week_start_for_date,
 )
-from kroger_mcp.analytics.notifications import next_week_needs_plan
+from kroger_mcp.analytics.notifications import (
+    draft_awaiting_approval,
+    next_week_needs_plan,
+)
 from kroger_mcp.tools.shared import (
     get_week_start_day,
+    set_draft_auto_approve,
     set_draft_dinners_per_week,
     set_planning_horizon_days,
     set_week_start_day,
@@ -250,6 +254,63 @@ def test_approve_draft_rejects_non_draft(clean_db):
     assert missing["success"] is False
 
 
+# ── auto-approve (opt-in full passivity) ─────────────────────────────────────
+
+def test_auto_approve_creates_live_plan(clean_db, monkeypatch):
+    monkeypatch.setattr(
+        meal_planning, "_get_recipes_index", lambda: _fake_recipes("r1", "r2", "r3")
+    )
+    set_draft_auto_approve(1, user_id=_user())
+    result = generate_draft(user_id=_user())
+
+    assert result["success"] is True
+    assert result["is_draft"] is False
+    assert result["auto_approved"] is True
+    rows = _plan_rows()
+    # is_draft=0 is the single gate list_pending_meals joins on, so a live-born
+    # plan reconciles (auto-deducts) exactly like an approved one.
+    assert rows[0]["is_draft"] == 0
+    assert "(draft)" not in rows[0]["name"]
+    listed = get_meal_plans(include_past=True, user_id=_user())
+    assert any(p["id"] == result["plan_id"] for p in listed["plans"])
+    assert next_week_needs_plan(_user()) is False
+
+    second = generate_draft(user_id=_user())  # idempotent via already_planned
+    assert second["already_planned"] is True
+    assert len(_plan_rows()) == 1
+
+
+def test_auto_approve_does_not_retro_approve_existing_draft(clean_db, monkeypatch):
+    monkeypatch.setattr(
+        meal_planning, "_get_recipes_index", lambda: _fake_recipes("r1")
+    )
+    first = generate_draft(user_id=_user())  # setting off -> draft created
+    set_draft_auto_approve(1, user_id=_user())
+
+    second = generate_draft(user_id=_user())
+    assert second["already_drafted"] is True
+    assert second["plan_id"] == first["plan_id"]
+    assert _plan_rows()[0]["is_draft"] == 1  # still needs one explicit approval
+
+
+# ── draft_awaiting_approval bell helper ──────────────────────────────────────
+
+def test_bell_reports_draft_awaiting_approval(clean_db, monkeypatch):
+    monkeypatch.setattr(
+        meal_planning, "_get_recipes_index", lambda: _fake_recipes("r1")
+    )
+    assert draft_awaiting_approval(_user()) is None
+
+    result = generate_draft(user_id=_user())
+    pending = draft_awaiting_approval(_user())
+    assert pending is not None
+    assert pending["plan_id"] == result["plan_id"]
+    assert next_week_needs_plan(_user()) is True  # a draft isn't coverage yet
+
+    approve_draft(result["plan_id"], user_id=_user())
+    assert draft_awaiting_approval(_user()) is None
+
+
 # ── next_week_needs_plan with configurable week start ────────────────────────
 
 def test_next_week_needs_plan_honors_sunday_start(clean_db):
@@ -285,3 +346,5 @@ def test_settings_validation(clean_db):
         set_planning_horizon_days(0, user_id=_user())
     with pytest.raises(ValueError):
         set_draft_dinners_per_week(8, user_id=_user())
+    with pytest.raises(ValueError):
+        set_draft_auto_approve(2, user_id=_user())

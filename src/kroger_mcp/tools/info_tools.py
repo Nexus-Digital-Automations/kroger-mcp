@@ -37,6 +37,7 @@ def register_tools(mcp):
             "set_week_start_day",
             "set_planning_horizon_days",
             "set_draft_dinners_per_week",
+            "set_draft_auto_approve",
         ] = Field(
             description=(
                 "set_servings — set household size (used by recipe scaling). "
@@ -45,6 +46,8 @@ def register_tools(mcp):
                 "set_planning_horizon_days — value 1-28, days a plan covers (default 7). "
                 "set_draft_dinners_per_week — value 1-7, dinners the weekly auto-draft "
                 "fills (default 3). "
+                "set_draft_auto_approve — value 0/1 (default 0); 1 makes weekly drafts "
+                "go live immediately with no approval step. "
                 "Other: list_chains|get_chain|check_chain|list_departments|get_department|check_department|get_datetime|get_servings"
             )
         ),
@@ -63,7 +66,8 @@ def register_tools(mcp):
         value: int | None = Field(
             default=None,
             description="New value for the set_week_start_day / "
-            "set_planning_horizon_days / set_draft_dinners_per_week actions",
+            "set_planning_horizon_days / set_draft_dinners_per_week / "
+            "set_draft_auto_approve actions",
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
@@ -336,6 +340,7 @@ def register_tools(mcp):
                 try:
                     from .shared import get_default_servings as _get_default_servings
                     from .shared import (
+                        get_draft_auto_approve,
                         get_draft_dinners_per_week,
                         get_planning_horizon_days,
                         get_preferred_location_id,
@@ -350,15 +355,22 @@ def register_tools(mcp):
                             "week_start_day": get_week_start_day(user_id=user_id),
                             "planning_horizon_days": get_planning_horizon_days(user_id=user_id),
                             "draft_dinners_per_week": get_draft_dinners_per_week(user_id=user_id),
+                            "draft_auto_approve": get_draft_auto_approve(user_id=user_id),
                         },
                     }
                 except Exception as e:
                     return {"success": False, "error": f"Failed to get preferences: {str(e)}"}
 
-            case "set_week_start_day" | "set_planning_horizon_days" | "set_draft_dinners_per_week":
+            case (
+                "set_week_start_day"
+                | "set_planning_horizon_days"
+                | "set_draft_dinners_per_week"
+                | "set_draft_auto_approve"
+            ):
                 if value is None:
                     return {"success": False, "error": f"value is required for {action}"}
                 from .shared import (
+                    set_draft_auto_approve,
                     set_draft_dinners_per_week,
                     set_planning_horizon_days,
                     set_week_start_day,
@@ -368,6 +380,7 @@ def register_tools(mcp):
                     "set_week_start_day": set_week_start_day,
                     "set_planning_horizon_days": set_planning_horizon_days,
                     "set_draft_dinners_per_week": set_draft_dinners_per_week,
+                    "set_draft_auto_approve": set_draft_auto_approve,
                 }
                 setting_name = action.removeprefix("set_")
                 try:

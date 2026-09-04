@@ -480,6 +480,27 @@ def set_draft_dinners_per_week(value: int, user_id: str) -> None:
     _save_preference("draft_dinners_per_week", int(value), user_id=user_id)
 
 
+def get_draft_auto_approve(user_id: str) -> bool:
+    """Whether weekly auto-drafts skip the glance-and-approve step. Default off.
+
+    Opt-in full passivity: when on, generate_draft creates next week's plan
+    live (is_draft=0), so its meals auto-deduct as their dates pass with no
+    approval touchpoint. Corrections happen after the fact via
+    skip_meal/undo_cooked.
+    """
+    return bool(int(_load_preferences(user_id=user_id).get("draft_auto_approve", 0)))
+
+
+def set_draft_auto_approve(value: int, user_id: str) -> None:
+    """Persist the draft auto-approve toggle.
+
+    Raises ValueError if value isn't 0 (off) or 1 (on).
+    """
+    if int(value) not in (0, 1):
+        raise ValueError("draft_auto_approve must be 0 (off) or 1 (on)")
+    _save_preference("draft_auto_approve", int(value), user_id=user_id)
+
+
 def get_kroger_credentials(user_id: str) -> dict:
     """Get this user's Kroger API credentials; falls back to KROGER_* env vars."""
     import json as _json

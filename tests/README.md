@@ -62,8 +62,12 @@ Test suite for the Smart Shopper / Kroger MCP server, run via `pytest`.
   real plan covers next week, rotation away from recently-cooked recipes),
   draft invisibility until `approve_draft`, and `next_week_needs_plan`
   anchoring on the configured week start while ignoring unapproved drafts.
-  Data-integrity stakes: a wrong week boundary or a deducting draft silently
-  drains the pantry for meals that were never approved.
+  Also the opt-in `draft_auto_approve` setting: on, the generated plan is
+  born live (`is_draft=0`, immediately reconcilable and visible) yet an
+  already-existing draft is never retroactively approved; and the
+  `draft_awaiting_approval` bell helper that points at the unapproved draft
+  for next week. Data-integrity stakes: a wrong week boundary or a deducting
+  draft silently drains the pantry for meals that were never approved.
 
 - **`test_snack_log.py`** — specs for the one-call snack log
   (`favorites(action='log_snack')`): a matched item deducts a flat

@@ -67,12 +67,14 @@ Corrections when reality differed from the plan:
 - `meal_plan(action='skip_meal', plan_id=..., meal_date=..., meal_slot=...)` — didn't cook it; no deduction
 - `meal_plan(action='undo_cooked', ...)` — marked cooked by mistake; restores pantry
 
-**Weekly draft (one touchpoint per week).** When the bell / `get_attention`
-flags that next week has no plan, call `meal_plan(action='generate_draft')` —
-it fills the configured number of dinners (default 3) from saved recipes,
-avoiding recent repeats. Show the user the draft; after their OK, call
+**Weekly draft (one touchpoint per week — or zero).** `get_attention` creates
+next week's draft by itself when none exists and returns it under
+`weekly_draft` — no `generate_draft` call needed (it still exists for manual
+use). Show the user the waiting draft; after their OK, call
 `meal_plan(action='approve_draft', plan_id=...)`. Drafts never deduct pantry
-until approved.
+until approved. With `set_draft_auto_approve` = 1 the generated plan goes
+live immediately — no approval step at all; mention what was planned and move
+on, correcting after the fact with `skip_meal` if reality differs.
 
 **Snack logging (the one routine manual update).** When the user says they ate
 something: `favorites(action='log_snack', item='chips')` — one call, no
@@ -83,7 +85,8 @@ immediately.
 
 **Settings** (via `info` tool or web settings): `set_week_start_day` (0=Mon..
 6=Sun, default Sunday), `set_planning_horizon_days` (default 7),
-`set_draft_dinners_per_week` (default 3).
+`set_draft_dinners_per_week` (default 3), `set_draft_auto_approve` (0/1,
+default 0 — 1 skips the weekly approval entirely).
 
 The Confirmation Protocol below still applies in full to anything that spends
 money — cart adds and orders always get an explicit preview and yes.
