@@ -70,7 +70,11 @@ Corrections when reality differed from the plan:
 **Weekly draft (one touchpoint per week — or zero).** `get_attention` creates
 next week's draft by itself when none exists and returns it under
 `weekly_draft` — no `generate_draft` call needed (it still exists for manual
-use). Show the user the waiting draft; after their OK, call
+use). When `GEMINI_API_KEY` is configured, Gemma (Google's open model) picks
+the dinners to match the season and upcoming holidays, with a one-line reason
+stored on each meal (`selection_mode: "gemma"`); any Gemma failure silently
+falls back to the recency rotation (`selection_mode: "rotation"`) — the
+workflow never breaks. Show the user the waiting draft; after their OK, call
 `meal_plan(action='approve_draft', plan_id=...)`. Drafts never deduct pantry
 until approved. With `set_draft_auto_approve` = 1 the generated plan goes
 live immediately — no approval step at all; mention what was planned and move

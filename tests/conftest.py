@@ -20,6 +20,18 @@ from _pg_support import RUNNING_ON_PG  # noqa: E402,F401
 
 
 @pytest.fixture(autouse=True)
+def _no_live_llm(monkeypatch):
+    """Strip GEMINI_API_KEY so no test can reach the live Gemma endpoint.
+
+    generate_draft() tries a Gemma selection on every call; without a key the
+    client returns an error dict before any network I/O, and the draft falls
+    back to rotation. Gemma-path tests monkeypatch
+    draft_selection._chat_completion instead of setting a key.
+    """
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_database_url():
     """Restore DATABASE_URL around every test.
 

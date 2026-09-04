@@ -476,6 +476,7 @@ def register_tools(mcp):
                                     "is_draft": draft.get("is_draft", True),
                                     "auto_approved": draft.get("auto_approved", False),
                                     "already_drafted": draft.get("already_drafted", False),
+                                    "selection_mode": draft.get("selection_mode"),
                                     "assigned": draft.get("assigned"),
                                     "message": draft.get("message")
                                     or "Draft for next week is awaiting approval.",

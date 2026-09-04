@@ -69,6 +69,17 @@ Test suite for the Smart Shopper / Kroger MCP server, run via `pytest`.
   for next week. Data-integrity stakes: a wrong week boundary or a deducting
   draft silently drains the pantry for meals that were never approved.
 
+- **`test_gemma_draft.py`** — specs for the Gemma-backed seasonal dinner
+  selection layered onto `generate_draft`. A mocked Gemma success must be used
+  exactly (the model's recipe ids in order, its one-line reasons persisted as
+  `meal_entries.notes`, `selection_mode: "gemma"`), and — the load-bearing
+  half — every failure mode (provider error dict, malformed JSON, unknown
+  recipe ids, too few picks, raised exception, missing `GEMINI_API_KEY`) must
+  silently fall back to the recency rotation and still create the draft. Also
+  pins `parse_selection`'s fence-stripping/dedupe/truncation and the
+  hermeticity guarantee: `tests/conftest.py` strips `GEMINI_API_KEY` so no
+  test can reach the live endpoint.
+
 - **`test_snack_log.py`** — specs for the one-call snack log
   (`favorites(action='log_snack')`): a matched item deducts a flat
   `SNACK_LOG_DEDUCT_PERCENT` exactly once and writes an auditable

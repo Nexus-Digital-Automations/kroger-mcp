@@ -78,3 +78,5 @@ pattern in `tools/shared.py`, so there is nothing to mirror to Postgres.
 - [x] Tests for auto-approve path, get_attention surfacing, bell helper
 - [x] Update CLAUDE.md passive workflow section
 - [x] Enable the setting for the live user account (or document one-call enable)
+
+<!-- last-verified: 2026-09-03 -->

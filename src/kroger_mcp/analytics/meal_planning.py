@@ -2102,8 +2102,26 @@ def generate_draft(
         }
 
     recent = _recently_used_recipe_ids(owner, lookback_days=max(28, horizon * 2))
-    # Never-used recipes sort first ("" < any YYYY-MM-DD), then least-recent.
-    recipes.sort(key=lambda r: recent.get(r["id"], ""))
+
+    # Gemma picks the dinners seasonally when it can; ANY failure (no API key,
+    # provider error, unusable output) silently degrades to recency rotation
+    # so the weekly workflow never breaks. Runs before create_meal_plan so a
+    # selection crash can't leave an empty plan row behind.
+    try:
+        from .draft_selection import select_dinners_with_llm
+
+        llm_picks = select_dinners_with_llm(
+            recipes, dinner_count, draft_start, horizon, recently_used=recent
+        )
+    except Exception:
+        logger.warning(
+            "generate_draft: LLM selection crashed; using rotation", exc_info=True
+        )
+        llm_picks = None
+    selection_mode = "gemma" if llm_picks else "rotation"
+    if llm_picks is None:
+        # Never-used recipes sort first ("" < any YYYY-MM-DD), then least-recent.
+        recipes.sort(key=lambda r: recent.get(r["id"], ""))
 
     plan_name = f"Week of {draft_start.strftime('%b %d')}"
     created = create_meal_plan(
@@ -2121,39 +2139,57 @@ def generate_draft(
     # Spread N dinners evenly across the horizon (e.g. 3 in 7 days -> days
     # 0, 2, 5); dedupe guards horizon < N after clamping.
     day_offsets = sorted({round(i * horizon / dinner_count) for i in range(dinner_count)})
+    if llm_picks:
+        chosen: list[dict[str, Any]] = [
+            {"recipe_id": pick["recipe_id"], "notes": pick["reason"] or None}
+            for pick in llm_picks
+        ]
+    else:
+        chosen = [
+            {"recipe_id": recipes[i % len(recipes)]["id"]}
+            for i in range(len(day_offsets))
+        ]
     assignments = [
         {
-            "recipe_id": recipes[i % len(recipes)]["id"],
+            **pick,
             "meal_date": _format_date(draft_start + timedelta(days=offset)),
             "meal_slot": "dinner",
         }
-        for i, offset in enumerate(day_offsets)
+        for pick, offset in zip(chosen, day_offsets, strict=False)
     ]
     assign_result = bulk_assign_meals(plan_id=plan_id, assignments=assignments, user_id=owner)
     assigned = assign_result.get("assigned", 0)
     logger.info(
-        "generate_draft: plan %s for %s, %s dinners assigned (auto_approve=%s)",
+        "generate_draft: plan %s for %s, %s dinners assigned "
+        "(auto_approve=%s, selection=%s)",
         plan_id,
         draft_start_str,
         assigned,
         auto_approve,
+        selection_mode,
     )
     week_label = draft_start.strftime("%b %d")
+    picked_by = (
+        "picked seasonally by Gemma" if selection_mode == "gemma" else "rotation pick"
+    )
     return {
         "success": True,
         "plan_id": plan_id,
         "is_draft": not auto_approve,
         "auto_approved": auto_approve,
+        "selection_mode": selection_mode,
         "start_date": draft_start_str,
         "end_date": _format_date(draft_end),
         "assigned": assigned,
         "meals": assignments,
         "message": (
             f"Planned {assigned} dinners for the week of {week_label} "
-            "(auto-approved — correct with meal_plan skip_meal/undo_cooked)."
+            f"({picked_by}; auto-approved — correct with meal_plan "
+            "skip_meal/undo_cooked)."
             if auto_approve
-            else f"Drafted {assigned} dinners for the week of {week_label}. "
-            "Review and approve with meal_plan(action='approve_draft')."
+            else f"Drafted {assigned} dinners for the week of {week_label} "
+            f"({picked_by}). Review and approve with "
+            "meal_plan(action='approve_draft')."
         ),
     }
 
