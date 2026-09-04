@@ -77,4 +77,4 @@ pattern in `tools/shared.py`, so there is nothing to mirror to Postgres.
 - [x] Expose setting via info tool, web settings routes, smoke spec
 - [x] Tests for auto-approve path, get_attention surfacing, bell helper
 - [x] Update CLAUDE.md passive workflow section
-- [ ] Enable the setting for the live user account (or document one-call enable)
+- [x] Enable the setting for the live user account (or document one-call enable)
