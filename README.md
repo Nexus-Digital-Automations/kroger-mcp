@@ -134,9 +134,15 @@ KROGER_USER_ZIP_CODE=90274
 
 #### Chat Assistant LLM Provider Keys
 
-The web dashboard's chat assistant (`src/kroger_mcp/web/chat_engine.py`) talks to an
-OpenAI-compatible LLM provider. Only providers with a key set below appear in the
-model picker; add these to the same `.env` file used above:
+The provider registry and OpenAI-compatible client live in
+`src/kroger_mcp/llm_client.py`, shared by two consumers: the web dashboard's chat
+assistant (`src/kroger_mcp/web/chat_engine.py`, which re-exports the same names),
+and the weekly meal-plan draft's seasonal dinner selection
+(`src/kroger_mcp/analytics/draft_selection.py` — Gemma picks the week's dinners
+from saved recipes to match the season and upcoming holidays, falling back to
+recency rotation whenever the key is missing or the call fails). Only providers
+with a key set below appear in the chat model picker; add these to the same
+`.env` file used above:
 
 ```bash
 # GEMINI_API_KEY powers the default provider (Gemma 4, via Google's Gemini API).
