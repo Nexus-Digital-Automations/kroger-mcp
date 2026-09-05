@@ -146,4 +146,4 @@ mixes every user's statistics into the shared `products.category_type` column; a
 `purchase_events` rows carry `user_id IS NULL` (a pre-migration backlog) that the
 `preview_impact` fix now correctly excludes. Detail in `output/mcp-smoke/report.md`.
 
-<!-- last-verified: 2026-08-29 -->
+<!-- last-verified: 2026-09-05 -->
