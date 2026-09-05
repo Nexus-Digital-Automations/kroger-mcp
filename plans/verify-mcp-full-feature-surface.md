@@ -68,8 +68,8 @@ plus `docs/prod-runbook.md` documenting how to verify/restore the prod mini.
 
 - [x] `scripts/smoke_mcp.py` exists and connects to the prod MCP over the `.mcp.json` transport.
   verify: present "def build_transport" scripts/smoke_mcp.py
-- [x] All 18 registered tools and all 156 actions are enumerated from the live server, and the harness's coverage table accounts for every one (invoked or explicitly skipped with a reason).
-  verify: cmd uv run --frozen python -c "import sys; sys.path.insert(0,'scripts'); from smoke_mcp_spec import SPEC; n=sum(len(v) for v in SPEC.values()); assert (len(SPEC),n)==(18,156), (len(SPEC),n); print('18 tools / 156 actions')"
+- [x] All 18 registered tools and all actions (156 at verification time; the spec grows with the tool surface) are enumerated from the live server, and the harness's coverage table accounts for every one (invoked or explicitly skipped with a reason).
+  verify: cmd uv run --frozen python -c "import sys; sys.path.insert(0,'scripts'); from smoke_mcp_spec import SPEC; n=sum(len(v) for v in SPEC.values()); assert len(SPEC)==18 and n>=156, (len(SPEC),n); print(len(SPEC),'tools /',n,'actions')" — floor, not equality: 156 was the surface when this verification ran; later features legitimately add actions
 - [x] A results report is written to `output/mcp-smoke/` listing per-action PASS / FAIL / SKIP with the reason for each non-pass.
   verify: present "Per-tool results" output/mcp-smoke/report.md
 - [x] Every FAIL is either fixed or documented with a root cause; no failure is left unexplained.
