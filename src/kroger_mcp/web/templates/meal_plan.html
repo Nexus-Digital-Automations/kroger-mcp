@@ -681,12 +681,22 @@
             :class="{ 'opacity-60': {{ 'true' if cell.cooked_at else 'false' }} }">
 
             <div class="group relative flex-1">
+              {% if cell.recipe_known %}
+              <a href="/recipes/{{ cell.recipe_id | urlencode }}"
+                class="block text-xs leading-snug pr-4 hover:underline"
+                style="color: {% if cell.cooked_at %}var(--text-3){% else %}var(--text-2){% endif %}; {% if cell.cooked_at %}text-decoration: line-through;{% endif %}"
+                @click="if (swapMode) { $event.preventDefault(); doSwap('{{ cell.date_str }}', '{{ row.slot }}'); }"
+                title="Open recipe: {{ cell.recipe_name }}">
+                {{ cell.recipe_name[:22] }}{% if cell.recipe_name | length > 22 %}…{% endif %}
+              </a>
+              {% else %}
               <p class="text-xs leading-snug pr-4"
                 style="color: {% if cell.cooked_at %}var(--text-3){% else %}var(--text-2){% endif %}; {% if cell.cooked_at %}text-decoration: line-through;{% endif %}"
                 :class="swapMode ? 'cursor-pointer' : ''"
                 @click="swapMode ? doSwap('{{ cell.date_str }}', '{{ row.slot }}') : null">
                 {{ cell.recipe_name[:22] }}{% if cell.recipe_name | length > 22 %}…{% endif %}
               </p>
+              {% endif %}
               {% if cell.time_label %}
               <span class="ss-step-time-chip" style="margin-top:0.125rem; display:inline-block;"
                 title="Total recipe time">⏱ {{ cell.time_label }}</span>

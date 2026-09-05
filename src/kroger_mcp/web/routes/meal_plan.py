@@ -102,6 +102,9 @@ def _build_calendar(
         entry_map[key] = {
             "recipe_name": recipe_map.get(recipe_id, recipe_id),
             "recipe_id": recipe_id,
+            # Deleted recipes fall back to showing the raw id; linking one
+            # would 404 on /recipes/{id}, so the template only links known ids.
+            "recipe_known": recipe_id in recipe_map,
             "cooked_at": e.get("cooked_at"),
         }
 
@@ -117,6 +120,7 @@ def _build_calendar(
                     "date_str": date_str,
                     "recipe_name": entry["recipe_name"] if entry else None,
                     "recipe_id": entry["recipe_id"] if entry else None,
+                    "recipe_known": entry["recipe_known"] if entry else False,
                     "cooked_at": entry["cooked_at"] if entry else None,
                     "time_label": time_map.get(entry["recipe_id"]) if entry else None,
                 }
