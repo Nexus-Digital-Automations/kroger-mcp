@@ -104,6 +104,35 @@ def test_gemma_picks_are_used_in_order_with_notes(clean_db, recipes, monkeypatch
     assert dict(entries)["r3"] == "peak tomato season"
 
 
+def test_thought_wrapped_reply_still_used(clean_db, recipes, monkeypatch):
+    """Gemma 4 wraps replies in <thought> blocks (observed live 2026-09-05);
+    the picks inside must still be used, not silently rotated away."""
+    inner = json.dumps(
+        {
+            "selections": [
+                {"recipe_id": "r2", "reason": "squash season"},
+                {"recipe_id": "r4", "reason": "cool-weather braise"},
+                {"recipe_id": "r1", "reason": "weeknight quick"},
+            ]
+        }
+    )
+    content = (
+        "<thought>Constraints: {3 dinners}. Catalog has r1..r4.\n"
+        "I will favor fall ingredients.</thought>\n"
+        "Here is the selection:\n```json\n" + inner + "\n```"
+    )
+    monkeypatch.setattr(
+        draft_selection,
+        "_chat_completion",
+        lambda messages: {"choices": [{"message": {"content": content}}]},
+    )
+    result = generate_draft(user_id=_user())
+
+    assert result["success"] is True
+    assert result["selection_mode"] == "gemma"
+    assert [rid for rid, _ in _draft_entries(result["plan_id"])] == ["r2", "r4", "r1"]
+
+
 def test_prompt_carries_season_and_catalog(recipes):
     messages = draft_selection.build_selection_prompt(
         list(recipes.values()),
@@ -184,6 +213,17 @@ def test_parse_selection_strips_fences_dedupes_and_truncates():
     assert picks is not None
     assert [p["recipe_id"] for p in picks] == ["r1", "r2"]
     assert len(picks[0]["reason"]) == draft_selection.MAX_REASON_CHARS
+
+
+def test_parse_selection_survives_thought_blocks_and_prose():
+    inner = json.dumps({"selections": [{"recipe_id": "r1", "reason": "ok"}]})
+    wrapped = (
+        "<thought>brace noise: {\"selections\": []} inside reasoning</thought>\n"
+        "Sure! " + inner + "\nHope that helps."
+    )
+    picks = parse_selection(wrapped, {"r1"}, dinner_count=1)
+    assert picks is not None and picks[0]["recipe_id"] == "r1"
+    assert parse_selection("<thought>only thinking, no json</thought>", {"r1"}, 1) is None
 
 
 def test_parse_selection_requires_enough_valid_picks():

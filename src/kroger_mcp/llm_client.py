@@ -96,6 +96,7 @@ class OpenAICompatibleClient:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        timeout: int = 45,
     ) -> dict[str, Any]:
         if not self.api_key:
             logger.warning(
@@ -127,7 +128,7 @@ class OpenAICompatibleClient:
                     "Content-Type": "application/json",
                 },
                 json=payload,
-                timeout=45,
+                timeout=timeout,
             )
             if resp.status_code != 200:
                 body = resp.text[:300]

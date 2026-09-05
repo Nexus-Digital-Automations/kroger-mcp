@@ -15,6 +15,7 @@ weekly workflow keeps working without an LLM.
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -28,6 +29,9 @@ DRAFT_PROVIDER = "gemma4"
 MAX_CATALOG_RECIPES = 100
 MAX_INGREDIENTS_PER_RECIPE = 10
 MAX_REASON_CHARS = 200
+# Weekly background job, not an interactive chat: the full-catalog prompt plus
+# Gemma 4's thinking pass regularly overruns the client's 45s default.
+DRAFT_TIMEOUT_SECONDS = 120
 
 _SEASONS = {
     12: "winter", 1: "winter", 2: "winter",
@@ -48,7 +52,9 @@ def _chat_completion(messages: list[dict[str, Any]]) -> dict[str, Any]:
     A fresh client (not the web layer's cache) so the key is read at call
     time; the client returns an error dict rather than raising.
     """
-    return OpenAICompatibleClient(DRAFT_PROVIDER).chat(messages)
+    return OpenAICompatibleClient(DRAFT_PROVIDER).chat(
+        messages, timeout=DRAFT_TIMEOUT_SECONDS
+    )
 
 
 def build_selection_prompt(
@@ -83,7 +89,8 @@ def build_selection_prompt(
     system = (
         "You are a meal-planning assistant. Pick dinners from the user's saved "
         "recipes only — never invent a recipe or id. Respond with ONLY a JSON "
-        "object, no prose and no markdown fences, in exactly this shape: "
+        "object — no prose, no markdown fences, no reasoning or <thought> "
+        "blocks — in exactly this shape: "
         '{"selections": [{"recipe_id": "<id from the catalog>", '
         '"reason": "<one short line>"}]}'
     )
@@ -103,24 +110,38 @@ def build_selection_prompt(
     ]
 
 
-def parse_selection(
-    content: str, valid_ids: set[str], dinner_count: int
-) -> list[dict[str, str]] | None:
-    """Validate the model's JSON into exactly dinner_count unique picks.
+def _extract_json_payload(content: str) -> Any | None:
+    """Best-effort JSON from model output that ignored the format instruction.
 
-    Tolerates markdown fences around the JSON. Unknown ids and duplicates are
-    dropped (order preserved); fewer than dinner_count survivors → None.
+    Gemma 4 prefixes replies with a <thought>…</thought> reasoning block
+    (observed live 2026-09-05) and may add fences or prose despite the prompt.
+    Strip closed thought blocks first — their prose can contain braces — then
+    fall back from a straight parse to the outermost {…} span.
     """
-    text = content.strip()
+    text = re.sub(r"<thought>.*?</thought>", "", content, flags=re.DOTALL).strip()
     if text.startswith("```"):
         text = text.strip("`")
         if text.startswith("json"):
             text = text[len("json"):]
         text = text.strip()
-    try:
-        payload = json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        return None
+    for candidate in (text, text[text.find("{"): text.rfind("}") + 1]):
+        try:
+            return json.loads(candidate)
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return None
+
+
+def parse_selection(
+    content: str, valid_ids: set[str], dinner_count: int
+) -> list[dict[str, str]] | None:
+    """Validate the model's JSON into exactly dinner_count unique picks.
+
+    Tolerates <thought> blocks, markdown fences, and surrounding prose around
+    the JSON. Unknown ids and duplicates are dropped (order preserved); fewer
+    than dinner_count survivors → None.
+    """
+    payload = _extract_json_payload(content)
     selections = payload.get("selections") if isinstance(payload, dict) else None
     if not isinstance(selections, list):
         return None
