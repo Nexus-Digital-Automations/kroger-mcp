@@ -242,10 +242,65 @@
     border-top: 1px solid var(--border); margin-top: 0.2rem;
   }
 
-  /* ─── Narrow viewport (≤600px): drop the drag gutter so the ingredient name
-     and step text keep room instead of collapsing to a sliver. Each row type
-     is re-specced to the exact remaining track count (dropping a hidden child
-     from a grid otherwise shifts the surviving cells into the wrong tracks). */
+  /* ─── Narrow CONTAINER (not viewport) row layouts ──────────────────────
+     Kept identical to recipe_edit.html, which carries the full rationale:
+     the rows are starved by the width of the CARD, not the viewport, so a
+     Chrome extension that injects a sidebar shrinks the body while
+     `innerWidth` stays large and a viewport-keyed breakpoint never fires.
+     An ingredient row spends 188px on fixed tracks and gaps before the
+     name's `1fr` gets anything; below a ~330px card that track collapses
+     and contenteditable's inherited `overflow-wrap: break-word` wraps the
+     name one character per line. Track COUNT is preserved at every tier
+     (the drag gutter collapses to 0 and its handle goes `visibility:
+     hidden`) because view mode pins cells to explicit grid-column numbers. */
+  .ss-recipe-cols {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(38rem, 100%), 1fr));
+  }
+
+  .ss-fluid-card { container-type: inline-size; container-name: sscard; }
+
+  /* Tier 1 — card content box ≤30rem. */
+  @container sscard (max-width: 30rem) {
+    .ing-columns, .ing-add-row, [data-ingredient-row] {
+      grid-template-columns: 0 2.25rem 3.5rem minmax(7rem, 1fr) 1.25rem !important;
+      gap: 0.375rem !important;
+    }
+    [data-recipe-mode="edit"] .step-row.step-row {
+      grid-template-columns: 0 1.5rem minmax(8rem, 1fr) auto !important;
+      gap: 0.375rem !important;
+    }
+    [data-recipe-mode="view"] .step-row.step-row {
+      grid-template-columns: 1.5rem minmax(8rem, 1fr) auto !important;
+      gap: 0.375rem !important;
+    }
+    .ss-drag-handle,
+    .ing-columns > span:first-child,
+    .ing-add-row > span:first-child { visibility: hidden; }
+  }
+
+  /* Tier 2 — genuinely cramped (≤18rem). Same track count, smaller floors. */
+  @container sscard (max-width: 18rem) {
+    .ing-columns, .ing-add-row, [data-ingredient-row] {
+      grid-template-columns: 0 2rem 2.75rem minmax(5.5rem, 1fr) 1rem !important;
+      gap: 0.25rem !important;
+    }
+    [data-recipe-mode="edit"] .step-row.step-row {
+      grid-template-columns: 0 1.25rem minmax(6rem, 1fr) auto !important;
+      gap: 0.25rem !important;
+    }
+    [data-recipe-mode="view"] .step-row.step-row {
+      grid-template-columns: 1.25rem minmax(6rem, 1fr) auto !important;
+      gap: 0.25rem !important;
+    }
+    /* The link badge shares the name cell; let it drop to its own line so
+       the name keeps the whole floored track. */
+    .ing-name-cell { flex-wrap: wrap !important; }
+    .ing-name { min-width: 100% !important; }
+  }
+
+  /* Popover still keys on the viewport: it is width-clamped to 100vw. */
   @media (max-width: 600px) {
     .ss-autocomplete-popover {
       min-width: 0;
@@ -253,21 +308,6 @@
       max-width: calc(100vw - 2rem);
       left: auto;
       right: 0;
-    }
-    [data-recipe-mode="edit"] .ss-drag-handle { display: none; }
-    /* Ingredient rows, header, and the add-row → qty · unit · name · action */
-    [data-recipe-mode="edit"] [data-ingredient-row],
-    [data-recipe-mode="edit"] .ing-columns,
-    [data-recipe-mode="edit"] .ing-add-row {
-      grid-template-columns: 2.5rem 3.5rem 1fr 1.25rem !important;
-      gap: 0.5rem !important;
-    }
-    [data-recipe-mode="edit"] .ing-columns > span:first-child,
-    [data-recipe-mode="edit"] .ing-add-row > span:first-child { display: none; }
-    /* Step rows → number · text · delete (drag handle is hidden above) */
-    [data-recipe-mode="edit"] .step-row {
-      grid-template-columns: 1.5rem 1fr auto !important;
-      gap: 0.5rem !important;
     }
   }
 
@@ -659,11 +699,10 @@
   </div>
 </div>
 
-<!-- Two-column at ≥1280px; stack vertically below so each card has room
-     for ingredient names + instruction text without per-word wrapping.
-     Tailwind's `xl` was chosen over `lg` because at 1024–1279px the
-     ingredient name column (1fr after 4 fixed columns) still collapses. -->
-<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+<!-- Splits into two columns only when there is genuinely room for two
+     (auto-fit + a 38rem floor), NOT at a viewport breakpoint — see the
+     .ss-recipe-cols comment in the stylesheet above. -->
+<div class="ss-recipe-cols">
 
   <!-- Ingredients -->
   {# ingredientPanel (Alpine component for this card + the linking popover)
@@ -671,7 +710,7 @@
      static/js/ingredient_panel.js; server data flows via #recipe-init-data. #}
   <script src="/static/js/linker_popover.min.js?v=20260719"></script>
   <script src="/static/js/ingredient_panel.min.js?v=20260713"></script>
-  <div id="ingredients-card" class="ss-card p-6" x-data="ingredientPanel()" style="position:relative;">
+  <div id="ingredients-card" class="ss-card ss-fluid-card p-6" x-data="ingredientPanel()" style="position:relative;">
 
     <!-- Card header: title + stepper + view toggle -->
     <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.875rem; padding-bottom:0.875rem; border-bottom:1px solid var(--border);">
@@ -950,7 +989,7 @@
   {% endfor %}
   <script id="instructions-init-data" type="application/json">{{ _flat_steps | tojson }}</script>
   <script id="step-times-init-data" type="application/json">{{ step_time_data | tojson }}</script>
-  <div class="ss-card p-6" x-data="instructionsEditor">
+  <div class="ss-card ss-fluid-card p-6" x-data="instructionsEditor">
     <div class="flex items-baseline justify-between gap-3" style="margin:0 0 0.875rem; padding-bottom:0.875rem; border-bottom:1px solid var(--border);">
       <h3 style="font-family:'Lora',serif; font-weight:600; font-size:0.9375rem; color:var(--text-1); letter-spacing:-0.01em; margin:0;">Instructions</h3>
       <span x-show="timeSummaryLabel" x-cloak
