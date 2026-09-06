@@ -160,4 +160,4 @@ purchase-history-driven and never matches a sentinel id, so manual items are nat
 - [x] Write `tests/test_favorites_manual_items.py`
 - [x] Run the full suite + ruff
 
-<!-- last-verified: 2026-08-29 -->
+<!-- last-verified: 2026-09-05 -->
