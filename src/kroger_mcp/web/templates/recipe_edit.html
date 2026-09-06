@@ -271,6 +271,52 @@
     }
   }
 
+  /* ─── Print (Cmd+P / Save as PDF) ──────────────────────────────────────
+     WHY: every editable cell (.ing-name, .ing-unit, .step-text) is a
+     contenteditable, and Chrome's UA stylesheet gives contenteditable
+     `overflow-wrap: break-word`. That makes the cell's min-content ~1
+     character wide. Each cell sits in a `1fr` grid track, and Chrome's
+     paginated print layout resolves `1fr` toward its min-content — so on
+     paper the text tracks collapsed to a single character and names/steps
+     wrapped one letter per line across dozens of pages. On screen the grid
+     always has width, so this never shows there; only print starves it.
+     Floor every text track with minmax() so it can't collapse, force
+     intra-word breaking off, and drop the interactive-only chrome that has
+     no meaning on paper. */
+  @media print {
+    /* Cards stack full-width even if print media somehow triggers xl. */
+    .grid.xl\:grid-cols-2 { display: block !important; }
+
+    /* Ingredient rows + header: qty · unit · name, name track floored.
+       (drag handle, qty input, ✕ are edit-only / x-cloak → display:none,
+       so exactly three cells remain per row.) */
+    [data-recipe-mode] [data-ingredient-row],
+    [data-recipe-mode] .ing-columns {
+      grid-template-columns: 2.5rem 4.5rem minmax(10rem, 1fr) !important;
+      gap: 0.75rem !important;
+    }
+    [data-recipe-mode] .ing-columns > span:first-child,
+    [data-recipe-mode] .ing-columns > span:last-child { display: none !important; }
+
+    /* Step rows: number · text · time-chip, text track floored. */
+    [data-recipe-mode] .step-row {
+      grid-template-columns: 1.75rem minmax(12rem, 1fr) auto !important;
+      gap: 0.5rem !important;
+    }
+
+    /* Belt-and-suspenders: never break a word mid-letter on paper. */
+    .ing-name, .ing-unit, .step-text {
+      overflow-wrap: normal !important;
+      word-break: normal !important;
+    }
+
+    /* Interactive-only chrome that shouldn't print. */
+    .ss-drag-handle,
+    .ing-add-row,
+    [x-data="chatWidget()"],
+    .ss-modal-overlay { display: none !important; }
+  }
+
   /* ─── Ingredient row — refined arrangement ─────────────────────────────
      Row hover lifts a faint background so the eye knows which row is active;
      status dots stay always-visible at low contrast; the ✕ control fades in
