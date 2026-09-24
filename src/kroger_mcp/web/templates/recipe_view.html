@@ -300,14 +300,21 @@
     .ing-name { min-width: 100% !important; }
   }
 
-  /* Popover still keys on the viewport: it is width-clamped to 100vw. */
-  @media (max-width: 600px) {
+  /* The popover is a child of the card, and linker_popover.js sets its
+     `left` inline from the clicked name's offset in the card (~150px+). Its
+     22rem width therefore runs past the card's right edge whenever the card
+     content box is under ~30rem — on a phone that widened the document
+     (measured: 382px -> 500px at a 390px viewport) and the browser zoomed the
+     whole page out. Pin it to the card's full width instead; !important is
+     needed to beat the inline `left`. Keyed to the card, not the viewport,
+     for the same reason as the row layouts above. */
+  @container sscard (max-width: 34rem) {
     .ss-autocomplete-popover {
+      left: 0 !important;
+      right: auto;
       min-width: 0;
-      width: calc(100vw - 2rem);
-      max-width: calc(100vw - 2rem);
-      left: auto;
-      right: 0;
+      width: 100%;
+      max-width: 100%;
     }
   }
 
