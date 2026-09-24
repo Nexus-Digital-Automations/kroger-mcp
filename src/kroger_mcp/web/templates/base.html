@@ -221,6 +221,15 @@
 
     [x-cloak] { display: none !important; }
 
+    /* Something in the browser injects empty <pwa-container-wrapper> siblings
+       around focused inputs/contenteditables (2 per cell; not from this app),
+       with an inline `display:flex !important; height:0 !important` that no
+       stylesheet can override. As grid items they claimed two cells of every
+       fixed-track row, pushing the unit into the 24px last track ("c...") and
+       dropping the name onto a second row. position:absolute is not set
+       inline, so it wins and takes them out of grid/flex flow entirely. */
+    pwa-container-wrapper { position: absolute !important; }
+
     /* ── Secondary button — outlined neutral ── */
     .ss-btn-secondary {
       display: inline-flex;
