@@ -66,6 +66,20 @@ function shoppingListData() {
       await this.reload();
     },
 
+    async markEmpty() {
+      const ok = await Alpine.store('ssConfirm').ask({
+        title: 'Mark all items empty?',
+        body: 'Sets every item on this list to 0% in your pantry. Items not tracked in the pantry are skipped. The list itself is kept.',
+        confirmLabel: 'Mark Empty',
+      });
+      if (!ok) return;
+      const r = await fetch('/api/shopping-list/mark-empty', {method: 'POST'});
+      if (!r.ok) { window._ssToast('Failed to update pantry', {level: 'error'}); return; }
+      const d = await r.json();
+      window._ssToast(d.emptied + ' pantry item' + (d.emptied === 1 ? '' : 's') + ' set to 0%' +
+        (d.skipped ? ' (' + d.skipped + ' not tracked, skipped)' : ''));
+    },
+
     async adjustQty(item, delta) {
       await this._withBusy(item.id, async () => {
         const newQty = Math.max(1, (item.quantity || 1) + delta);
@@ -130,6 +144,8 @@ function shoppingListData() {
         >
           Clear List
         </button>
+        <button @click="markEmpty()" class="ss-btn-secondary" style="padding: 0.375rem 1rem; font-size: 0.75rem;"
+          title="Set every item on this list to 0% in your pantry">Mark Empty</button>
         <button
           @click="$store.cartSend.open()"
           :disabled="$store.cartSend.previewLoading"

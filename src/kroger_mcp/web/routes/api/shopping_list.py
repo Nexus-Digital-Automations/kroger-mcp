@@ -447,6 +447,42 @@ async def clear_shopping_list(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/shopping-list/mark-empty
+# ---------------------------------------------------------------------------
+
+
+def _mark_list_items_empty(user_id: str) -> dict[str, int]:
+    """Set every listed product's pantry level to 0%. The list is untouched.
+
+    Goes through `update_pantry_level` so each one records a depletion event,
+    exactly as a manual 0% set would. Items not tracked in the pantry, and
+    manual items (no product_id), are skipped rather than added.
+    """
+    from kroger_mcp.analytics.pantry import update_pantry_level
+
+    items = _load_shopping_list(user_id=user_id)["items"]
+    product_ids = list(dict.fromkeys(i["product_id"] for i in items if i.get("product_id")))
+    emptied = sum(
+        1 for pid in product_ids if update_pantry_level(pid, 0, user_id=user_id).get("success")
+    )
+    return {"emptied": emptied, "skipped": len(items) - emptied}
+
+
+@router.post("/api/shopping-list/mark-empty")
+async def mark_list_items_empty(request: Request):
+    """Zero the pantry level of every item on the user's shopping list."""
+    try:
+        result = _mark_list_items_empty(current_user_id(request))
+        return JSONResponse(content={"success": True, **result})
+    except Exception as e:
+        logger.exception("mark-empty failed")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to mark items empty: {str(e)}"},
+        )
+
+
+# ---------------------------------------------------------------------------
 # DELETE /api/shopping-list/{item_id}
 # ---------------------------------------------------------------------------
 
