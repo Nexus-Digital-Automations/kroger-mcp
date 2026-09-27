@@ -90,6 +90,12 @@ Test suite for the Smart Shopper / Kroger MCP server, run via `pytest`.
   `mark_snacks_ordered`, and pre-ticks `check_snacks` exactly at
   `SNACK_CONSUMED_REORDER_THRESHOLD`.
 
+- **`test_shopping_list_mark_empty.py`** — spec for the shopping list's
+  "Mark Empty" reset (`POST /api/shopping-list/mark-empty`): every listed
+  item already tracked in the pantry drops to 0%; untracked and manual
+  (no `product_id`) items are skipped, never added; pantry items not on the
+  list are untouched; and the shopping list itself is kept.
+
 ## Isolation pattern
 
 Fixtures that touch the database use a `tmp_path`-backed SQLite file via
