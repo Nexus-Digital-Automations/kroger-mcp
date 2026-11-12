@@ -84,6 +84,13 @@ HARD_BLOCKED_CASES = [
     ("shopping_list", "add_to_cart", {"confirm": True}),
     ("recipes", "add_to_cart", {"confirm": True}),
     ("privacy", "delete_my_data", {}),
+    ("pantry", "clear", {"confirm": True}),
+    # Values a tool validator could coerce to the writing value must not
+    # read as the safe one.
+    ("pantry", "clear", {"confirm": "true"}),
+    ("recipes", "add_to_cart", {"confirm": 1}),
+    ("cart", "add", {"preview_only": "false"}),
+    ("cart", "add", {"preview_only": None}),
 ]
 
 

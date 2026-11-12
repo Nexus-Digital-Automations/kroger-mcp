@@ -82,8 +82,12 @@ def classify(tool: str, action: str | None, args: dict[str, Any]) -> Tier:
     if override is not None:
         if isinstance(override, tuple):
             tier, (flag, unsafe_value) = override
-            actual = args.get(flag, not unsafe_value if isinstance(unsafe_value, bool) else None)
-            return tier if actual == unsafe_value else "read_only"
+            # Only the exact safe bool (or an absent flag, which the tool
+            # defaults to safe) is read-only. Anything else — "true", 1, None —
+            # may be coerced to the writing value by the tool's validator, so
+            # it gets the gated tier rather than slipping past approval.
+            safe_value = not unsafe_value
+            return "read_only" if args.get(flag, safe_value) is safe_value else tier
         return override
     if action and action.split("_")[0] in _READ_VERB_PREFIXES:
         return "read_only"
