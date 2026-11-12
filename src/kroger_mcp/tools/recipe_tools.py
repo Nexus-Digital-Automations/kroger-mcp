@@ -166,6 +166,57 @@ def _validate_ingredients(ingredients):
     return errors
 
 
+def _recipe_cooking_impl(
+    action: str,
+    recipe_id: str | None,
+    servings: int | None,
+    deduct_pantry: bool | None,
+    cook_event_id: str | None,
+) -> dict[str, Any]:
+    """Cooking actions shared with web/routes/api/recipes.py (same analytics calls)."""
+    from ..analytics import meal_planning
+    from ..auth.dependencies import mcp_user_id
+
+    user_id = mcp_user_id()
+    if action == "undo_cooked":
+        if not cook_event_id:
+            return {"success": False, "error": "cook_event_id is required for undo_cooked"}
+        return meal_planning.undo_recipe_adhoc(cook_event_id, user_id=user_id)
+
+    if not recipe_id:
+        return {"success": False, "error": f"recipe_id is required for {action}"}
+    if action == "cook_preview":
+        return meal_planning.preview_recipe_cook(
+            recipe_id, servings_override=servings, user_id=user_id
+        )
+    if action == "mark_cooked":
+        return meal_planning.cook_recipe_adhoc(
+            recipe_id,
+            servings_override=servings,
+            deduct_pantry=deduct_pantry is not False,
+            user_id=user_id,
+        )
+
+    # get_step_times — mirrors GET /api/recipes/{id}/step-times
+    from .step_times import _flatten_instructions, annotate_steps, recipe_time_summary
+
+    recipe = _find_recipe(recipe_id)
+    if not recipe:
+        return {"success": False, "error": f"Recipe '{recipe_id}' not found"}
+    annotated = annotate_steps(_flatten_instructions(recipe), recipe.get("step_times"))
+    return {
+        "success": True,
+        "recipe_id": recipe_id,
+        "times": annotated["times"],
+        "totals": annotated["totals"],
+        "summary": recipe_time_summary(recipe),
+        "explicit": {
+            key: recipe.get(key)
+            for key in ("prep_time_minutes", "cook_time_minutes", "total_time_minutes")
+        },
+    }
+
+
 def register_tools(mcp):
     """Register recipe-related tools with the FastMCP server."""
 
@@ -182,8 +233,18 @@ def register_tools(mcp):
             "link_ingredient",
             "add_to_cart",
             "analyze",
+            "cook_preview",
+            "mark_cooked",
+            "undo_cooked",
+            "get_step_times",
         ] = Field(
             description=(
+                "cook_preview — scaled ingredients + pantry levels for cooking "
+                "recipe_id now (servings optional); changes nothing. "
+                "mark_cooked — 'I made this': deducts the pantry unless "
+                "deduct_pantry=False; returns cook_event_id. "
+                "undo_cooked — reverse a mark_cooked by cook_event_id. "
+                "get_step_times — per-step time annotations and totals. "
                 "save — ingredients need only a name; add product_id to order "
                 "from Kroger, or source='Walmart' for items you buy elsewhere. "
                 "link_ingredient — batch via links=[{recipe_id, ingredient_index, product_id}]. "
@@ -272,6 +333,12 @@ def register_tools(mcp):
             default=False,
             description="Override safety warnings for add_to_cart",
         ),
+        deduct_pantry: bool | None = Field(
+            default=True, description="mark_cooked — False records the cook without deducting"
+        ),
+        cook_event_id: str | None = Field(
+            default=None, description="undo_cooked — cook_event_id returned by mark_cooked"
+        ),
         include_spices: bool | None = Field(
             default=False,
             description=(
@@ -316,6 +383,8 @@ def register_tools(mcp):
             confirm_unsafe,
             include_spices,
             ctx,
+            deduct_pantry,
+            cook_event_id,
         )
 
     def _recipes_impl(
@@ -341,8 +410,15 @@ def register_tools(mcp):
         confirm_unsafe,
         include_spices,
         ctx,
+        deduct_pantry=True,
+        cook_event_id=None,
     ):
         match action:
+            case "cook_preview" | "mark_cooked" | "undo_cooked" | "get_step_times":
+                return _recipe_cooking_impl(
+                    action, recipe_id, servings, deduct_pantry, cook_event_id
+                )
+
             case "save":
                 if not name:
                     return {"success": False, "error": "name is required"}

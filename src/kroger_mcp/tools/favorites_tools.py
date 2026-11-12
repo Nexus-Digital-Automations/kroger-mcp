@@ -36,8 +36,14 @@ def register_tools(mcp):
             "get_low_stock",
             "check_snacks",
             "log_snack",
+            "add_list_to_shopping_list",
+            "add_snacks_to_list",
         ] = Field(
             description=(
+                "add_list_to_shopping_list — put a favorites list (list_id) on the "
+                "shopping list instead of the cart, skipping items 30%+ stocked. "
+                "add_snacks_to_list — add the snacks the user chose (product_ids from "
+                "check_snacks) to the shopping list. "
                 "order — ADD ENTIRE LIST TO CART in one call (skips well-stocked items). "
                 "Use this whenever user asks to order/add a favorites list. "
                 "log_snack — ONE-CALL snack log: pass item='chips' and it matches a "
@@ -85,7 +91,10 @@ def register_tools(mcp):
         ),
         product_ids: list[str] | None = Field(
             default=None,
-            description="Batch remove: list of Kroger product IDs",
+            description=(
+                "Batch remove: list of Kroger product IDs; "
+                "add_snacks_to_list: the snacks to add"
+            ),
         ),
         brand: str | None = Field(
             default=None,
@@ -288,6 +297,18 @@ def register_tools(mcp):
             list_id = resolve_default_list_id(user_id=user_id)
 
         match action:
+            case "add_list_to_shopping_list":
+                from .shopping_list_ops import add_favorites_list_to_list
+
+                return add_favorites_list_to_list(list_id, user_id)
+
+            case "add_snacks_to_list":
+                if not product_ids:
+                    return {"success": False, "error": "product_ids is required"}
+                from .shopping_list_ops import add_snacks_to_list
+
+                return add_snacks_to_list(product_ids, user_id)
+
             case "create_list":
                 if not name:
                     return {"success": False, "error": "name is required"}

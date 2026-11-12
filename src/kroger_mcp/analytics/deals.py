@@ -551,3 +551,32 @@ def score_deal_quality(
         "urgency": urgency,
         "factors": factors,
     }
+
+
+def list_watchlist(user_id: str) -> list[dict[str, Any]]:
+    """`user_id`'s deal watchlist, newest first."""
+    from .database import ensure_initialized
+
+    ensure_initialized()
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT * FROM deal_watchlist WHERE user_id = ? ORDER BY added_at DESC",
+            (user_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def remove_from_watchlist(user_id: str, product_id: str) -> int:
+    """Drop one product from `user_id`'s watchlist; return rows removed (0 or 1)."""
+    from .database import ensure_initialized
+
+    ensure_initialized()
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM deal_watchlist WHERE user_id = ? AND product_id = ?",
+            (user_id, product_id),
+        )
+        return int(cursor.rowcount)

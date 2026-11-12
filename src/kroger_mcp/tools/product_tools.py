@@ -157,6 +157,23 @@ def is_whole_food_eligible(
     }
 
 
+def _suggest_for_ingredient(user_id: str, term: str, limit: int) -> dict[str, Any]:
+    """Mirror of GET /api/ingredients/suggest: the account's usual products for
+    an ingredient name, its learned canonical name, and a pre-selectable guess."""
+    from ..analytics import ingredient_links
+
+    suggestions = ingredient_links.suggest_products_for_ingredient(user_id, term, limit=limit)
+    canonical = ingredient_links.get_canonical_name(user_id, term)
+    return {
+        "success": True,
+        "ingredient": term,
+        "canonical_name": canonical["canonical_name"] if canonical else None,
+        "canonical_confidence": canonical["confidence"] if canonical else None,
+        "best_guess": ingredient_links.best_guess(suggestions),
+        "suggestions": suggestions,
+    }
+
+
 def register_tools(mcp):
     """Register product-related tools with the FastMCP server."""
 
@@ -170,9 +187,12 @@ def register_tools(mcp):
             "add_to_whole_foods",
             "get_whole_foods_catalog",
             "scan_for_whole_foods",
+            "suggest_for_ingredient",
         ] = Field(
             description=(
                 "search — batch via search_terms=[...] (max 10). "
+                "suggest_for_ingredient — your usual products for an ingredient "
+                "name (search_term), with a best_guess to link; no Kroger call. "
                 "search_by_id — batch via product_ids (max 20). "
                 "Other: get_details|get_images|add_to_whole_foods|get_whole_foods_catalog|scan_for_whole_foods"
             )
@@ -298,6 +318,14 @@ def register_tools(mcp):
             return filtering, safe_ids, blocked_ids, disabled, bmode
 
         match action:
+            case "suggest_for_ingredient":
+                term = (search_term or "").strip()
+                if not term:
+                    return {"success": False, "error": "search_term (ingredient name) is required"}
+                return await asyncio.to_thread(
+                    _suggest_for_ingredient, user_id, term, limit or 6
+                )
+
             case "search":
                 loc_id, err = await asyncio.to_thread(_get_location, location_id)
                 if err:

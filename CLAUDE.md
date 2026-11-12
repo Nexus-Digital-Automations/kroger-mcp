@@ -90,7 +90,17 @@ immediately.
 **Settings** (via `info` tool or web settings): `set_week_start_day` (0=Mon..
 6=Sun, default Sunday), `set_planning_horizon_days` (default 7),
 `set_draft_dinners_per_week` (default 3), `set_draft_auto_approve` (0/1,
-default 0 — 1 skips the weekly approval entirely).
+default 0 — 1 skips the weekly approval entirely), `set_include_spices_by_default`
+(0/1), `set_pantry_deduction_mode` (`mode='automatic'` or `'confirm'`).
+
+**Other app actions an agent can run** (these mirror the web app):
+- Shopping list: `shopping_list(action='add_item', name=..., product_id=None)` adds a one-off item (manual when there is no `product_id`); `clear`; `mark_empty`.
+- Notifications: `notifications(action='list' | 'mark_seen' | 'dismiss', alert_id=..., acted=...)`.
+- Cooking outside a plan: `recipes(action='cook_preview' | 'mark_cooked' | 'undo_cooked' | 'get_step_times')`.
+- Meal plans: `meal_plan(action='schedule_recipe' | 'confirm_pending' | 'cook_preview' | 'list_templates' | 'set_template' | 'create_from_template')`.
+- Favorites to list: `favorites(action='add_list_to_shopping_list' | 'add_snacks_to_list')`.
+- `deals(action='get_watchlist' | 'remove_from_watchlist')`, `pantry(action='get_history')`, `products(action='suggest_for_ingredient')`.
+- `pantry(action='clear', confirm=True)` wipes the whole pantry. Only call it on an explicit user request.
 
 The Confirmation Protocol below still applies in full to anything that spends
 money — cart adds and orders always get an explicit preview and yes.

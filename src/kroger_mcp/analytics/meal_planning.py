@@ -3145,3 +3145,112 @@ def list_plans_for_api(
         return {"success": True, "plans": plans}
     finally:
         conn.close()
+
+
+def set_plan_template(plan_id: str, is_template: bool, *, user_id: str) -> dict[str, Any]:
+    """Mark or unmark one of `user_id`'s plans as a reusable template.
+
+    Shared by PATCH /api/meal-plan/{id}/template and meal_plan(action='set_template').
+    A plan the user doesn't own is reported as not found.
+    """
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "UPDATE meal_plans SET is_template = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (1 if is_template else 0, datetime.now().isoformat(), plan_id, owner),
+        )
+        if cursor.rowcount == 0:
+            return {"success": False, "error": f"Plan '{plan_id}' not found"}
+    return {"success": True, "plan_id": plan_id, "is_template": bool(is_template)}
+
+
+def _ensure_week_plan(meal_dt: datetime, user_id: str) -> tuple[str, bool]:
+    """Return (plan_id, created) for the plan covering meal_dt.
+
+    Reuses any non-template plan whose range already contains the date;
+    otherwise creates a weekly plan aligned to the user's configured week
+    start day so it renders correctly in the week view. Raises on creation
+    failure.
+    """
+    from kroger_mcp.tools.shared import get_week_start_day
+
+    meal_date = meal_dt.strftime("%Y-%m-%d")
+    existing = find_plan_covering_date(meal_date, user_id=user_id)
+    if existing:
+        return existing["id"], False
+
+    week_start = week_start_for_date(meal_dt, get_week_start_day(user_id=user_id))
+    week_end = week_start + timedelta(days=6)
+    created = create_meal_plan(
+        name=f"Week of {week_start.strftime('%b %d')}",
+        start_date=week_start.strftime("%Y-%m-%d"),
+        end_date=week_end.strftime("%Y-%m-%d"),
+        plan_type="weekly",
+        user_id=user_id,
+    )
+    if not created.get("success"):
+        raise RuntimeError(created.get("error", "Failed to create meal plan"))
+    return created["plan_id"], True
+
+
+def _displaced_recipe_name(
+    plan_id: str, meal_date: str, meal_slot: str, new_recipe_id: str, user_id: str
+) -> str | None:
+    """Name of the recipe currently in this slot if a *different* one would be
+    overwritten, else None. assign_meal silently INSERT OR REPLACEs, so this is
+    the only way to warn the user about a swap."""
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "SELECT recipe_id FROM meal_entries "
+            "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? AND user_id = ?",
+            (plan_id, meal_date, meal_slot, user_id),
+        )
+        row = cursor.fetchone()
+
+    if not row or row[0] == new_recipe_id:
+        return None
+    displaced = get_recipe(row[0])
+    return displaced.get("name") if displaced else row[0]
+
+
+def schedule_recipe(
+    recipe_id: str, meal_date: str, meal_slot: str, *, user_id: str
+) -> dict[str, Any]:
+    """Schedule a recipe on a future date, creating that week's plan if needed.
+
+    Shared by POST /api/meal-plan/schedule-recipe and
+    meal_plan(action='schedule_recipe'). Only dates after today are accepted.
+    Reports which recipe, if any, was overwritten in that slot.
+    """
+    try:
+        meal_dt = datetime.strptime(meal_date, "%Y-%m-%d")
+    except ValueError:
+        return {"success": False, "error": "Invalid meal_date format. Use YYYY-MM-DD"}
+
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    if meal_dt <= today:
+        return {"success": False, "error": "Pick a date after today."}
+
+    ensure_initialized()
+    plan_id, created_plan = _ensure_week_plan(meal_dt, user_id)
+    displaced = _displaced_recipe_name(plan_id, meal_date, meal_slot, recipe_id, user_id)
+    result = assign_meal(
+        plan_id=plan_id,
+        recipe_id=recipe_id,
+        meal_date=meal_date,
+        meal_slot=meal_slot,
+        user_id=user_id,
+    )
+    if not result.get("success"):
+        return result
+    return {
+        "success": True,
+        "plan_id": plan_id,
+        "meal_date": meal_date,
+        "meal_slot": meal_slot,
+        "recipe_name": result.get("recipe_name"),
+        "created_plan": created_plan,
+        "overwrote": displaced is not None,
+        "displaced_recipe_name": displaced,
+    }

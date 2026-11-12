@@ -53,6 +53,7 @@ from .tools import (
     ingredient_management_tools,
     location_tools,
     meal_planner_tools,
+    notification_tools,
     notion_tools,
     prediction_tools,
     privacy_tools,
@@ -366,6 +367,7 @@ def create_server() -> FastMCP:
     _register(ingredient_management_tools, "ingredient_management_tools")
     _register(shopping_list_tools, "shopping_list_tools")
     _register(notion_tools, "notion_tools")
+    _register(notification_tools, "notification_tools")
 
     # Register prompts
     try:

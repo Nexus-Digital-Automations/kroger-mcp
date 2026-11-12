@@ -236,6 +236,29 @@ add_to_whole_foods_catalog(product_id='67890')
 - **Store Selection**: Help user set their preferred Kroger store
 - **Recipe Shopping**: Find recipes and add ingredients to cart
 
+### 🤖 Web-app parity actions
+
+The server exposes 19 tools, each taking an `action` argument, so an agent can do
+nearly everything the web app does. Cart adds still go through the confirmation
+protocol. These actions mirror web features and share their code paths:
+
+| Tool | Actions |
+|------|---------|
+| `shopping_list` | `add_item` (a one-off item; with no `product_id` it is a manual purchase), `clear`, `mark_empty` (sets the pantry level of listed items to 0%) |
+| `pantry` | `get_history` (`product_id`, `days`), `clear` (requires `confirm=True`) |
+| `deals` | `get_watchlist`, `remove_from_watchlist` |
+| `notifications` (new tool) | `list` (the bell summary), `mark_seen`, `dismiss` (`alert_id`, `acted`) |
+| `recipes` | `cook_preview`, `mark_cooked` (`deduct_pantry`), `undo_cooked` (`cook_event_id`), `get_step_times` |
+| `meal_plan` | `list_templates`, `set_template`, `create_from_template`, `confirm_pending`, `cook_preview`, `schedule_recipe` |
+| `favorites` | `add_list_to_shopping_list`, `add_snacks_to_list` |
+| `products` | `suggest_for_ingredient` |
+| `info` | `set_include_spices_by_default`, `set_pantry_deduction_mode` (both appear in `get_preferences`) |
+
+Deliberately not exposed: Kroger credential entry, in-app chat, and display-only
+UI state. `scripts/smoke_mcp_spec.py` lists every action with its smoke mode.
+
+The table below is the legacy per-function reference, kept for history.
+
 ### 📚 Available Tools (89 Total)
 
 #### Location Tools (6)

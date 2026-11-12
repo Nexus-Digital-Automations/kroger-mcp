@@ -38,8 +38,22 @@ def register_tools(mcp):
             "approve_draft",
             "skip_meal",
             "undo_cooked",
+            "list_templates",
+            "set_template",
+            "create_from_template",
+            "confirm_pending",
+            "cook_preview",
+            "schedule_recipe",
         ] = Field(
             description=(
+                "list_templates — reusable template plans. "
+                "set_template — plan_id + is_template True/False. "
+                "create_from_template — source_plan_id + new_name + new_start_date. "
+                "confirm_pending — mark every pending past meal cooked (deducts pantry). "
+                "cook_preview — scaled ingredients + pantry levels for one meal "
+                "(plan_id+meal_date+meal_slot); changes nothing. "
+                "schedule_recipe — put recipe_id on a future meal_date/meal_slot, "
+                "creating that week's plan if none exists. "
                 "preview_shopping — see ingredients needed with pantry status. "
                 "add_to_cart — add plan ingredients (confirm=True to execute). "
                 "assign_meal — add recipe to date/slot. "
@@ -280,6 +294,58 @@ def register_tools(mcp):
                 pass
 
         match action:
+            case "list_templates":
+                listed = meal_planning.list_plans_for_api(
+                    include_templates=True, limit=50, user_id=user_id
+                )
+                if not listed.get("success"):
+                    return listed
+                plans = [p for p in listed["plans"] if p.get("is_template")]
+                return {"success": True, "plans": plans, "count": len(plans)}
+
+            case "set_template":
+                if not plan_id:
+                    return {"success": False, "error": "plan_id is required"}
+                return meal_planning.set_plan_template(
+                    plan_id, bool(is_template), user_id=user_id
+                )
+
+            case "create_from_template":
+                if not (source_plan_id and new_name and new_start_date):
+                    return {
+                        "success": False,
+                        "error": "source_plan_id, new_name and new_start_date are required",
+                    }
+                return meal_planning.copy_meal_plan(
+                    source_plan_id=source_plan_id,
+                    new_name=new_name,
+                    new_start_date=new_start_date,
+                    user_id=user_id,
+                )
+
+            case "confirm_pending":
+                return meal_planning.confirm_all_pending_meals(user_id=user_id)
+
+            case "cook_preview":
+                if not (plan_id and meal_date and meal_slot):
+                    return {
+                        "success": False,
+                        "error": "plan_id, meal_date and meal_slot are required",
+                    }
+                return meal_planning.preview_meal_cook(
+                    plan_id, meal_date, meal_slot, user_id=user_id
+                )
+
+            case "schedule_recipe":
+                if not (recipe_id and meal_date and meal_slot):
+                    return {
+                        "success": False,
+                        "error": "recipe_id, meal_date and meal_slot are required",
+                    }
+                return meal_planning.schedule_recipe(
+                    recipe_id, meal_date, meal_slot, user_id=user_id
+                )
+
             case "create":
                 if not name:
                     return {"success": False, "error": "name is required"}

@@ -137,12 +137,16 @@ def register_tools(mcp):
             "get_attention",
             "list_gaps",
             "resolve_gap",
+            "get_history",
+            "clear",
         ] = Field(
             description=(
                 "get_attention — SESSION REQUIRED before shopping. "
                 "Returns expiring/low/overdue items. "
                 "Batch ops (max 50) via product_ids. "
                 "list_gaps/resolve_gap — partial-fulfillment reconciliation. "
+                "get_history — one item's purchase/usage events (product_id, days). "
+                "clear — delete EVERY pantry item; requires confirm=True. "
                 "Other: get|add|update_item|restock|get_low_inventory|remove"
             )
         ),
@@ -190,6 +194,12 @@ def register_tools(mcp):
             default=None,
             description="How the gap was resolved (resolve_gap)",
         ),
+        days: int | None = Field(
+            default=None, ge=1, le=365, description="get_history — look-back days (default 30)"
+        ),
+        confirm: bool | None = Field(
+            default=None, description="clear — must be True to delete the whole pantry"
+        ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Pantry inventory tracking with auto-depletion modeling.
@@ -216,6 +226,8 @@ def register_tools(mcp):
             gap_id,
             resolution,
             ctx,
+            days,
+            confirm,
         )
 
     def _pantry_impl(
@@ -232,9 +244,40 @@ def register_tools(mcp):
         gap_id,
         resolution,
         ctx,
+        days=None,
+        confirm=None,
     ):
         user_id = mcp_user_id()
         match action:
+            case "get_history":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required for get_history"}
+                from ..analytics import pantry as pantry_db
+
+                look_back = days or 30
+                events = pantry_db.get_usage_history(
+                    product_id=product_id, days=look_back, user_id=user_id
+                )
+                return {
+                    "success": True,
+                    "product_id": product_id,
+                    "days": look_back,
+                    "events": events,
+                }
+
+            case "clear":
+                if confirm is not True:
+                    return {
+                        "success": False,
+                        "error": (
+                            "clear permanently deletes every pantry item. "
+                            "Call again with confirm=True to proceed."
+                        ),
+                    }
+                from ..analytics import pantry as pantry_db
+
+                return {"success": True, "deleted": pantry_db.clear_pantry(user_id)}
+
             case "get":
                 try:
                     from ..analytics.pantry import get_pantry_status

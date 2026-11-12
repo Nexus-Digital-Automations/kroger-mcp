@@ -299,16 +299,9 @@ async def find_deals(
 async def get_watchlist(request: Request):
     """Return the authenticated user's deal watchlist."""
     try:
-        ensure_initialized()
-        user_id = current_user_id(request)
-        conn = get_db_connection()
-        cursor = conn.execute(
-            "SELECT * FROM deal_watchlist WHERE user_id = ? ORDER BY added_at DESC",
-            (user_id,),
-        )
-        rows = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return JSONResponse(content=rows)
+        from kroger_mcp.analytics.deals import list_watchlist
+
+        return JSONResponse(content=list_watchlist(current_user_id(request)))
     except Exception as e:
         return JSONResponse(
             status_code=500,
@@ -367,13 +360,9 @@ async def add_to_watchlist(body: WatchlistAddBody, request: Request):
 async def remove_from_watchlist(product_id: str, request: Request):
     """Remove a product from the authenticated user's deal watchlist."""
     try:
-        ensure_initialized()
-        user_id = current_user_id(request)
-        with get_db_cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM deal_watchlist WHERE user_id = ? AND product_id = ?",
-                (user_id, product_id),
-            )
+        from kroger_mcp.analytics.deals import remove_from_watchlist as remove_watched
+
+        remove_watched(current_user_id(request), product_id)
         return JSONResponse(content={"success": True, "removed": product_id})
     except Exception as e:
         return JSONResponse(

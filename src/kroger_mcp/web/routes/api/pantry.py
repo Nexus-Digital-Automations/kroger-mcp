@@ -109,12 +109,9 @@ async def clear_all_pantry_items(request: Request):
         )
     user_id = current_user_id(request)
     try:
-        from kroger_mcp.analytics.database import ensure_initialized, get_db_cursor
+        from kroger_mcp.analytics.pantry import clear_pantry
 
-        ensure_initialized()
-        with get_db_cursor() as cursor:
-            cursor.execute("DELETE FROM pantry_items WHERE user_id = ?", (user_id,))
-            deleted = cursor.rowcount
+        deleted = clear_pantry(user_id)
         return JSONResponse(content={"success": True, "deleted": deleted})
     except Exception as e:
         return JSONResponse(

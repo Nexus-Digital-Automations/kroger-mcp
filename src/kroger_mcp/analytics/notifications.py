@@ -213,6 +213,35 @@ def draft_awaiting_approval(user_id: str) -> dict[str, Any] | None:
     return {"plan_id": row["id"], "name": row["name"], "start_date": row["start_date"]}
 
 
+def bell_summary(user_id: str) -> dict[str, Any]:
+    """Everything the header bell shows, plus the combined unseen badge count.
+
+    Shared by GET /api/notifications and the `notifications` MCP tool.
+    """
+    pending_meals = list_pending_meals_for_bell(user_id)
+    pantry_alerts = list_pantry_alerts_for_bell(user_id)
+    needs_plan = next_week_needs_plan(user_id)
+    unmatched_snacks = list_unmatched_snacks_for_bell(user_id)
+    unseen = (
+        unseen_count(user_id)
+        + len(pending_meals)
+        + len(pantry_alerts)
+        + len(unmatched_snacks)
+        + (1 if needs_plan else 0)
+    )
+    return {
+        "alerts": list_alerts(user_id),
+        "pending_meals": pending_meals,
+        "pantry_alerts": pantry_alerts,
+        "needs_plan": needs_plan,
+        # needs_plan stays True while a draft awaits approval (drafts don't
+        # count as coverage), so this adds context, not another unseen tick.
+        "draft_awaiting_approval": draft_awaiting_approval(user_id),
+        "unmatched_snacks": unmatched_snacks,
+        "unseen": unseen,
+    }
+
+
 def mark_alerts_seen(user_id: str) -> int:
     """Clear the badge: mark all of a user's active alerts as seen."""
     ensure_initialized()

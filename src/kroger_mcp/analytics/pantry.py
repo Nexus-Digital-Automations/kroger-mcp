@@ -13,7 +13,12 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ._user_scope import resolve_user_id as _resolve_user_id
-from .database import ensure_initialized, get_db_connection, insert_returning_id
+from .database import (
+    ensure_initialized,
+    get_db_connection,
+    get_db_cursor,
+    insert_returning_id,
+)
 from .favorite_depletion import get_favorite_depletion_rates
 
 logger = logging.getLogger(__name__)
@@ -635,6 +640,15 @@ def remove_from_pantry(product_id: str, user_id: str) -> dict[str, Any]:
             return {"success": False, "error": f"Item '{product_id}' not found"}
     finally:
         conn.close()
+
+
+def clear_pantry(user_id: str) -> int:
+    """Delete every pantry item owned by `user_id`; return how many were removed."""
+    ensure_initialized()
+    owner = _resolve_user_id(user_id)
+    with get_db_cursor() as cursor:
+        cursor.execute("DELETE FROM pantry_items WHERE user_id = ?", (owner,))
+        return int(cursor.rowcount)
 
 
 def get_pantry_status(

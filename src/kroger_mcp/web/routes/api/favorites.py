@@ -4,7 +4,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from kroger_mcp.analytics.manual_sources import manual_note, stored_source
 from kroger_mcp.auth.dependencies import current_user_id
 
 router = APIRouter()
@@ -241,95 +240,15 @@ async def remove_item(list_id: str, product_id: str, request: Request):
 @router.post("/api/favorites/lists/{list_id}/add-to-shopping-list")
 async def add_list_to_shopping_list(list_id: str, request: Request):
     """Add all items from a favorites list into the shopping list, skipping well-stocked items."""
-    from datetime import datetime
+    from kroger_mcp.tools.shopping_list_ops import add_favorites_list_to_list
 
-    from kroger_mcp.analytics.favorites import get_list_items as _get_list_items
-    from kroger_mcp.tools.shopping_list_tools import (
-        _consolidate_items,
-        _generate_list_item_id,
-        _load_shopping_list,
-        _save_shopping_list,
-    )
-
-    # Load list items
     try:
-        result = _get_list_items(
-            list_id=list_id, include_pantry_status=True, user_id=current_user_id(request)
-        )
+        result = add_favorites_list_to_list(list_id, current_user_id(request))
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
-
     if not result.get("success"):
         return JSONResponse(status_code=404, content=result)
-
-    list_name = result.get("list", {}).get("name", list_id)
-    items = result.get("items", [])
-    user_id = current_user_id(request)
-
-    # Load pantry levels for skip logic
-    pantry_levels: dict = {}
-    try:
-        from kroger_mcp.analytics.pantry import get_pantry_status
-
-        pantry_items = get_pantry_status(apply_depletion=True, user_id=user_id)
-        pantry_levels = {p["product_id"]: p.get("level_percent", 0) for p in pantry_items}
-    except Exception:
-        pass  # No pantry data — skip nothing
-
-    # Build new shopping list entries
-    data = _load_shopping_list(user_id=user_id)
-    items_added = 0
-    items_skipped = 0
-    now = datetime.now().isoformat()
-
-    items_manual = 0
-    for item in items:
-        product_id = item.get("product_id")
-        if not product_id:
-            continue
-        # A manual favorite has no real Kroger product: carry it onto the list
-        # as an unlinked manual_purchase row (the same shape recipe overrides
-        # use) so the cart-send path shows it instead of trying to buy it.
-        manual = bool(item.get("is_manual"))
-        if not manual:
-            level = pantry_levels.get(product_id, 0)
-            if level >= 30:
-                items_skipped += 1
-                continue
-        data["items"].append(
-            {
-                "id": _generate_list_item_id(),
-                "product_id": None if manual else product_id,
-                "name": item.get("description", ""),
-                "quantity": item.get("default_quantity") or 1,
-                "unit": "",
-                "sources": [{"favorites_list_id": list_id, "favorites_list_name": list_name}],
-                "added_at": now,
-                "notes": manual_note(item) if manual else None,
-                "manual_purchase": manual,
-                "source": stored_source(item.get("source")) if manual else None,
-                "recipe_name": None,
-            }
-        )
-        items_added += 1
-        items_manual += 1 if manual else 0
-
-    data["items"] = _consolidate_items(data["items"])
-    _save_shopping_list(data, user_id=user_id)
-
-    if items_added:
-        from kroger_mcp.analytics.favorites import mark_list_ordered
-
-        mark_list_ordered(list_id, user_id=current_user_id(request))
-
-    return {
-        "success": True,
-        "list_name": list_name,
-        "items_added": items_added,
-        "items_skipped": items_skipped,
-        "items_manual": items_manual,
-        "total_items": len(data["items"]),
-    }
+    return result
 
 
 class AddSnacksBody(BaseModel):
@@ -356,49 +275,6 @@ async def add_snacks_to_shopping_list(body: AddSnacksBody, request: Request):
     Only product_ids that are genuinely on a snacks list are honored — the
     check-up snapshot is the allow-list, so a stale/forged id is ignored.
     """
-    from datetime import datetime
+    from kroger_mcp.tools.shopping_list_ops import add_snacks_to_list
 
-    from kroger_mcp.analytics.favorites import check_snacks as _check_snacks
-    from kroger_mcp.tools.shopping_list_tools import (
-        _consolidate_items,
-        _generate_list_item_id,
-        _load_shopping_list,
-        _save_shopping_list,
-    )
-
-    user_id = current_user_id(request)
-    chosen = set(body.product_ids)
-    if not chosen:
-        return {"success": True, "items_added": 0}
-
-    by_id = {c["product_id"]: c for c in _check_snacks(user_id=user_id).get("candidates", [])}
-
-    data = _load_shopping_list(user_id=user_id)
-    now = datetime.now().isoformat()
-    items_added = 0
-    for product_id in chosen:
-        snack = by_id.get(product_id)
-        if not snack:
-            continue
-        manual = bool(snack.get("is_manual"))
-        data["items"].append(
-            {
-                "id": _generate_list_item_id(),
-                # Manual snacks carry no real UPC — drop the synthetic id and
-                # flag the row so the cart-send path lists it as a manual buy.
-                "product_id": None if manual else product_id,
-                "name": snack["description"],
-                "quantity": snack.get("default_quantity") or 1,
-                "unit": "",
-                "added_at": now,
-                "notes": manual_note(snack) if manual else None,
-                "manual_purchase": manual,
-                "source": stored_source(snack.get("source")) if manual else None,
-                "sources": [{"snacks_list_id": snack["list_id"]}],
-            }
-        )
-        items_added += 1
-
-    data["items"] = _consolidate_items(data["items"])
-    _save_shopping_list(data, user_id=user_id)
-    return {"success": True, "items_added": items_added, "total_items": len(data["items"])}
+    return add_snacks_to_list(body.product_ids, current_user_id(request))

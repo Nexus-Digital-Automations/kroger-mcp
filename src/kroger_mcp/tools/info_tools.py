@@ -38,6 +38,8 @@ def register_tools(mcp):
             "set_planning_horizon_days",
             "set_draft_dinners_per_week",
             "set_draft_auto_approve",
+            "set_include_spices_by_default",
+            "set_pantry_deduction_mode",
         ] = Field(
             description=(
                 "set_servings — set household size (used by recipe scaling). "
@@ -48,6 +50,10 @@ def register_tools(mcp):
                 "fills (default 3). "
                 "set_draft_auto_approve — value 0/1 (default 0); 1 makes weekly drafts "
                 "go live immediately with no approval step. "
+                "set_include_spices_by_default — value 0/1; 1 pre-checks spice items "
+                "in the send-to-cart preview. "
+                "set_pantry_deduction_mode — mode 'automatic' (past meals deduct the "
+                "pantry on their date) or 'confirm' (wait for you to confirm cooking). "
                 "Other: list_chains|get_chain|check_chain|list_departments|get_department|check_department|get_datetime|get_servings"
             )
         ),
@@ -67,7 +73,11 @@ def register_tools(mcp):
             default=None,
             description="New value for the set_week_start_day / "
             "set_planning_horizon_days / set_draft_dinners_per_week / "
-            "set_draft_auto_approve actions",
+            "set_draft_auto_approve / set_include_spices_by_default actions",
+        ),
+        mode: Literal["automatic", "confirm"] | str | None = Field(
+            default=None,
+            description="set_pantry_deduction_mode — 'automatic' or 'confirm'",
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
@@ -87,10 +97,30 @@ def register_tools(mcp):
             value,
             ctx,
             user_id,
+            mode,
         )
 
-    def _info_impl(action, chain_name, department_id, servings, value, ctx, user_id):
+    def _info_impl(action, chain_name, department_id, servings, value, ctx, user_id, mode=None):
         match action:
+            case "set_include_spices_by_default":
+                if value is None:
+                    return {"success": False, "error": "value (0 or 1) is required"}
+                from .shared import set_include_spices_by_default
+
+                set_include_spices_by_default(bool(value), user_id=user_id)
+                return {"success": True, "include_spices_by_default": bool(value)}
+
+            case "set_pantry_deduction_mode":
+                if not mode:
+                    return {"success": False, "error": "mode ('automatic' or 'confirm') is required"}
+                from .shared import set_meal_plan_pantry_deduction_mode
+
+                try:
+                    set_meal_plan_pantry_deduction_mode(mode, user_id=user_id)
+                except ValueError as e:
+                    return {"success": False, "error": str(e)}
+                return {"success": True, "meal_plan_pantry_deduction_mode": mode}
+
             case "list_chains":
                 if ctx:
                     ctx.info("Getting list of Kroger chains")
@@ -342,6 +372,8 @@ def register_tools(mcp):
                     from .shared import (
                         get_draft_auto_approve,
                         get_draft_dinners_per_week,
+                        get_include_spices_by_default,
+                        get_meal_plan_pantry_deduction_mode,
                         get_planning_horizon_days,
                         get_preferred_location_id,
                         get_week_start_day,
@@ -356,6 +388,12 @@ def register_tools(mcp):
                             "planning_horizon_days": get_planning_horizon_days(user_id=user_id),
                             "draft_dinners_per_week": get_draft_dinners_per_week(user_id=user_id),
                             "draft_auto_approve": get_draft_auto_approve(user_id=user_id),
+                            "include_spices_by_default": get_include_spices_by_default(
+                                user_id=user_id
+                            ),
+                            "meal_plan_pantry_deduction_mode": (
+                                get_meal_plan_pantry_deduction_mode(user_id=user_id)
+                            ),
                         },
                     }
                 except Exception as e:

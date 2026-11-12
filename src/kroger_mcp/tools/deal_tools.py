@@ -45,10 +45,14 @@ def register_tools(mcp):
             "score_quality",
             "scan_watchlist",
             "get_latest_scan",
+            "get_watchlist",
+            "remove_from_watchlist",
         ] = Field(
             description=(
                 "find — search deals by term or category. "
                 "add_to_watchlist — batch via product_ids (max 30). "
+                "get_watchlist — list watched products. "
+                "remove_from_watchlist — stop watching product_id. "
                 "scan_watchlist — scans watchlist + favorites + low-pantry. "
                 "score_quality — rate one product's current deal vs. its 30-day price history. "
                 "get_price_history|get_latest_scan"
@@ -177,6 +181,22 @@ def register_tools(mcp):
         ctx,
     ):
         match action:
+            case "get_watchlist":
+                from ..analytics import deals as deals_db
+
+                items = deals_db.list_watchlist(mcp_user_id())
+                return {"success": True, "items": items, "count": len(items)}
+
+            case "remove_from_watchlist":
+                if not product_id:
+                    return {"success": False, "error": "product_id is required"}
+                from ..analytics import deals as deals_db
+
+                removed = deals_db.remove_from_watchlist(mcp_user_id(), product_id)
+                if not removed:
+                    return {"success": False, "error": f"{product_id} is not on your watchlist"}
+                return {"success": True, "removed": product_id}
+
             case "find":
                 owner = mcp_user_id()
                 if not location_id:

@@ -48,6 +48,8 @@ _OVERRIDES: dict[tuple[str, str], Tier | _ArgGatedOverride] = {
     ("shopping_list", "add_to_cart"): ("hard_blocked", ("confirm", True)),
     ("recipes", "add_to_cart"): ("hard_blocked", ("confirm", True)),
     ("privacy", "delete_my_data"): "hard_blocked",
+    # Wipes the whole pantry; confirm=False/absent only returns a refusal.
+    ("pantry", "clear"): ("hard_blocked", ("confirm", True)),
     # --- explicit normal-write judgment calls (not hard-blocked) ---
     ("privacy", "set_consent"): "write",
     ("privacy", "withdraw"): "write",
@@ -69,6 +71,8 @@ _OVERRIDES: dict[tuple[str, str], Tier | _ArgGatedOverride] = {
     ("info", "get_datetime"): "read_only",
     ("info", "get_servings"): "read_only",
     ("info", "get_preferences"): "read_only",
+    ("recipes", "cook_preview"): "read_only",
+    ("meal_plan", "cook_preview"): "read_only",
 }
 
 

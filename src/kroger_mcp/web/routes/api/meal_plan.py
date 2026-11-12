@@ -142,63 +142,6 @@ async def add_meal_to_plan(plan_id: str, body: AddMealBody, request: Request):
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
-def _ensure_week_plan(meal_dt: datetime, user_id: str) -> tuple[str, bool]:
-    """Return (plan_id, created) for the plan covering meal_dt.
-
-    Reuses any non-template plan whose range already contains the date;
-    otherwise creates a weekly plan aligned to the user's configured week
-    start day so it renders correctly in the week view. Raises on creation
-    failure.
-    """
-    from kroger_mcp.analytics.meal_planning import (
-        create_meal_plan,
-        find_plan_covering_date,
-        week_start_for_date,
-    )
-    from kroger_mcp.tools.shared import get_week_start_day
-
-    meal_date = meal_dt.strftime("%Y-%m-%d")
-    existing = find_plan_covering_date(meal_date, user_id=user_id)
-    if existing:
-        return existing["id"], False
-
-    week_start = week_start_for_date(meal_dt, get_week_start_day(user_id=user_id))
-    week_end = week_start + timedelta(days=6)
-    created = create_meal_plan(
-        name=f"Week of {week_start.strftime('%b %d')}",
-        start_date=week_start.strftime("%Y-%m-%d"),
-        end_date=week_end.strftime("%Y-%m-%d"),
-        plan_type="weekly",
-        user_id=user_id,
-    )
-    if not created.get("success"):
-        raise RuntimeError(created.get("error", "Failed to create meal plan"))
-    return created["plan_id"], True
-
-
-def _displaced_recipe_name(
-    plan_id: str, meal_date: str, meal_slot: str, new_recipe_id: str, user_id: str
-) -> str | None:
-    """Name of the recipe currently in this slot if a *different* one would be
-    overwritten, else None. assign_meal silently INSERT OR REPLACEs, so this is
-    the only way to warn the user about a swap."""
-    from kroger_mcp.analytics.database import get_db_cursor
-    from kroger_mcp.analytics.meal_planning import get_recipe
-
-    with get_db_cursor() as cursor:
-        cursor.execute(
-            "SELECT recipe_id FROM meal_entries "
-            "WHERE plan_id = ? AND meal_date = ? AND meal_slot = ? AND user_id = ?",
-            (plan_id, meal_date, meal_slot, user_id),
-        )
-        row = cursor.fetchone()
-
-    if not row or row[0] == new_recipe_id:
-        return None
-    displaced = get_recipe(row[0])
-    return displaced.get("name") if displaced else row[0]
-
-
 @router.post("/api/meal-plan/schedule-recipe")
 async def schedule_recipe(body: ScheduleRecipeBody, request: Request):
     """Schedule a recipe into the user's meal plan, creating the week's plan if
@@ -213,50 +156,13 @@ async def schedule_recipe(body: ScheduleRecipeBody, request: Request):
         user_id,
     )
     try:
-        try:
-            meal_dt = datetime.strptime(body.meal_date, "%Y-%m-%d")
-        except ValueError:
-            logger.warning("schedule_recipe bad date=%s", body.meal_date)
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Invalid meal_date format. Use YYYY-MM-DD"},
-            )
+        from kroger_mcp.analytics.meal_planning import schedule_recipe as _schedule
 
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        if meal_dt <= today:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Pick a date after today."},
-            )
-
-        plan_id, created_plan = _ensure_week_plan(meal_dt, user_id)
-        displaced = _displaced_recipe_name(
-            plan_id, body.meal_date, body.meal_slot, body.recipe_id, user_id
-        )
-
-        from kroger_mcp.analytics.meal_planning import assign_meal
-
-        result = assign_meal(
-            plan_id=plan_id,
-            recipe_id=body.recipe_id,
-            meal_date=body.meal_date,
-            meal_slot=body.meal_slot,
-            user_id=user_id,
-        )
+        result = _schedule(body.recipe_id, body.meal_date, body.meal_slot, user_id=user_id)
         if not result.get("success"):
-            logger.warning("schedule_recipe assign failed: %s", result.get("error"))
+            logger.warning("schedule_recipe rejected: %s", result.get("error"))
             return JSONResponse(status_code=400, content=result)
-
-        return {
-            "success": True,
-            "plan_id": plan_id,
-            "meal_date": body.meal_date,
-            "meal_slot": body.meal_slot,
-            "recipe_name": result.get("recipe_name"),
-            "created_plan": created_plan,
-            "overwrote": displaced is not None,
-            "displaced_recipe_name": displaced,
-        }
+        return result
     except Exception as exc:
         logger.exception("schedule_recipe failed")
         return JSONResponse(status_code=500, content={"error": str(exc)})
@@ -368,21 +274,12 @@ async def toggle_template(plan_id: str, body: ToggleTemplateBody, request: Reque
     """Toggle is_template flag on a plan, only if the current user owns it."""
     user_id = current_user_id(request)
     try:
-        from kroger_mcp.analytics.database import ensure_initialized, get_db_cursor
+        from kroger_mcp.analytics.meal_planning import set_plan_template
 
-        ensure_initialized()
-        with get_db_cursor() as cursor:
-            cursor.execute(
-                "UPDATE meal_plans SET is_template = ?, updated_at = ? "
-                "WHERE id = ? AND user_id = ?",
-                (1 if body.is_template else 0, datetime.now().isoformat(), plan_id, user_id),
-            )
-            if cursor.rowcount == 0:
-                return JSONResponse(
-                    status_code=404,
-                    content={"error": f"Plan '{plan_id}' not found"},
-                )
-        return {"success": True, "plan_id": plan_id, "is_template": body.is_template}
+        result = set_plan_template(plan_id, body.is_template, user_id=user_id)
+        if not result.get("success"):
+            return JSONResponse(status_code=404, content=result)
+        return result
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 

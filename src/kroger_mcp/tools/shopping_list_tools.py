@@ -238,10 +238,23 @@ def register_tools(mcp):
 
     @mcp.tool()
     async def shopping_list(
-        action: Literal["add_recipe", "get", "remove", "update_item", "add_to_cart"] = Field(
+        action: Literal[
+            "add_recipe",
+            "add_item",
+            "get",
+            "remove",
+            "update_item",
+            "clear",
+            "mark_empty",
+            "add_to_cart",
+        ] = Field(
             description=(
                 "add_recipe — adds recipe ingredients (auto-scaled, consolidated). "
                 "Requires pantry(action='get_attention') first. "
+                "add_item — one item: name (+product_id to link a Kroger product; "
+                "omit it for a manual item bought elsewhere, with optional source). "
+                "clear — empty the whole list. "
+                "mark_empty — set every listed product's pantry level to 0%. "
                 "add_to_cart — confirm=False previews, confirm=True executes. "
                 "Other: get|remove|update_item"
             )
@@ -262,6 +275,11 @@ def register_tools(mcp):
             ),
         ),
         modality: str | None = Field(default=None, description="PICKUP or DELIVERY"),
+        name: str | None = Field(default=None, description="add_item — item name"),
+        product_id: str | None = Field(
+            default=None, description="add_item — Kroger product ID; omit for a manual item"
+        ),
+        unit: str | None = Field(default=None, description="add_item — unit, e.g. 'lb'"),
         confirm: bool | None = Field(default=None, description="False=preview, True=execute"),
         confirm_unsafe: bool | None = Field(
             default=False, description="Override safety warnings for add_to_cart"
@@ -295,6 +313,9 @@ def register_tools(mcp):
             confirm_unsafe,
             ctx,
             user_id,
+            name,
+            product_id,
+            unit,
         )
 
     def _shopping_list_impl(
@@ -313,8 +334,32 @@ def register_tools(mcp):
         confirm_unsafe,
         ctx,
         user_id,
+        name=None,
+        product_id=None,
+        unit=None,
     ):
+        from . import shopping_list_ops
+
         match action:
+            case "add_item":
+                if not name or not name.strip():
+                    return {"success": False, "error": "name is required for add_item"}
+                added = shopping_list_ops.add_list_item(
+                    user_id,
+                    name.strip(),
+                    product_id=product_id or None,
+                    quantity=float(quantity or 1),
+                    unit=unit or "",
+                    source=source,
+                )
+                return {"success": True, **added}
+
+            case "clear":
+                return {"success": True, "cleared": shopping_list_ops.clear_list(user_id)}
+
+            case "mark_empty":
+                return {"success": True, **shopping_list_ops.mark_list_items_empty(user_id)}
+
             case "add_recipe":
                 # Check session requirement
                 requirement_error = _check_attention_requirement(ctx)

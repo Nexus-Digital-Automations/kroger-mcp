@@ -22,35 +22,8 @@ router = APIRouter()
 async def get_notifications(request: Request):
     """Active favorite-on-sale alerts + unseen count for the bell badge."""
     try:
-        user_id = current_user_id(request)
-        alerts = await run_in_thread(notifications.list_alerts, user_id)
-        unseen = await run_in_thread(notifications.unseen_count, user_id)
-        pending_meals = await run_in_thread(notifications.list_pending_meals_for_bell, user_id)
-        pantry_alerts = await run_in_thread(notifications.list_pantry_alerts_for_bell, user_id)
-        needs_plan = await run_in_thread(notifications.next_week_needs_plan, user_id)
-        # needs_plan stays True while a draft awaits approval (drafts don't
-        # count as coverage), so this adds context, not another unseen tick.
-        pending_draft = await run_in_thread(notifications.draft_awaiting_approval, user_id)
-        unmatched_snacks = await run_in_thread(
-            notifications.list_unmatched_snacks_for_bell, user_id
-        )
-        unseen += (
-            len(pending_meals)
-            + len(pantry_alerts)
-            + len(unmatched_snacks)
-            + (1 if needs_plan else 0)
-        )
-        return JSONResponse(
-            content={
-                "alerts": alerts,
-                "pending_meals": pending_meals,
-                "pantry_alerts": pantry_alerts,
-                "needs_plan": needs_plan,
-                "draft_awaiting_approval": pending_draft,
-                "unmatched_snacks": unmatched_snacks,
-                "unseen": unseen,
-            }
-        )
+        summary = await run_in_thread(notifications.bell_summary, current_user_id(request))
+        return JSONResponse(content=summary)
     except Exception as exc:
         logger.exception("get_notifications failed")
         return JSONResponse(status_code=500, content={"error": str(exc)})

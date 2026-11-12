@@ -71,6 +71,8 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "score_quality": (READ, {"product_id": PROBE_PRODUCT_ID}, ""),
         "scan_watchlist": (READ, {"mark_as_viewed": False}, ""),
         "get_latest_scan": (READ, {}, ""),
+        "get_watchlist": (READ, {}, ""),
+        "remove_from_watchlist": (SKIP, {}, "destroys a watchlist row"),
     },
     "favorites": {
         "create_list": (SKIP, {}, "creates a persistent list"),
@@ -88,6 +90,8 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "get_low_stock": (READ, {}, ""),
         "check_snacks": (READ, {}, ""),
         "log_snack": (SKIP, {}, "deducts pantry / persists a snack-log row"),
+        "add_list_to_shopping_list": (SKIP, {}, "writes shopping-list rows"),
+        "add_snacks_to_list": (SKIP, {}, "writes shopping-list rows"),
     },
     "guides": {
         "list": (READ, {}, ""),
@@ -112,6 +116,8 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "set_planning_horizon_days": (SKIP, {}, "mutates the stored horizon preference"),
         "set_draft_dinners_per_week": (SKIP, {}, "mutates the stored draft-size preference"),
         "set_draft_auto_approve": (SKIP, {}, "mutates the stored auto-approve preference"),
+        "set_include_spices_by_default": (SKIP, {}, "mutates the stored spices preference"),
+        "set_pantry_deduction_mode": (SKIP, {}, "mutates the stored deduction-mode preference"),
     },
     "ingredients": {
         "add_custom": (SKIP, {}, "persists a custom ingredient rule"),
@@ -156,6 +162,17 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "approve_draft": (SKIP, {}, "promotes a draft to the active plan"),
         "skip_meal": (SKIP, {}, "mutates a pending meal's state"),
         "undo_cooked": (SKIP, {}, "reverts cooking history and restores pantry"),
+        "list_templates": (READ, {}, ""),
+        "set_template": (SKIP, {}, "mutates a plan's template flag"),
+        "create_from_template": (SKIP, {}, "persists a new plan"),
+        "confirm_pending": (SKIP, {}, "records cooking history and deducts pantry"),
+        "cook_preview": (SKIP, {}, "needs a specific scheduled meal date and slot"),
+        "schedule_recipe": (SKIP, {}, "mutates plan contents"),
+    },
+    "notifications": {
+        "list": (READ, {}, ""),
+        "mark_seen": (SKIP, {}, "mutates alert seen-state"),
+        "dismiss": (SKIP, {}, "mutates alert state"),
     },
     "notion": {
         "setup": (SKIP, {}, "writes Notion database schema"),
@@ -176,6 +193,8 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "get_attention": (READ, {}, ""),
         "list_gaps": (READ, {}, ""),
         "resolve_gap": (SKIP, {}, "mutates gap state"),
+        "get_history": (READ, {"product_id": P_TRACKED}, ""),
+        "clear": (SKIP, {}, "destroys every pantry item"),
     },
     "predictions": {
         "get_predictions": (READ, {}, ""),
@@ -212,6 +231,7 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
             {"category": "produce", "auto_add": False, "limit": 3},
             "",
         ),
+        "suggest_for_ingredient": (READ, {"search_term": "olive oil", "limit": 3}, ""),
     },
     "recipes": {
         "save": (SKIP, {}, "persists a recipe"),
@@ -224,6 +244,10 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "link_ingredient": (SKIP, {}, "mutates recipe ingredient links"),
         "add_to_cart": (PREVIEW, {"recipe_id": P_RECIPE, "confirm": False}, ""),
         "analyze": (READ, {"recipe_id": P_RECIPE}, ""),
+        "cook_preview": (READ, {"recipe_id": P_RECIPE}, ""),
+        "mark_cooked": (SKIP, {}, "records cooking history and deducts pantry"),
+        "undo_cooked": (SKIP, {}, "reverts cooking history and restores pantry"),
+        "get_step_times": (READ, {"recipe_id": P_RECIPE}, ""),
     },
     "reports": {
         "get_analytics": (READ, {"report_type": "spending"}, ""),
@@ -270,6 +294,9 @@ SPEC: dict[str, dict[str, tuple[str, dict[str, Any], str]]] = {
         "remove": (SKIP, {}, "destroys a list item"),
         "update_item": (SKIP, {}, "mutates a list item"),
         "add_to_cart": (PREVIEW, {"confirm": False}, ""),
+        "add_item": (SKIP, {}, "persists a list item"),
+        "clear": (SKIP, {}, "destroys every list item"),
+        "mark_empty": (SKIP, {}, "zeroes pantry levels for listed items"),
     },
 }
 

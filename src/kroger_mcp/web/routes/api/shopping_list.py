@@ -3,7 +3,6 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -17,6 +16,7 @@ from kroger_mcp.analytics.manual_sources import (
     stored_source,
 )
 from kroger_mcp.auth.dependencies import current_user_id
+from kroger_mcp.tools import shopping_list_ops
 from kroger_mcp.tools.shopping_list_tools import (
     _consolidate_items,
     _generate_list_item_id,
@@ -385,35 +385,17 @@ class AddItemBody(BaseModel):
 async def add_shopping_list_item(body: AddItemBody, request: Request):
     """Append a manual item to the authenticated user's shopping list."""
     try:
-        user_id = current_user_id(request)
-        listing = _load_shopping_list(user_id=user_id)
         # manual_purchase=True with no product_id is the same thing; derive it
         # so the flag and the link can never disagree.
-        product_id = None if body.manual_purchase else body.product_id
-        is_manual = is_manual_item({"product_id": product_id})
-        new_item: dict[str, Any] = {
-            "id": _generate_list_item_id(),
-            "product_id": product_id,
-            "name": body.name,
-            "ingredient_name": body.name,
-            "quantity": body.quantity,
-            "unit": body.unit,
-            "added_at": datetime.now().isoformat(),
-            "notes": manual_note({"source": body.source}) if is_manual else None,
-            "manual_purchase": is_manual,
-            "source": stored_source(body.source) if is_manual else None,
-            "sources": [],
-        }
-        listing["items"].append(new_item)
-        listing["items"] = _consolidate_items(listing["items"])
-        _save_shopping_list(listing, user_id=user_id)
-        return JSONResponse(
-            content={
-                "success": True,
-                "item_id": new_item["id"],
-                "total_items": len(listing["items"]),
-            }
+        added = shopping_list_ops.add_list_item(
+            current_user_id(request),
+            body.name,
+            product_id=None if body.manual_purchase else body.product_id,
+            quantity=body.quantity,
+            unit=body.unit,
+            source=body.source,
         )
+        return JSONResponse(content={"success": True, **added})
     except Exception as exc:
         logger.exception("add_shopping_list_item failed")
         return JSONResponse(
@@ -433,11 +415,7 @@ async def add_shopping_list_item(body: AddItemBody, request: Request):
 async def clear_shopping_list(request: Request):
     """Clear all items from the authenticated user's shopping list."""
     try:
-        user_id = current_user_id(request)
-        data = _load_shopping_list(user_id=user_id)
-        count = len(data["items"])
-        data["items"] = []
-        _save_shopping_list(data, user_id=user_id)
+        count = shopping_list_ops.clear_list(current_user_id(request))
         return JSONResponse(content={"success": True, "cleared": count})
     except Exception as e:
         return JSONResponse(
@@ -451,21 +429,8 @@ async def clear_shopping_list(request: Request):
 # ---------------------------------------------------------------------------
 
 
-def _mark_list_items_empty(user_id: str) -> dict[str, int]:
-    """Set every listed product's pantry level to 0%. The list is untouched.
-
-    Goes through `update_pantry_level` so each one records a depletion event,
-    exactly as a manual 0% set would. Items not tracked in the pantry, and
-    manual items (no product_id), are skipped rather than added.
-    """
-    from kroger_mcp.analytics.pantry import update_pantry_level
-
-    items = _load_shopping_list(user_id=user_id)["items"]
-    product_ids = list(dict.fromkeys(i["product_id"] for i in items if i.get("product_id")))
-    emptied = sum(
-        1 for pid in product_ids if update_pantry_level(pid, 0, user_id=user_id).get("success")
-    )
-    return {"emptied": emptied, "skipped": len(items) - emptied}
+# Shared with the shopping_list MCP tool; the old name stays importable here.
+_mark_list_items_empty = shopping_list_ops.mark_list_items_empty
 
 
 @router.post("/api/shopping-list/mark-empty")
