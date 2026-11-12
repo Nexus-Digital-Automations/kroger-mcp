@@ -89,7 +89,7 @@ function at call time, so that the oracle's monkeypatches take effect.
 - [x] Tests cover every new action, and the full suite, ruff, and mypy are clean.
 - [x] The smoke spec (`scripts/smoke_mcp_spec.py`) lists the new actions, so coverage accounting stays complete.
 - [x] README / project CLAUDE.md tool docs mention the new actions.
-- [x] Committed and pushed to `main`, so the pre-push hook deploys to prod.
+- [ ] Committed and pushed to `main` (done, d3e5ed7), so the pre-push hook deploys to prod. NOT DONE: the hook calls the stale path `automation-platforms/Automation Agent/scripts/deploy-smartshopper-to-mini.sh`, and that script's SRC points at an old `Smart Shopper/` folder that holds only logs. Deploy manually.
 
 ## References
 
