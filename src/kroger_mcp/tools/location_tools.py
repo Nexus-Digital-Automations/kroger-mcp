@@ -36,9 +36,7 @@ def register_tools(mcp):
             "get_preferred",
             "check_exists",
             "get_zip",
-        ] = Field(
-            description="search|get_details|set_preferred|get_preferred|check_exists|get_zip"
-        ),
+        ],
         zip_code: str | None = Field(
             default=None,
             description="Zip code to search near",
@@ -61,7 +59,7 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Store location management operations."""
+        """Store locations: search, details, preferred store, zip."""
         user_id = mcp_user_id()
         match action:
             case "search":

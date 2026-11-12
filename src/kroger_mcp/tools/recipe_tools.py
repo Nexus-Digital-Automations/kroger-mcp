@@ -237,22 +237,7 @@ def register_tools(mcp):
             "mark_cooked",
             "undo_cooked",
             "get_step_times",
-        ] = Field(
-            description=(
-                "cook_preview — scaled ingredients + pantry levels for cooking "
-                "recipe_id now (servings optional); changes nothing. "
-                "mark_cooked — 'I made this': deducts the pantry unless "
-                "deduct_pantry=False; returns cook_event_id. "
-                "undo_cooked — reverse a mark_cooked by cook_event_id. "
-                "get_step_times — per-step time annotations and totals. "
-                "save — ingredients need only a name; add product_id to order "
-                "from Kroger, or source='Walmart' for items you buy elsewhere. "
-                "link_ingredient — batch via links=[{recipe_id, ingredient_index, product_id}]. "
-                "preview_order — check pantry before ordering. "
-                "add_to_cart — order recipe ingredients. "
-                "Other: list|get|update|delete|search|analyze"
-            )
-        ),
+        ],
         recipe_id: str | None = Field(
             default=None,
             description="Recipe ID",
@@ -263,11 +248,7 @@ def register_tools(mcp):
         ),
         ingredients: list[dict[str, Any]] | None = Field(
             default=None,
-            description=(
-                "List of {name (required), quantity, unit, category, "
-                "product_id (optional — link it to order from Kroger), "
-                "source (optional vendor for unlinked items, e.g. 'Walmart')}"
-            ),
+            description="[{name (required), quantity, unit, category, product_id, source}]",
         ),
         instructions: str | None = Field(
             default=None,
@@ -341,23 +322,20 @@ def register_tools(mcp):
         ),
         include_spices: bool | None = Field(
             default=False,
-            description=(
-                "Fold spices/seasonings into total_cost & cost_per_serving "
-                "(default: spices are shown but excluded from per-serving cost)"
-            ),
+            description="Count spices in total_cost/cost_per_serving (default no)",
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Recipe management with Kroger product linking.
+        """Recipes with Kroger product linking (auto-syncs to Notion if set up).
 
-        Ingredients need only a name. Link a product_id (from the products tool)
-        to order it from Kroger; leave it off for anything you buy elsewhere and
-        set `source` to the vendor ("Walmart") so it groups into its own errand
-        section on the shopping list. Unlinked items are never sent to Kroger.
-
-        Workflow: save recipe → link_ingredient (batch: links=[...]) → preview_order → add_to_cart.
-        analyze — health score and cost estimate.
-        Auto-syncs to Notion if configured.
+        save: ingredients need only a name. product_id links one to Kroger; else
+          source='Walmart' groups it as an errand. Unlinked items never go to Kroger.
+        link_ingredient: batch links=[{recipe_id, ingredient_index, product_id}].
+        preview_order (pantry check) -> add_to_cart (confirm=False previews).
+        cook_preview: scaled ingredients + pantry levels; changes nothing.
+        mark_cooked: deducts pantry (deduct_pantry=False skips); returns
+          cook_event_id for undo_cooked.
+        analyze: health score + cost. get_step_times: per-step times.
         """
         return await asyncio.to_thread(
             _recipes_impl,

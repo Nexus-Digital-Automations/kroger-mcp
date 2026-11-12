@@ -139,17 +139,7 @@ def register_tools(mcp):
             "resolve_gap",
             "get_history",
             "clear",
-        ] = Field(
-            description=(
-                "get_attention — SESSION REQUIRED before shopping. "
-                "Returns expiring/low/overdue items. "
-                "Batch ops (max 50) via product_ids. "
-                "list_gaps/resolve_gap — partial-fulfillment reconciliation. "
-                "get_history — one item's purchase/usage events (product_id, days). "
-                "clear — delete EVERY pantry item; requires confirm=True. "
-                "Other: get|add|update_item|restock|get_low_inventory|remove"
-            )
-        ),
+        ],
         product_id: str | None = Field(
             default=None,
             description="Product ID for single-item operations",
@@ -202,14 +192,14 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Pantry inventory tracking with auto-depletion modeling.
+        """Pantry inventory (levels 0-100%, low below 20%) with auto-depletion.
 
-        SESSION GATE: pantry(action='get_attention') MUST be called before any
-        shopping_list or cart operations each session. It returns items needing
-        attention (expiring, low stock, overdue repurchases).
-
-        Batch operations (max 50): pass product_ids=[...] to add/update/restock/remove.
-        Levels are 0-100%. Low inventory threshold defaults to 20%.
+        get_attention: call once per session before shopping (shopping_list
+          add_recipe/add_to_cart refuse without it); expiring, low, overdue items.
+        add/update_item/restock/remove: batch via product_ids (max 50).
+        list_gaps/resolve_gap: partial-fulfillment reconciliation.
+        get_history(product_id, days): one item's events.
+        clear: deletes EVERY item; needs confirm=True.
         """
         return await asyncio.to_thread(
             _pantry_impl,
@@ -716,17 +706,7 @@ def register_tools(mcp):
             "configure",
             "get_config",
             "reset_config",
-        ] = Field(
-            description=(
-                "get_smart_recommendations — combines pantry, deals, favorites, predictions. "
-                "explain_recommendation — why product_id was scored that way (factor breakdown). "
-                "get_predictions — when items need reordering. "
-                "categorize — set routine|regular|treat (batch: items, max 50). "
-                "get_seasonal — items for holiday= (or upcoming seasonal if omitted). "
-                "get_upcoming_holidays — holidays whose shop-by date falls within days_ahead. "
-                "Other: get_item_stats|get_by_category|get_history|get_suggestions|migrate_data|get_category_summary|configure|get_config|reset_config"
-            )
-        ),
+        ],
         days_ahead: int | None = Field(
             default=None,
             description="Days to look ahead for predictions",
@@ -827,13 +807,11 @@ def register_tools(mcp):
     ) -> dict[str, Any]:
         """Purchase predictions and analytics.
 
-        Predictions: get_predictions (when to reorder), get_suggestions (what to buy),
-        get_smart_recommendations (combines pantry + deals + favorites + predictions).
-        Stats: get_item_stats, get_history, get_category_summary.
-        Categories: categorize (routine|regular|treat), get_by_category.
-        Seasonal: get_seasonal (holiday-aware suggestions).
-        Config: configure, get_config, reset_config.
-        Data: migrate_data.
+        get_predictions: when to reorder. get_suggestions: what to buy.
+        get_smart_recommendations: pantry + deals + favorites + predictions;
+          explain_recommendation(product_id): its factor breakdown.
+        categorize: routine|regular|treat (batch items, max 50).
+        get_seasonal(holiday=; default upcoming). get_upcoming_holidays(days_ahead).
         """
         return await asyncio.to_thread(
             _predictions_impl,

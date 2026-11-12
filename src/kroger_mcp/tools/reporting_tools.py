@@ -21,9 +21,7 @@ def register_tools(mcp):
             "check_recipe_pantry",
             "generate_shopping_list",
             "get_cookable_recipes",
-        ] = Field(
-            description="get_analytics|export_data|check_recipe_pantry|generate_shopping_list|get_cookable_recipes"
-        ),
+        ],
         report_type: str | None = Field(
             default=None,
             description="spending|predictions|patterns|pantry",

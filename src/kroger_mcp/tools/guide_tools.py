@@ -94,12 +94,7 @@ def register_tools(mcp):
             "update",
             "delete",
             "search",
-        ] = Field(
-            description=(
-                "save — create a technique guide (name + steps required). "
-                "Other: list|get|update|delete|search"
-            )
-        ),
+        ],
         guide_id: str | None = Field(default=None, description="Guide ID"),
         name: str | None = Field(default=None, description="Guide name"),
         description: str | None = Field(default=None, description="Brief description"),
@@ -121,11 +116,8 @@ def register_tools(mcp):
         query: str | None = Field(default=None, description="Search term"),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Cooking-guide management (techniques / how-tos).
-
-        A guide holds name, description, ordered steps, tags, and an optional
-        time/difficulty. No ingredients, cost, cart, or meal-plan — guides are
-        reference material, not meals.
+        """Cooking guides (techniques): name, ordered steps, tags, optional
+        time/difficulty. No ingredients or cart. save needs name + steps.
         """
         return await asyncio.to_thread(
             _guides_impl,

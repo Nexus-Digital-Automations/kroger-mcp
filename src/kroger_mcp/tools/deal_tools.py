@@ -47,17 +47,7 @@ def register_tools(mcp):
             "get_latest_scan",
             "get_watchlist",
             "remove_from_watchlist",
-        ] = Field(
-            description=(
-                "find — search deals by term or category. "
-                "add_to_watchlist — batch via product_ids (max 30). "
-                "get_watchlist — list watched products. "
-                "remove_from_watchlist — stop watching product_id. "
-                "scan_watchlist — scans watchlist + favorites + low-pantry. "
-                "score_quality — rate one product's current deal vs. its 30-day price history. "
-                "get_price_history|get_latest_scan"
-            )
-        ),
+        ],
         search_term: str | None = Field(
             default=None,
             description="Search term e.g. milk",
@@ -128,13 +118,12 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Deal discovery and price tracking.
+        """Deals and price tracking.
 
-        find — search for current deals by term or category.
-        add_to_watchlist — track items for price drops (batch: product_ids, max 30).
-        scan_watchlist — check all watched + favorite + low-pantry items for deals.
-        get_price_history — view price trends for a product.
-        get_latest_scan — view results from last automated background scan.
+        find: by search_term or category. scan_watchlist: watchlist + favorites +
+        low-pantry items. get_latest_scan: last background scan.
+        add_to_watchlist: batch product_ids (max 30).
+        score_quality(product_id): current deal vs its 30-day price history.
         """
         return await asyncio.to_thread(
             _deals_impl,

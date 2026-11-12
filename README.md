@@ -257,6 +257,23 @@ protocol. These actions mirror web features and share their code paths:
 Deliberately not exposed: Kroger credential entry, in-app chat, and display-only
 UI state. `scripts/smoke_mcp_spec.py` lists every action with its smoke mode.
 
+### 🪶 Token-lean responses
+
+`src/kroger_mcp/token_slim.py` sits between the tools and every client, so agents
+pay for fewer tokens without any tool, action or parameter being renamed:
+
+- **Tool list:** an optional parameter is advertised as its plain type (no
+  `anyOf: [T, null]`, `default: null` or pydantic `title`), and output schemas
+  are not sent. The server still validates every call against the full model.
+- **Results:** each result is one compact JSON text block, with no duplicate
+  `structuredContent` copy, and keys whose value is `null` are removed. Read a
+  missing key as null. Plain-text and image results pass through unchanged.
+
+The server instructions and tool descriptions are kept short on purpose: each
+action is listed once, in its tool's `action` enum, and the description covers
+only the non-obvious rules (preview before spending, `pantry(get_attention)`
+first, one-call `favorites(order)`).
+
 The table below is the legacy per-function reference, kept for history.
 
 ### 📚 Available Tools (89 Total)

@@ -244,13 +244,7 @@ def register_tools(mcp):
             "mark_placed",
             "view_history",
             "get_context",
-        ] = Field(
-            description=(
-                "add — supports BATCH via items=[...] (max 50). "
-                "To order a favorites list, use favorites(action='order') instead. "
-                "Other: view|remove|clear|mark_placed|view_history|get_context"
-            )
-        ),
+        ],
         product_id: str | None = Field(
             default=None,
             description="Product ID",
@@ -265,15 +259,11 @@ def register_tools(mcp):
         ),
         items: list[dict[str, Any]] | None = Field(
             default=None,
-            description=(
-                "PREFERRED for multi-item adds. List of dicts: "
-                "[{product_id, quantity, modality, description}] max 50. "
-                "Always use this instead of calling add multiple times."
-            ),
+            description="[{product_id, quantity, modality, description}] max 50",
         ),
         preview_only: bool | None = Field(
             default=True,
-            description="True=preview only (default). Set False to actually add to cart.",
+            description="True (default) previews; False adds to the cart",
         ),
         confirm_unsafe: bool | None = Field(
             default=False,
@@ -297,13 +287,11 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Cart management operations.
+        """Kroger cart.
 
-        BATCH ADD: Use items=[{product_id, quantity, modality}, ...] to add up to 50
-        items in ONE call. Never loop single adds.
-
-        TO ORDER A FAVORITES LIST: Use favorites(action='order', list_id='...') instead
-        of manually compiling items — it handles pantry skipping automatically.
+        add: batch items (max 50); never loop single adds. preview_only=True
+        (default) previews. For a favorites list use favorites(action='order').
+        mark_placed after checkout restocks the pantry.
         """
         from kroger_mcp.auth.dependencies import mcp_user_id
 

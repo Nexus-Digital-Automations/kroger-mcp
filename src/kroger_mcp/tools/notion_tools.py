@@ -61,9 +61,7 @@ def register_tools(mcp):
             "bulk_tag",
             "get_status",
             "view_recipe",
-        ] = Field(
-            description="setup|sync_all|pull_changes|update_tags|bulk_tag|get_status|view_recipe"
-        ),
+        ],
         recipe_id: str | None = Field(
             default=None,
             description="Recipe ID",
@@ -82,22 +80,12 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """
-        Sync recipes to/from a Notion database.
+        """Sync recipes with Notion (needs NOTION_API_KEY and NOTION_WORKSPACE_ID).
 
-        Setup workflow (first time):
-          1. Add NOTION_API_KEY and NOTION_WORKSPACE_ID to your .env file
-          2. Call notion(action='setup') to create the database and sync all recipes
-          3. All future recipe saves/updates/deletes auto-sync to Notion
-
-        Actions:
-        - setup: Creates the Notion database and does an initial full sync
-        - sync_all: Re-push all recipes (useful after bulk local changes)
-        - pull_changes: Import recipe edits from Notion (tags, description, servings)
-        - update_tags: Replace tags on one recipe both locally and in Notion
-        - bulk_tag: Add a tag to many recipes at once
-        - get_status: Show sync health stats
-        - view_recipe: Get the Notion page URL for a specific recipe
+        setup: create the database and full sync; later recipe edits auto-sync.
+        sync_all: re-push all. pull_changes: import tag/description/servings edits.
+        update_tags: replace one recipe's tags. bulk_tag: add a tag to many.
+        get_status: sync health. view_recipe: the recipe's page URL.
         """
         return await asyncio.to_thread(
             _notion_impl,

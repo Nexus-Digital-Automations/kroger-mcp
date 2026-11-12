@@ -44,29 +44,7 @@ def register_tools(mcp):
             "confirm_pending",
             "cook_preview",
             "schedule_recipe",
-        ] = Field(
-            description=(
-                "list_templates — reusable template plans. "
-                "set_template — plan_id + is_template True/False. "
-                "create_from_template — source_plan_id + new_name + new_start_date. "
-                "confirm_pending — mark every pending past meal cooked (deducts pantry). "
-                "cook_preview — scaled ingredients + pantry levels for one meal "
-                "(plan_id+meal_date+meal_slot); changes nothing. "
-                "schedule_recipe — put recipe_id on a future meal_date/meal_slot, "
-                "creating that week's plan if none exists. "
-                "preview_shopping — see ingredients needed with pantry status. "
-                "add_to_cart — add plan ingredients (confirm=True to execute). "
-                "assign_meal — add recipe to date/slot. "
-                "mark_cooked — mark/unmark a meal as cooked (deducts pantry). "
-                "generate_draft — auto-draft next week's dinners from saved recipes. "
-                "approve_draft — promote a draft plan (needs plan_id). "
-                "skip_meal — skip a pending past meal, no pantry deduction "
-                "(plan_id+meal_date+meal_slot). "
-                "undo_cooked — revert a cooked meal and restore pantry "
-                "(plan_id+meal_date+meal_slot). "
-                "Other: create|list|get|update|delete|copy|remove_meal|swap|get_week_view|get_summary"
-            )
-        ),
+        ],
         plan_id: str | None = Field(
             default=None,
             description="Plan identifier",
@@ -197,16 +175,18 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Meal plan management with integrated shopping.
+        """Meal plans with shopping. Recipes scale to household servings.
 
-        assign_meal — add recipes to dates/slots (breakfast|lunch|dinner|snack).
-        Recipes auto-scale to household servings (set via info tool).
-        preview_shopping — consolidated ingredient list with pantry status.
-        add_to_cart — add plan ingredients to cart (confirm=True to execute).
-
-        CRUD: create|list|get|update|delete|copy.
-        Views: get_week_view|get_summary.
-        Meals: assign_meal|remove_meal|swap.
+        assign_meal: recipe to date + slot (breakfast|lunch|dinner|snack).
+        schedule_recipe: future date/slot, creating that week's plan if needed.
+        preview_shopping: ingredients with pantry status; add_to_cart
+          (confirm=False previews).
+        One meal = plan_id + meal_date + meal_slot: cook_preview (changes nothing),
+          mark_cooked (deducts pantry; can unmark), undo_cooked (restores pantry),
+          skip_meal (no deduction). confirm_pending: cook all pending past meals.
+        generate_draft: draft next week's dinners; approve_draft(plan_id).
+        Templates: list_templates, set_template(plan_id, is_template),
+          create_from_template(source_plan_id, new_name, new_start_date).
         """
         return await asyncio.to_thread(
             _meal_plan_impl,

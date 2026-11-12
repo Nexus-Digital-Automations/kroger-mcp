@@ -38,25 +38,7 @@ def register_tools(mcp):
             "log_snack",
             "add_list_to_shopping_list",
             "add_snacks_to_list",
-        ] = Field(
-            description=(
-                "add_list_to_shopping_list — put a favorites list (list_id) on the "
-                "shopping list instead of the cart, skipping items 30%+ stocked. "
-                "add_snacks_to_list — add the snacks the user chose (product_ids from "
-                "check_snacks) to the shopping list. "
-                "order — ADD ENTIRE LIST TO CART in one call (skips well-stocked items). "
-                "Use this whenever user asks to order/add a favorites list. "
-                "log_snack — ONE-CALL snack log: pass item='chips' and it matches a "
-                "pantry item and deducts in one step (no quantity needed). "
-                "check_snacks — pre-cart replenishment checklist for the Snacks list: "
-                "returns each snack with a pre_ticked guess (pantry-low, stale, or never ordered) "
-                "for the user to confirm before sending the list to cart. "
-                "set_stock_level — set min_stock_percent and/or min_stock_quantity thresholds per item. "
-                "update_quantity — update current_stock_quantity for an item. "
-                "get_low_stock — list items below their minimum thresholds. "
-                "Other actions: get_lists|get_items|add_item|remove_item|create_list|rename_list|delete_list|suggest|update_schedule"
-            )
-        ),
+        ],
         name: str | None = Field(
             default=None,
             description="List name",
@@ -91,10 +73,7 @@ def register_tools(mcp):
         ),
         product_ids: list[str] | None = Field(
             default=None,
-            description=(
-                "Batch remove: list of Kroger product IDs; "
-                "add_snacks_to_list: the snacks to add"
-            ),
+            description="remove_item batch, or add_snacks_to_list picks",
         ),
         brand: str | None = Field(
             default=None,
@@ -114,42 +93,35 @@ def register_tools(mcp):
         ),
         items: list[dict[str, Any]] | None = Field(
             default=None,
-            description="Bulk add: [{product_id, description, brand, default_quantity, preferred_modality, notes, min_stock_percent, min_stock_quantity, current_stock_quantity, manual, override_reason, source}]",
+            description="Bulk add: list of add_item field dicts",
         ),
         manual: bool | None = Field(
             default=False,
-            description=(
-                "add_item — True for an item Kroger doesn't sell (farmers market, "
-                "home-grown, specialty butcher). No product_id needed; it is stored "
-                "as a MANUAL PURCHASE item and never sent to the Kroger cart."
-            ),
+            description="add_item: item Kroger doesn't sell, no product_id needed",
         ),
         override_reason: str | None = Field(
             default=None,
-            description="add_item — optional note on why a manual item isn't a Kroger product",
+            description="add_item: why a manual item isn't a Kroger product",
         ),
         source: str | None = Field(
             default=None,
-            description=(
-                "add_item — vendor for a manual item, e.g. 'Walmart'. Groups it "
-                "into its own section of the shopping list. Free text."
-            ),
+            description="add_item: vendor of a manual item, e.g. 'Walmart'",
         ),
         min_stock_percent: int | None = Field(
             default=None,
-            description="Per-item reorder trigger: include in order if pantry < this % (None = use global threshold)",
+            description="Reorder if pantry below this % (default: global)",
         ),
         min_stock_quantity: int | None = Field(
             default=None,
-            description="Target on-hand unit count — reorder if current_stock_quantity < this",
+            description="Reorder if current_stock_quantity below this",
         ),
         current_stock_quantity: int | None = Field(
             default=None,
-            description="Actual on-hand unit count (user-managed)",
+            description="On-hand unit count",
         ),
         typical_gap_days: int | None = Field(
             default=None,
-            description="Snacks: typical days between buys; staleness threshold for the check-up (default 21)",
+            description="Snacks: days between buys before stale (default 21)",
         ),
         include_pantry_status: bool | None = Field(
             default=True,
@@ -197,16 +169,16 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Favorite list management operations.
+        """Favorite lists (list_id defaults to 'default').
 
-        IMPORTANT — To add a favorites list to cart:
-          favorites(action='order', list_id='weekly-essentials', confirm=True)
-        This adds ALL items in one call, skipping well-stocked pantry items.
-        Call with confirm=False (default) first to preview what will be ordered.
-        Do NOT use get_items + loop cart(action='add') — use order instead.
-
-        Other actions: get_lists, get_items, add_item, remove_item, create_list,
-        rename_list, delete_list, suggest, update_schedule
+        order: whole list to cart in one call, skipping stocked items; confirm=False
+          previews. Never loop cart add over get_items.
+        add_list_to_shopping_list: list to the shopping list instead of the cart.
+        check_snacks: Snacks checklist with pre_ticked guesses (low, stale, never
+          ordered); then add_snacks_to_list(product_ids).
+        log_snack(item='chips'): match a pantry item and deduct it, one call.
+        add_item(manual=True, source=...): item Kroger doesn't sell; never carted.
+        set_stock_level / update_quantity / get_low_stock: per-item stock thresholds.
         """
         return await asyncio.to_thread(
             _favorites_impl,

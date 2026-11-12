@@ -40,23 +40,7 @@ def register_tools(mcp):
             "set_draft_auto_approve",
             "set_include_spices_by_default",
             "set_pantry_deduction_mode",
-        ] = Field(
-            description=(
-                "set_servings — set household size (used by recipe scaling). "
-                "get_preferences — current location + servings + planning settings. "
-                "set_week_start_day — value 0-6 (0=Monday..6=Sunday, default 6). "
-                "set_planning_horizon_days — value 1-28, days a plan covers (default 7). "
-                "set_draft_dinners_per_week — value 1-7, dinners the weekly auto-draft "
-                "fills (default 3). "
-                "set_draft_auto_approve — value 0/1 (default 0); 1 makes weekly drafts "
-                "go live immediately with no approval step. "
-                "set_include_spices_by_default — value 0/1; 1 pre-checks spice items "
-                "in the send-to-cart preview. "
-                "set_pantry_deduction_mode — mode 'automatic' (past meals deduct the "
-                "pantry on their date) or 'confirm' (wait for you to confirm cooking). "
-                "Other: list_chains|get_chain|check_chain|list_departments|get_department|check_department|get_datetime|get_servings"
-            )
-        ),
+        ],
         chain_name: str | None = Field(
             default=None,
             description="Chain name",
@@ -71,9 +55,7 @@ def register_tools(mcp):
         ),
         value: int | None = Field(
             default=None,
-            description="New value for the set_week_start_day / "
-            "set_planning_horizon_days / set_draft_dinners_per_week / "
-            "set_draft_auto_approve / set_include_spices_by_default actions",
+            description="Value for the set_* planning actions",
         ),
         mode: Literal["automatic", "confirm"] | str | None = Field(
             default=None,
@@ -81,11 +63,16 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Store info and user preferences.
+        """Store chains/departments, datetime, and household preferences.
 
-        Store data: list_chains, get_chain, check_chain, list_departments, get_department, check_department.
-        Preferences: set_servings (household size, affects recipe scaling), get_servings, get_preferences.
-        Utility: get_datetime.
+        set_servings: household size; scales recipes, lists and plans.
+        get_preferences: location, servings and planning settings.
+        Planning settings take value=: set_week_start_day 0-6 (0=Mon, default 6),
+        set_planning_horizon_days 1-28 (7), set_draft_dinners_per_week 1-7 (3),
+        set_draft_auto_approve 0/1 (1 = drafts go live without approval),
+        set_include_spices_by_default 0/1 (pre-check spices in cart preview).
+        set_pantry_deduction_mode: mode='automatic' (past meals deduct on their
+        date) or 'confirm'.
         """
         user_id = mcp_user_id()
         return await asyncio.to_thread(

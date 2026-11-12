@@ -21,22 +21,18 @@ def register_tools(mcp):
     # analytics module imported above.
     @mcp.tool(name="notifications")
     async def notifications_tool(
-        action: Literal["list", "mark_seen", "dismiss"] = Field(
-            description=(
-                "list — everything the app's notification bell shows "
-                "(sale alerts, pending meals, pantry alerts, unmatched snacks, "
-                "needs_plan) plus the unseen count. "
-                "mark_seen — clear the unseen badge for sale alerts. "
-                "dismiss — remove one sale alert (alert_id); acted=True records "
-                "that you acted on it (e.g. added it to the list)."
-            )
-        ),
+        action: Literal["list", "mark_seen", "dismiss"],
         alert_id: int | None = Field(default=None, description="dismiss — alert ID from list"),
         acted: bool | None = Field(
             default=None, description="dismiss — True if the alert was acted on"
         ),
     ) -> dict[str, Any]:
-        """Notification bell: list, mark seen, dismiss."""
+        """Notification bell.
+
+        list: sale alerts, pending meals, pantry alerts, unmatched snacks,
+        needs_plan, and the unseen count. mark_seen: clear the sale-alert badge.
+        dismiss(alert_id; acted=True if the user acted on it).
+        """
         user_id = mcp_user_id()
         return await asyncio.to_thread(_notifications_impl, action, alert_id, acted, user_id)
 

@@ -39,9 +39,7 @@ def register_tools(mcp):
             "check_product",
             "check_products",
             "check_cart",
-        ] = Field(
-            description="get_settings|configure|get_bad_ingredients|toggle_ingredient|get_preferences|reset_preferences|approve_product|unapprove_product|get_safe_products|block_product|unblock_product|get_blocked_products|check_product|check_products|check_cart"
-        ),
+        ],
         filtering_enabled: bool | None = Field(
             default=None,
             description="Enable or disable ingredient filtering",
@@ -100,7 +98,10 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Ingredient safety filter and product management operations."""
+        """Ingredient safety filter settings and approved/blocked products.
+
+        check_product / check_products / check_cart screen ingredients.
+        """
         return await asyncio.to_thread(
             _safety_impl,
             action,

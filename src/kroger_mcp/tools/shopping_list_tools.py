@@ -247,18 +247,7 @@ def register_tools(mcp):
             "clear",
             "mark_empty",
             "add_to_cart",
-        ] = Field(
-            description=(
-                "add_recipe — adds recipe ingredients (auto-scaled, consolidated). "
-                "Requires pantry(action='get_attention') first. "
-                "add_item — one item: name (+product_id to link a Kroger product; "
-                "omit it for a manual item bought elsewhere, with optional source). "
-                "clear — empty the whole list. "
-                "mark_empty — set every listed product's pantry level to 0%. "
-                "add_to_cart — confirm=False previews, confirm=True executes. "
-                "Other: get|remove|update_item"
-            )
-        ),
+        ],
         recipe_id: str | None = Field(default=None, description="Recipe ID"),
         servings: int | None = Field(default=None, ge=1, le=20, description="Override servings"),
         skip_items: list[str] | None = Field(default=None, description="Ingredient names to skip"),
@@ -269,10 +258,7 @@ def register_tools(mcp):
         notes: str | None = Field(default=None, description="Item notes"),
         source: str | None = Field(
             default=None,
-            description=(
-                "update_item — vendor for an unlinked item, e.g. 'Walmart'. "
-                "Groups it into its own section of the list. Free text."
-            ),
+            description="Vendor of an unlinked item, e.g. 'Walmart'; groups it on the list",
         ),
         modality: str | None = Field(default=None, description="PICKUP or DELIVERY"),
         name: str | None = Field(default=None, description="add_item — item name"),
@@ -286,12 +272,14 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Shopping list — intermediate buffer between recipes and cart.
+        """Shopping list: buffer between recipes and cart.
 
-        SESSION REQUIREMENT: Call pantry(action='get_attention') before using.
-        add_recipe — auto-scales to household servings, consolidates duplicates.
-        add_to_cart — confirm=False to preview, confirm=True to execute.
-        Supports skip_items to exclude specific ingredients.
+        add_recipe and add_to_cart need pantry(get_attention) first this session.
+        add_recipe: scaled to servings, duplicates merged; skip_items excludes.
+        add_item: name, plus product_id to link Kroger; omit it for a manual item
+          bought elsewhere (optional source).
+        add_to_cart: confirm=False previews. mark_empty: set every listed product's
+          pantry level to 0%. clear: empty the list.
         """
         from ..auth.dependencies import mcp_user_id
 

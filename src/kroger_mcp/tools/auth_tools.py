@@ -66,25 +66,17 @@ def register_tools(mcp):
             "test",
             "get_info",
             "force_reauth",
-        ] = Field(
-            description=(
-                "start — begin OAuth2 login (returns URL). "
-                "complete — finish login with redirect_url. "
-                "force_reauth — clear tokens and re-login. "
-                "Other: get_profile|test|get_info"
-            )
-        ),
+        ],
         redirect_url: str | None = Field(
             default=None,
             description="Full redirect URL from browser after authorization",
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Authentication and user profile operations.
+        """Kroger OAuth; tokens persist.
 
-        Flow: auth(action='start') → open URL in browser → copy redirect URL →
-        auth(action='complete', redirect_url='...'). Tokens persist automatically.
-        Use force_reauth to clear cached tokens and re-authenticate.
+        start -> user opens the URL -> complete(redirect_url). force_reauth clears
+        tokens and logs in again.
         """
         global _pkce_params, _auth_state
 

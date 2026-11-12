@@ -30,14 +30,7 @@ def register_tools(mcp):
             "import_list",
             "export_list",
             "preview_impact",
-        ] = Field(
-            description=(
-                "add_custom — add ingredients (batch: batch_ingredients, max 20). "
-                "override_system — change built-in ingredient severity. "
-                "preview_impact — see effect before committing. "
-                "Other: edit_custom|remove_custom|list_custom|reset_to_default|get_info|import_list|export_list"
-            )
-        ),
+        ],
         ingredient_name: str | None = Field(
             default=None,
             description="Ingredient name",
@@ -116,16 +109,12 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> dict[str, Any]:
-        """Customize the ingredient safety filter.
+        """Customize the ingredient safety filter; changes apply immediately.
 
-        Two layers: system ingredients (62 built-in) and custom ingredients (yours).
-        override_system — change severity/disable a system ingredient.
-        add_custom — add your own (batch: batch_ingredients, max 20).
-        preview_impact — see how many purchased products would be affected.
-        Changes take effect immediately (no restart needed).
-
-        Other: edit_custom, remove_custom, list_custom, reset_to_default, get_info,
-        import_list, export_list
+        Built-in system ingredients plus your custom ones.
+        override_system: change a built-in's severity or disable it.
+        add_custom: batch via batch_ingredients (max 20).
+        preview_impact: purchased products affected, before committing.
         """
         return await asyncio.to_thread(
             _ingredients_impl,

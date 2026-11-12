@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -55,7 +56,9 @@ def call(tool: str, **args: Any) -> dict[str, Any]:
     async def run() -> dict[str, Any]:
         async with Client(create_server()) as client:
             result = await client.call_tool(tool, args)
-            return dict(result.structured_content or {})
+            # TokenSlimMiddleware sends the payload once, as compact JSON text
+            # (no structuredContent copy), so read it the way any client does.
+            return dict(json.loads(result.content[0].text))
 
     return asyncio.run(run())
 
@@ -418,8 +421,10 @@ def test_products_suggest_for_ingredient(user, monkeypatch):
     out = call("products", action="suggest_for_ingredient", search_term="garlic", limit=3)
     assert out["success"]
     assert out["suggestions"][0]["product_id"] == "x"
+    # Null fields are dropped by TokenSlimMiddleware; with no confident match
+    # both of these are null, so they read as absent.
     for key in ("canonical_name", "best_guess"):
-        assert key in out
+        assert out.get(key) is None
     assert seen == {"user_id": user, "term": "garlic", "limit": 3}
 
 

@@ -188,15 +188,7 @@ def register_tools(mcp):
             "get_whole_foods_catalog",
             "scan_for_whole_foods",
             "suggest_for_ingredient",
-        ] = Field(
-            description=(
-                "search — batch via search_terms=[...] (max 10). "
-                "suggest_for_ingredient — your usual products for an ingredient "
-                "name (search_term), with a best_guess to link; no Kroger call. "
-                "search_by_id — batch via product_ids (max 20). "
-                "Other: get_details|get_images|add_to_whole_foods|get_whole_foods_catalog|scan_for_whole_foods"
-            )
-        ),
+        ],
         search_term: str | None = Field(
             default=None,
             description="Search term e.g. milk",
@@ -259,16 +251,14 @@ def register_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> Any:
-        """Product search with batch support and safety integration.
+        """Product search; safety-checked (verify_safety) and favorites boosted
+        (prioritize_favorites) by default.
 
-        search — single or batch (search_terms=[...], max 10). Auto-checks safety.
-        search_by_id — look up products by ID (batch: product_ids, max 20).
-        get_details — full product info including pricing and availability.
-        Whole foods: add_to_whole_foods, get_whole_foods_catalog, scan_for_whole_foods.
-        Images: get_images (perspective: front|back|left|right).
-
-        Safety filtering is ON by default (verify_safety=True). Favorites boosted
-        in results when prioritize_favorites=True (default).
+        search: batch search_terms (max 10). search_by_id: batch product_ids
+        (max 20). get_details: price + availability. get_images: perspective
+        front|back|left|right.
+        suggest_for_ingredient(search_term): your usual products and a best_guess
+        to link; no Kroger call.
         """
 
         user_id = mcp_user_id()
